@@ -67,9 +67,9 @@ struct NotchContentView: View {
     private var size: CGSize { vm.bodySize }
     @State private var isPressed = false
     private var compactActivity: CompactMediaActivity { vm.compactMediaActivity }
-    /// Whether the collapsed pill is out of the notch: music, or one of the
-    /// moments — the pop-up, the charger, the headphones.
-    private var pillShown: Bool { compactActivity.isVisible || vm.ambient != nil || vm.hud != nil }
+    /// Whether the collapsed pill is out of the notch: any activity at all —
+    /// an alert, the song, or the Shelf holding files (`IslandActivity`).
+    private var pillShown: Bool { vm.activity != .none }
     private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
 
     // MARK: - Resting in the notch
@@ -104,7 +104,7 @@ struct NotchContentView: View {
         // The peek is a taller island, and its corners grow with it (spec
         // §2.3): 16 against the compact island's 12.
         // Only while the peek is what is drawn: under the pop-up it is not.
-        if vm.moment == .peek && compactActivity.isVisible { return Theme.peekBottomRadius }
+        if vm.activity == .peek { return Theme.peekBottomRadius }
         return Theme.collapsedBottomRadius
     }
 
@@ -134,7 +134,7 @@ struct NotchContentView: View {
     /// Increase Contrast).
     private var strokeColor: Color {
         IslandStroke.color(
-            tint: IslandStroke.tint(for: vm.moment, isOpen: isOpen),
+            tint: IslandStroke.tint(for: vm.activity, isOpen: isOpen),
             increaseContrast: appearance.increaseContrast
         )
     }
@@ -528,18 +528,17 @@ struct NotchContentView: View {
                 // are exactly as they were when the moment ends.
                 compactMediaHeader(morph: travellingMorph)
                     .opacity(vm.ambient == nil && vm.hud == nil ? 1 : 0)
-                // One moment at a time, the highest first (`IslandMoment`): the
-                // pop-up over the charger or headphones. The one under it stays
-                // in the model with its own timer and is drawn again when this
-                // one folds.
-                switch vm.moment {
+                // One activity at a time, the highest first (`IslandActivity`):
+                // an alert replaces what it outranks, and the replaced one is
+                // gone, not waiting underneath (spec §19.1).
+                switch vm.activity {
                 case .hud(let hud):
                     hudHeader(hud)
                         .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
                 case .ambient(let ambient):
                     ambientHeader(ambient)
                         .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
-                case .peek, .none:
+                case .peek, .music, .shelf, .none:
                     EmptyView()
                 }
             }

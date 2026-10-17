@@ -119,41 +119,44 @@ final class HUDMomentTests: XCTestCase {
 
     // MARK: Priority
 
-    func testThePopUpOutranksTheChargerAndThePeekAndHandsBack() {
+    /// Spec §19.1: the pop-up (rank 3) over the charger (7) over the peek
+    /// (10). It no longer hands back what it outranked — the controller drops
+    /// that (`testAPopUpOverAChargerDropsIt`) — but whatever the model holds,
+    /// the highest is what is drawn.
+    func testThePopUpOutranksTheChargerAndThePeek() {
         let hud = HUDMoment(reading())
         let charger = AmbientActivity.charging(level: 80, isCharging: true)
-        XCTAssertEqual(IslandMoment.current(hud: nil, ambient: nil, isPeeking: false), .none)
-        XCTAssertEqual(IslandMoment.current(hud: nil, ambient: nil, isPeeking: true), .peek)
-        XCTAssertEqual(IslandMoment.current(hud: nil, ambient: charger, isPeeking: true), .ambient(charger))
-        XCTAssertEqual(IslandMoment.current(hud: hud, ambient: charger, isPeeking: true), .hud(hud))
-        XCTAssertEqual(IslandMoment.current(hud: hud, ambient: nil, isPeeking: true), .hud(hud))
-        XCTAssertEqual(IslandMoment.current(hud: hud, ambient: nil, isPeeking: false), .hud(hud))
-        // And back down the stack as each one ends.
-        XCTAssertEqual(IslandMoment.current(hud: nil, ambient: charger, isPeeking: true), .ambient(charger))
-        XCTAssertEqual(IslandMoment.current(hud: nil, ambient: nil, isPeeking: true), .peek)
+        func current(_ hud: HUDMoment?, _ ambient: AmbientActivity?, peeking: Bool) -> IslandActivity {
+            IslandActivity.current(
+                hud: hud, ambient: ambient, isPeeking: peeking, musicIsVisible: true, shelfCount: 0
+            )
+        }
+        XCTAssertEqual(current(nil, nil, peeking: false), .music)
+        XCTAssertEqual(current(nil, nil, peeking: true), .peek)
+        XCTAssertEqual(current(nil, charger, peeking: true), .ambient(charger))
+        XCTAssertEqual(current(hud, charger, peeking: true), .hud(hud))
+        XCTAssertEqual(current(hud, nil, peeking: true), .hud(hud))
+        XCTAssertEqual(current(hud, nil, peeking: false), .hud(hud))
     }
 
-    func testTheViewModelShowsTheHighestMomentAndHandsBackTheRest() throws {
+    func testTheViewModelShowsTheHighestActivity() throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
         let charger = AmbientActivity.charging(level: 80, isCharging: true)
-        vm.isPeeking = true
         vm.ambient = charger
-        XCTAssertEqual(vm.moment, .ambient(charger))
+        XCTAssertEqual(vm.activity, .ambient(charger))
 
         let hud = HUDMoment(reading())
         vm.hud = hud
-        XCTAssertEqual(vm.moment, .hud(hud), "the pop-up takes the pill")
-        XCTAssertEqual(vm.ambient, charger, "the charger is not cancelled — it keeps its own timer")
-        XCTAssertTrue(vm.isPeeking)
+        XCTAssertEqual(vm.activity, .hud(hud), "the pop-up takes the pill")
         let width = vm.bodySize.width
         XCTAssertEqual(width, min(vm.geometry.notchSize.width + 208, vm.geometry.expandedSize.width))
 
         vm.hud = nil
-        XCTAssertEqual(vm.moment, .ambient(charger), "handed back to what was showing")
         vm.ambient = nil
-        XCTAssertEqual(vm.moment, .peek)
+        vm.isPeeking = true
+        XCTAssertEqual(vm.activity, .none, "a peek with no song to widen draws nothing")
     }
 
     func testOpeningThePanelEndsThePopUp() throws {
@@ -230,16 +233,21 @@ final class HUDMomentTests: XCTestCase {
         XCTAssertNil(vm.hud, "folded after the last press's linger")
     }
 
-    func testAPopUpOverAChargerHandsItBackWhenItFolds() async throws {
+    /// Spec §19.1: a replaced alert is dropped. The charger used to wait
+    /// under the pop-up with its own timer and come back when it folded — a
+    /// percentage from before the key press, shown again after it.
+    func testAPopUpOverAChargerDropsIt() async throws {
         let (controller, vm, isolated) = try rig()
         defer { isolated.release() }
-        let charger = AmbientActivity.charging(level: 80, isCharging: true)
-        vm.ambient = charger
+        vm.ambient = AmbientActivity.charging(level: 80, isCharging: true)
+        vm.isPeeking = true
         controller.presentHUD(reading())
-        XCTAssertEqual(vm.moment, .hud(HUDMoment(reading())))
+        XCTAssertEqual(vm.activity, .hud(HUDMoment(reading())))
+        XCTAssertNil(vm.ambient, "replaced, so dropped")
+        XCTAssertFalse(vm.isPeeking, "and the peek with it")
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertNil(vm.hud)
-        XCTAssertEqual(vm.moment, .ambient(charger), "what was showing comes back")
+        XCTAssertEqual(vm.activity, .none, "nothing comes back: the island returns to what is live")
     }
 
     func testThePopUpIsNotDrawnOverTheOpenPanelOrTheLockScreen() throws {

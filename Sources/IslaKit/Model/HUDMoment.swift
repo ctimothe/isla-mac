@@ -118,26 +118,3 @@ enum HUDLayout {
         return frame
     }
 }
-
-/// What the island is showing, by priority (spec §12: "It takes priority over
-/// the peek and the ambient moments while shown, then hands back whatever was
-/// showing").
-///
-/// The three moments live in three places — the HUD, `ambient`, `isPeeking` —
-/// each with its own timer, and this is the one function that says which of
-/// them wins. It does not cancel the others: a charger moment under the pop-up
-/// keeps counting down, and when the pop-up folds the island shows what is
-/// still standing — the charger if its time is not up, else the peek, else the
-/// song.
-enum IslandMoment: Equatable {
-    case hud(HUDMoment)
-    case ambient(AmbientActivity)
-    case peek
-    case none
-
-    static func current(hud: HUDMoment?, ambient: AmbientActivity?, isPeeking: Bool) -> IslandMoment {
-        if let hud { return .hud(hud) }
-        if let ambient { return .ambient(ambient) }
-        return isPeeking ? .peek : .none
-    }
-}

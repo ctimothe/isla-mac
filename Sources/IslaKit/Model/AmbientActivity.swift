@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Something the Mac itself did, shown on the island for a moment: the
 /// charger going in, headphones connecting.
@@ -26,6 +27,16 @@ enum AmbientActivity: Equatable {
         switch self {
         case .charging: return NotchMetrics.compactMediaExtension
         case .headphones: return NotchMetrics.ambientNameExtension
+        }
+    }
+
+    /// How long it holds the island (spec §19.1): the charger 3 s, headphones
+    /// 4 s — long enough to read a percentage, and a name with "Connected"
+    /// over it. Both were 2.2 s, the track peek's beat.
+    var holdDuration: TimeInterval {
+        switch self {
+        case .charging: return 3
+        case .headphones: return 4
         }
     }
 

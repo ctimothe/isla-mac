@@ -155,6 +155,9 @@ final class NotchController {
                 // percentage still on the island.
                 self.clearAmbient()
                 self.clearHUD()
+                // And anything waiting for the island: nobody will see it, and
+                // the second it may wait is over long before the lid opens.
+                self.alertQueue.removeAll()
                 self.setOpen(false)
                 self.pointer.setInside(false)
                 self.pointer.stop()
@@ -1598,6 +1601,28 @@ final class NotchController {
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
             }
             .store(in: &cancellables)
+        // The Shelf is a live activity (spec §19.1): the island grows out of
+        // the notch when it gets its first file with nothing playing, and goes
+        // back in when the last one leaves.
+        stores.shelf.$items
+            .map(\.isEmpty)
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
+
+        // An alert that had to wait for the island — a surface open, files
+        // dragged over it, the Mac locked — shows if the island comes free
+        // inside its second (spec §19.1). A pass later: `@Published` announces
+        // before it stores, and the queue reads the stored values.
+        vm.$isOpen.removeDuplicates().map { _ in () }
+            .merge(with: vm.$isDropTargeted.removeDuplicates().map { _ in () })
+            .merge(with: vm.$isLockedPresentation.removeDuplicates().map { _ in () })
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.promoteWaitingAlert() }
+            }
+            .store(in: &cancellables)
 
         // Sneak peek: a new track shows itself, then gets out of the way.
         //
@@ -2017,24 +2042,29 @@ final class NotchController {
 
     /// Shows the new track for a moment, then folds back.
     ///
-    /// Deliberately does nothing when the panel is already open, when the
-    /// pointer is on the panel, or during a drag: in all three cases the user
-    /// is doing something, and the peek would either be redundant or would
-    /// fold the panel out from under them when it ended.
+    /// The lowest of the island's alerts (spec §19.1, rank 10), so it goes
+    /// through `alertQueue` like the rest: it waits, for a second at most,
+    /// while the panel is open, files are dragged to it or the Mac is locked,
+    /// and while a higher alert — the pop-up, the charger, headphones — holds
+    /// the island. A peek on top of one of those would put two things in one
+    /// pill. Nothing peeks *at* a locked screen: the peek re-cuts the collapsed
+    /// rects, and while the shield is up those rects belong to the lock card —
+    /// a track changing on a locked Mac used to hand the card's hit region to a
+    /// strip computed for the notch-sized window, killing its transport and
+    /// leaving a phantom click-eating rectangle elsewhere on the shield.
+    ///
+    /// Refused outright, not queued, with the pointer on the island: the user
+    /// is doing something there, and the peek would fold the pill out from
+    /// under them when it ended. The pointer is asked only once nothing
+    /// blocks — over an open panel it is always inside, and that says nothing
+    /// about the pill the peek will widen once the panel has gone.
     private func sneakPeek() {
         guard NotchViewModel.newTracksEnabled else { return }
-        guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
-        // The charger or headphones hold the pill for their moment. A track
-        // peek on top would put two things in one pill.
-        guard vm.ambient == nil else { return }
-        // Nothing peeks at a locked screen. The peek re-cuts the collapsed
-        // rects, and while the shield is up those rects belong to the lock
-        // card — a track changing on a locked Mac used to hand the card's hit
-        // region to a strip computed for the notch-sized window, killing its
-        // transport and leaving a phantom click-eating rectangle elsewhere on
-        // the shield.
-        guard !vm.isLockedPresentation else { return }
-        guard !pointer.isInside else { return }
+        guard let vm = viewModel else { return }
+        let blocked = Self.alertsBlocked(
+            isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+        )
+        guard blocked || !pointer.isInside else { return }
         // A track that arrives folded — paused, or behind a film — has no pill
         // to widen. Peeking anyway drew its title into a wing of no width,
         // which under a real notch is invisible and beside a drawn one is not.
@@ -2043,6 +2073,7 @@ final class NotchController {
         // on the audience's screen. After the cheaper guards, since this one
         // reads the displays.
         guard !momentsAreQuiet() else { return }
+        guard postAlert(.peek, to: vm) == .show else { return }
 
         peekWork?.cancel()
         vm.isPeeking = true
@@ -2067,9 +2098,63 @@ final class NotchController {
             withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.isPeeking = false
             }
+            self.promoteWaitingAlert()
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.sneakPeekDuration, execute: work)
+    }
+
+    // MARK: The island's alerts in time (spec §19.1)
+
+    /// The alerts that could not show at once, each for a second at most. What
+    /// *is* showing is the view model's (`vm.activity`), so the two cannot
+    /// disagree about it.
+    private var alertQueue = IslandAlertQueue()
+
+    /// Whether an alert has to wait for the island: a surface is open, files
+    /// are being dragged to it, or the Mac is locked. Pure, so each reason is a
+    /// test.
+    ///
+    /// Waiting is not refusing. An alert held back by one of these shows if
+    /// the island comes free within a second of its cause; the refusals in
+    /// `hudAllowed` and `ambientAllowed` — a switch off, a dark display, a
+    /// film full screen — drop it at once, because a second changes none of
+    /// them.
+    nonisolated static func alertsBlocked(isOpen: Bool, isDropTargeted: Bool, isLocked: Bool) -> Bool {
+        isOpen || isDropTargeted || isLocked
+    }
+
+    /// Asks the queue whether `alert` shows now, waits, or is dropped, against
+    /// what the island holds this instant.
+    private func postAlert(_ alert: IslandActivity, to vm: NotchViewModel) -> IslandAlertQueue.Verdict {
+        alertQueue.post(
+            alert, showing: vm.activity,
+            blocked: Self.alertsBlocked(
+                isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+            ),
+            at: Date()
+        )
+    }
+
+    /// The island is free again — an alert folded, a surface closed, the drag
+    /// left, the Mac unlocked: the highest alert still inside its second takes
+    /// it. Through the alert's own entry point, so every refusal is asked
+    /// again — the pointer may be on the island by now, or a film full screen
+    /// — and one refused there lets the next in line have its turn.
+    private func promoteWaitingAlert() {
+        guard let vm = viewModel else { return }
+        while !vm.activity.isAlert,
+              !Self.alertsBlocked(
+                  isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+              ),
+              let next = alertQueue.next(at: Date()) {
+            switch next {
+            case .ambient(let activity): presentAmbient(activity)
+            case .peek: sneakPeek()
+            // The pop-up never waits, and live activities are never posted.
+            case .hud, .music, .shelf, .none: break
+            }
+        }
     }
 
     private var ambientWork: DispatchWorkItem?
@@ -2107,11 +2192,27 @@ final class NotchController {
             isLocked: vm.isLockedPresentation, screensAsleep: screensAreAsleep
         ) else { return }
 
+        // The highest of R7's alerts, so the queue always says show; asked all
+        // the same, so a peek or a charger waiting behind an older pop-up is
+        // judged against this one.
+        guard postAlert(.hud(moment), to: vm) == .show else { return }
+
         let reduceMotion = SystemAppearance.shared.reduceMotion
         if vm.hud == nil {
-            // Unfolding: the spring, and every moment under it left standing
-            // with its own timer (`IslandMoment`).
-            withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.hud = moment }
+            // Unfolding, on the outline's spring. It replaces what it outranks
+            // — the charger, headphones, a peek — and the replaced alert is
+            // dropped with its timer, not left underneath to come back when
+            // this folds (spec §19.1): a percentage shown again after the
+            // pop-up is a percentage from before it.
+            peekWork?.cancel()
+            peekWork = nil
+            ambientWork?.cancel()
+            ambientWork = nil
+            withAnimation(Theme.island(reduceMotion: reduceMotion)) {
+                vm.isPeeking = false
+                vm.ambient = nil
+                vm.hud = moment
+            }
         } else {
             // Already up: the bar follows on its own curve; the shape has
             // nothing to do.
@@ -2121,11 +2222,13 @@ final class NotchController {
         let work = DispatchWorkItem { [weak self] in
             guard let self, let vm = self.viewModel else { return }
             self.hudFoldWork = nil
-            // The existing pill fold, so what was under it comes back on the
-            // curve it would have used to arrive.
+            // The island returns to its live activity — the song, the Shelf —
+            // on the curve it would have used to arrive, or to an alert that
+            // waited for the pop-up and is still inside its second.
             withAnimation(Theme.island(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.hud = nil
             }
+            self.promoteWaitingAlert()
         }
         hudFoldWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + hudFoldDelay, execute: work)
@@ -2155,12 +2258,13 @@ final class NotchController {
         viewModel?.hud = nil
     }
 
-    /// Shows the charger or headphones on the island for a moment.
+    /// Shows the charger or headphones on the island for their hold.
     ///
-    /// The same restraint as the track peek: nothing when the panel is open,
-    /// under the pointer, mid-drag, or over the lock screen, where the
-    /// collapsed rects belong to the card (see `sneakPeek`). A track peek
-    /// already on screen gives way, because the Mac did something and the song
+    /// The same restraint as the track peek: through `alertQueue`, so it waits
+    /// a second for an open panel, a drag, the lock or the pop-up and is
+    /// dropped after it, and refused outright under the pointer (see
+    /// `sneakPeek`). Headphones outrank the charger, and a peek already on
+    /// screen gives way to either, because the Mac did something and the song
     /// has not changed.
     private func presentAmbient(_ activity: AmbientActivity) {
         guard let vm = viewModel else { return }
@@ -2173,19 +2277,26 @@ final class NotchController {
             activity, media: vm.bodySize, notchSize: vm.geometry.notchSize,
             bodyWidth: vm.geometry.expandedSize.width
         )
+        let blocked = Self.alertsBlocked(
+            isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+        )
+        // The pointer is asked only once nothing blocks: over an open panel it
+        // is always inside, and that says nothing about the pill this will
+        // grow once the panel has gone. `promoteWaitingAlert` comes back here,
+        // and asks it then.
         guard Self.ambientAllowed(
             switchOn: switchOn,
-            isOpen: vm.isOpen,
-            isDropTargeted: vm.isDropTargeted,
-            isLocked: vm.isLockedPresentation,
-            pointerInside: pointer.isInside,
-            pointerUnderGrownPill: vm.geometry.collapsedHoverRect(for: grown.width).contains(NSEvent.mouseLocation),
+            pointerInside: !blocked && pointer.isInside,
+            pointerUnderGrownPill: !blocked
+                && vm.geometry.collapsedHoverRect(for: grown.width).contains(NSEvent.mouseLocation),
             screensAsleep: screensAreAsleep,
             quiet: momentsAreQuiet()
         ) else { return }
+        guard postAlert(.ambient(activity), to: vm) == .show else { return }
 
         let reduceMotion = SystemAppearance.shared.reduceMotion
         peekWork?.cancel()
+        peekWork = nil
         ambientWork?.cancel()
         withAnimation(Theme.pill(reduceMotion: reduceMotion)) {
             vm.isPeeking = false
@@ -2195,7 +2306,7 @@ final class NotchController {
         // panel open, Mac locked, displays asleep — is not shown, and a
         // sentence for something nobody can see would be the voice lying.
         Announcer.shared.announce(activity.accessibilityLabel)
-        scheduleAmbientFold(after: NotchMetrics.ambientDuration)
+        scheduleAmbientFold(after: activity.holdDuration)
     }
 
     /// Folds the moment after `delay`, or, with the pointer resting on the
@@ -2212,14 +2323,17 @@ final class NotchController {
             withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.ambient = nil
             }
+            self.promoteWaitingAlert()
         }
         ambientWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    /// Whether a charger or headphones moment may show now. Pure, so each
+    /// Whether a charger or headphones moment may show at all. Pure, so each
     /// refusal is a test.
     ///
+    /// - An open panel, a drag and the lock are not refusals any more: they
+    ///   make it wait, for a second, in `alertQueue` (`alertsBlocked`).
     /// - A pointer resting where the grown pill would reach is refused along
     ///   with one already inside: the pill would grow under a still cursor,
     ///   take the clicks meant for the menu bar beside the notch, and with
@@ -2227,11 +2341,9 @@ final class NotchController {
     /// - A quiet moment (`momentsQuiet`) is refused: the audience's screen is
     ///   not the place for a battery percentage (K-003).
     nonisolated static func ambientAllowed(
-        switchOn: Bool, isOpen: Bool, isDropTargeted: Bool, isLocked: Bool,
-        pointerInside: Bool, pointerUnderGrownPill: Bool, screensAsleep: Bool, quiet: Bool
+        switchOn: Bool, pointerInside: Bool, pointerUnderGrownPill: Bool, screensAsleep: Bool, quiet: Bool
     ) -> Bool {
-        switchOn && !isOpen && !isDropTargeted && !isLocked
-            && !pointerInside && !pointerUnderGrownPill && !screensAsleep && !quiet
+        switchOn && !pointerInside && !pointerUnderGrownPill && !screensAsleep && !quiet
     }
 
     /// Whether the transient moments (the track peek, the charger, the

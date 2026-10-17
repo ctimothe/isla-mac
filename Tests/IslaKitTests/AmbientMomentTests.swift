@@ -113,24 +113,21 @@ final class AmbientMomentTests: XCTestCase {
         }
     }
 
-    /// Every refusal the moment makes, one at a time.
+    /// Every refusal the moment makes, one at a time. The open panel, a drag
+    /// and the lock are not among them since spec §19.1: they make it wait a
+    /// second (`NotchController.alertsBlocked`, `IslandActivityTests`).
     func testTheMomentKeepsTheTrackPeeksRestraint() {
         func allowed(
-            switchOn: Bool = true, isOpen: Bool = false, isDropTargeted: Bool = false, isLocked: Bool = false,
-            pointerInside: Bool = false, pointerUnderGrownPill: Bool = false, screensAsleep: Bool = false,
-            quiet: Bool = false
+            switchOn: Bool = true, pointerInside: Bool = false, pointerUnderGrownPill: Bool = false,
+            screensAsleep: Bool = false, quiet: Bool = false
         ) -> Bool {
             NotchController.ambientAllowed(
-                switchOn: switchOn, isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked,
-                pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill,
+                switchOn: switchOn, pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill,
                 screensAsleep: screensAsleep, quiet: quiet
             )
         }
         XCTAssertTrue(allowed())
         XCTAssertFalse(allowed(switchOn: false), "switched off in Settings")
-        XCTAssertFalse(allowed(isOpen: true), "the panel is open")
-        XCTAssertFalse(allowed(isDropTargeted: true), "a drag is over the island")
-        XCTAssertFalse(allowed(isLocked: true), "the lock card owns the rects")
         XCTAssertFalse(allowed(pointerInside: true), "the pointer is on the island")
         XCTAssertFalse(allowed(pointerUnderGrownPill: true), "the pill would grow under a still cursor")
         XCTAssertFalse(allowed(screensAsleep: true), "nobody can see it")

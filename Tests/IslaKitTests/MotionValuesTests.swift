@@ -74,7 +74,7 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertTrue(shell.contains(".animation(Theme.island(reduceMotion: reduceMotion), value: vm.openBodySize.height)"))
         XCTAssertTrue(shell.contains(".animation(Theme.island(reduceMotion: reduceMotion), value: vm.hud != nil)"))
         XCTAssertFalse(shell.contains("withAnimation(Theme.expand("), "the body's Expand moves the outline")
-        XCTAssertTrue(controller.contains("withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.hud = moment }"))
+        XCTAssertTrue(controller.contains("withAnimation(Theme.island(reduceMotion: reduceMotion)) {\n                vm.isPeeking = false\n                vm.ambient = nil\n                vm.hud = moment"))
     }
 
     /// The outline's curves left the critically damped list; every curve that

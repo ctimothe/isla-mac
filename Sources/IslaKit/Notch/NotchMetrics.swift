@@ -38,6 +38,10 @@ enum NotchMetrics {
     /// HIG asks compact content to sit snug against the camera. On a notch of
     /// another width the wings stay 40; the island is `notch.width + 80`.
     static let compactMediaExtension: CGFloat = 80
+    /// The Shelf holding files, as the island's live activity when nothing
+    /// plays (spec §19.4): the notch plus 75 — `tray.full.fill` in the left
+    /// wing, the count in the right.
+    static let compactShelfExtension: CGFloat = 75
     /// One wing of the compact island: half of `compactMediaExtension`.
     static let compactWing: CGFloat = compactMediaExtension / 2
     /// How far the cover sits from the island's left edge and the equalizer's
@@ -80,9 +84,8 @@ enum NotchMetrics {
     /// read a title at a glance, short enough that it is over before it can
     /// become an interruption.
     static let sneakPeekDuration: TimeInterval = 2.2
-    /// The charger or headphones: long enough to read a percentage or a
-    /// name, the same beat as a new track's peek.
-    static let ambientDuration: TimeInterval = 2.2
+    // The charger's and the headphones' holds are their own since spec §19.1:
+    // `AmbientActivity.holdDuration`.
 
     /// How long a paused track keeps its pill before folding into the notch.
     ///

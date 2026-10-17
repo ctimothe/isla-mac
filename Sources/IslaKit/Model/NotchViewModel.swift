@@ -170,12 +170,23 @@ final class NotchViewModel: ObservableObject {
     /// The charger or headphones, shown for a moment. See `AmbientActivity`.
     @Published var ambient: AmbientActivity?
     /// The volume or brightness pop-up, while it is up (spec §12). The highest
-    /// of the island's moments: see `IslandMoment`.
+    /// of the island's alerts: see `IslandActivity`.
     @Published var hud: HUDMoment?
-    /// Which moment the island is showing: the pop-up over the charger or
-    /// headphones over a new track's peek (spec §12).
-    var moment: IslandMoment {
-        IslandMoment.current(hud: hud, ambient: ambient, isPeeking: isPeeking)
+    /// What the island shows, by §19.1's rank: an alert, else the song, else
+    /// the Shelf, else the bare notch.
+    var activity: IslandActivity {
+        IslandActivity.current(
+            hud: hud, ambient: ambient, isPeeking: isPeeking,
+            musicIsVisible: compactMediaActivity.isVisible, shelfCount: shelf.items.count
+        )
+    }
+    /// The Shelf's count waiting as a bubble beside the island, or nil
+    /// (spec §19.7).
+    var bubbleCount: Int? {
+        IslandActivity.bubble(
+            beside: activity, shelfCount: shelf.items.count, isOpen: isOpen || isDropTargeted,
+            isLocked: isLockedPresentation
+        )
     }
     /// True while the shield is up and the panel is presenting the lock-screen
     /// card instead of its normal shell.
@@ -912,7 +923,11 @@ final class NotchViewModel: ObservableObject {
             // can arrive a snapshot late — the pid→name lookup fails on the
             // first poll after a player launches and succeeds on the next —
             // without the track ever changing.
-            media.$sourceName.removeDuplicates().map { _ in () }.eraseToAnyPublisher()
+            media.$sourceName.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            // The Shelf is a live activity (spec §19.1): its count is drawn on
+            // the shut island and in the bubble, so a file kept or removed
+            // while the panel is shut has to reach the island.
+            stores.shelf.$items.map(\.count).removeDuplicates().map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
@@ -974,7 +989,9 @@ final class NotchViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // The remaining stores have nothing to paint while collapsed.
+        // The remaining stores have nothing to paint while collapsed — the
+        // Shelf's count, which the shut island does draw, reaches it through
+        // the merge above.
         for child in [
             shelf.objectWillChange,
             clipboard.objectWillChange,
@@ -1334,20 +1351,21 @@ final class NotchViewModel: ObservableObject {
         DebugTrail.note("island: other media started playing -> the paused pill folds")
     }
 
-    /// Size of the visible body for the current state.
+    /// Size of the visible body for the current state: the open body, or the
+    /// shape of the one activity the island shows (`IslandActivity`).
     var bodySize: CGSize {
         if isOpen || isDropTargeted { return openBodySize }
-        let moment = self.moment
+        let activity = self.activity
         let media = compactMediaActivity.bodySize(
             notchSize: geometry.notchSize,
-            // A peek the pop-up is standing over is not drawn, and takes none
-            // of the height.
-            peeking: moment == .peek,
+            // A peek an alert is standing over is not drawn, and takes none of
+            // the height.
+            peeking: activity == .peek,
             // The body the panel would open to, so the pill can never be wider
             // than the panel it turns into.
             bodyWidth: geometry.expandedSize.width
         )
-        switch moment {
+        switch activity {
         case .hud(let hud):
             return Self.hudBodySize(
                 hud, media: media, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
@@ -1356,9 +1374,17 @@ final class NotchViewModel: ObservableObject {
             return Self.ambientBodySize(
                 ambient, media: media, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
             )
-        case .peek, .none:
+        case .shelf:
+            return Self.shelfBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+        case .peek, .music, .none:
             return media
         }
+    }
+
+    /// The Shelf as the island's live activity: the notch plus 75, the notch's
+    /// height, never wider than the panel. Pure, so the arithmetic has tests.
+    nonisolated static func shelfBodySize(notchSize: CGSize, bodyWidth: CGFloat) -> CGSize {
+        CGSize(width: min(notchSize.width + NotchMetrics.compactShelfExtension, bodyWidth), height: notchSize.height)
     }
 
     /// The pop-up: two 104 pt wings on the notch, the notch's own height, and
