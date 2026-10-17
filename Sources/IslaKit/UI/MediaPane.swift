@@ -43,6 +43,12 @@ struct MediaPane: View {
     var spotify: SpotifyAccount? = nil
     /// The cover's tint, for the equalizer's bars.
     var coverTint: NSColor = CoverTint.fallback.nsColor
+    /// Whether this is the page on screen, or Music drawn beside it for a
+    /// swipe's length (§19.16). Only the page on screen asks the player for
+    /// its modes and watches the outputs: a partial swipe from the Shelf
+    /// toward Music and back scripted Spotify and started CoreAudio
+    /// listeners for nothing (R8b review F8).
+    var isLive = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var appearance = SystemAppearance.shared
 
@@ -97,10 +103,8 @@ struct MediaPane: View {
     var body: some View {
         if let track = media.track {
             player(for: track)
-                .onAppear {
-                    media.refreshPlaybackModes()
-                    if outputButtonOn { audio.start() }
-                }
+                .onAppear { if isLive { startWatching() } }
+                .onChange(of: isLive) { _, live in if live { startWatching() } }
                 // The watch follows the machine only while there is a button to
                 // show it in, and only while the pane is on screen: it reads, and
                 // installs CoreAudio listeners, and writes nothing.
@@ -111,6 +115,11 @@ struct MediaPane: View {
         } else {
             emptyState
         }
+    }
+
+    private func startWatching() {
+        media.refreshPlaybackModes()
+        if outputButtonOn { audio.start() }
     }
 
     // MARK: - The player (spec §19.6)

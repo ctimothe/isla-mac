@@ -98,7 +98,11 @@ final class NotchPanel: NSPanel {
     /// A tap gesture on the text editor never fires — the text view claims the
     /// mouse down first — so the one place a click on the field can reliably
     /// be noticed is here, where every event the window receives passes.
-    var onPress: (() -> Void)?
+    ///
+    /// With the press's point in the window: a press on the header strip or
+    /// the dots is a way somewhere, and asks for nothing
+    /// (`NotchViewModel.pressClaimsKeyboard`).
+    var onPress: ((NSPoint) -> Void)?
 
     /// Raised on Escape, whatever has the keyboard. Collapsing is the one
     /// thing every tab agrees Escape should do, and binding it inside
@@ -297,7 +301,7 @@ final class NotchPanel: NSPanel {
         }
         // Before `super`, so the window is already key by the time the click
         // reaches the field and places a caret.
-        if event.type == .leftMouseDown { onPress?() }
+        if event.type == .leftMouseDown { onPress?(event.locationInWindow) }
         super.sendEvent(event)
     }
 

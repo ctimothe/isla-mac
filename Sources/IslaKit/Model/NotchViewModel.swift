@@ -68,7 +68,9 @@ final class NotchViewModel: ObservableObject {
             hud = nil
         }
     }
-    @Published var isDropTargeted = false
+    @Published var isDropTargeted = false {
+        didSet { if isDropTargeted { endPageGestureUnderOverlay() } }
+    }
     /// Which of the Shelf's two wells a drag in flight is over (spec §8.3): the
     /// one the drop will use, and the one that lights. Meaningful only while
     /// `isDropTargeted`; put back to `.keep` whenever a drag ends, so the next
@@ -528,7 +530,7 @@ final class NotchViewModel: ObservableObject {
     /// surface it is on.
     func pointerArrived() {
         isPinnedOpen = false
-        if !isOpen { open(openTarget) }
+        if !isOpen { land(on: openTarget) }
     }
 
     /// What the pointer crossing the panel's boundary asks the panel to do.
@@ -600,7 +602,7 @@ final class NotchViewModel: ObservableObject {
         // been left behind and then swapped panes *during* the expansion,
         // which is most of what read as an unsmooth open. What was clicked
         // decides it (spec §19.1).
-        open(surface ?? openTarget)
+        land(on: surface ?? openTarget)
         // The hover lift goes out with the same animation that opens the panel,
         // rather than snapping off the instant `isOpen` flips.
         isHovering = false
@@ -732,14 +734,16 @@ final class NotchViewModel: ObservableObject {
     /// else that takes it off screen leaves `hasCompletedFirstRun` alone, so
     /// the welcome is shown once per account *until it is answered*, not once
     /// per account full stop.
-    @Published var isShowingWelcome = false
+    @Published var isShowingWelcome = false {
+        didSet { if isShowingWelcome { endPageGestureUnderOverlay() } }
+    }
 
     /// The welcome has been read. Sets the flag that keeps it from ever coming
     /// back, and lands on what a click would have opened.
     func dismissWelcome() {
         isShowingWelcome = false
         Self.completeFirstRun()
-        open(openTarget)
+        land(on: openTarget)
     }
 
     /// A surface somebody asked for — by shortcut, by the menu, by a Tools
@@ -1195,7 +1199,7 @@ final class NotchViewModel: ObservableObject {
     var drawnOpenBodySize: CGSize {
         guard let leg = travellingLeg else { return openBodySize }
         return SurfaceLayout.travelSize(
-            pages: leg.strip.pages, position: leg.position,
+            pages: leg.strip.pages, position: leg.drawnPosition,
             bodyWidth: geometry.expandedSize.width, notch: geometry.notchSize
         )
     }
@@ -1208,7 +1212,7 @@ final class NotchViewModel: ObservableObject {
     private func travelled(_ radius: KeyPath<Surface, CGFloat>) -> CGFloat {
         guard let leg = travellingLeg else { return presented[keyPath: radius] }
         let last = leg.strip.lastIndex
-        let position = min(max(leg.position, 0), CGFloat(last))
+        let position = leg.drawnPosition
         let lower = min(Int(position.rounded(.down)), last)
         let leaving = leg.strip.pages[lower][keyPath: radius]
         guard lower < last else { return leaving }
@@ -1946,6 +1950,38 @@ final class NotchViewModel: ObservableObject {
         if surface.takesKeyboard, !isLockedPresentation { wantsKeyboard = true }
     }
 
+    /// Where the island lands when nobody asked for typing: the pointer
+    /// arriving, a click on the island, the welcome answered (§19.16). Since
+    /// the bare notch opens the page last shown, that can be Clipboard or
+    /// Translate, and landing there is not a summons — only ⌃⌥⌘V, ⌃⌥⌘T, the
+    /// menu, the Translated alert or a click into the field take the
+    /// keyboard. Through `open(_:)` these roads made a hover onto the bare
+    /// notch, with Open on Hover off, open Clipboard holding the keyboard of
+    /// the app being typed in (R8b review F1).
+    private func land(on surface: Surface) {
+        guard surface != .drop, surface != .welcome else { return }
+        self.surface = surface
+    }
+
+    /// Whether a press at `point` — body coordinates, down from the open
+    /// body's top-left — asks for the keyboard (`NotchPanel.onPress`). Only a
+    /// surface that types asks, never over the lock, and never from the
+    /// header strip or the dots: those are ways somewhere, and a press there
+    /// on a Clipboard reached by a swipe made the panel key on mouse-down —
+    /// and kept it key when the dot was the current one or the press was
+    /// dragged off it (R8b review F2). Anywhere else it still asks, so the
+    /// window is key by the time the click reaches the field.
+    func pressClaimsKeyboard(atBodyPoint point: CGPoint) -> Bool {
+        guard presented.takesKeyboard, !isLockedPresentation else { return false }
+        if point.y < geometry.notchSize.height { return false }
+        if presented.isPage {
+            let body = openBodySize
+            if point.y >= body.height - SurfaceLayout.pageDotsBand { return false }
+            if PageDotsLayout.rowFrame(bodySize: body).contains(point) { return false }
+        }
+        return true
+    }
+
     /// A page reached by a swipe, a dot or ⌃Tab (§19.16). Unlike `open(_:)`
     /// it never takes the keyboard: looking through the pages must not take
     /// typing away from the app in front, so Clipboard and Translate wait for
@@ -2034,7 +2070,15 @@ final class NotchViewModel: ObservableObject {
     /// nothing slides: the page is replaced in place, on the crossfade every
     /// pane swap has. Anything that is not a page, or not open, is refused.
     func travel(to page: Surface, reduceMotion: Bool) {
-        guard isOpen, !isLockedPresentation, page.isPage, presented.isPage, page != surface else { return }
+        // `presented` as well as `surface`: the stage with no song is drawn as
+        // the empty player, whose own dot built a strip of two Music pages
+        // (R8b review F3).
+        guard isOpen, !isLockedPresentation, page.isPage, presented.isPage, page != surface, page != presented
+        else { return }
+        // Fingers on the pages lose them to the dot or the key: the rest of
+        // their gesture would otherwise fight the travel frame by frame, and
+        // its release turn somewhere else (R8b review F7).
+        pageSwipe.yield()
         guard !reduceMotion else {
             pageTravel.finish()
             turnPage(to: page)
@@ -2086,6 +2130,34 @@ final class NotchViewModel: ObservableObject {
         travel(to: page, reduceMotion: reduceMotion)
         isTurningByKey = false
         return true
+    }
+
+    /// Files dragged to the notch, or the welcome, laid over the pages while
+    /// they move: the gesture under them ends and the pages go to rest, so
+    /// they are not found half way, with the clickable region cut over them,
+    /// once the overlay goes (R8b review F6). The swipe monitor is removed
+    /// with the pages, so the release that would have ended it never comes.
+    private func endPageGestureUnderOverlay() {
+        pageSwipe = PageSwipe()
+        pageTravel.finish()
+    }
+
+    /// Where the person was among the pages: the page the bare notch opens,
+    /// and where the lit gear goes back to. A display change builds a new
+    /// view model, and both went with the old one (R8b review F9).
+    struct Place: Equatable {
+        var lastPage: Surface
+        var settingsReturn: Surface?
+    }
+
+    var place: Place { Place(lastPage: lastPage, settingsReturn: settingsReturn) }
+
+    /// Carries `place` over from the view model a rebuild replaced. After the
+    /// surface is restored: restoring Settings records the fresh model's
+    /// default as where the gear goes back to, and this writes over it.
+    func restorePlace(_ place: Place) {
+        lastPage = place.lastPage
+        settingsReturn = place.settingsReturn
     }
 
     /// The page `step` places along from the one presented, or nil past

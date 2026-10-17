@@ -75,11 +75,27 @@ enum ShelfLayout {
     /// count at its widest ("60", the Shelf's limit) on the left, Remove All
     /// in the language on screen on the right — each with the clearance every
     /// header item keeps from the notch.
+    ///
+    /// Kept for the language it was measured in. The tray's size is read many
+    /// times on every frame of a swipe, and each read measured two strings
+    /// afresh (R8b review P2); what it depends on is the localized "All".
     static func headerSideRoom() -> CGFloat {
+        let all = localized("All")
+        if let kept = keptSideRoom, kept.all == all { return kept.room }
+        let room = measuredHeaderSideRoom()
+        keptSideRoom = (all, room)
+        return room
+    }
+
+    /// `headerSideRoom()` measured now.
+    static func measuredHeaderSideRoom() -> CGFloat {
         let left = headerCountX + maximumCountWidth() + SurfaceHeaderLayout.notchClearance
         let right = removeAllRightRoom + removeAllWidth() + SurfaceHeaderLayout.notchClearance
         return ceil(max(left, right))
     }
+
+    /// Read and written on the main thread only, where every layout is asked.
+    nonisolated(unsafe) private static var keptSideRoom: (all: String, room: CGFloat)?
 
     /// "60" in the count's 15 pt with tabular digits.
     static func maximumCountWidth() -> CGFloat {

@@ -183,7 +183,55 @@ final class PageTravelTests: XCTestCase {
         XCTAssertEqual(vm.bodySize, clipboard)
     }
 
+    /// Past the page next to the one it began on the content rubber-bands,
+    /// but the outline stays the size of that neighbour: it never grows
+    /// toward a page the gesture cannot reach, outside the clickable region
+    /// cut for the ones it can (R8b review F4).
+    func testTheOutlineNeverOutgrowsWhatTheGestureCanReach() throws {
+        let vm = try openModel(on: .player)
+        drag(vm, by: 2000)
+        let position = try XCTUnwrap(vm.pageTravel.leg?.position)
+        XCTAssertGreaterThan(position, 1, "the rubber band is past the Shelf")
+        XCTAssertEqual(vm.bodySize, size(.tray, vm), "the Shelf's outline, not one mixed with Clipboard's")
+        XCTAssertEqual(vm.openTopRadius, Surface.tray.topRadius, accuracy: 0.0001)
+        XCTAssertLessThanOrEqual(vm.bodySize.width, vm.openBodySize.width)
+        XCTAssertLessThanOrEqual(vm.bodySize.height, vm.openBodySize.height)
+    }
+
     // MARK: Interruption
+
+    /// Files dragged to the notch, or the welcome, laid over the pages while
+    /// the fingers have them end the gesture: the pages go to rest under the
+    /// overlay rather than waiting half way, with the clickable region still
+    /// cut over them, for a release that will never come (R8b review F6).
+    func testAnOverlayEndsTheGestureUnderIt() throws {
+        let vm = try openModel(on: .player)
+        drag(vm, by: 100)
+        XCTAssertNotNil(vm.pageTravel.leg)
+        vm.isDropTargeted = true
+        XCTAssertNil(vm.pageTravel.leg)
+        vm.isDropTargeted = false
+        XCTAssertNil(vm.travellingLeg)
+        XCTAssertFalse(vm.pageScroll(scroll(-30, 0), over: true), "the rest of that gesture is not the pages'")
+        XCTAssertEqual(vm.surface, .player)
+    }
+
+    /// A dot or ⌃Tab pressed while two fingers have the pages takes them: the
+    /// rest of the gesture and its glide are swallowed instead of fighting
+    /// the travel frame by frame, and its release turns nothing (R8b review F7).
+    func testADotTakesThePagesFromTheFingers() throws {
+        let vm = try openModel(on: .player)
+        drag(vm, by: 100)
+        vm.travel(to: .clipboard, reduceMotion: false)
+        clock.advance(0.05)
+        let settling = try XCTUnwrap(vm.pageTravel.leg?.position)
+        XCTAssertTrue(vm.pageScroll(scroll(-80, 0), over: true), "swallowed")
+        XCTAssertEqual(try XCTUnwrap(vm.pageTravel.leg?.position), settling, accuracy: 0.0001, "the fingers no longer move it")
+        XCTAssertTrue(clock.isRunning, "the dot's travel goes on")
+        XCTAssertTrue(release(vm))
+        XCTAssertEqual(vm.surface, .clipboard, "the release turns nothing")
+        XCTAssertTrue(vm.pageScroll(PageScroll(deltaX: -20, deltaY: 0, phase: .none, momentumPhase: .changed, precise: true, time: 6), over: true))
+    }
 
     /// A swipe that lands while a page settles picks it up where it is on
     /// screen.
@@ -216,6 +264,38 @@ final class PageTravelTests: XCTestCase {
         drag(closing, by: 100)
         closing.isOpen = false
         XCTAssertNil(closing.pageTravel.leg)
+    }
+
+    // MARK: A rebuild
+
+    /// A display change builds a new view model; where the person was goes
+    /// with it. The bare notch opens the page last shown since launch, and the
+    /// lit gear goes back to where Settings was opened from — both were lost to
+    /// a monitor plugged in (R8b review F9).
+    func testWhereThePagesWereSurvivesARebuild() throws {
+        let old = try openModel(on: .translate)
+        old.pressGear()
+        XCTAssertEqual(old.surface, .settings)
+        let fresh = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        // In `build(restoring:)`'s order: the surface, then the place, which
+        // the surface's own setting would otherwise write over.
+        fresh.surface = old.surface
+        fresh.restorePlace(old.place)
+        XCTAssertEqual(fresh.lastPage, .translate)
+        fresh.pressGear()
+        XCTAssertEqual(fresh.surface, .translate)
+    }
+
+    /// The tray's size is read many times on every frame of a swipe: what it
+    /// measures in text is kept, and kept per language, so the answer is the
+    /// one measured afresh in English and in Russian (R8b review P2).
+    func testTheTraysMeasuredRoomFollowsTheLanguage() {
+        defer { LabLocalization.use("en") }
+        for language in ["en", "ru", "en"] {
+            LabLocalization.use(language)
+            XCTAssertEqual(ShelfLayout.headerSideRoom(), ShelfLayout.measuredHeaderSideRoom(), language)
+            XCTAssertEqual(ShelfLayout.headerSideRoom(), ShelfLayout.measuredHeaderSideRoom(), "\(language), kept")
+        }
     }
 
     // MARK: The tray's strip

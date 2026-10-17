@@ -275,6 +275,53 @@ final class ClipboardKeyboardTests: XCTestCase {
         XCTAssertEqual(vm.surface, .clipboard)
     }
 
+    /// The page last shown can be Clipboard or Translate, and the island
+    /// landing there is not a summons: the pointer arriving and a click on the
+    /// bare notch open it without the keyboard. With `open(_:)` on those roads
+    /// a hover onto the notch, Open on Hover off, opened Clipboard holding the
+    /// keyboard of the app being typed in (R8b review F1).
+    func testLandingOnTheLastPageNeverTakesTheKeyboard() {
+        for page in [NotchViewModel.Surface.clipboard, .translate] {
+            vm.open(page)
+            vm.isOpen = false
+            vm.wantsKeyboard = false // Escape
+            XCTAssertEqual(vm.openTarget, page, "the bare notch opens the page last shown")
+            vm.pointerArrived()
+            XCTAssertEqual(vm.surface, page)
+            XCTAssertFalse(vm.wantsKeyboard, "\(page): the pointer arriving")
+            vm.clickOpened(pointerIsOnPanel: { _ in true })
+            XCTAssertFalse(vm.wantsKeyboard, "\(page): a click on the bare notch")
+        }
+    }
+
+    /// A press on the header strip or the dots is a way somewhere, not a
+    /// click into the field: it leaves the keyboard where it was. Anywhere
+    /// else on Clipboard or Translate it asks, as before, so the window is
+    /// key by the time the click reaches the field. A dot pressed on a
+    /// Clipboard reached by a swipe made the panel key on mouse-down, and the
+    /// current dot or a press dragged off one left it key (R8b review F2).
+    func testOnlyAPressOffTheHeaderAndTheDotsAsksForTheKeyboard() {
+        vm.isOpen = true
+        vm.turnPage(to: .clipboard)
+        let body = vm.openBodySize
+        let header = vm.geometry.notchSize.height
+        for centre in PageDotsLayout.centres(bodySize: body) {
+            XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: centre), "a dot")
+        }
+        let gear = SurfaceHeaderLayout.gear(bodyWidth: body.width, notchHeight: header)
+        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: gear.midX, y: gear.midY)), "the gear")
+        // The field is placed in the content, which starts under the header.
+        let field = ClipboardHeader.searchField.offsetBy(dx: 0, dy: header)
+        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: field.midX, y: field.midY)), "the search field")
+        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: body.width / 2, y: body.height / 2)), "a row")
+
+        vm.turnPage(to: .tray)
+        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: body.width / 2, y: body.height / 2)), "the Shelf types nothing")
+        vm.turnPage(to: .translate)
+        vm.isLockedPresentation = true
+        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: CGPoint(x: body.width / 2, y: body.height / 2)), "never over the lock")
+    }
+
     /// A swipe or a dot after ⌃Tab gives the keyboard back, as it does from
     /// a page the keyboard summoned: the pointer is driving now.
     func testADotAfterControlTabGivesTheKeyboardBack() {

@@ -121,6 +121,31 @@ final class PageSwipeTests: XCTestCase {
         XCTAssertEqual(swipe.handle(scroll(-30, 0), context(at: 1, over: true)), .pass)
     }
 
+    /// Where a gesture began owns it, as a scroll view's does: the window
+    /// server latches a phased gesture to the window it began in, so a pointer
+    /// that drifts off the pages before the first 10 pt still sends the rest
+    /// here. Refusing then would hand the gesture to the empty window around
+    /// the island, and a swipe would turn or not by a point's drift (Codex
+    /// review of R8b, P1, answered).
+    func testAGestureBegunOnThePagesStaysTheirsWhereverThePointerDrifts() {
+        var swipe = PageSwipe()
+        XCTAssertEqual(swipe.handle(scroll(-4, 0, .began), context(at: 1, over: true)), .pass)
+        XCTAssertEqual(swipe.handle(scroll(-8, 0), context(at: 1, over: false)), .grab(position: 1))
+    }
+
+    /// A gesture that ends inside its first 10 pt never paged, and every one
+    /// of its events went on to the page: the page had the whole gesture, so
+    /// its glide is the page's too. Swallowing it would stop a list's inertial
+    /// scroll dead (Codex review of R8b, P2, answered).
+    func testAGestureTooShortToDecideIsThePagesGlideAndAll() {
+        var swipe = PageSwipe()
+        XCTAssertEqual(swipe.handle(scroll(-3, 0, .began), context(at: 2)), .pass)
+        XCTAssertEqual(swipe.handle(scroll(-4, 0), context(at: 2)), .pass)
+        XCTAssertEqual(swipe.handle(scroll(0, 0, .ended), context(at: 2)), .pass)
+        XCTAssertEqual(swipe.handle(scroll(-6, 0, .none, momentum: .began), context(at: 2)), .pass)
+        XCTAssertEqual(swipe.handle(scroll(-2, 0, .none, momentum: .changed), context(at: 2)), .pass)
+    }
+
     /// The tray's strip scrolls first: a gesture pages only when the strip
     /// was already at its end, in the direction of travel, when it began.
     func testTheStripScrollsFirst() {

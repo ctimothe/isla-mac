@@ -19,7 +19,7 @@ private struct PageSwipeMonitor: ViewModifier {
     let handle: (PageScroll, _ overPages: Bool) -> Bool
 
     @State private var anchor = StagePointer()
-    @State private var monitor: Any?
+    @State private var box = MonitorBox()
 
     func body(content: Content) -> some View {
         content
@@ -34,21 +34,39 @@ private struct PageSwipeMonitor: ViewModifier {
     }
 
     private func install() {
-        guard monitor == nil else { return }
-        let box = anchor
+        guard box.monitor == nil else { return }
+        let anchor = anchor
         let handle = handle
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+        box.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
             let scroll = PageScroll(event)
             let kept = MainActor.assumeIsolated { () -> Bool in
-                handle(scroll, ScrollAnchor.lands(event, in: box.view))
+                handle(scroll, ScrollAnchor.lands(event, in: anchor.view))
             }
             return kept ? nil : event
         }
     }
 
     private func remove() {
+        box.remove()
+    }
+}
+
+/// The monitor, held by an object that removes it when it goes. `onDisappear`
+/// is not promised when a rebuild drops the hosting view (`HotKeyCenter`'s
+/// recording and `LyricTranslation.resetDemand` say the same), and a monitor
+/// left behind would run for the rest of the session on a view model nobody
+/// shows (R8b review P1). The view's state goes with the hosting view, and
+/// this with it.
+private final class MonitorBox {
+    var monitor: Any?
+
+    func remove() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+    }
+
+    deinit {
+        if let monitor { NSEvent.removeMonitor(monitor) }
     }
 }
 

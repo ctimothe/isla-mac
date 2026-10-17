@@ -35,6 +35,10 @@ struct ClipboardPane: View {
     /// way ⌃⌥⌘T does (`NotchViewModel.translateClipboardText`).
     private let translate: (String) -> Void
     private let bodyWidth: CGFloat
+    /// Whether this is the page on screen, or Clipboard drawn beside it for a
+    /// swipe's length (§19.16): only the page on screen asks the system about
+    /// pasteboard access (R8b review F8).
+    private let isLive: Bool
     /// The keyboard claim the search field follows (`NotchViewModel.wantsKeyboard`).
     @Binding private var wantsKeyboard: Bool
 
@@ -49,8 +53,10 @@ struct ClipboardPane: View {
         wantsKeyboard: Binding<Bool> = .constant(false),
         translate: @escaping (String) -> Void = { _ in },
         clearConfirmation: ClipboardClearConfirmation? = nil,
-        turnOnHistory: @escaping () -> Void = {}
+        turnOnHistory: @escaping () -> Void = {},
+        isLive: Bool = true
     ) {
+        self.isLive = isLive
         _clear = StateObject(wrappedValue: clearConfirmation ?? ClipboardClearConfirmation())
         self.clipboard = clipboard
         self.privacy = privacy
@@ -83,7 +89,8 @@ struct ClipboardPane: View {
             // switch going back to Allow. Looking at Clipboard is the moment a
             // user back from System Settings expects history to resume, so the
             // system is asked again here rather than on a timer.
-            .onAppear { clipboard.recheckAccess() }
+            .onAppear { if isLive { clipboard.recheckAccess() } }
+            .onChange(of: isLive) { _, live in if live { clipboard.recheckAccess() } }
             // A question left standing would be waiting inside the next visit,
             // one click from emptying the history.
             .onDisappear { clear.cancel() }

@@ -51,8 +51,13 @@ enum PageDotsLayout {
 struct PageDots: View {
     typealias Surface = NotchViewModel.Surface
 
-    /// The current page's place in the row.
+    /// The current page's place in the row: the page nearest where the pages
+    /// are drawn, which the bright dot follows.
     let current: Int
+    /// The page chosen, which VoiceOver reads. Straight after an increment
+    /// the pages have not yet moved, and a value read from where they are
+    /// drawn said the page just left (R8b review P4).
+    let chosen: Int
     /// The drawn outline, which the row is centred on and stands 10 above.
     let bodySize: CGSize
     /// The header row's height: the content, and this row in it, starts
@@ -91,14 +96,14 @@ struct PageDots: View {
         .accessibilityRepresentation {
             Slider(
                 value: Binding(
-                    get: { Double(current) },
-                    set: { adjust(Int($0.rounded()) - current) }
+                    get: { Double(chosen) },
+                    set: { adjust(Int($0.rounded()) - chosen) }
                 ),
                 in: 0...Double(Surface.pages.count - 1), step: 1
             ) {
                 Text(Self.accessibilityLabel())
             }
-            .accessibilityValue(Self.accessibilityValue(current: current))
+            .accessibilityValue(Self.accessibilityValue(current: chosen))
         }
     }
 

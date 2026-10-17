@@ -1312,6 +1312,12 @@ final class NotchController {
         // survive — they belong to the session, not the panel — so this is
         // only the panel's own state.
         let previousSurface = viewModel?.surface
+        // And where the pages were: the page the bare notch opens and where
+        // the lit gear goes back to (R8b review F9).
+        let previousPlace = viewModel?.place
+        // The old pages to rest, so their display link stops with them: the
+        // link holds its target, and nothing else would ever end it.
+        viewModel?.pageTravel.finish()
         let wasOpen = viewModel?.isOpen ?? false
         let wasShowingWelcome = viewModel?.isShowingWelcome ?? false
         // The pin belongs to the panel being torn down; the monitor watching
@@ -1346,11 +1352,12 @@ final class NotchController {
         panel = nil
         rootView = nil
         viewModel = nil
-        build(restoring: previousSurface, wasOpen: wasOpen, showingWelcome: wasShowingWelcome)
+        build(restoring: previousSurface, place: previousPlace, wasOpen: wasOpen, showingWelcome: wasShowingWelcome)
     }
 
     private func build(
         restoring restoredSurface: NotchViewModel.Surface? = nil,
+        place: NotchViewModel.Place? = nil,
         wasOpen: Bool = false,
         showingWelcome: Bool = false
     ) {
@@ -1363,6 +1370,9 @@ final class NotchController {
         // close rect drawn for a shorter one, and folded under a pointer
         // resting in its lower half.
         if let restoredSurface { vm.surface = restoredSurface }
+        // After the surface, whose own setting records where the gear goes
+        // back to; see `restorePlace`.
+        if let place { vm.restorePlace(place) }
         // Carried across for the same reason as the surface, and it is the more
         // fragile of the two: the welcome is shown once per account, so dropping
         // it here did not merely lose a pane — it spent the account's one moment
@@ -1544,8 +1554,14 @@ final class NotchController {
         // Clicking away drops the keyboard but leaves the surface where it
         // was, so a click back into the panel has to be able to ask for it
         // again.
-        panel.onPress = { [weak self] in
+        panel.onPress = { [weak self] location in
             guard let vm = self?.viewModel, vm.presented.takesKeyboard else { return }
+            // Body coordinates run down from the open body's top-left; the
+            // window's run up from its bottom. Not the header strip, not the
+            // dots (R8b review F2).
+            let body = vm.geometry.contentRect(for: vm.openBodySize)
+            let point = CGPoint(x: location.x - body.minX, y: body.maxY - location.y)
+            guard vm.pressClaimsKeyboard(atBodyPoint: point) else { return }
             // Never while the shield is up. The lock card takes clicks — that
             // is how its transport works — and with the last-used tab on
             // translate or notes, one of those clicks used to raise
@@ -2195,14 +2211,14 @@ final class NotchController {
     /// later, as every surface change: `@Published` announces before it
     /// stores.
     private func wirePageTravelCuts(_ vm: NotchViewModel) {
-        vm.pageTravel.$isTravelling
+        vm.pageTravel.$reachable
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] travelling in
+            .sink { [weak self] reachable in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         guard let self, let vm = self.viewModel, vm.isOpen else { return }
-                        self.refreshOpenRects(animated: travelling || !vm.presented.isPage)
+                        self.refreshOpenRects(animated: !reachable.isEmpty || !vm.presented.isPage)
                     }
                 }
             }

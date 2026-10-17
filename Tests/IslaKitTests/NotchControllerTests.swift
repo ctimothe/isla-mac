@@ -164,6 +164,27 @@ final class NotchControllerRectTests: XCTestCase {
         XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: tray).close)
     }
 
+    /// A swipe that catches a dot's travel can reach further than the dot's
+    /// two pages: the clickable region is cut again over the new reach, not
+    /// only when a travel starts and ends (R8b review F4).
+    func testASwipeCatchingADotsTravelRecutsOverItsReach() throws {
+        let (controller, vm, root) = try rig()
+        let clock = ManualPageClock()
+        vm.pageTravel.clock = clock
+        controller.refreshOpenRects(bodySettled: true)
+        vm.travel(to: .tray, reduceMotion: false)
+        drainMain()
+        for _ in 0..<30 { clock.advance(1.0 / 120) }
+        XCTAssertGreaterThan(try XCTUnwrap(vm.pageTravel.leg?.position), 0.5, "past half way to the Shelf")
+        XCTAssertFalse(vm.pageScroll(PageScroll(deltaX: 0, deltaY: 0, phase: .began), over: true))
+        XCTAssertTrue(vm.pageScroll(PageScroll(deltaX: -12, deltaY: 0, phase: .changed), over: true))
+        drainMain()
+        let reach = [NotchViewModel.Surface.player, .tray, .clipboard].map { bodySize(vm, $0) }.reduce(CGSize.zero) {
+            CGSize(width: max($0.width, $1.width), height: max($0.height, $1.height))
+        }
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: reach).active, "Music, the Shelf and Clipboard")
+    }
+
     /// The shrink arrives on its own after the spring, and a newer change in
     /// the meantime outdates it.
     func testTheShrinkIsScheduledForTheEndOfTheSpringAndOutdatedByANewerRefresh() async throws {

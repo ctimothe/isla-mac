@@ -159,6 +159,10 @@ struct PageSwipe: Equatable {
         /// A turn's fingers have lifted; its glide is swallowed until the
         /// next gesture lands.
         case released
+        /// A dot or ⌃Tab took the pages from under the fingers: the rest of
+        /// the gesture is swallowed, and its glide after it, rather than
+        /// fighting the travel or turning somewhere else on release.
+        case yielded
     }
 
     private struct Sample: Equatable {
@@ -195,6 +199,7 @@ struct PageSwipe: Equatable {
             switch stage {
             case .deciding: return decide(event, context)
             case .paging: return .move(position: track(event))
+            case .yielded: return .swallow
             case .idle, .refused, .released: return .pass
             }
         case .ended, .cancelled:
@@ -202,6 +207,9 @@ struct PageSwipe: Equatable {
             case .paging:
                 _ = track(event)
                 return release(at: event.time, thrown: event.phase == .ended)
+            case .yielded:
+                stage = .released
+                return .swallow
             case .deciding, .refused:
                 stage = .idle
                 return .pass
@@ -209,6 +217,13 @@ struct PageSwipe: Equatable {
                 return .pass
             }
         }
+    }
+
+    /// The pages leave the fingers for a dot or ⌃Tab. Only a gesture that has
+    /// the pages yields; one still deciding has passed every event to the
+    /// page, and goes on deciding.
+    mutating func yield() {
+        if stage == .paging { stage = .yielded }
     }
 
     private mutating func begin(_ context: Context) {

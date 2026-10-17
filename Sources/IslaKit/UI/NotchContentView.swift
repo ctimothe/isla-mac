@@ -1210,6 +1210,7 @@ struct NotchContentView: View {
             if vm.presented.isPage {
                 PageDots(
                     current: PageDots.current(leg: vm.travellingLeg, presented: vm.presented),
+                    chosen: vm.presented.pageIndex ?? 0,
                     bodySize: size, headerHeight: headerHeight,
                     turn: { vm.travel(to: $0, reduceMotion: reduceMotion) },
                     adjust: { vm.adjustPage(by: $0, reduceMotion: reduceMotion) }
@@ -1220,8 +1221,9 @@ struct NotchContentView: View {
         }
             .frame(width: size.width, height: max(0, size.height - headerHeight), alignment: .topLeading)
             // A sideways swipe anywhere over a page turns it (§19.16).
-            .onPageSwipe(enabled: vm.presented.isPage && !vm.isLockedPresentation) { event, over in
-                vm.pageScroll(event, over: over)
+            // Weakly: the monitor must not keep a view model a rebuild replaced.
+            .onPageSwipe(enabled: vm.presented.isPage && !vm.isLockedPresentation) { [weak vm] event, over in
+                vm?.pageScroll(event, over: over) ?? false
             }
             // VO-Escape, or Switch Control's Escape, anywhere in the body closes
             // the panel, as the header does. A panel opened from assistive tech is
@@ -1318,7 +1320,8 @@ struct NotchContentView: View {
                 morph: travellingMorph,
                 audio: vm.playerAudio,
                 spotify: vm.spotifyAccount,
-                coverTint: vm.coverTint.nsColor
+                coverTint: vm.coverTint.nsColor,
+                isLive: live
             )
         case .stage:
             LyricsStageSurface(
@@ -1356,7 +1359,8 @@ struct NotchContentView: View {
                 wantsKeyboard: keyboard,
                 translate: { vm.translateClipboardText($0) },
                 clearConfirmation: vm.clipboardClear,
-                turnOnHistory: { vm.setClipboardHistory(true) }
+                turnOnHistory: { vm.setClipboardHistory(true) },
+                isLive: live
             )
         case .translate:
             TranslatePane(

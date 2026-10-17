@@ -24,19 +24,31 @@ final class PageTravel: ObservableObject {
         var position: CGFloat
         /// The pages this leg can draw the outline at: one either side of
         /// where a swipe began, or the two a dot turns between. The clickable
-        /// region covers all of them for the length of the leg, so it never
-        /// has to be cut again mid-swipe.
+        /// region covers all of them for the length of the leg, so it is cut
+        /// again only when the reach itself changes.
         var reach: ClosedRange<Int>
 
         /// The pages with something on screen.
         var mounted: [Surface] { strip.mounted(at: position).map { strip.pages[$0] } }
         var reachable: [Surface] { reach.map { strip.pages[$0] } }
+
+        /// Where the outline is drawn: `position`, held inside the reach. A
+        /// rubber band past the page beside the one a swipe began on carries
+        /// the content on, under resistance, but the outline stays that
+        /// neighbour's size — mixed toward the page beyond, it grew outside the
+        /// clickable region, which is cut for the reach alone (R8b review F4).
+        var drawnPosition: CGFloat {
+            min(max(position, CGFloat(reach.lowerBound)), CGFloat(reach.upperBound))
+        }
     }
 
     @Published private(set) var leg: Leg?
-    /// Whether a leg is under way, published only when it changes: what the
-    /// controller re-cuts the clickable region on.
-    @Published private(set) var isTravelling = false
+    /// The pages the leg under way can reach — empty at rest — published only
+    /// when they change: what the controller re-cuts the clickable region on.
+    /// The reach, not merely whether a leg is under way: a swipe that catches
+    /// a dot's travel can reach a page the dot's leg could not, and the region
+    /// has to cover it too (R8b review F4).
+    @Published private(set) var reachable: [Surface] = []
     private(set) var settle: PageSettle?
     var clock: PageClock
 
@@ -108,7 +120,8 @@ final class PageTravel: ObservableObject {
         still.disablesAnimations = true
         withTransaction(still) {
             self.leg = leg
-            if isTravelling != (leg != nil) { isTravelling = leg != nil }
+            let reach = leg?.reachable ?? []
+            if reachable != reach { reachable = reach }
         }
     }
 }

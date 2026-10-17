@@ -164,6 +164,28 @@ final class PageDotsTests: XCTestCase {
         _ = nodes[row].element.perform(NSSelectorFromString("accessibilityPerformIncrement"))
         XCTAssertEqual(vm.surface, .clipboard)
         XCTAssertFalse(vm.wantsKeyboard)
+
+        // Read straight after the increment, before the pages have moved: the
+        // value is the page chosen, not the one the slide has not yet left —
+        // VoiceOver says the value as soon as the action returns (R8b review P4).
+        let after = await AXProbe.tree(of: NotchContentView(vm: vm).defaultAppStorage(isolated.suite), size: size)
+        let slider = try XCTUnwrap(after.flattened.first { $0.label == "Pages" }, after.dump)
+        XCTAssertEqual(
+            slider.element.value(forKey: "accessibilityValueDescription") as? String, "Page 3 of 4, Clipboard", after.dump
+        )
+    }
+
+    /// The stage with no song is drawn as the empty player, so Music's dot is
+    /// the current one there and does nothing. It used to travel a strip of
+    /// two Music pages — two panes under one identity, and the player sliding
+    /// in from one width to the left for nothing (R8b review F3).
+    func testMusicsDotOnTheStageWithNoSongDoesNothing() throws {
+        let clock = ManualPageClock()
+        let vm = try openModel(on: .stage, clock: clock)
+        XCTAssertEqual(vm.presented, .player)
+        vm.travel(to: .player, reduceMotion: false)
+        XCTAssertNil(vm.pageTravel.leg)
+        XCTAssertFalse(clock.isRunning)
     }
 
     // MARK: Turning by a dot
