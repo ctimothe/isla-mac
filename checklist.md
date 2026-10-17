@@ -1910,7 +1910,13 @@ Deliberate differences from spec §19, kept on purpose:
   Russian typography does; English keeps "67%".
 - **A click on the island showing the Shelf opens the Shelf tab**, and so does
   the bubble, until R8 gives the Shelf its tray (§19.1's table says "opens the
-  tray").
+  tray"). **A click on an alert still opens Music**, and Open on Hover still
+  opens Music, until R8's "`clickOpened` follows the rank" (§19.1: a click
+  folds an alert; a hover opens what a click would).
+- **A track skipped in the open player peeks once the panel closes**, if it
+  closes within the second an alert may wait (§19.1 lists the peek as a
+  compact alert, rank 10). Before R7 a peek with the panel open was dropped
+  outright, since the player had just shown the title. Owner to confirm.
 - **Headphones draw no battery ring.** §19.5 c draws it only when a level is
   readable without a new permission, and §19.15 answers that in R9; until
   then the name takes the ring's width, as the spec says for "none".

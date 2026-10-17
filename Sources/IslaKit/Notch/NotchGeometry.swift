@@ -389,6 +389,17 @@ struct NotchGeometry {
         includingTopEdge(collapsedIslandRect(for: width, height: height))
     }
 
+    /// Where an alert will be drawn once it has grown, for the pointer test
+    /// made before it grows: its full depth and its shoulders, as
+    /// `IslandShapeRadii` draws them, with `collapsedHoverRect`'s slop. An
+    /// expanded alert reaches far below the notch and its shoulders are 20 pt,
+    /// so a notch-deep strip let one grow under a pointer standing on the app
+    /// below and take its click (R7 review).
+    func grownAlertRect(for activity: IslandActivity, body: CGSize) -> CGRect {
+        let shoulder = IslandShapeRadii.closed(for: activity).top
+        return collapsedHoverRect(for: body.width + 2 * max(0, shoulder - 6), height: body.height)
+    }
+
     func collapsedHoverRect(for width: CGFloat, height: CGFloat? = nil) -> CGRect {
         let depth = max(collapsedDepth, height ?? collapsedDepth)
         return includingTopEdge(CGRect(

@@ -245,8 +245,10 @@ final class NotchController {
             if vm.ambient != nil { clearAmbient() }
         }
         // The pop-up is an answer to a key press and rides no Space into a new
-        // one: it ends with the Space it was shown on.
+        // one: it ends with the Space it was shown on — and an alert that was
+        // waiting behind it gets the island, as when the pop-up folds.
         clearHUD()
+        promoteWaitingAlert()
         guard viewModel?.isOpen == true else { return }
         // What was typed is kept — only the panel closes.
         setOpen(false)
@@ -1887,7 +1889,10 @@ final class NotchController {
         // Shrink only once the panel has finished collapsing. Doing it
         // while it is still visibly there would leave a window in which
         // clicks land on whatever is behind the panel.
-        let work = DispatchWorkItem { [weak self] in self?.applyActiveRect(open: false) }
+        let work = DispatchWorkItem { [weak self] in
+            self?.closeActiveRectWork = nil
+            self?.applyActiveRect(open: false)
+        }
         closeActiveRectWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.collapseRectShrinkDelay, execute: work)
     }
@@ -2294,7 +2299,7 @@ final class NotchController {
             switchOn: switchOn,
             pointerInside: !blocked && pointer.isInside,
             pointerUnderGrownPill: !blocked
-                && vm.geometry.collapsedHoverRect(for: grown.width).contains(NSEvent.mouseLocation),
+                && vm.geometry.grownAlertRect(for: .ambient(activity), body: grown).contains(NSEvent.mouseLocation),
             screensAsleep: screensAreAsleep,
             quiet: momentsAreQuiet()
         ) else { return }
@@ -2442,6 +2447,12 @@ final class NotchController {
 
     func refreshCollapsedRects() {
         guard let vm = viewModel, !vm.isOpen, !vm.isDropTargeted else { return }
+        // A panel still folding keeps its clicks until the fold is done; the
+        // close's own cut, already scheduled for then, reads whatever is
+        // current when it lands. Cut here, an alert promoted the moment the
+        // panel began to close let clicks on the visibly folding panel through
+        // to the app behind it (R7 review).
+        if let pending = closeActiveRectWork, !pending.isCancelled { return }
         // The locked panel's rect is the card's, and it is cut against a
         // screen-sized window — see `sneakPeek`. Re-cut it for the card, not
         // for the collapsed shell.

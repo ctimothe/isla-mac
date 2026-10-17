@@ -227,6 +227,29 @@ final class HUDMomentTests: XCTestCase {
         XCTAssertNil(vm.hud, "nothing over the lock screen")
     }
 
+    /// A panel folding still takes its clicks until the fold is done, even
+    /// when something re-cuts the shut island's rects meanwhile — an alert
+    /// that waited for the panel and is promoted the moment `isOpen` flips is
+    /// the usual one. Cut at once, clicks on the visibly folding panel fell
+    /// through to the app behind it for about 0.3 s (R7 review).
+    func testARecutDuringTheFoldWaitsForItsEnd() async throws {
+        let (controller, vm, isolated) = try rig()
+        defer { isolated.release() }
+        vm.isOpen = true
+        vm.isPinnedOpen = true
+        controller.refreshOpenRects(animated: false)
+        let open = try XCTUnwrap(controller.rootView?.activeRect)
+        controller.outsideMouseDown()
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertFalse(vm.isOpen, "the fold has begun")
+        controller.refreshCollapsedRects()
+        XCTAssertEqual(controller.rootView?.activeRect, open, "the folding panel still answers")
+        try await Task.sleep(for: .milliseconds(Int(NotchMetrics.collapseRectShrinkDelay * 1000) + 100))
+        XCTAssertLessThan(try XCTUnwrap(controller.rootView?.activeRect).height, open.height, "cut once it has folded")
+        controller.refreshCollapsedRects()
+        XCTAssertLessThan(try XCTUnwrap(controller.rootView?.activeRect).height, open.height, "and re-cut freely after")
+    }
+
     // MARK: Render
 
     /// The pop-up draws over each of the three kinds without trapping, and the

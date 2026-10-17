@@ -163,6 +163,39 @@ final class AmbientMomentTests: XCTestCase {
         XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [], hasInternalBattery: true), "no displays reported")
     }
 
+    /// The pointer test before an alert grows covers the shape it will grow
+    /// into — its full depth and its shoulders — not the notch-deep strip a
+    /// compact pill took. The headphones alert reaches 57 pt below a 38 pt
+    /// notch with 20 pt shoulders; tested against the strip, a pointer parked
+    /// on a browser's tab bar under the notch let it grow beneath the cursor,
+    /// take the click meant for the tab, and hold as long as the pointer did
+    /// (R7 review).
+    func testThePointerTestCoversTheWholeShapeTheAlertGrowsInto() throws {
+        let onscreen = try XCTUnwrap(NotchGeometry.current(), "a test host always has a screen")
+        let geometry = NotchGeometry(
+            screen: onscreen.screen, notchSize: CGSize(width: 185, height: 38),
+            notchCenterX: onscreen.screen.frame.midX, isPhysical: true
+        )
+        let pods = AmbientActivity.headphones(name: "AirPods Pro", symbol: "airpods.pro")
+        let body = NotchViewModel.ambientBodySize(pods, notchSize: geometry.notchSize, bodyWidth: 560)
+        let rect = geometry.grownAlertRect(for: .ambient(pods), body: body)
+        let top = onscreen.screen.frame.maxY
+        XCTAssertTrue(rect.contains(CGPoint(x: geometry.notchCenterX, y: top - 80)), "80 pt down is on the alert")
+        XCTAssertTrue(
+            rect.contains(CGPoint(x: geometry.notchCenterX + body.width / 2 + 18, y: top - 4)),
+            "the shoulder, 18 pt past the body"
+        )
+        XCTAssertFalse(rect.contains(CGPoint(x: geometry.notchCenterX, y: top - body.height - 20)), "below it is not")
+
+        let charger = AmbientActivity.charging(level: 67, isCharging: true)
+        let compact = NotchViewModel.ambientBodySize(charger, notchSize: geometry.notchSize, bodyWidth: 560)
+        let chargerRect = geometry.grownAlertRect(for: .ambient(charger), body: compact)
+        XCTAssertTrue(
+            chargerRect.contains(CGPoint(x: geometry.notchCenterX + compact.width / 2 + 8, y: top - 4)),
+            "a compact activity's 8.67 pt shoulder too"
+        )
+    }
+
     /// The charger is a compact activity, the notch plus 180; headphones an
     /// expanded alert in the reference's shape. Neither widens to the music
     /// it replaces — that pill is gone, not under it (spec §19.1) — and
