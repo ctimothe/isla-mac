@@ -626,6 +626,8 @@ struct SettingsPane: View {
         // Shortcuts
         case .shortcutOpenPanel:
             ShortcutRecorderRow(action: .openPanel, center: hotKeys, wantsKeyboard: wantsKeyboard)
+        case .shortcutClipboard:
+            ShortcutRecorderRow(action: .showClipboard, center: hotKeys, wantsKeyboard: wantsKeyboard)
         case .shortcutLyrics:
             ShortcutRecorderRow(action: .showLyrics, center: hotKeys, wantsKeyboard: wantsKeyboard)
         case .shortcutTranslate:

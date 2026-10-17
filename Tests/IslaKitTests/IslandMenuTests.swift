@@ -28,6 +28,7 @@ final class IslandMenuTests: XCTestCase {
     func testTheShownKeysAreTheCurrentBindings() {
         let items = IslandMenu.items(bindings: bindings, songPlaying: true)
         func shown(_ kind: IslandMenuItem.Kind) -> HotKeyBinding? { items.first { $0.kind == kind }?.shown }
+        XCTAssertEqual(shown(.clipboard), HotKeyAction.showClipboard.defaultBinding, "⌃⌥⌘V")
         XCTAssertEqual(shown(.translateClipboard), HotKeyAction.translateClipboard.defaultBinding)
         XCTAssertEqual(shown(.lyrics), HotKeyAction.showLyrics.defaultBinding)
         XCTAssertNil(shown(.shelf))

@@ -8,11 +8,11 @@ import XCTest
 final class LyricRoutesTests: XCTestCase {
 
     /// The lyrics shortcut is its own key, not a second name for one already
-    /// bound. All three share ⌃⌥⌘, so the key codes are the only thing keeping
+    /// bound. All four share ⌃⌥⌘, so the key codes are the only thing keeping
     /// them apart.
-    func testTheThreeHotkeysAreDistinct() {
+    func testTheFourHotkeysAreDistinct() {
         let codes = HotKeyAction.allCases.map(\.defaultBinding.keyCode)
-        XCTAssertEqual(Set(codes).count, 3, "⌃⌥⌘I, ⌃⌥⌘T and ⌃⌥⌘L must be three different keys")
+        XCTAssertEqual(Set(codes).count, 4, "⌃⌥⌘I, ⌃⌥⌘V, ⌃⌥⌘T and ⌃⌥⌘L must be four different keys")
         XCTAssertEqual(HotKeyBinding.defaultModifiers, UInt32(controlKey | optionKey | cmdKey))
     }
 

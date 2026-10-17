@@ -55,6 +55,32 @@ final class NotchControllerRectTests: XCTestCase {
         }
     }
 
+    /// ⌃⌥⌘V opens Clipboard with the keyboard, pinned like every command,
+    /// from any surface; pressed again on Clipboard it closes and gives the
+    /// keyboard back (spec §19.8). Over the lock it opens nothing.
+    func testTheClipboardKeyIsTheWholeRoundTrip() throws {
+        let (controller, vm, _) = try rig()
+        vm.isOpen = false
+        controller.toggleClipboard()
+        XCTAssertTrue(vm.isOpen)
+        XCTAssertEqual(vm.presented, .clipboard)
+        XCTAssertTrue(vm.wantsKeyboard)
+        XCTAssertTrue(vm.isPinnedOpen, "the hand that asked is on the keyboard")
+
+        vm.open(.tray)
+        controller.toggleClipboard()
+        XCTAssertEqual(vm.presented, .clipboard, "from another surface it goes to Clipboard rather than closing")
+
+        controller.toggleClipboard()
+        XCTAssertFalse(vm.isOpen, "pressed again on Clipboard it closes")
+        XCTAssertFalse(vm.wantsKeyboard)
+
+        vm.isLockedPresentation = true
+        controller.toggleClipboard()
+        XCTAssertFalse(vm.isOpen, "nothing opens over the lock")
+        XCTAssertEqual(vm.lockedHoverNudges, 1, "the refusal is the island's shake")
+    }
+
     /// The active rect and the close rect a body of `size` should get.
     private func expected(_ vm: NotchViewModel, size: CGSize) -> (active: CGSize, close: CGSize) {
         let slack = vm.openTopRadius

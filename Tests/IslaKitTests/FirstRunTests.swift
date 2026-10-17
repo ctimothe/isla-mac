@@ -316,15 +316,17 @@ final class FirstRunTests: XCTestCase {
     /// (spec §19.8): a click opens what is playing, a right-click everything
     /// else, files dragged to the notch are kept, and the live shortcuts.
     func testTheWelcomeLegendHasFourDistinctLinesAndPrintsTheLiveShortcuts() {
-        let pane = WelcomePane(onDismiss: {}, openKeys: "⌃⌥⌘I", shortcuts: [
-            .init(keys: "⌃⌥⌘T", name: "Translate"), .init(keys: "⌃⌥⌘L", name: "Lyrics"),
-        ])
+        let pane = WelcomePane(onDismiss: {}, openKeys: "⌃⌥⌘I", shortcuts: WelcomePane.liveShortcuts(
+            bindings: Dictionary(uniqueKeysWithValues: HotKeyAction.allCases.map { ($0, $0.defaultBinding) }),
+            copy: .english
+        ))
         let legend = pane.legend
         XCTAssertEqual(legend.count, 4)
         XCTAssertEqual(Set(legend.map(\.text)).count, legend.count, "two lines share their words: \(legend)")
         XCTAssertEqual(Set(legend.map(\.symbol)).count, legend.count, "two lines share a glyph: \(legend)")
         XCTAssertFalse(legend.contains(where: { $0.text.isEmpty || $0.symbol.isEmpty }), "\(legend)")
-        XCTAssertEqual(pane.keysLine, "⌃⌥⌘T Translate · ⌃⌥⌘L Lyrics")
+        // §19.8's fourth line, in its order, from the bindings as they ship.
+        XCTAssertEqual(pane.keysLine, "⌃⌥⌘V Clipboard · ⌃⌥⌘T Translate · ⌃⌥⌘L Lyrics")
         XCTAssertEqual(legend.last?.text, pane.keysLine)
         XCTAssertTrue(pane.comeBackLine.contains("⌃⌥⌘I"), pane.comeBackLine)
         // "Click it to open", said on a panel that was already open, read as
@@ -356,6 +358,13 @@ final class FirstRunTests: XCTestCase {
                 copy: .english
             ).map(\.name),
             ["Translate"]
+        )
+        // Every key but the clipboard's: the line starts at Translate.
+        var withoutClipboard = Dictionary(uniqueKeysWithValues: HotKeyAction.allCases.map { ($0, $0.defaultBinding) })
+        withoutClipboard[.showClipboard] = nil
+        XCTAssertEqual(
+            WelcomePane.liveShortcuts(bindings: withoutClipboard, copy: .english).map(\.name),
+            ["Translate", "Lyrics"]
         )
     }
 

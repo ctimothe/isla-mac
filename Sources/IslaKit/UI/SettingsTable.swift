@@ -106,7 +106,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     case clipboardHistory, includeImages, keepPinned
     case coverClipboard, coverTranslate, hideFromRecording
     // Shortcuts
-    case shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts
+    case shortcutOpenPanel, shortcutClipboard, shortcutLyrics, shortcutTranslate, restoreShortcuts
     // Music
     case nowPlayingReader, automationStatus, automationPermission
     case musicOnly, installedPlayers, volumeAndOutput, lyricBand
@@ -158,7 +158,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
             return .choice
         case .translateTo:
             return .popUp
-        case .shortcutOpenPanel, .shortcutLyrics, .shortcutTranslate:
+        case .shortcutOpenPanel, .shortcutClipboard, .shortcutLyrics, .shortcutTranslate:
             return .shortcut
         case .openLoginItems, .restoreShortcuts, .nowPlayingReader, .automationPermission, .accessibilityPermission,
              .resetLyricDelay,
@@ -202,6 +202,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .coverTranslate: return PrivacyMode.Section.translate.settingsTitle
         case .hideFromRecording: return localized("Hide from Screen Recording")
         case .shortcutOpenPanel: return HotKeyAction.openPanel.title
+        case .shortcutClipboard: return HotKeyAction.showClipboard.title
         case .shortcutLyrics: return HotKeyAction.showLyrics.title
         case .shortcutTranslate: return HotKeyAction.translateClipboard.title
         case .restoreShortcuts: return localized("Restore Default Shortcuts")
@@ -584,7 +585,7 @@ enum SettingsTable {
     private static func shortcuts(_ c: SettingsContext) -> [SettingsBlock] {
         var blocks: [SettingsBlock] = [
             .header(localized("Keyboard Shortcuts")),
-            .group([.shortcutOpenPanel, .shortcutLyrics, .shortcutTranslate]),
+            .group([.shortcutOpenPanel, .shortcutClipboard, .shortcutLyrics, .shortcutTranslate]),
         ]
         for note in c.shortcutNotes { blocks.append(.footnote(note)) }
         blocks.append(.footnote(localized("Records a new shortcut. Press Delete to clear it, Escape to cancel.")))

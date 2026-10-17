@@ -789,6 +789,22 @@ final class NotchController {
         updatePinnedClickMonitor()
     }
 
+    /// ⌃⌥⌘V: Clipboard, with the caret in its search, from whatever app is in
+    /// front (spec §19.8). Pressed again on Clipboard it closes, so one key is
+    /// the whole round trip, as ⌃⌥⌘L is for the stage.
+    func toggleClipboard() {
+        guard let vm = viewModel else { return }
+        if vm.isOpen, vm.presented == .clipboard {
+            setOpen(false)
+            // The pointer may stand on the folding panel; see
+            // `PointerWatcher.closedByHand()`.
+            pointer.closedByHand()
+            updatePinnedClickMonitor()
+            return
+        }
+        openCommanded(.clipboard)
+    }
+
     /// A secondary click at `point`, in the content view: the island's menu,
     /// the locked island's shake, or nothing of the island's (spec §19.9).
     private func secondaryClicked(at point: NSPoint) -> Bool {

@@ -27,6 +27,8 @@ final class HotKeyTests: XCTestCase {
             HotKeyBinding(keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(optionKey | cmdKey)),
             HotKeyBinding(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(optionKey | cmdKey)),
             HotKeyBinding(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(optionKey | cmdKey)),
+            // Finder's Move Item Here, the clipboard key's near neighbour.
+            HotKeyBinding(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey | cmdKey)),
         ]
         for action in HotKeyAction.allCases {
             XCTAssertFalse(taken.contains(action.defaultBinding), "\(action) defaults to a key an app already owns")
@@ -35,8 +37,25 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(Set(HotKeyAction.allCases.map(\.defaultBinding)).count, HotKeyAction.allCases.count)
     }
 
+    /// ⌃⌥⌘V is the fourth key (spec §19.8, §19.13): registered with the
+    /// others, and pressing it runs the clipboard's handler and no other.
+    func testTheClipboardKeyIsRegisteredAndRunsItsOwnHandler() {
+        let fake = FakeRegistrar()
+        let center = HotKeyCenter(defaults: defaults, registrar: fake.register)
+        var ran: [HotKeyAction] = []
+        center.install(Dictionary(uniqueKeysWithValues: HotKeyAction.allCases.map { action in (action, { ran.append(action) }) }))
+        XCTAssertEqual(HotKeyAction.allCases, [.openPanel, .showClipboard, .showLyrics, .translateClipboard],
+                       "the order Settings › Shortcuts lists them in")
+        let v = HotKeyBinding(keyCode: UInt32(kVK_ANSI_V), modifiers: HotKeyBinding.defaultModifiers)
+        XCTAssertTrue(fake.live.contains(v))
+        fake.press(v)
+        XCTAssertEqual(ran, [.showClipboard])
+        XCTAssertEqual(HotKeyAction.showClipboard.title, localized("Show the clipboard"))
+    }
+
     func testTheDefaultsReadTheWayMacOSWritesThem() {
         XCTAssertEqual(HotKeyAction.openPanel.defaultBinding.displayString, "⌃⌥⌘I")
+        XCTAssertEqual(HotKeyAction.showClipboard.defaultBinding.displayString, "⌃⌥⌘V")
         XCTAssertEqual(HotKeyAction.showLyrics.defaultBinding.displayString, "⌃⌥⌘L")
         XCTAssertEqual(HotKeyAction.translateClipboard.defaultBinding.displayString, "⌃⌥⌘T")
         let shifted = HotKeyBinding(keyCode: UInt32(kVK_F5), modifiers: UInt32(shiftKey | cmdKey))
@@ -95,7 +114,7 @@ final class HotKeyTests: XCTestCase {
         center.beginRecording(.openPanel)
         XCTAssertTrue(center.record(keyCode: UInt16(kVK_Delete), flags: []))
         XCTAssertNil(center.bindings[.openPanel], "Delete clears it")
-        XCTAssertEqual(fake.live.count, 2)
+        XCTAssertEqual(fake.live.count, 3)
     }
 
     func testTeardownLeavesNoMonitor() {
@@ -130,12 +149,12 @@ final class HotKeyTests: XCTestCase {
         let fake = FakeRegistrar()
         let center = HotKeyCenter(defaults: defaults, registrar: fake.register)
         center.install(Dictionary(uniqueKeysWithValues: HotKeyAction.allCases.map { ($0, {}) }))
-        XCTAssertEqual(fake.live.count, 3)
+        XCTAssertEqual(fake.live.count, 4)
 
         let chosen = HotKeyBinding(keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(controlKey | cmdKey))
         center.setBinding(chosen, for: .openPanel)
 
-        XCTAssertEqual(fake.live.count, 3)
+        XCTAssertEqual(fake.live.count, 4)
         XCTAssertTrue(fake.live.contains(chosen))
         XCTAssertFalse(fake.live.contains(HotKeyAction.openPanel.defaultBinding))
     }
@@ -151,7 +170,7 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(center.bindings[.openPanel], HotKeyAction.showLyrics.defaultBinding)
         XCTAssertNil(center.bindings[.showLyrics])
         XCTAssertNil(HotKeyBinding.stored(for: .showLyrics, in: defaults))
-        XCTAssertEqual(fake.live.count, 2)
+        XCTAssertEqual(fake.live.count, 3)
     }
 
     /// Pressing the key already bound, to record it, must not fire it.
@@ -163,7 +182,7 @@ final class HotKeyTests: XCTestCase {
         center.beginRecording(.openPanel)
         XCTAssertTrue(fake.live.isEmpty)
         center.endRecording()
-        XCTAssertEqual(fake.live.count, 3)
+        XCTAssertEqual(fake.live.count, 4)
     }
 
     /// A combination macOS will not register comes back refused, and Settings
@@ -255,6 +274,14 @@ extension HotKeyTests {
 private final class FakeRegistrar {
     var live: Set<HotKeyBinding> = []
     var refuse: Set<HotKeyBinding> = []
+    private var actions: [HotKeyBinding: () -> Void] = [:]
+
+    /// The key pressed, as the system would deliver it: whatever is
+    /// registered on it runs, and an unregistered key does nothing.
+    func press(_ binding: HotKeyBinding) {
+        guard live.contains(binding) else { return }
+        actions[binding]?()
+    }
 
     final class Registration: HotKeyRegistration {
         let onUnregister: () -> Void
@@ -265,6 +292,10 @@ private final class FakeRegistrar {
     func register(_ binding: HotKeyBinding, _ action: @escaping () -> Void) -> HotKeyRegistration? {
         guard !refuse.contains(binding) else { return nil }
         live.insert(binding)
-        return Registration { [weak self] in self?.live.remove(binding) }
+        actions[binding] = action
+        return Registration { [weak self] in
+            self?.live.remove(binding)
+            self?.actions[binding] = nil
+        }
     }
 }

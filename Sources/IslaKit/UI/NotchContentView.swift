@@ -1225,7 +1225,7 @@ struct NotchContentView: View {
             .clipboard(
                 newest: vm.clipboard.items.first,
                 covered: vm.privacy.covers(.clipboard),
-                shortcut: nil
+                shortcut: hotKeys.bindings[.showClipboard]?.displayString
             ),
             .translate(
                 source: vm.translator.source?.name, target: vm.translator.target.name,

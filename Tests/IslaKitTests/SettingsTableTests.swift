@@ -87,7 +87,7 @@ final class SettingsTableTests: XCTestCase {
             // R5 (spec §12) turns Volume and Brightness on: last in "The island shows", off by default.
             .general: [.launchAtLogin, .openOnHover, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness],
             .privacy: [.clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording],
-            .shortcuts: [.shortcutOpenPanel, .shortcutLyrics, .shortcutTranslate],
+            .shortcuts: [.shortcutOpenPanel, .shortcutClipboard, .shortcutLyrics, .shortcutTranslate],
             .music: [.musicOnly, .volumeAndOutput, .lyricBand],
             .lyrics: [
                 .showLyrics, .wordKaraoke, .showNextLineEarly, .lyricDelay, .translateLyrics, .translateTo,
@@ -726,6 +726,7 @@ final class SettingsTableTests: XCTestCase {
             ("Cover Translate Text", .coverTranslate, .privacy),
             ("Hide from Screen Recording", .hideFromRecording, .privacy),
             ("Open the panel (recorder)", .shortcutOpenPanel, .shortcuts),
+            ("Show the clipboard (recorder)", .shortcutClipboard, .shortcuts),
             ("Show the lyrics (recorder)", .shortcutLyrics, .shortcuts),
             ("Translate the clipboard (recorder)", .shortcutTranslate, .shortcuts),
             ("Restore Default Shortcuts", .restoreShortcuts, .shortcuts),

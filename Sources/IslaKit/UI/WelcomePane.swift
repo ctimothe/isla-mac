@@ -125,12 +125,14 @@ struct WelcomePane: View {
     /// Every key this pane shows, so a test can prove both tables carry them.
     static let localizedKeys = Copy.english.all
 
-    /// The fourth line's shortcuts as bound now: Translate, then Lyrics.
+    /// The fourth line's shortcuts as bound now: Clipboard, Translate, then
+    /// Lyrics — the order Settings › Shortcuts lists them in.
     @MainActor static func liveShortcuts(
         bindings: [HotKeyAction: HotKeyBinding]? = nil, copy: Copy = .fromTables
     ) -> [Shortcut] {
         let bindings = bindings ?? HotKeyCenter.shared.bindings
         let order: [(HotKeyAction, String)] = [
+            (.showClipboard, copy.clipboard),
             (.translateClipboard, copy.translate),
             (.showLyrics, copy.lyrics),
         ]

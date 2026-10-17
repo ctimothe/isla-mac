@@ -31,7 +31,7 @@ enum IslandMenu {
     /// nothing playing, the stage it opens is the empty player.
     static func items(bindings: [HotKeyAction: HotKeyBinding], songPlaying: Bool) -> [IslandMenuItem] {
         [
-            IslandMenuItem(kind: .clipboard, title: localized("Clipboard")),
+            IslandMenuItem(kind: .clipboard, title: localized("Clipboard"), shown: bindings[.showClipboard]),
             IslandMenuItem(
                 kind: .translateClipboard, title: localized("Translate Clipboard"),
                 shown: bindings[.translateClipboard]

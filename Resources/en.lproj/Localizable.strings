@@ -559,3 +559,6 @@
 /* The island's right-click menu (spec §19.9). */
 "Translate Clipboard" = "Translate Clipboard";
 "Settings…" = "Settings…";
+
+/* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
+"Show the clipboard" = "Show the clipboard";

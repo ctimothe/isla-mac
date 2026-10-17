@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // change while the app runs.
         HotKeyCenter.shared.install([
             .openPanel: { [weak self] in self?.togglePanel() },
+            .showClipboard: { [weak self] in self?.controller?.toggleClipboard() },
             // No text is passed on as `nil`, not dropped here: with an image
             // on the clipboard the shortcut used to do nothing at all, which
             // looked like a shortcut that was never registered (F-040). The

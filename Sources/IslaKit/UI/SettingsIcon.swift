@@ -26,6 +26,7 @@ enum SettingsIcon {
     /// The panel, at the top of the screen, which is what the shortcut opens.
     static let shortcutOpenPanel = "rectangle.topthird.inset.filled"
     /// The lyrics page's own glyph, not the Music section's switch.
+    static let shortcutClipboard = "list.clipboard"
     static let shortcutLyrics = "text.quote"
     static let shortcutTranslate = "translate"
     static let restoreShortcuts = "arrow.uturn.backward"
@@ -121,7 +122,7 @@ enum SettingsIcon {
 
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth, showCharging, showHeadphones,
-        shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
+        shortcutOpenPanel, shortcutClipboard, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
         online, lyricTiming, resetTiming, peek, outputButton, lyricBand, translateLyrics, translateTarget, lockScreen, restAsBanner, cardStyle, automationAccess, openSystemSettings,
