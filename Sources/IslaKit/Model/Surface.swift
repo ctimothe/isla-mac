@@ -195,6 +195,26 @@ enum SurfaceLayout {
     /// The glyph-and-title pair's leading edge on a summoned surface.
     static let headerTitleLeading: CGFloat = 20
 
+    /// The outline between pages (§19.16): at `position` along `pages`, each
+    /// page's own size at rest, and the two either side of it mixed by the
+    /// travel between them, so the outline's width and height move in step
+    /// with the content. A rubber band past an end keeps the end page's size.
+    static func travelSize(
+        pages: [NotchViewModel.Surface], position: CGFloat, bodyWidth: CGFloat, notch: CGSize
+    ) -> CGSize {
+        let last = pages.count - 1
+        let clamped = min(max(position, 0), CGFloat(last))
+        let lower = min(Int(clamped.rounded(.down)), last)
+        let leaving = bodySize(for: pages[lower], bodyWidth: bodyWidth, notch: notch)
+        guard lower < last else { return leaving }
+        let arriving = bodySize(for: pages[lower + 1], bodyWidth: bodyWidth, notch: notch)
+        let fraction = clamped - CGFloat(lower)
+        return CGSize(
+            width: leaving.width + (arriving.width - leaving.width) * fraction,
+            height: leaving.height + (arriving.height - leaving.height) * fraction
+        )
+    }
+
     static func bodySize(
         for surface: NotchViewModel.Surface, bodyWidth bw: CGFloat, notch: CGSize
     ) -> CGSize {

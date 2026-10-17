@@ -2,6 +2,9 @@ import SwiftUI
 
 struct NotchContentView: View {
     @ObservedObject var vm: NotchViewModel
+    /// The pages on their way between two (spec §19.16): watched here, where
+    /// the outline and the pages are drawn from it, and nowhere else.
+    @ObservedObject private var travel: PageTravel
     /// Reduce Motion and Increase Contrast from the app's one source rather than
     /// from SwiftUI's environment. The environment answers Reduce Motion on
     /// macOS — it is the only one of the three display settings it carries —
@@ -18,6 +21,11 @@ struct NotchContentView: View {
     /// name: both follow their sources while the panel is up.
     @ObservedObject private var updates = UpdateCheck.shared
     @ObservedObject private var hotKeys = HotKeyCenter.shared
+
+    init(vm: NotchViewModel) {
+        _vm = ObservedObject(wrappedValue: vm)
+        _travel = ObservedObject(wrappedValue: vm.pageTravel)
+    }
 
     /// Translate's History is offered only while Keep History is on (spec
     /// §11): read from the translator's own defaults when the header draws,
@@ -438,7 +446,10 @@ struct NotchContentView: View {
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .top)
-            .clipped()
+            // Square at rest, as it always was. Between two pages the one
+            // arriving passes the outline's bottom corners, and is clipped by
+            // them rather than drawn over the wallpaper beside them (§19.16).
+            .clipShape(NotchShape(topRadius: 0, bottomRadius: vm.travellingLeg == nil ? 0 : shapeBottomRadius))
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         // A click anywhere on the collapsed island opens it. The equalizer
@@ -1190,6 +1201,10 @@ struct NotchContentView: View {
                 alignment: .topLeading
             )
             .frame(height: max(0, size.height - vm.geometry.notchSize.height), alignment: .top)
+            // A sideways swipe anywhere over a page turns it (§19.16).
+            .onPageSwipe(enabled: vm.presented.isPage && !vm.isLockedPresentation) { event, over in
+                vm.pageScroll(event, over: over)
+            }
             // VO-Escape, or Switch Control's Escape, anywhere in the body closes
             // the panel, as the header does. A panel opened from assistive tech is
             // pinned open, and the pin ends only on a real mouse-down in another
@@ -1199,22 +1214,35 @@ struct NotchContentView: View {
     }
 
     private var panes: some View {
-        // Content is replaced in place, with the slight zoom that is the only
-        // travel a swap has; Reduce Motion takes it, and the swap is a plain
-        // crossfade (F-017). The body's own size springs on the island's curve
-        // underneath (`openBodySize`).
+        // At rest, one pane: the presented surface, replaced in place with the
+        // slight zoom that is the only travel a swap has; Reduce Motion takes
+        // it, and the swap is a plain crossfade (F-017). The body's own size
+        // springs on the island's curve underneath (`openBodySize`).
+        //
+        // Between two pages (§19.16), the two either side of the travel, side
+        // by side, each at its own size, moved by exactly the travel and
+        // clipped by the outline. One `ForEach` keyed by the surface for both,
+        // so the page on screen when a swipe begins stays the view it was —
+        // its scroll, its field, its hover — and the neighbour joins it, and
+        // later leaves, with no transition: it is off the outline when it does.
         let scales = Theme.paneSwapScales(reduceMotion: reduceMotion)
+        let leg = vm.travellingLeg
+        let shown = leg?.mounted ?? [vm.presented]
         return ZStack(alignment: .topLeading) {
-            pane
-                .id(vm.presented)
-                .transition(.asymmetric(
-                    insertion: .opacity
-                        .combined(with: .scale(scale: scales.insertion))
-                        .animation(Theme.paneIn),
-                    removal: .opacity
-                        .combined(with: .scale(scale: scales.removal))
-                        .animation(Theme.paneOut)
-                ))
+            ForEach(shown) { surface in
+                let frame = paneSize(surface)
+                pane(for: surface)
+                    .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+                    .offset(x: paneX(surface, leg: leg))
+                    .transition(leg != nil ? .identity : .asymmetric(
+                        insertion: .opacity
+                            .combined(with: .scale(scale: scales.insertion))
+                            .animation(Theme.paneIn),
+                        removal: .opacity
+                            .combined(with: .scale(scale: scales.removal))
+                            .animation(Theme.paneOut)
+                    ))
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // One group, named for what it holds.
@@ -1222,10 +1250,43 @@ struct NotchContentView: View {
         .accessibilityLabel(vm.presented.title)
     }
 
+    /// A pane's own frame: its surface's open body less the header row, and
+    /// less the dots' band on a page.
+    private func paneSize(_ surface: NotchViewModel.Surface) -> CGSize {
+        let body = vm.openSize(of: surface)
+        return CGSize(
+            width: body.width,
+            height: max(0, body.height - vm.geometry.notchSize.height - SurfaceLayout.dotsBand(for: surface))
+        )
+    }
+
+    /// Where a pane's leading edge sits in the outline: centred, and on the
+    /// way between two pages moved by exactly the travel (`PageStrip`).
+    private func paneX(_ surface: NotchViewModel.Surface, leg: PageTravel.Leg?) -> CGFloat {
+        guard let leg, let index = leg.strip.pages.firstIndex(of: surface) else {
+            return (size.width - vm.openSize(of: surface).width) / 2
+        }
+        return leg.strip.x(ofPage: index, at: leg.position, outlineWidth: size.width)
+    }
+
+    /// Whether a pane drawn now is the surface on screen, or a page beside it
+    /// only for a swipe's length (§19.16). Only the one on screen may hold
+    /// the keyboard or start work: a neighbour that took focus on appearing
+    /// would take the keyboard from the page the fingers are still on — and
+    /// keep it if they went back — and Translate passed on the way would
+    /// translate its text for nobody.
+    nonisolated static func paneIsLive(
+        _ surface: NotchViewModel.Surface, presented: NotchViewModel.Surface
+    ) -> Bool {
+        surface == presented
+    }
+
     @ViewBuilder
-    private var pane: some View {
-        let bodyWidth = vm.openBodySize.width
-        switch vm.presented {
+    private func pane(for surface: NotchViewModel.Surface) -> some View {
+        let bodyWidth = vm.openSize(of: surface).width
+        let live = Self.paneIsLive(surface, presented: vm.presented)
+        let keyboard = live ? $vm.wantsKeyboard : .constant(false)
+        switch surface {
         case .player:
             // The namespace goes down with the player: the far end of the
             // cover's travel is drawn inside it, and it is the one surface that
@@ -1267,22 +1328,22 @@ struct NotchContentView: View {
                 coverTint: vm.coverTint.nsColor
             )
         case .tray:
-            ShelfPane(shelf: vm.shelf, clear: vm.shelfClear, bodyWidth: bodyWidth)
+            ShelfPane(shelf: vm.shelf, clear: vm.shelfClear, bodyWidth: bodyWidth, strip: vm.shelfStrip)
         case .drop:
             ShelfDropSurface(bodyWidth: bodyWidth, dropTarget: vm.shelfDropTarget)
         case .clipboard:
             ClipboardPane(
                 clipboard: vm.clipboard, privacy: vm.privacy, browser: vm.clipboardBrowser,
                 bodyWidth: bodyWidth,
-                wantsKeyboard: $vm.wantsKeyboard,
+                wantsKeyboard: keyboard,
                 translate: { vm.translateClipboardText($0) },
                 clearConfirmation: vm.clipboardClear,
                 turnOnHistory: { vm.setClipboardHistory(true) }
             )
         case .translate:
             TranslatePane(
-                translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard,
-                showsHistory: $vm.translateShowsHistory, bodyWidth: bodyWidth
+                translator: vm.translator, privacy: vm.privacy, wantsKeyboard: keyboard,
+                showsHistory: $vm.translateShowsHistory, bodyWidth: bodyWidth, isLive: live
             )
                 .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:

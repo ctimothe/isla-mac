@@ -42,19 +42,25 @@ struct TranslatePane: View {
     @AppStorage private var speakButton: Bool
 
     @FocusState private var focused: Bool
+    /// False while the pane is drawn only as the page beside the one on
+    /// screen, for a swipe's length (§19.16): it translates nothing until it
+    /// is the page.
+    private let isLive: Bool
 
     init(
         translator: Translator,
         privacy: PrivacyMode,
         wantsKeyboard: Binding<Bool>,
         showsHistory: Binding<Bool> = .constant(false),
-        bodyWidth: CGFloat = NotchMetrics.defaultBodyWidth
+        bodyWidth: CGFloat = NotchMetrics.defaultBodyWidth,
+        isLive: Bool = true
     ) {
         self.translator = translator
         self.privacy = privacy
         _wantsKeyboard = wantsKeyboard
         _showsHistory = showsHistory
         self.bodyWidth = bodyWidth
+        self.isLive = isLive
         _history = ObservedObject(wrappedValue: translator.history)
         _speaker = ObservedObject(wrappedValue: translator.speaker)
         _keepHistory = AppStorage(wrappedValue: false, NotchViewModel.translateKeepHistoryKey, store: translator.defaults)
@@ -210,7 +216,9 @@ struct TranslatePane: View {
             .frame(width: bodyWidth, height: TranslateLayout.contentHeight, alignment: .topLeading)
         // One task for both the text and the retry counter: a keystroke
         // cancels the pending sleep, so only a pause actually translates.
-        .task(id: translator.request) { await schedule() }
+        .task(id: isLive ? translator.request : nil) {
+            if isLive { await schedule() }
+        }
         .onAppear { focused = wantsKeyboard }
         .onChange(of: wantsKeyboard) { _, wants in focused = wants }
         // The list replaces the field; the field comes back asking for the

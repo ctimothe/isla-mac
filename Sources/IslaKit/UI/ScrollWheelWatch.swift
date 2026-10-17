@@ -77,7 +77,7 @@ final class StagePointer {
     }
 }
 
-private struct ScrollAnchor: NSViewRepresentable {
+struct ScrollAnchor: NSViewRepresentable {
     let box: StagePointer
 
     func makeNSView(context: Context) -> NSView {

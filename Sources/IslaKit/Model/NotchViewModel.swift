@@ -23,6 +23,9 @@ final class NotchViewModel: ObservableObject {
             // back (spec §9.3): a field left open would be waiting, with its
             // query, inside the next visit.
             if !isOpen, oldValue {
+                // A swipe does not outlive the panel it was made on.
+                pageTravel.finish()
+                pageSwipe = PageSwipe()
                 clipboardBrowser.clearQuery()
                 // Reading a translation aloud ends with the panel (spec §11), and
                 // the History list is for the visit it was opened in: the next
@@ -165,7 +168,13 @@ final class NotchViewModel: ObservableObject {
     /// card instead of its normal shell.
     @Published var isLockedPresentation = false {
         // The shield going up ends a collected file's moment, as opening does.
-        didSet { if isLockedPresentation { endCollectedMoment() } }
+        didSet {
+            if isLockedPresentation {
+                endCollectedMoment()
+                pageTravel.finish()
+                pageSwipe = PageSwipe()
+            }
+        }
     }
     /// Whether Show on Lock Screen is on, read at each use. The setting lives in
     /// `UserDefaults.standard`; a test that depended on it skipped itself on a
@@ -243,6 +252,11 @@ final class NotchViewModel: ObservableObject {
     /// first page, and the one the bare notch opens at launch (§19.16).
     @Published var surface: Surface = .player {
         didSet {
+            // A surface changed by anything but the pages' own turn — the
+            // gear, the stage, the menu, a shortcut — puts the pages at rest
+            // at once, so the new surface arrives on its own swap rather than
+            // under a settle that was heading somewhere else.
+            if !isTurningByTravel, pageTravel.leg != nil { pageTravel.finish() }
             // The page the bare notch opens next (§19.16), and the place the
             // lit gear goes back to. The stage and Settings are a level below a
             // page and leave the page they came from standing.
@@ -281,6 +295,21 @@ final class NotchViewModel: ObservableObject {
             if !surface.takesKeyboard { wantsKeyboard = false }
         }
     }
+
+    /// The pages on their way between two (§19.16): under the fingers, or
+    /// settling after them, a dot or ⌃Tab. An object of its own, so the
+    /// frames of a swipe re-render the open island and nothing else that
+    /// watches this model.
+    let pageTravel = PageTravel()
+    /// The swipe under way: what its first 10 pt decided, and where its
+    /// fingers have the pages.
+    private var pageSwipe = PageSwipe()
+    /// Set while the pages turn `surface` themselves, so their own turn does
+    /// not end their travel.
+    private var isTurningByTravel = false
+    /// How far the tray's strip is scrolled: it scrolls first, and a swipe
+    /// pages from the tray only when it began at the strip's end.
+    let shelfStrip = ShelfStripPosition()
 
     /// The page last shown since launch: what the bare notch with no song, and
     /// ⌃⌥⌘I with nothing live, open (§19.16). Held for the launch only — a
@@ -1129,13 +1158,57 @@ final class NotchViewModel: ObservableObject {
     /// One size per surface (spec §19.6–§19.8, `SurfaceLayout`). The window is
     /// cut for the tallest once and never resized, so only the rects and the
     /// drawn body follow this.
+    ///
+    /// While the pages travel (§19.16) it is every page the leg can draw the
+    /// outline at, together: the drawn outline moves under the fingers
+    /// between two sizes, and the clickable region is cut once for all of
+    /// them rather than sixty times a second. It returns to the page's own
+    /// when the leg ends.
     var openBodySize: CGSize {
-        SurfaceLayout.bodySize(for: presented, bodyWidth: geometry.expandedSize.width, notch: geometry.notchSize)
+        if let leg = travellingLeg {
+            return leg.reachable.map(openSize(of:)).reduce(CGSize.zero) {
+                CGSize(width: max($0.width, $1.width), height: max($0.height, $1.height))
+            }
+        }
+        return openSize(of: presented)
     }
 
-    /// The open shape's shoulder and bottom corner, for the presented surface.
-    var openTopRadius: CGFloat { presented.topRadius }
-    var openBottomRadius: CGFloat { presented.bottomRadius }
+    /// One surface's open body on this display.
+    func openSize(of surface: Surface) -> CGSize {
+        SurfaceLayout.bodySize(for: surface, bodyWidth: geometry.expandedSize.width, notch: geometry.notchSize)
+    }
+
+    /// The leg the pages are on, while what is presented is a page: the drop
+    /// surface or the welcome laid over the pages leaves them at rest under it.
+    var travellingLeg: PageTravel.Leg? {
+        presented.isPage ? pageTravel.leg : nil
+    }
+
+    /// The outline as drawn while open: the presented surface's body, or
+    /// between two pages the mix the travel has reached.
+    var drawnOpenBodySize: CGSize {
+        guard let leg = travellingLeg else { return openBodySize }
+        return SurfaceLayout.travelSize(
+            pages: leg.strip.pages, position: leg.position,
+            bodyWidth: geometry.expandedSize.width, notch: geometry.notchSize
+        )
+    }
+
+    /// The open shape's shoulder and bottom corner, for the presented surface,
+    /// and mixed between two pages as their sizes are.
+    var openTopRadius: CGFloat { travelled(\.topRadius) }
+    var openBottomRadius: CGFloat { travelled(\.bottomRadius) }
+
+    private func travelled(_ radius: KeyPath<Surface, CGFloat>) -> CGFloat {
+        guard let leg = travellingLeg else { return presented[keyPath: radius] }
+        let last = leg.strip.lastIndex
+        let position = min(max(leg.position, 0), CGFloat(last))
+        let lower = min(Int(position.rounded(.down)), last)
+        let leaving = leg.strip.pages[lower][keyPath: radius]
+        guard lower < last else { return leaving }
+        let arriving = leg.strip.pages[lower + 1][keyPath: radius]
+        return leaving + (arriving - leaving) * (position - CGFloat(lower))
+    }
 
     /// Bumped each time the island is hovered while the Mac is locked.
     ///
@@ -1329,7 +1402,7 @@ final class NotchViewModel: ObservableObject {
     /// Size of the visible body for the current state: the open body, or the
     /// shape of the one activity the island shows (`IslandActivity`).
     var bodySize: CGSize {
-        if isOpen || isDropTargeted { return openBodySize }
+        if isOpen || isDropTargeted { return drawnOpenBodySize }
         let activity = self.activity
         let media = compactMediaActivity.bodySize(
             notchSize: geometry.notchSize,
@@ -1877,6 +1950,72 @@ final class NotchViewModel: ObservableObject {
         guard page.isPage else { return }
         surface = page
         wantsKeyboard = false
+    }
+
+    // MARK: - Swiping between pages (§19.16)
+
+    /// The four pages side by side at this display's sizes.
+    func pageStrip() -> PageStrip {
+        PageStrip(pages: Surface.pages, widths: Surface.pages.map { openSize(of: $0).width })
+    }
+
+    /// The tray's strip as it stands, for a gesture beginning on the tray.
+    var shelfStripEdge: PageSwipe.StripEdge? {
+        ShelfLayout.stripEdge(
+            offset: shelfStrip.offset, count: shelf.items.count, bodyWidth: openSize(of: .tray).width
+        )
+    }
+
+    /// One scroll event over the open island, from `PageSwipeMonitor`:
+    /// whether it was the pages' — swallowed — or is handed on to the page
+    /// under the pointer. `over` is whether the pointer is over the pages.
+    ///
+    /// A release turns the page through `turnPage(to:)`, so a swipe never
+    /// takes the keyboard and leaving a page gives it back; a swipe that goes
+    /// back to where it began turns nothing and leaves the keyboard alone.
+    func pageScroll(_ event: PageScroll, over: Bool) -> Bool {
+        guard isOpen, !isLockedPresentation, presented.isPage else {
+            pageSwipe = PageSwipe()
+            return false
+        }
+        let leg = pageTravel.leg
+        let strip = leg?.strip ?? pageStrip()
+        let position = leg?.position ?? CGFloat(strip.pages.firstIndex(of: presented) ?? 0)
+        let context = PageSwipe.Context(
+            strip: strip, presented: position, over: over,
+            // The strip scrolls first only while the tray is at rest; a tray
+            // still settling is picked up like any other page.
+            stripEdge: leg == nil && presented == .tray ? shelfStripEdge : nil
+        )
+        switch pageSwipe.handle(event, context) {
+        case .pass:
+            return false
+        case .swallow:
+            return true
+        case .grab(let position):
+            let anchor = min(max(Int(position.rounded()), 0), strip.lastIndex)
+            pageTravel.grab(
+                strip: strip, position: position,
+                reach: max(0, anchor - 1)...min(strip.lastIndex, anchor + 1)
+            )
+            return true
+        case .move(let position):
+            pageTravel.move(to: position)
+            return true
+        case .release(let target, let position, let velocity):
+            pageTravel.move(to: position)
+            let page = strip.pages[target]
+            if page != surface {
+                // Outside the travel's still transactions, so the header's
+                // title follows the page on the shell's own crossfade; the
+                // pages themselves are drawn by the travel.
+                isTurningByTravel = true
+                turnPage(to: page)
+                isTurningByTravel = false
+            }
+            pageTravel.settle(to: target, velocity: velocity, reduceMotion: SystemAppearance.shared.reduceMotion)
+            return true
+        }
     }
 
     /// The page `step` places along from the one presented, or nil past

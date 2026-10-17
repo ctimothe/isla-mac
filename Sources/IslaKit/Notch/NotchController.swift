@@ -1389,6 +1389,9 @@ final class NotchController {
         root.autoresizingMask = [.width, .height]
 
         let hosting = NSHostingView(rootView: NotchContentView(vm: vm))
+        // The pages settle on this view's display link, frame by frame
+        // (§19.16), rather than on a timer that drifts against the display.
+        (vm.pageTravel.clock as? DisplayPageClock)?.view = hosting
         hosting.frame = root.bounds
         hosting.autoresizingMask = [.width, .height]
         if #available(macOS 14.0, *) {
@@ -1751,6 +1754,7 @@ final class NotchController {
             }
             .store(in: &cancellables)
         wireShelfIslandCuts(vm)
+        wirePageTravelCuts(vm)
 
         // An alert that had to wait for the island — a surface open, files
         // dragged over it, the Mac locked — shows if the island comes free
@@ -2175,6 +2179,30 @@ final class NotchController {
             .store(in: &cancellables)
     }
 
+    /// The pages' travel (§19.16) re-cuts the open rects twice: as a leg
+    /// begins, over every page it can reach (`openBodySize`), so the outline
+    /// the fingers draw is never outside them and nothing is cut sixty times
+    /// a second; and as it ends, back to the page's own. A leg that came to
+    /// rest on its page has no spring left to wait for, so that shrink is
+    /// immediate; one ended by Settings or the stage taking the panel shrinks
+    /// as any surface change does, once the outline has followed. A pass
+    /// later, as every surface change: `@Published` announces before it
+    /// stores.
+    private func wirePageTravelCuts(_ vm: NotchViewModel) {
+        vm.pageTravel.$isTravelling
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] travelling in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, let vm = self.viewModel, vm.isOpen else { return }
+                        self.refreshOpenRects(animated: travelling || !vm.presented.isPage)
+                    }
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     /// Escape for a pinned panel, held while the pin stands and the panel
     /// is not key — see `NotchViewModel.claimsEscape`. Driven by the pin
     /// itself, so every way a pin ends gives Escape back with it: the fold,
@@ -2249,6 +2277,7 @@ final class NotchController {
         // or the pointer sees the registration follow without a manual refresh.
         wireShelfClaims(viewModel)
         wireShelfIslandCuts(viewModel)
+        wirePageTravelCuts(viewModel)
     }
 
     /// Re-cuts both rects for the body currently on screen.

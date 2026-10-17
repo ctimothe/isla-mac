@@ -100,6 +100,15 @@ enum ShelfLayout {
     /// Whether the row scrolls at all: more than four tiles.
     static func scrolls(count: Int) -> Bool { count > visibleTiles }
 
+    /// Where the row stands for a swipe (§19.16): at its first tile, at its
+    /// last, or nil when it does not scroll. The row scrolls first; a swipe
+    /// turns the page only from the end it is already at.
+    static func stripEdge(offset: CGFloat, count: Int, bodyWidth: CGFloat) -> PageSwipe.StripEdge? {
+        guard scrolls(count: count) else { return nil }
+        let end = contentWidth(count: count) - viewport(bodyWidth: bodyWidth).width
+        return PageSwipe.StripEdge(atStart: offset <= 0.5, atEnd: offset >= end - 0.5)
+    }
+
     /// The tile under `point`, in the row's scrolled content, or nil between
     /// tiles. Decided from the layout, not from each tile's own hover: a tile
     /// that slides under a pointer that has not moved gets no hover event (the

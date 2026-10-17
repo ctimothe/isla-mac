@@ -18,6 +18,9 @@ struct ShelfPane: View {
     /// says it, in place of the row, with its two answers.
     @ObservedObject var clear: ShelfClearConfirmation
     var bodyWidth: CGFloat = ShelfLayout.referenceBodyWidth
+    /// Where the strip is scrolled to, for the swipe between pages: the strip
+    /// scrolls first, and a swipe turns the page only from its end (§19.16).
+    var strip: ShelfStripPosition?
 
     /// Where the pointer is in the row's viewport, and how far the row is
     /// scrolled: together they say which tile it is over, *decided* by
@@ -107,7 +110,10 @@ struct ShelfPane: View {
         .scrollDisabled(!ShelfLayout.scrolls(count: items.count))
         .onScrollGeometryChange(for: CGFloat.self) { $0.visibleRect.minX } action: { _, offset in
             scrollOffset = offset
+            strip?.offset = offset
         }
+        // A new row starts at its first tile, whatever the last one reported.
+        .onAppear { strip?.offset = 0 }
         .frame(width: viewport.width, height: viewport.height)
         .onContinuousHover(coordinateSpace: .local) { phase in
             switch phase {

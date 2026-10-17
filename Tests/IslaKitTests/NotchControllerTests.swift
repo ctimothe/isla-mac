@@ -138,6 +138,32 @@ final class NotchControllerRectTests: XCTestCase {
         XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: player).close)
     }
 
+    /// A swipe (§19.16) cuts the clickable region once, over every page it
+    /// can reach, as it begins, and back to the page's own the moment it is at
+    /// rest: the outline the fingers draw is never outside it, and nothing is
+    /// held after it has stopped.
+    func testASwipeCutsTheRectsOverItsReachAndBackAtRest() throws {
+        let (controller, vm, root) = try rig()
+        let clock = ManualPageClock()
+        vm.pageTravel.clock = clock
+        controller.refreshOpenRects(bodySettled: true)
+        let player = bodySize(vm, .player), tray = bodySize(vm, .tray)
+        XCTAssertFalse(vm.pageScroll(PageScroll(deltaX: 0, deltaY: 0, phase: .began), over: true))
+        XCTAssertTrue(vm.pageScroll(PageScroll(deltaX: -12, deltaY: 0, phase: .changed), over: true))
+        drainMain()
+        let reach = CGSize(width: max(player.width, tray.width), height: max(player.height, tray.height))
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: reach).active, "Music and the Shelf, together")
+        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: reach).close)
+
+        XCTAssertTrue(vm.pageScroll(PageScroll(deltaX: -400, deltaY: 0, phase: .changed), over: true))
+        XCTAssertTrue(vm.pageScroll(PageScroll(deltaX: 0, deltaY: 0, phase: .ended, time: 5), over: true))
+        for _ in 0..<600 where clock.isRunning { clock.advance(1.0 / 120) }
+        drainMain()
+        XCTAssertEqual(vm.presented, .tray)
+        XCTAssertEqual(root.activeRect.size, expected(vm, size: tray).active, "the tray's own, at once")
+        XCTAssertEqual(controller.pointer.closeRect.size, expected(vm, size: tray).close)
+    }
+
     /// The shrink arrives on its own after the spring, and a newer change in
     /// the meantime outdates it.
     func testTheShrinkIsScheduledForTheEndOfTheSpringAndOutdatedByANewerRefresh() async throws {
