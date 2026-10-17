@@ -918,8 +918,8 @@ final class NotchController {
     /// all, which reads as a dead app rather than a decision.
     /// `opening` is what was clicked: the bubble opens the tray, the island
     /// what it shows (`NotchViewModel.islandClick`) — or, on an alert, folds
-    /// it.
-    private func islandClicked(opening surface: NotchViewModel.Surface? = nil) {
+    /// it. Internal rather than private so a test can click without a panel.
+    func islandClicked(opening surface: NotchViewModel.Surface? = nil) {
         guard let vm = viewModel else { return }
         // Diagnostic, behind DI_GEOM=1: the third line of the click trail, so
         // a gesture that fired reads here as refused, closed, or opened.
@@ -960,7 +960,13 @@ final class NotchController {
         // opens the panel the way a hover did rather than by a second path that
         // merely ends up open too. The surface, the lift and the pin are the
         // view model's — `clickOpened` — and the panel's own machinery is here.
-        vm.clickOpened(pointerIsOnPanel: pointerIsOnOpenPanel, opening: surface)
+        // On the island it clicked, or on the body that is opening — measured
+        // for that body, not the one shown last (R8 review F1).
+        let point = pointerLocation()
+        let island = pointer.islandRect
+        vm.clickOpened(opening: surface) { body in
+            vm.geometry.hoverRect(for: body).contains(point) || island.contains(point)
+        }
         // Before `setOpen`, not after. Telling the watcher afterwards let it
         // re-enter `onChange` mid-expansion and re-run the open path against a
         // panel that was already opening.
@@ -972,18 +978,19 @@ final class NotchController {
     /// Whether the cursor is standing where the open panel holds itself open
     /// from.
     ///
-    /// The same rect the watcher closes on, asked the same way
-    /// `scheduleCollapseIfPointerAway` asks it, so the answer cannot drift from
-    /// the rule it stands in for. `hoverRect(for: openBodySize)` contains the
-    /// whole collapsed island — the pill is never wider than the body it opens
-    /// into (`CompactMediaActivity.bodySize` caps it) and never deeper than the
-    /// notch — so a click delivered by the mouse always answers true, and only
-    /// a click from assistive tech, with the cursor left elsewhere, answers
-    /// false.
+    /// The same rects the watcher closes on — the body, and the island the
+    /// panel opened from until the pointer reaches the body — so the answer
+    /// cannot drift from the rule it stands in for. The body alone stopped
+    /// containing the collapsed island in R8, when surfaces took their own
+    /// widths: the peek is wider than the player it opens (R8 review F1).
     private var pointerIsOnOpenPanel: Bool {
         guard let vm = viewModel else { return false }
-        return vm.geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
+        let point = pointerLocation()
+        return vm.geometry.hoverRect(for: vm.openBodySize).contains(point) || pointer.landingRect.contains(point)
     }
+
+    /// Test seam: where the pointer is, in screen coordinates.
+    var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
 
     func refreshPointerTuning() {
         pointer.openDelay = NotchViewModel.hoverOpenDelay

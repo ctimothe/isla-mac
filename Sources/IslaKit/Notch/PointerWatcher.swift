@@ -21,6 +21,27 @@ final class PointerWatcher {
     /// and only it: the gap between it and the island stays click-through.
     var bubbleRect: CGRect = .zero
 
+    /// The collapsed island the panel was opened from, counted as part of
+    /// `closeRect` until the pointer has once stood on the open body.
+    ///
+    /// Since R8 each surface has its own width, and two things that open one
+    /// are wider than it: the new-track peek, notch + 300 (spec §3.5), opens
+    /// the 357.4 pt player, and the far end of the Shelf's bubble sits past the
+    /// tray's edge under a 200 pt notch. A pointer that opened the panel from
+    /// there stood outside the body it had opened, so the panel folded
+    /// `closeDelay` later — and with Open on Hover on, the island under the
+    /// same pointer opened it again, round and round (R8 review F1). Captured
+    /// only by an open from the closed island; reaching the body, leaving
+    /// both, or any forced state lets it go.
+    private(set) var landingRect: CGRect = .zero
+
+    /// The closed island as a pointer meets it: the padded strip and the
+    /// Shelf's bubble beside it. Meaningful only while the panel is closed,
+    /// when both are cut for the collapsed island.
+    var islandRect: CGRect {
+        bubbleRect.isEmpty ? openRect : openRect.union(bubbleRect)
+    }
+
     /// Exactly the island as it is drawn, with none of `openRect`'s padding.
     ///
     /// The open rect is deliberately 12pt larger so a near miss still opens the
@@ -141,6 +162,7 @@ final class PointerWatcher {
         // The rects are re-cut by whatever starts the watcher again, so a
         // departure owed against the old ones is not owed against the new.
         awaitsDeparture = false
+        landingRect = .zero
     }
 
     private func schedule(warm: Bool) {
@@ -201,6 +223,9 @@ final class PointerWatcher {
     /// be used.
     func setInside(_ value: Bool, grace: TimeInterval = 0) {
         awaitingSince = nil
+        // Asked before the caller opens the panel, while the collapsed rects
+        // are still cut: the island the open is leaving from.
+        landingRect = value && !isPanelOpen() ? islandRect : .zero
         isInside = value
         graceUntil = grace > 0 ? Date().addingTimeInterval(grace) : nil
         // Whatever forces the state is the newer word on it, so a departure the
@@ -264,7 +289,11 @@ final class PointerWatcher {
             onHoverChange?(hovering)
         }
 
-        let inside = (isInside ? closeRect : openRect).contains(point)
+        // Open, the body holds the panel, and so does the island it opened
+        // from until the pointer first reaches the body (`landingRect`).
+        let onBody = closeRect.contains(point)
+        if isInside, onBody { landingRect = .zero }
+        let inside = isInside ? onBody || landingRect.contains(point) : openRect.contains(point)
 
         // Whether the panel is open and where the pointer is are two separate
         // facts, and only one of them is tracked here. They are supposed to
@@ -346,6 +375,9 @@ final class PointerWatcher {
         }
         guard Date().timeIntervalSince(start) >= (inside ? openDelay : closeDelay) else { return }
         awaitingSince = nil
+        // An arrival at the closed island carries that island into the open
+        // panel's close rule; a departure ends it.
+        landingRect = inside && !isPanelOpen() ? islandRect : .zero
         isInside = inside
         onChange?(inside)
     }

@@ -535,7 +535,13 @@ final class NotchViewModel: ObservableObject {
     ///   keyboard with the cursor wherever it was left.
     /// - Parameter surface: what was clicked asked for — the bubble names the
     ///   tray — or nil for what the island shows (`openTarget`).
-    func clickOpened(pointerIsOnPanel: Bool, opening surface: Surface? = nil) {
+    ///
+    /// `pointerIsOnPanel` is asked after the surface is chosen, with the body
+    /// that is opening. Since R8 every surface has its own width, and a
+    /// question put before the choice measured the surface shown last: a click
+    /// on the far end of a peek wider than the player read as "pointer
+    /// elsewhere" and pinned a panel the pointer was standing on (R8 review F1).
+    func clickOpened(opening surface: Surface? = nil, pointerIsOnPanel: (_ openBody: CGSize) -> Bool) {
         // The surface first. Skipping it meant a click opened whatever had
         // been left behind and then swapped panes *during* the expansion,
         // which is most of what read as an unsmooth open. What was clicked
@@ -549,7 +555,12 @@ final class NotchViewModel: ObservableObject {
         // arriving is a transition that had already happened before the click.
         // So the departure was refused by `holdsOpen` and the panel stayed open
         // until something else was clicked (fixed 2026-09-10).
-        isPinnedOpen = !pointerIsOnPanel
+        isPinnedOpen = !pointerIsOnPanel(openBodySize)
+    }
+
+    /// The same, for a caller that already knows where the pointer is.
+    func clickOpened(pointerIsOnPanel: Bool, opening surface: Surface? = nil) {
+        clickOpened(opening: surface) { _ in pointerIsOnPanel }
     }
 
     /// Raised when the panel was opened with the pointer nowhere near it: ⌃⌥⌘I,
