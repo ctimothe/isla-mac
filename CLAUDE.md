@@ -150,8 +150,8 @@ collection behavior `.canJoinAllSpaces`/`.stationary`/`.fullScreenAuxiliary`/`.i
 types asks for the keyboard — Clipboard and Translate (`Surface.takesKeyboard`),
 and Settings only while a shortcut field records. A page reached by a swipe,
 a dot, the pointer or a click on the bare notch never takes it: only a
-summons (⌃⌥⌘V, ⌃⌥⌘T, the menu) or a press into the field does
-(`NotchViewModel.pressClaimsKeyboard`). ⌃Tab, which only a key panel hears, carries it onto
+summons (⌃⌥⌘V, ⌃⌥⌘T, the menu), a press into the field
+(`NotchViewModel.pressClaimsKeyboard`) or focus moving into it (VoiceOver) does. ⌃Tab, which only a key panel hears, carries it onto
 the page it turns to, the Shelf and Music included
 (`NotchViewModel.turnPageByKey`). Because the panel never activates, `NSScreen.main` is
 meaningless here — never use it to pick the target display, and recompute

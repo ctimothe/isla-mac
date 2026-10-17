@@ -230,6 +230,19 @@ final class PageTravelTests: XCTestCase {
         XCTAssertEqual(vm.surface, .player)
     }
 
+    /// On the stage with no song, drawn as Music's page, a swipe that comes
+    /// back to where it began turns nothing: the surface stays the stage, so
+    /// a song starting shows its lyrics, as ⌃⌥⌘L asked. It compared the
+    /// released page with the surface alone and turned to Music (R8b
+    /// re-review N6).
+    func testASwipeBackOnTheEmptyStageLeavesTheStage() throws {
+        let vm = try openModel(on: .stage)
+        drag(vm, by: 40)
+        _ = release(vm)
+        settle()
+        XCTAssertEqual(vm.surface, .stage)
+    }
+
     /// A song arriving under a swipe on the stage with no song — drawn as
     /// Music's page — takes the page from under the fingers: the stage is not
     /// a page. The pages go to rest, as they do under the drop surface or the

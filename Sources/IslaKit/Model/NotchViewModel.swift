@@ -855,11 +855,11 @@ final class NotchViewModel: ObservableObject {
     /// surface, so the text one was typing survives and the panel is free to
     /// collapse. And Clipboard or Translate reached by a swipe, a dot, the
     /// pointer or a click on the bare notch shows its field without it: only
-    /// a summons (`open(_:)`) or a press into the field raises it
-    /// (`pressClaimsKeyboard`), so looking through the pages never takes
-    /// typing from the app in front (§19.16, R8b review F1). The one way it
-    /// outlives a surface that types is ⌃Tab, which carries it onto the Shelf
-    /// and Music (`turnPageByKey`).
+    /// a summons (`open(_:)`), a press into the field (`pressClaimsKeyboard`)
+    /// or focus moving into it (VoiceOver) raises it, so looking through the
+    /// pages never takes typing from the app in front (§19.16, R8b review
+    /// F1). The one way it outlives a surface that types is ⌃Tab, which
+    /// carries it onto the Shelf and Music (`turnPageByKey`).
     @Published var wantsKeyboard = false
 
     let geometry: NotchGeometry
@@ -1970,8 +1970,8 @@ final class NotchViewModel: ObservableObject {
     /// arriving, a click on the island, the welcome answered (§19.16). Since
     /// the bare notch opens the page last shown, that can be Clipboard or
     /// Translate, and landing there is not a summons — only ⌃⌥⌘V, ⌃⌥⌘T, the
-    /// menu, the Translated alert or a click into the field take the
-    /// keyboard. Through `open(_:)` these roads made a hover onto the bare
+    /// menu, a click into the field or focus moving into it (VoiceOver) take
+    /// the keyboard. Through `open(_:)` these roads made a hover onto the bare
     /// notch, with Open on Hover off, open Clipboard holding the keyboard of
     /// the app being typed in (R8b review F1).
     private func land(on surface: Surface) {
@@ -1981,8 +1981,7 @@ final class NotchViewModel: ObservableObject {
 
     /// Whether a press at `point` — body coordinates, down from the open
     /// body's top-left — asks for the keyboard (`NotchPanel.onPress`): only a
-    /// press into the field of a surface that types, with the pages at rest,
-    /// and never over the lock (§19.16: "or when their field is clicked").
+    /// press into the field of a surface that types, and never over the lock (§19.16: "or when their field is clicked").
     ///
     /// The field and nothing else. A row pressed to copy it, a dot, the gear,
     /// Swap or a language menu is an action or a way somewhere, not a request
@@ -1990,14 +1989,29 @@ final class NotchViewModel: ObservableObject {
     /// copied on a Clipboard the bare notch opened made the panel key on
     /// mouse-down, and a pinned panel kept it, so a ⌘V meant for the app
     /// underneath went into the search field (R8b review F2, re-review R2).
-    /// At rest only: while the pages move, the dots ride the moving outline
-    /// and the field slides with its page, so nothing is where the layout
-    /// puts it, and a dot pressed on the way onto Clipboard asked
-    /// (re-review R1).
+    /// While the pages move, the field is found where it is drawn: measured
+    /// on the reach, a dot pressed on the way onto Clipboard asked
+    /// (re-review R1), and refused for the whole leg, a click into a field
+    /// that already looked still was lost (re-review N1).
     func pressClaimsKeyboard(atBodyPoint point: CGPoint) -> Bool {
-        guard presented.takesKeyboard, !isLockedPresentation, pageTravel.leg == nil,
-              let field = fieldFrame(of: presented) else { return false }
-        return field.contains(point)
+        guard presented.takesKeyboard, !isLockedPresentation, let field = fieldFrame(of: presented) else {
+            return false
+        }
+        guard let leg = travellingLeg else { return field.contains(point) }
+        // On the way, the field is where the pages draw it: the press is read
+        // against the drawn outline — centred in the clickable region, as the
+        // outline is — and the field moves with its page, which may not be on
+        // screen yet.
+        guard let index = leg.strip.pages.firstIndex(of: presented), leg.mounted.contains(presented) else {
+            return false
+        }
+        let drawn = drawnOpenBodySize
+        let x = point.x - (openBodySize.width - drawn.width) / 2
+        guard x >= 0, x < drawn.width, point.y < drawn.height - SurfaceLayout.dotsBand(for: presented) else {
+            return false
+        }
+        let paneX = leg.strip.x(ofPage: index, at: leg.position, outlineWidth: drawn.width)
+        return field.offsetBy(dx: paneX, dy: 0).contains(CGPoint(x: x, y: point.y))
     }
 
     /// Where a surface's text field is, in body coordinates: Clipboard's
@@ -2086,7 +2100,10 @@ final class NotchViewModel: ObservableObject {
         case .release(let target, let position, let velocity):
             pageTravel.move(to: position)
             let page = strip.pages[target]
-            if page != surface {
+            // `presented` as well: on the stage with no song the pages show
+            // Music, and a swipe back to it turned the stage into Music, so a
+            // song starting no longer showed its lyrics (R8b re-review N6).
+            if page != surface, page != presented {
                 // Outside the travel's still transactions, so the header's
                 // title follows the page on the shell's own crossfade; the
                 // pages themselves are drawn by the travel.
@@ -2123,33 +2140,45 @@ final class NotchViewModel: ObservableObject {
             return
         }
         let row = pageStrip()
-        guard let target = row.pages.firstIndex(of: page) else { return }
+        guard row.pages.contains(page) else { return }
         if let leg = pageTravel.leg, let index = leg.strip.pages.firstIndex(of: page) {
             pageTravel.aim(strip: leg.strip, from: leg.position, to: index, reduceMotion: false)
         } else if let leg = pageTravel.leg {
             // A second dot during a straight leg, for a page the leg does not
-            // pass: the page joins the leg at one end and the pages carry on
-            // from where they are. Ending the first leg put the outline at the
-            // first dot's page in one frame (R8b review F5).
-            let joined = leg.strip.adding(
-                page, width: openSize(of: page).width, row: row.pages, nearer: leg.position
-            )
-            guard let index = joined.strip.pages.firstIndex(of: page) else { return }
-            pageTravel.aim(onto: joined.strip, shift: joined.shift, to: index, reduceMotion: false)
+            // hold: the pages carry on from where they are. Ending the first
+            // leg put the outline at the first dot's page in one frame (R8b
+            // review F5).
+            switch leg.strip.joining(page, width: openSize(of: page).width, row: row.pages, at: leg.position) {
+            case .end(let strip, let shift):
+                guard let index = strip.pages.firstIndex(of: page) else { return }
+                pageTravel.aim(onto: strip, shift: shift, to: index, reduceMotion: false)
+            case .via(let via):
+                let onward = straightLeg(from: leg.strip.pages[via], to: page)
+                pageTravel.aim(
+                    via: via, then: onward.strip, from: onward.from, to: onward.target, reduceMotion: false
+                )
+            }
         } else {
             pageTravel.finish()
-            let start = presented.pageIndex ?? 0
-            if abs(target - start) == 1 {
-                pageTravel.aim(strip: row, from: CGFloat(start), to: target, reduceMotion: false)
-            } else {
-                let pair = [Surface.pages[min(start, target)], Surface.pages[max(start, target)]]
-                let strip = PageStrip(pages: pair, widths: pair.map { openSize(of: $0).width })
-                pageTravel.aim(strip: strip, from: start < target ? 0 : 1, to: start < target ? 1 : 0, reduceMotion: false)
-            }
+            let leg = straightLeg(from: presented, to: page)
+            pageTravel.aim(strip: leg.strip, from: CGFloat(leg.from), to: leg.target, reduceMotion: false)
         }
         isTurningByTravel = true
         turnPage(to: page)
         isTurningByTravel = false
+    }
+
+    /// The leg a dot starts from `start` at rest: the row when `page` is
+    /// beside it; otherwise a strip of the two alone, in the row's order, so
+    /// the outline does not flicker through the sizes of the pages between.
+    private func straightLeg(from start: Surface, to page: Surface) -> (strip: PageStrip, from: Int, target: Int) {
+        let row = pageStrip()
+        let a = row.pages.firstIndex(of: start) ?? 0
+        let b = row.pages.firstIndex(of: page) ?? 0
+        if abs(b - a) == 1 { return (row, a, b) }
+        let pair = [row.pages[min(a, b)], row.pages[max(a, b)]]
+        let strip = PageStrip(pages: pair, widths: pair.map { openSize(of: $0).width })
+        return (strip, a < b ? 0 : 1, a < b ? 1 : 0)
     }
 
     /// One page along, as VoiceOver's increment and decrement and ⌃Tab turn

@@ -2075,7 +2075,10 @@ Owed on hardware (record the Mac model and macOS version when run):
   on a ProMotion display with Clipboard's list and the player's artwork on
   screen — the per-frame cost of re-rendering the shell is not measured off
   hardware (§19.15). Two dots pressed in quick succession (Music, then
-  Translate, then the Shelf) carry the pages on without a jump.
+  Translate, then the Shelf) carry the pages on without a jump, and the Shelf
+  arrives from Music's right or Translate's left, never from beyond either.
+  Clipboard's dot, then a click into its search field as it comes to rest:
+  the first click takes the keyboard.
 - [ ] **R8b-H2** The same on a Magic Mouse.
 - [ ] **R8b-H3** A wheel mouse: the wheel scrolls the page under it and never
   turns one; the dots turn them.

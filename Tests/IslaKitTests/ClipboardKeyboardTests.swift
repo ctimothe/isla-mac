@@ -339,27 +339,38 @@ final class ClipboardKeyboardTests: XCTestCase {
         XCTAssertFalse(press(card.midX, card.midY), "never over the lock")
     }
 
-    /// While the pages move, nothing is where the layout puts it at rest — the
-    /// dots ride the moving outline, the field slides in with its page — so no
-    /// press asks for the keyboard until they settle. Measured on the reach,
-    /// a dot pressed on the way onto Clipboard asked (R8b re-review R1).
-    func testNoPressAsksForTheKeyboardWhileThePagesMove() throws {
+    /// While the pages move, a press finds the field where it is drawn: the
+    /// dots ride the moving outline and the field slides in with its page.
+    /// Measured on the reach, a dot pressed on the way onto Clipboard asked
+    /// (R8b re-review R1); refused for the whole leg, a click into a field
+    /// that already looked still, in the settle's last few hundred
+    /// milliseconds, was lost (re-review N1).
+    func testAPressFindsTheFieldWhereItIsDrawn() throws {
         let clock = ManualPageClock()
         vm.pageTravel.clock = clock
         vm.isOpen = true
         vm.turnPage(to: .tray)
         vm.travel(to: .clipboard, reduceMotion: false)
         clock.advance(0.08)
-        XCTAssertNotNil(vm.travellingLeg)
-        for centre in PageDotsLayout.centres(bodySize: vm.bodySize) {
-            XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: centre), "a dot on the moving outline")
+        let leg = try XCTUnwrap(vm.travellingLeg)
+        let drawn = vm.drawnOpenBodySize
+        for centre in PageDotsLayout.centres(bodySize: drawn) {
+            let inRegion = CGPoint(x: centre.x + (vm.openBodySize.width - drawn.width) / 2, y: centre.y)
+            XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: inRegion), "a dot on the moving outline")
         }
         let field = ClipboardHeader.searchField.offsetBy(dx: 0, dy: vm.geometry.notchSize.height)
-        let centre = CGPoint(x: field.midX, y: field.midY)
-        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: centre), "the field on its way in")
+        let atRest = CGPoint(x: field.midX, y: field.midY)
+        XCTAssertFalse(vm.pressClaimsKeyboard(atBodyPoint: atRest), "where the field will be, while it is far off")
+        let index = try XCTUnwrap(leg.strip.pages.firstIndex(of: .clipboard))
+        let paneX = leg.strip.x(ofPage: index, at: leg.position, outlineWidth: drawn.width)
+        let onScreen = CGPoint(x: (vm.openBodySize.width - drawn.width) / 2 + paneX + field.midX, y: field.midY)
+        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: onScreen), "the field where it is drawn")
+
+        for _ in 0..<600 where abs((vm.travellingLeg?.position ?? 2) - 2) > 0.01 { clock.advance(1.0 / 120) }
+        XCTAssertNotNil(vm.travellingLeg, "the settle's tail")
+        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: atRest), "a field that looks still takes the click")
         for _ in 0..<600 where clock.isRunning { clock.advance(1.0 / 120) }
-        XCTAssertNil(vm.pageTravel.leg)
-        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: centre), "at rest")
+        XCTAssertTrue(vm.pressClaimsKeyboard(atBodyPoint: atRest), "at rest")
     }
 
     /// The press as the panel hands it over, in window coordinates, read into

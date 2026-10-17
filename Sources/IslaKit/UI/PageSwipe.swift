@@ -90,24 +90,41 @@ struct PageStrip: Equatable {
         (outlineWidth - widths[index]) / 2 + offset(of: CGFloat(index)) - offset(of: position)
     }
 
-    /// The strip with `page` added at one end, for a leg under way that has
-    /// to go on to a page it does not hold — a second dot during a straight
-    /// leg. A page beyond either end in `row`'s order goes at that end; one
-    /// between them, at the end nearer `position`, so the pages turn the
-    /// shorter way. `shift` is how far the pages already on the strip moved
-    /// along it: one when the page went in front, none at the back. Nothing
-    /// already on it moves on screen.
-    func adding(
-        _ page: NotchViewModel.Surface, width: CGFloat, row: [NotchViewModel.Surface], nearer position: CGFloat
-    ) -> (strip: PageStrip, shift: CGFloat) {
+    /// How a page this strip does not hold joins a leg under way on it — a
+    /// second dot during a straight leg (R8b review F5).
+    enum Join: Equatable {
+        /// The page goes at one end, and nothing on screen moves: `shift` is
+        /// how far that moved the pages already on the strip along it — one
+        /// when it went in front, none behind.
+        case end(PageStrip, shift: CGFloat)
+        /// The pages go to the strip's page `via` first, and on from there.
+        case via(Int)
+    }
+
+    /// A page beyond either end in `row`'s order joins at that end. One that
+    /// lies between two of the strip's pages cannot: at either end it would
+    /// arrive from the wrong side of a neighbour, and the row only teaches
+    /// where things are if it holds still (§19.16). The pages go by the nearer
+    /// of the two instead (R8b re-review N2). So do pages fingers hold past
+    /// either end: the rubber band is not a way toward a new page, and read as
+    /// one it drew the page in where there had been nothing (re-review N3).
+    /// Strips are kept in the row's order, which this relies on.
+    func joining(
+        _ page: NotchViewModel.Surface, width: CGFloat, row: [NotchViewModel.Surface], at position: CGFloat
+    ) -> Join {
+        if position < 0 { return .via(0) }
+        if position > CGFloat(lastIndex) { return .via(lastIndex) }
         let place = row.firstIndex(of: page) ?? 0
-        let first = pages.first.flatMap(row.firstIndex(of:)) ?? 0
-        let last = pages.last.flatMap(row.firstIndex(of:)) ?? 0
-        let inFront = place < min(first, last) ? true
-            : place > max(first, last) ? false
-            : position < CGFloat(lastIndex) / 2
-        guard inFront else { return (PageStrip(pages: pages + [page], widths: widths + [width]), 0) }
-        return (PageStrip(pages: [page] + pages, widths: [width] + widths), 1)
+        let places = pages.map { row.firstIndex(of: $0) ?? 0 }
+        if place < places[0] {
+            return .end(PageStrip(pages: [page] + pages, widths: [width] + widths), shift: 1)
+        }
+        if place > places[lastIndex] {
+            return .end(PageStrip(pages: pages + [page], widths: widths + [width]), shift: 0)
+        }
+        let after = places.firstIndex { $0 > place } ?? lastIndex
+        let before = after - 1
+        return .via(position - CGFloat(before) <= CGFloat(after) - position ? before : after)
     }
 }
 

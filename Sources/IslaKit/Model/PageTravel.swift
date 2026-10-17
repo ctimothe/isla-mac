@@ -50,6 +50,21 @@ final class PageTravel: ObservableObject {
     /// has to cover it too (R8b review F4).
     @Published private(set) var reachable: [Surface] = []
     private(set) var settle: PageSettle?
+    /// The leg the pages set off on once the one under way reaches `via`
+    /// (`aim(via:then:from:to:reduceMotion:)`); dropped by anything that
+    /// takes the pages — fingers, another dot, the travel ending.
+    private var onward: Onward?
+
+    private struct Onward {
+        var via: Int
+        /// Where the pages were from `via` when it was set, by its sign: they
+        /// have reached it once they are no longer on that side.
+        var side: CGFloat
+        var strip: PageStrip
+        var from: Int
+        var target: Int
+        var reduceMotion: Bool
+    }
     var clock: PageClock
 
     init(clock: PageClock? = nil) {
@@ -90,7 +105,7 @@ final class PageTravel: ObservableObject {
     }
 
     /// Sends the leg under way on to a page its strip does not hold: `strip`
-    /// is that strip with the page added at one end (`PageStrip.adding`), and
+    /// is that strip with the page added at one end (`PageStrip.joining`), and
     /// `shift` how far that moved the pages already on it. They carry on from
     /// where they are on screen at the speed they have, as a re-aim on the
     /// same strip does (R8b review F5).
@@ -98,6 +113,22 @@ final class PageTravel: ObservableObject {
         guard let leg else { return }
         start(
             strip: strip, position: leg.position + shift, target: target, velocity: currentVelocity,
+            reduceMotion: reduceMotion
+        )
+    }
+
+    /// Sends the leg under way to page `via` of its strip at the speed it
+    /// has, and, as the pages reach it, on to `target` of `strip` — on which
+    /// that page is `from` — at the speed they have then. For a page a leg
+    /// cannot join without bending the row (`PageStrip.joining`). The pages
+    /// set off the moment `via` is in place: every other page of the first
+    /// strip is then wholly out of sight, so the strip changes under it with
+    /// nothing on screen moving (R8b re-review N2).
+    func aim(via: Int, then strip: PageStrip, from: Int, to target: Int, reduceMotion: Bool) {
+        guard let leg else { return }
+        start(strip: leg.strip, position: leg.position, target: via, velocity: currentVelocity, reduceMotion: reduceMotion)
+        onward = Onward(
+            via: via, side: leg.position - CGFloat(via), strip: strip, from: from, target: target,
             reduceMotion: reduceMotion
         )
     }
@@ -120,8 +151,21 @@ final class PageTravel: ObservableObject {
     func step() {
         guard let settle, var leg else { return finish() }
         let now = clock.now
-        if settle.isDone(at: now) { return finish() }
-        leg.position = settle.position(at: now)
+        let done = settle.isDone(at: now)
+        let position = done ? settle.to : settle.position(at: now)
+        // Reaching `via` — crossing it, or coming to rest there — sets off on
+        // the leg after it. What the pages carried past it this frame goes with
+        // them, so they do not step back.
+        if let onward, done || (position - CGFloat(onward.via)) * onward.side <= 0 {
+            self.onward = nil
+            return start(
+                strip: onward.strip, position: CGFloat(onward.from) + position - CGFloat(onward.via),
+                target: onward.target, velocity: done ? 0 : settle.velocity(at: now),
+                reduceMotion: onward.reduceMotion
+            )
+        }
+        if done { return finish() }
+        leg.position = position
         update(leg)
     }
 
@@ -136,6 +180,7 @@ final class PageTravel: ObservableObject {
     private func stopSettling() {
         clock.stop()
         settle = nil
+        onward = nil
     }
 
     private func update(_ leg: Leg?) {
