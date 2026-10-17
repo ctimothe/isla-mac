@@ -44,10 +44,13 @@ update the spec/design first, then checklist and code in the same change.
 
 **Removed features stay removed.** Snippets and Calendar went on 2026-08-20;
 Notes and the Teleprompter on 2026-08-22 (`57650e0`), taking the second rail and
-the tall panel body with them. Five tabs ship — Music, Shelf, Clipboard,
-Translate, Settings — on one rail, and
-`Tests/IslaKitTests/TabContractTests.swift` asserts the absence so a tab
-cannot creep back. The parity design records each removal as a dated
+the tall panel body with them. Since R8 (spec §19, 2026-10-18) there are no
+tabs and no rail: the panel shows one surface at a time — the player, the
+lyric stage, the Shelf's tray, the drop surface, Tools, Clipboard, Translate,
+Settings and the welcome (`NotchViewModel.Surface`) — reached from the
+island, Tools, the right-click menu and the hot keys, and
+`Tests/IslaKitTests/SurfaceContractTests.swift` asserts every surface and
+every road to it, so neither a removed feature nor a tab can creep back. The parity design records each removal as a dated
 **Withdrawn** amendment in place rather than deleting the section: amend it the
 same way, never by rewriting the original contract.
 
@@ -141,29 +144,30 @@ running against superseded code.
 content. Level is `CGWindowLevelForKey(.statusWindow) + 1` (`NotchPanel.normalLevel`
 — it is read back by the lock path, so change it there and nowhere else);
 collection behavior `.canJoinAllSpaces`/`.stationary`/`.fullScreenAuxiliary`/`.ignoresCycle`.
-`canBecomeMain` is always false and `canBecomeKey` only while the Translate tab
-asks for the keyboard. Because the panel never activates, `NSScreen.main` is
+`canBecomeMain` is always false and `canBecomeKey` only while a surface that
+types asks for the keyboard — Clipboard and Translate (`Surface.takesKeyboard`),
+and Settings only while a shortcut field records. Because the panel never activates, `NSScreen.main` is
 meaningless here — never use it to pick the target display, and recompute
 geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
 `.accessory` — no Dock icon, no menu-bar item, no window — and the policy is set
 once in `IslaApplication.run()` and never changed at runtime. There is
 no status item: Open Panel, About, Quit and the privacy toggles all live in the
-**Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
+**Settings** surface (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
 directly). Since 2026-10-15 Settings is a 400-tall sidebar of ten sections
 drawn from `SettingsTable`, a pure table of every row with its key and
 default; `NotchViewModel`'s accessors read their defaults back from it, so add
 a setting there, not in the view. `NotchController` (~1400 lines) owns panel lifecycle, geometry,
-open/close timing, and the lock transition; `AppDelegate` owns the three global hot
-keys (⌃⌥⌘I open, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyrics page — rebindable, held
-by `HotKeyCenter`), the "Translate in
+open/close timing, and the lock transition; `AppDelegate` owns the four global hot
+keys (⌃⌥⌘I open, ⌃⌥⌘V clipboard, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyric stage —
+rebindable, held by `HotKeyCenter`), the "Translate in
 Isla" service (`NSApp.servicesProvider`, no Accessibility permission), and the
 Spotify URL-scheme callback. Since 2026-10-11 a pinned panel that is not key
 also holds plain Escape through a transient Carbon hot key, registered only
 while the pin stands (`NotchController.updateEscapeHotKey`), and ends on
 another app's activation; key status is unchanged by it.
 The Shelf's Delete key (⌫, ⌘⌫) uses the same mechanism since 2026-10-15
-(`ShelfDeleteKeyHolder`): held only while the panel is open on the Shelf, the
-pointer is over the pane, Isla is not active, and the selection was made
+(`ShelfDeleteKeyHolder`): held only while the panel is open on the Shelf's
+tray, the pointer is over it, Isla is not active, and the selection was made
 during this opening — a stuck one would eat Delete system-wide, so every
 other state releases it.
 Since 2026-10-15 **Volume and Brightness** (off by default) reads the media
@@ -239,13 +243,21 @@ keeps the critically damped curves. The shut island carries a 2 pt stroke,
 tinted by its activity, on every wallpaper and never on the bare notch
 (`IslandStroke`).
 
-**Interaction.** A click opens the panel; a hover only brightens the island's
-surface. Every point of the compact island opens it, and the compact island has
-no controls — that hit region is cut from `bodySize.width` plus the corner
-radius, so it follows the width setting. The island shows one activity at a
-time, by rank (`IslandActivity`, spec §19.1); while Music holds it, files on
-the Shelf wait as a bubble beside it, which has a hit region of its own
-(`NotchRootView.bubbleRect`) so the gap between the two stays click-through.
+**Interaction.** A click opens the panel on what the island shows; a hover
+only brightens the island's surface. Every point of the compact island opens
+it, and the compact island has no controls — that hit region is cut from
+`bodySize.width` plus the corner radius, so it follows the width setting. The
+island shows one activity at a time, by rank (`IslandActivity`, spec §19.1),
+and a click follows the rank (`NotchViewModel.openTarget`): Music opens the
+player, the Shelf its tray, and an alert folds instead of opening anything.
+While Music holds the island, files on the Shelf wait as a bubble beside it,
+which has a hit region of its own (`NotchRootView.bubbleRect`) so the gap
+between the two stays click-through; a click on the bubble opens the tray.
+Every open surface's header row carries the way back — a Tools button where
+the surface was reached from Tools — and a click on the notch's own span of
+that row closes the panel. A right-click on the island or the header row opens
+`IslandMenu` (Clipboard, Shelf, Translate Clipboard, lyrics, Settings…, Quit);
+it is the app's only menu, since an `.accessory` app has no menu bar.
 Hover-to-open survives as **Open on Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
 brightens, a click shakes (`RefusalShake`). `PrivacyMode` covers per-section
 content (clipboard, translate) behind drifting dots. Haptics are sparing:

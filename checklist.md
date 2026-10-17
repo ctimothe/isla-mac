@@ -1879,6 +1879,12 @@ ask:
   `user-library-modify` scope, which Isla never asks for unprompted: the star
   shows for Spotify only after the person reconnects and grants it. Off until
   then. Music's Favourite goes through the existing Apple Events entitlement.
+  *Corrected 2026-10-18 (R8 build):* the account has asked for
+  `user-library-read user-library-modify` since the lock card's heart, so a
+  connected account already holds the scope and nothing new is asked for; the
+  star shows for Spotify while the account is connected and its API answers,
+  and stays off until the library has said whether the song is saved. With no
+  account connected there is no star on a Spotify song.
 - **Clipboard takes the keyboard when summoned**, as Translate does; the panel
   is key for no other surface.
 - **The lock's Full Screen layout covers the lock screen** except its bottom
@@ -1963,3 +1969,50 @@ Owed on hardware (record the Mac model and macOS version when run):
 - [ ] **R7-H5** AirPods connecting (the expanded headphones alert), and the
   volume keys with Volume and Brightness on (the expanded pop-up: the output's
   name, the amber bar, the number).
+
+### R8 — Surfaces without tabs (`feat/redesign-r8-surfaces`)
+
+- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed.
+
+Deliberate differences from spec §19, kept on purpose (each also written into
+the spec as a dated amendment):
+
+- **A shortcut field in Settings takes the keyboard while it records** —
+  the one exception to "key for Clipboard and Translate only" (§19.8): a
+  shortcut is recorded from a key press, and a panel that is not key never
+  hears one.
+- **The stage's lines wrap to two**, cut at the tail after the second
+  (§19.6); a third would push the sung line's neighbours out of the stage.
+- **The tray's notices are one line under the tiles**, and **Remove All asks
+  in place of the tiles' row** (§19.7); the board drew neither.
+- **Header items sit on the header row's centre line**, not at the
+  reference's y, so a notch of 32 on a display scaled for more space keeps
+  them centred (§19.1).
+- **A paused song opens the player from the bare notch**, not Tools: §19.6's
+  "nothing playing" is read as no song at all (§19.6 amendment). Owner to
+  confirm.
+- **The tray widens under a notch wider than 200 pt** so its count and
+  Remove All clear the notch (§19.7 amendment); under the board's notch it is
+  the board's 385.3.
+
+Owed on hardware (record the Mac model and macOS version when run):
+
+- [ ] **R8-H1** Every surface at Panel Width 480 and 620 in Russian: the
+  player, the stage, the tray, the drop surface, Tools, Clipboard, Translate,
+  Settings and the welcome — nothing clipped, nothing overlapping, header
+  items centred on the notch row.
+- [ ] **R8-H2** A Finder drag onto the notch: the drop surface lights Keep on
+  Shelf and AirDrop under the pointer; a drop on Keep on Shelf keeps the file,
+  one on AirDrop opens the AirDrop sheet with it.
+- [ ] **R8-H3** ⌃⌥⌘V from Safari: Clipboard opens with the caret in its
+  search, typing narrows the list, ↑ ↓ move the selection, ↩ copies and closes,
+  and ⌘V back in Safari pastes the row. ⌘, from Clipboard opens Settings and
+  gives the keyboard back.
+- [ ] **R8-H4** The right-click menu on the island and on an open header row,
+  over a full-screen app and with Ice running; while locked a right-click only
+  shakes.
+- [ ] **R8-H5** The sung line in the player on a synced song: it turns with
+  the voice, and a long line wraps to two on the stage.
+- [ ] **R8-H6** Favourite in Music (the star follows Music's own heart both
+  ways) and in Spotify with the account connected.
