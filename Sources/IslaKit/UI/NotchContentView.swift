@@ -216,13 +216,15 @@ struct NotchContentView: View {
                 IslandBubble(count: count, height: size.height, increaseContrast: appearance.increaseContrast) {
                     vm.onBubbleClick?()
                 }
-                .offset(x: IslandBubbleLayout.centreOffset(islandWidth: size.width))
+                .offset(x: IslandBubbleLayout.centreOffset(islandWidth: size.width, count: count))
                 .transition(Theme.compactArrival(reduceMotion: reduceMotion))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.island(reduceMotion: reduceMotion), value: vm.bubbleCount != nil)
         .animation(Theme.island(reduceMotion: reduceMotion), value: size.width)
+        // A tenth file widens it by a digit, on the same spring.
+        .animation(Theme.island(reduceMotion: reduceMotion), value: IslandBubbleLayout.digits(vm.bubbleCount ?? 0))
     }
 
     /// The pill over the shield: the same pill, and the same fold.
@@ -509,8 +511,12 @@ struct NotchContentView: View {
         // bar, which has a curve of its own.
         .animation(Theme.island(reduceMotion: reduceMotion), value: vm.hud != nil)
         // The Shelf as the live activity coming and going, and its count
-        // changing (spec §19.4) — a file kept with the panel shut.
-        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.shelf.items.count)
+        // changing (spec §19.4) — a file kept with the panel shut. Keyed to
+        // the live count, not the Shelf's: a collected file's moment begins
+        // and ends with no change to the count — at the Shelf's limit a
+        // capture adds one card and evicts one — and the island jumped in and
+        // out of the notch without its spring (R7 review).
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.liveShelfCount)
         .animation(Theme.paneAnimation, value: vm.tab)
         // The body growing or folding (spec §6): its height, its bottom radius
         // and — through the same value — the stroke that follows them, on the

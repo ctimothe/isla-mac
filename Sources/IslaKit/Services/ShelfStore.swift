@@ -31,7 +31,23 @@ struct ShelfItem: Identifiable, Equatable {
     /// a type icon is drawn bare. Only images ever get one — see
     /// `ShelfStore.wantsPreview`.
     var isPreview = false
+    /// Who put the card there, which decides whether it keeps the Shelf on
+    /// the island (spec §19.1, amended 2026-10-17). Saved with the card.
+    var origin: Origin = .placed
     var name: String { url.lastPathComponent }
+
+    enum Origin: Equatable {
+        /// A person put it there: a drop on the notch, a promised file from
+        /// one, a card kept from the AirDrop well. Keeps the Shelf live.
+        case placed
+        /// Isla collected it by itself: a copied screenshot or recording the
+        /// vault saved, a recording picked up from the capture folder. Shows
+        /// the Shelf for a moment and keeps nothing. Show Screen Captures is
+        /// on by default, and when every card kept the Shelf live the owner's
+        /// Shelf filled to 60 screenshots and the island never went back into
+        /// the notch.
+        case collected
+    }
 
     static func == (lhs: ShelfItem, rhs: ShelfItem) -> Bool { lhs.url == rhs.url }
 
@@ -319,6 +335,16 @@ final class ShelfStore: ObservableObject {
             uniquingKeysWith: { first, _ in first }
         )
         let stamps = defaults.array(forKey: defaultsKey + ".dates") as? [Double]
+        // Who put each card there, kept as the paths of the cards a person
+        // put there — by path, not by position, because a build from before
+        // this rewrites the list and leaves this key alone, and a list of
+        // flags would then land on whichever cards now stand in those places.
+        // A Shelf saved before this was kept has no list, and every card on it
+        // reads as collected: one file a person dropped left out of the island
+        // costs nothing, while sixty screenshots kept on it was the bug the
+        // list exists to fix.
+        let placed = Set(defaults.stringArray(forKey: defaultsKey + ".placed") ?? [])
+        let storedPaths = defaults.stringArray(forKey: defaultsKey) ?? []
         items = urls.enumerated().compactMap { index, url in
             // A path check, not a disk read: a card whose file went to the
             // Trash is a deleted card. The shelf used to follow a trashed
@@ -328,6 +354,9 @@ final class ShelfStore: ObservableObject {
             if let stamps, stamps.count == urls.count, stamps[index] > 0 {
                 item.date = Date(timeIntervalSince1970: stamps[index])
             }
+            // The stored path, or the place a bookmark followed the file to.
+            let path = storedPaths.indices.contains(index) ? storedPaths[index] : url.path
+            item.origin = placed.contains(path) || placed.contains(url.path) ? .placed : .collected
             return item
         }
     }
@@ -492,7 +521,8 @@ final class ShelfStore: ObservableObject {
         var arrived: [URL] = []
         if let found = pass.recordings {
             settle(found.seen, missing: found.missing)
-            arrived = merge(found.urls, dates: found.dates, into: &cards)
+            // Picked up from the capture folder: Isla's doing, not a person's.
+            arrived = merge(found.urls, dates: found.dates, origin: .collected, into: &cards)
         }
         if changed || !arrived.isEmpty {
             cards = Self.newestFirst(cards)
@@ -524,7 +554,7 @@ final class ShelfStore: ObservableObject {
         let result = RecordingPickup.fresh(in: pickup.folders, since: pickup.since, seen: pickup.seen)
         settle(result.seen, missing: result.missing)
         guard !result.urls.isEmpty else { return }
-        add(result.urls, dates: result.dates)
+        add(result.urls, dates: result.dates, origin: .collected)
     }
 
     /// What a recordings scan needs from defaults, read on the main thread
@@ -611,6 +641,10 @@ final class ShelfStore: ObservableObject {
     /// - Parameter dates: when each capture was taken, where known. A file
     ///   without one — a drop, a picture saved from the clipboard — is dated
     ///   now, which is when it happened.
+    /// - Parameter origin: who put the files there. A person, unless the
+    ///   caller is one of Isla's own capture paths. A file already on the
+    ///   Shelf that a person puts there again becomes theirs; a capture never
+    ///   takes a card back from a person.
     ///
     /// Returns what became of the drop, and says it in the footer too: a URL
     /// already on the shelf, or a card past the cap, used to leave without a
@@ -619,10 +653,15 @@ final class ShelfStore: ObservableObject {
     /// shelf that refused would stop new screenshots arriving, which is worse
     /// — but it says so now.
     @discardableResult
-    func add(_ urls: [URL], dates: [URL: Date] = [:]) -> AddResult {
+    func add(_ urls: [URL], dates: [URL: Date] = [:], origin: ShelfItem.Origin = .placed) -> AddResult {
         var cards = items
         let known = cards
-        let arrived = merge(urls, dates: dates, into: &cards)
+        if origin == .placed {
+            for index in cards.indices where cards[index].origin != .placed && urls.contains(cards[index].url) {
+                cards[index].origin = .placed
+            }
+        }
+        let arrived = merge(urls, dates: dates, origin: origin, into: &cards)
         cards = Self.newestFirst(cards)
         let evicted = trimToLimit(&cards)
         items = cards
@@ -674,7 +713,9 @@ final class ShelfStore: ObservableObject {
 
     /// New cards at the front, in the order they came; a URL already on the
     /// shelf is left where it is. Returns the URLs that were new.
-    private func merge(_ urls: [URL], dates: [URL: Date], into cards: inout [ShelfItem]) -> [URL] {
+    private func merge(
+        _ urls: [URL], dates: [URL: Date], origin: ShelfItem.Origin, into cards: inout [ShelfItem]
+    ) -> [URL] {
         let now = Date()
         var arrived: [URL] = []
         // Reversed, so that inserting each at the front leaves the drop in the
@@ -682,6 +723,7 @@ final class ShelfStore: ObservableObject {
         for url in urls.reversed() where !cards.contains(where: { $0.url == url }) {
             var item = ShelfItem(url: url, icon: NSWorkspace.shared.icon(forFile: url.path))
             item.date = dates[url] ?? now
+            item.origin = origin
             cards.insert(item, at: 0)
             // A card back on the shelf after leaving it starts from the
             // generic icon again, so its preview is owed again.
@@ -698,11 +740,21 @@ final class ShelfStore: ObservableObject {
     /// stay selected with no card to show it: the footer read "3 selected"
     /// over two marked cards, and "Remove 3" would have promised one more
     /// than it could remove (J-022).
+    ///
+    /// Collected cards go first, oldest first, and a person's only once none
+    /// is left (spec §19.1, amended 2026-10-17): screenshots arrive by
+    /// themselves, often with the panel shut, and sixty of them used to push
+    /// out the one file somebody kept, the notice saying so in a footer nobody
+    /// was looking at.
     @discardableResult
     private func trimToLimit(_ cards: inout [ShelfItem]) -> Int {
         guard cards.count > Self.limit else { return 0 }
-        let trimmed = Set(cards[Self.limit...].map(\.id))
-        cards.removeLast(cards.count - Self.limit)
+        let excess = cards.count - Self.limit
+        // Newest first, so the oldest are walked from the end.
+        let collected = cards.reversed().filter { $0.origin == .collected }.prefix(excess).map(\.id)
+        let placed = cards.reversed().filter { $0.origin == .placed }.prefix(excess - collected.count).map(\.id)
+        let trimmed = Set(collected + placed)
+        cards.removeAll { trimmed.contains($0.id) }
         selection.subtract(trimmed)
         if let anchor, trimmed.contains(anchor) { self.anchor = nil }
         return trimmed.count
@@ -1072,5 +1124,6 @@ final class ShelfStore: ObservableObject {
         bookmarks = kept
         defaults.set(stored, forKey: defaultsKey + ".bookmarks")
         defaults.set(items.map { $0.date?.timeIntervalSince1970 ?? 0 }, forKey: defaultsKey + ".dates")
+        defaults.set(items.filter { $0.origin == .placed }.map(\.url.path), forKey: defaultsKey + ".placed")
     }
 }

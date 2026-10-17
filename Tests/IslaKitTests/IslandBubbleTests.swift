@@ -50,7 +50,7 @@ final class IslandBubbleTests: XCTestCase {
     /// the island's outline — the outline, not the body: the island's own
     /// shoulders lie between the two.
     func testTheBubbleIsFiftyEightWideSixteenRightOfTheIsland() throws {
-        XCTAssertEqual(IslandBubbleLayout.width, 58)
+        XCTAssertEqual(IslandBubbleLayout.width(count: 3), 58)
         XCTAssertEqual(IslandBubbleLayout.gap, 16)
         XCTAssertEqual(IslandBubbleLayout.topRadius, Theme.collapsedTopRadius)
         XCTAssertEqual(IslandBubbleLayout.bottomRadius, 14)
@@ -60,7 +60,7 @@ final class IslandBubbleTests: XCTestCase {
                 let geometry = try geometry(notchWidth: notch, height: height)
                 let island = CGSize(width: notch + NotchMetrics.compactMediaExtension, height: height)
                 let outline = geometry.contentRect(for: island).insetBy(dx: -Theme.collapsedTopRadius, dy: 0)
-                let bubble = geometry.bubbleRect(islandWidth: island.width, height: height)
+                let bubble = geometry.bubbleRect(islandWidth: island.width, height: height, count: 3)
                 XCTAssertEqual(bubble.minX, outline.maxX + 16, accuracy: 0.001, "nw \(notch), H \(height)")
                 XCTAssertEqual(bubble.width, 58, accuracy: 0.001)
                 XCTAssertEqual(bubble.height, height, accuracy: 0.001, "the island's own height")
@@ -77,17 +77,57 @@ final class IslandBubbleTests: XCTestCase {
     /// `compactGestureRect` is the island's.
     func testTheGestureRectIsTheBubbleTheOtherWayUp() throws {
         let geometry = try geometry()
-        let bubble = geometry.bubbleRect(islandWidth: 255, height: 38)
-        let gesture = geometry.bubbleGestureRect(islandWidth: 255, height: 38)
+        let bubble = geometry.bubbleRect(islandWidth: 255, height: 38, count: 3)
+        let gesture = geometry.bubbleGestureRect(islandWidth: 255, height: 38, count: 3)
         XCTAssertEqual(gesture.minX, bubble.minX, accuracy: 0.001)
         XCTAssertEqual(gesture.width, bubble.width, accuracy: 0.001)
         XCTAssertEqual(gesture.minY, 0, accuracy: 0.001, "SwiftUI counts from the top")
         XCTAssertEqual(gesture.height, 38, accuracy: 0.001)
         XCTAssertEqual(
             gesture.midX - geometry.windowSize.width / 2,
-            IslandBubbleLayout.centreOffset(islandWidth: 255), accuracy: 0.001,
+            IslandBubbleLayout.centreOffset(islandWidth: 255, count: 3), accuracy: 0.001,
             "where the view draws it: the island's centre plus the offset"
         )
+    }
+
+    /// 58 for one digit and 8 more for each further digit (spec §19.7,
+    /// amended 2026-10-17): at a fixed 58, "60" touched the shoulders on the
+    /// owner's Mac. It grows to the right; its left edge stays 16 from the
+    /// island's outline.
+    func testTheBubbleWidensADigitAtATime() throws {
+        XCTAssertEqual(IslandBubbleLayout.width(count: 1), 58)
+        XCTAssertEqual(IslandBubbleLayout.width(count: 9), 58)
+        XCTAssertEqual(IslandBubbleLayout.width(count: 10), 66)
+        XCTAssertEqual(IslandBubbleLayout.width(count: ShelfStore.limit), 66, "the Shelf's limit is two digits")
+
+        let geometry = try geometry()
+        let one = geometry.bubbleRect(islandWidth: 255, height: 38, count: 7)
+        let two = geometry.bubbleRect(islandWidth: 255, height: 38, count: 60)
+        XCTAssertEqual(two.minX, one.minX, accuracy: 0.001, "the gap to the island holds")
+        XCTAssertEqual(two.width, 66, accuracy: 0.001)
+        XCTAssertEqual(
+            IslandBubbleLayout.centreOffset(islandWidth: 255, count: 60)
+                - IslandBubbleLayout.centreOffset(islandWidth: 255, count: 7),
+            4, accuracy: 0.001, "the centre moves by half the growth"
+        )
+    }
+
+    /// Every count the Shelf can hold keeps the one-digit bubble's padding
+    /// between the content and the shoulders — measured in the font the count
+    /// is drawn in, not assumed from a digit's nominal width.
+    func testEveryCountKeepsTheOneDigitPadding() {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: IslandBubbleLayout.countSize, weight: .semibold)
+        func padding(_ count: Int) -> CGFloat {
+            let text = (String(count) as NSString).size(withAttributes: [.font: font]).width
+            let content = IslandBubbleLayout.glyphSize.width + IslandBubbleLayout.spacing + text
+            let body = IslandBubbleLayout.width(count: count) - 2 * IslandBubbleLayout.topRadius
+            return (body - content) / 2
+        }
+        let reference = padding(8)
+        XCTAssertGreaterThan(reference, 4, "the reference's one-digit bubble has about 5 pt a side")
+        for count in 1...ShelfStore.limit {
+            XCTAssertGreaterThanOrEqual(padding(count), reference - 0.5, "\(count) items")
+        }
     }
 
     // MARK: Content
@@ -183,7 +223,7 @@ final class IslandBubbleTests: XCTestCase {
         keep(2, on: isolated)
         isolated.stores.media.apply(playing())
         controller.refreshCollapsedRects()
-        let bubble = vm.geometry.bubbleRect(islandWidth: vm.bodySize.width, height: vm.bodySize.height)
+        let bubble = vm.geometry.bubbleRect(islandWidth: vm.bodySize.width, height: vm.bodySize.height, count: 2)
         XCTAssertEqual(vm.bubbleCount, 2)
         XCTAssertTrue(root.bubbleRect.contains(CGPoint(x: bubble.midX, y: bubble.midY)))
         XCTAssertNotNil(root.hitTest(CGPoint(x: bubble.midX, y: bubble.midY)), "a click on the bubble reaches the panel")

@@ -4,8 +4,22 @@ import SwiftUI
 /// view that draws it, the geometry that hit-tests it and the test that holds
 /// it cannot describe three bubbles.
 enum IslandBubbleLayout {
-    /// The shape, shoulders included, as the reference measures it.
-    static let width: CGFloat = 58
+    /// The shape, shoulders included, as the reference measures it for a
+    /// one-digit count, and 8 wider for each further digit (spec §19.7,
+    /// amended 2026-10-17): at a fixed 58, "60" touched the shoulders on the
+    /// owner's Mac. 8 is one tabular digit of 13 semibold, so every count
+    /// keeps the one-digit bubble's padding — `IslandBubbleTests` measures it.
+    static func width(count: Int) -> CGFloat {
+        oneDigitWidth + CGFloat(digits(count) - 1) * digitAdvance
+    }
+    static let oneDigitWidth: CGFloat = 58
+    static let digitAdvance: CGFloat = 8
+
+    /// How many digits the count is drawn with. The Shelf holds at most 60,
+    /// so one or two.
+    static func digits(_ count: Int) -> Int {
+        String(max(0, count)).count
+    }
     /// From the island's outline — its shoulders, not its body — to the
     /// bubble's.
     static let gap: CGFloat = 16
@@ -21,9 +35,11 @@ enum IslandBubbleLayout {
 
     /// How far right of the island's centre the bubble's centre sits. The
     /// bubble only ever stands beside Music, a compact activity, so the
-    /// island's shoulder is the compact one.
-    static func centreOffset(islandWidth: CGFloat) -> CGFloat {
-        islandWidth / 2 + Theme.collapsedTopRadius + gap + width / 2
+    /// island's shoulder is the compact one. A wider count moves the centre
+    /// by half its growth: the left edge holds its gap and the bubble grows
+    /// to the right.
+    static func centreOffset(islandWidth: CGFloat, count: Int) -> CGFloat {
+        islandWidth / 2 + Theme.collapsedTopRadius + gap + width(count: count) / 2
     }
 }
 
@@ -48,7 +64,9 @@ struct IslandBubble: View {
         Button(action: action) {
             content
         }
-        .buttonStyle(BubbleStyle(height: height, increaseContrast: increaseContrast))
+        .buttonStyle(BubbleStyle(
+            width: IslandBubbleLayout.width(count: count), height: height, increaseContrast: increaseContrast
+        ))
         .accessibilityLabel(Self.label(count: count))
     }
 
@@ -75,6 +93,7 @@ struct IslandBubble: View {
 
     /// The black shape, its stroke and the press, around the content.
     private struct BubbleStyle: ButtonStyle {
+        let width: CGFloat
         let height: CGFloat
         let increaseContrast: Bool
 
@@ -90,7 +109,7 @@ struct IslandBubble: View {
                     .allowsHitTesting(false)
                 configuration.label
             }
-            .frame(width: IslandBubbleLayout.width, height: height)
+            .frame(width: width, height: height)
             .contentShape(Rectangle())
             .animation(Theme.contentAnimation, value: configuration.isPressed)
         }

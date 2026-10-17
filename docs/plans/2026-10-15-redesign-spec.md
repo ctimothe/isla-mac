@@ -2091,6 +2091,23 @@ rail on any surface.
   beside the island; only Music and the Shelf are live, so only the Shelf can
   be the bubble. The bubble shows only beside a compact live activity: never
   during an alert, while a surface is open, or while locked.
+- **Amended 2026-10-17 (owner, after R7 on hardware) — what keeps the Shelf
+  live.** Rank 12's "while the Shelf has items" now reads *while the Shelf
+  holds a file a person put there* — dropped on the notch, a promised file
+  from such a drop, or kept from the AirDrop well. Files Isla collects by
+  itself (a copied screenshot or recording saved by the vault, a recording
+  picked up from the capture folder) do not keep it live: with Show Screen
+  Captures on by default the Shelf filled to its limit of 60 and the island
+  never went back into the notch. A collected file instead makes the Shelf
+  live for **2 s** from the last one (the compact Shelf, or the bubble beside
+  Music), then the island rests. The count is still every item on the Shelf.
+  A collected file dropped on the notch again becomes a person's file; a
+  card dragged out of the Shelf and let go over the panel is refused and
+  slides back, and changes nothing. At the Shelf's limit of 60, collected
+  cards leave first, oldest first, and a person's only when none is left.
+  The moment ends when a surface opens or the Mac locks. Cards saved before
+  this amendment count as collected. This is decision 17 as written ("the
+  Shelf appears when files are dragged to the notch").
 - **Opening.** A click opens what the island shows (the table). ⌃⌥⌘I opens
   what a click would. A right-click anywhere on the island or on an open
   surface's header row opens the menu (19.9). Dragging files to the notch opens
@@ -2437,6 +2454,12 @@ in it, 5 apart: `tray.full.fill` 18 × 14, white, and the count, 13 semibold,
 tabular, blue. It arrives and leaves as compact content does, on the island's
 spring. A click opens the tray; its label is "Shelf, %d items". It lies inside
 the window's single cut (`NotchMetrics.maximumWindow`) and inside `activeRect`.
+
+*Amended 2026-10-17 (owner, after R7 on hardware).* The bubble is 58 wide for
+a one-digit count and **8 wider for each further digit** (66 for 10–60): at 58
+a two-digit count touched the shoulders. 8 pt is one tabular digit of 13
+semibold, so every count keeps the one-digit bubble's padding. Its left edge
+stays 16 right of the island's outline; it grows to the right.
 
 ### 19.8 Tools and the summoned surfaces
 

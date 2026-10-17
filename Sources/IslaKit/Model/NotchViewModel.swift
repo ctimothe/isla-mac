@@ -127,6 +127,7 @@ final class NotchViewModel: ObservableObject {
             guard isOpen, !oldValue else { return }
             ambient = nil
             isPeeking = false
+            endCollectedMoment()
             // The pop-up too: the panel has the player's own slider, and a
             // pill left standing over a panel that just opened would fold
             // under it with nobody asking (spec §12).
@@ -172,25 +173,69 @@ final class NotchViewModel: ObservableObject {
     /// The volume or brightness pop-up, while it is up (spec §12). The highest
     /// of the island's alerts: see `IslandActivity`.
     @Published var hud: HUDMoment?
+    /// A file Isla collected by itself has just landed on the Shelf, and the
+    /// Shelf shows itself for `collectedMomentLifetime` from the last one —
+    /// compact on the bare notch, the bubble beside a song — then the island
+    /// rests (spec §19.1, amended 2026-10-17). Collected files never keep the
+    /// Shelf live on their own; see `ShelfItem.Origin`.
+    @Published private(set) var isShowingCollected = false
+    /// §19.1's moment for a collected file.
+    static let collectedMoment: Duration = .seconds(2)
+    /// A seam so tests do not wait two seconds.
+    var collectedMomentLifetime: Duration = NotchViewModel.collectedMoment
+    private var collectedMomentEnd: Task<Void, Never>?
     /// What the island shows, by §19.1's rank: an alert, else the song, else
     /// the Shelf, else the bare notch.
     var activity: IslandActivity {
         IslandActivity.current(
             hud: hud, ambient: ambient, isPeeking: isPeeking,
-            musicIsVisible: compactMediaActivity.isVisible, shelfCount: shelf.items.count
+            musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount
         )
     }
     /// The Shelf's count waiting as a bubble beside the island, or nil
     /// (spec §19.7).
     var bubbleCount: Int? {
         IslandActivity.bubble(
-            beside: activity, shelfCount: shelf.items.count, isOpen: isOpen || isDropTargeted,
+            beside: activity, shelfCount: liveShelfCount, isOpen: isOpen || isDropTargeted,
             isLocked: isLockedPresentation
         )
     }
+    /// The Shelf's count while it is live, else 0. Live while it holds a file
+    /// a person put there, or for a collected file's moment; the count is
+    /// still every card, which is what the tray shows when it opens.
+    var liveShelfCount: Int {
+        Self.shelfCut(items: shelf.items, showingCollected: isShowingCollected).isLive ? shelf.items.count : 0
+    }
+
+    /// Everything about the Shelf that changes the collapsed island's outline:
+    /// whether it is live, and how many digits its count has — the bubble
+    /// widens with them (spec §19.7, amended 2026-10-17). The controller
+    /// re-cuts the clickable regions when this changes and only then, so a
+    /// ninth screenshot cuts nothing and a tenth does. Built from the values
+    /// the publishers hand over, never read back from the model, which still
+    /// holds the old ones inside a sink.
+    /// What about the Shelf the shut island draws, for the redraw that has
+    /// to reach it while the panel is shut.
+    private struct ShelfRedraw: Equatable {
+        let count: Int
+        let holdsPlaced: Bool
+    }
+
+    struct ShelfCut: Equatable {
+        let isLive: Bool
+        let digits: Int
+    }
+
+    static func shelfCut(items: [ShelfItem], showingCollected: Bool) -> ShelfCut {
+        let isLive = !items.isEmpty && (showingCollected || items.contains { $0.origin == .placed })
+        return ShelfCut(isLive: isLive, digits: IslandBubbleLayout.digits(items.count))
+    }
     /// True while the shield is up and the panel is presenting the lock-screen
     /// card instead of its normal shell.
-    @Published var isLockedPresentation = false
+    @Published var isLockedPresentation = false {
+        // The shield going up ends a collected file's moment, as opening does.
+        didSet { if isLockedPresentation { endCollectedMoment() } }
+    }
     /// Whether Show on Lock Screen is on, read at each use. The setting lives in
     /// `UserDefaults.standard`; a test that depended on it skipped itself on a
     /// machine with the switch off (re-review 2026-10-15), so it is a closure a
@@ -937,8 +982,12 @@ final class NotchViewModel: ObservableObject {
             media.$sourceName.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
             // The Shelf is a live activity (spec §19.1): its count is drawn on
             // the shut island and in the bubble, so a file kept or removed
-            // while the panel is shut has to reach the island.
-            stores.shelf.$items.map(\.count).removeDuplicates().map { _ in () }.eraseToAnyPublisher()
+            // while the panel is shut has to reach the island — and so does a
+            // card becoming a person's, which can make the Shelf live without
+            // changing the count.
+            stores.shelf.$items
+                .map { items in ShelfRedraw(count: items.count, holdsPlaced: items.contains { $0.origin == .placed }) }
+                .removeDuplicates().map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
@@ -2004,9 +2053,35 @@ final class NotchViewModel: ObservableObject {
     /// the rail already has a mark for exactly that: the Shelf wears a dot
     /// until it is looked at. A drag or a drop is still a user action and still
     /// switches (`showShelfForDrag`).
+    ///
+    /// The island shows it for a moment (`isShowingCollected`), unless a
+    /// surface is open or the shield is up: the island is not on screen then,
+    /// and a moment kept for later would be news from the past.
     func receivedScreenshot(at url: URL) {
+        if !isOpen, !isLockedPresentation { showCollectedMoment() }
         guard tab != .shelf else { return }
         shelfHasNew = true
+    }
+
+    /// Shows the Shelf, or restarts its moment if one is showing: a burst of
+    /// screenshots holds it until the last one's moment is over.
+    private func showCollectedMoment() {
+        collectedMomentEnd?.cancel()
+        isShowingCollected = true
+        let lifetime = collectedMomentLifetime
+        collectedMomentEnd = Task { [weak self] in
+            try? await Task.sleep(for: lifetime)
+            guard !Task.isCancelled else { return }
+            self?.isShowingCollected = false
+        }
+    }
+
+    /// Ends a collected file's moment at once — the panel opening, as it ends
+    /// a peek and an alert, so closing never uncovers one gone stale.
+    func endCollectedMoment() {
+        collectedMomentEnd?.cancel()
+        collectedMomentEnd = nil
+        if isShowingCollected { isShowingCollected = false }
     }
 
     /// A file the user dropped on the panel by hand — switching to the shelf
@@ -2024,6 +2099,18 @@ final class NotchViewModel: ObservableObject {
             isShowingWelcome = false
         }
         return true
+    }
+
+    /// Files let go over the panel, straight from a drag. A card dragged out
+    /// of the Shelf and let go there is refused: it is the Shelf's own card
+    /// coming back, not a person keeping a file, and refused it slides back
+    /// where it came from. Taken as a drop it made a collected screenshot a
+    /// person's, so one cancelled drag kept the island out of the notch for
+    /// good (R7 review). Promised files land through `accept` directly: they
+    /// are never a Shelf card, and refusing them mid-drag would lose them.
+    func acceptDrop(urls: [URL]) -> Bool {
+        if ShelfDragSource.isDraggingOut { return false }
+        return accept(urls: urls)
     }
 
     /// A drag has arrived over the island, or a file has just landed on it.

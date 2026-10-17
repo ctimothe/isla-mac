@@ -46,6 +46,16 @@ final class NotchStores {
     /// the store that produces it outlives any single panel.
     var onScreenshot: ((URL) -> Void)?
 
+    /// The one door a capture Isla collected by itself comes through — a
+    /// copied screenshot or recording the vault saved, a recording copied as
+    /// a file. Marked collected, so it shows the Shelf for a moment rather
+    /// than keeping it on the island (spec §19.1, amended 2026-10-17), and
+    /// announced, so the island can show that moment.
+    func collect(_ url: URL) {
+        shelf.add([url], origin: .collected)
+        onScreenshot?(url)
+    }
+
     private var started = false
     private var cancellables = Set<AnyCancellable>()
     private var followsLyrics = false
@@ -154,9 +164,8 @@ final class NotchStores {
         clipboard.onImage = { [weak self] png in
             guard let self else { return }
             self.screenshotVault.save(png) { [weak self] url in
-                guard let self, let url else { return }
-                self.shelf.add([url])
-                self.onScreenshot?(url)
+                guard let url else { return }
+                self?.collect(url)
             }
         }
         // A captured recording lands on the shelf the way a screenshot does.
@@ -168,15 +177,12 @@ final class NotchStores {
         clipboard.onMovieData = { [weak self] data, ext in
             guard let self else { return }
             self.screenshotVault.saveMovie(data, fileExtension: ext) { [weak self] url in
-                guard let self, let url else { return }
-                self.shelf.add([url])
-                self.onScreenshot?(url)
+                guard let url else { return }
+                self?.collect(url)
             }
         }
         clipboard.onMovieFile = { [weak self] url in
-            guard let self else { return }
-            self.shelf.add([url])
-            self.onScreenshot?(url)
+            self?.collect(url)
         }
         refreshClipboardPolling()
         ambient.start()

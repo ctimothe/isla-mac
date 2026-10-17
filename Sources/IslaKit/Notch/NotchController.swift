@@ -1321,7 +1321,7 @@ final class NotchController {
                 self.scheduleCollapseIfPointerAway()
                 return true
             }
-            let accepted = vm.accept(urls: urls)
+            let accepted = vm.acceptDrop(urls: urls)
             self.pointer.setInside(true)
             self.setOpen(true)
             self.scheduleCollapseIfPointerAway()
@@ -1609,16 +1609,7 @@ final class NotchController {
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
             }
             .store(in: &cancellables)
-        // The Shelf is a live activity (spec §19.1): the island grows out of
-        // the notch when it gets its first file with nothing playing, and goes
-        // back in when the last one leaves.
-        stores.shelf.$items
-            .map(\.isEmpty)
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                DispatchQueue.main.async { self?.refreshCollapsedRects() }
-            }
-            .store(in: &cancellables)
+        wireShelfIslandCuts(vm)
 
         // An alert that had to wait for the island — a surface open, files
         // dragged over it, the Mac locked — shows if the island comes free
@@ -1949,6 +1940,25 @@ final class NotchController {
     /// model, in one place so `attachForTesting` installs exactly what `build`
     /// does (review 2026-10-15: the tests called `refreshDeleteKey()` by hand and
     /// so never ran the wiring they were named for).
+    /// The Shelf is a live activity (spec §19.1): the island grows out of the
+    /// notch, or the bubble appears beside a song, when the Shelf becomes live
+    /// — a file a person put there, or a collected file's moment — and goes
+    /// back when it stops; and the bubble widens when the count gains a digit.
+    /// Re-cut the clickable regions for each, a pass later so `@Published`
+    /// has stored what it announced, and for nothing else: a ninth screenshot
+    /// changes no outline. Read from the shelf the view model draws, so a test
+    /// with stores of its own is cut against them.
+    private func wireShelfIslandCuts(_ vm: NotchViewModel) {
+        vm.shelf.$items
+            .combineLatest(vm.$isShowingCollected)
+            .map { NotchViewModel.shelfCut(items: $0, showingCollected: $1) }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
+    }
+
     private func wireShelfClaims(_ vm: NotchViewModel) {
         // Delete and ⌘⌫ for the Shelf, from every input of the claim at once
         // (`NotchViewModel.claimsDelete`). The values are the ones the
@@ -2019,6 +2029,7 @@ final class NotchController {
         // The same sinks `build` installs, so a test that flips `isOpen`, the tab
         // or the pointer sees the registration follow without a manual refresh.
         wireShelfClaims(viewModel)
+        wireShelfIslandCuts(viewModel)
     }
 
     /// Re-cuts both rects for the body currently on screen.
@@ -2545,13 +2556,13 @@ final class NotchController {
         // with the island: everything that brings it or takes it away — a
         // track, a pause settling, an alert, the Shelf's first and last file,
         // opening, the lock — already re-cuts these rects.
-        if !open, vm.bubbleCount != nil {
+        if !open, let count = vm.bubbleCount {
             let width = vm.bodySize.width, height = vm.bodySize.height
             rootView.bubbleRect = NotchRootView.reachingTopEdge(
-                vm.geometry.bubbleRect(islandWidth: width, height: height),
+                vm.geometry.bubbleRect(islandWidth: width, height: height, count: count),
                 windowHeight: vm.geometry.windowSize.height
             )
-            pointer.bubbleRect = vm.geometry.bubbleScreenRect(islandWidth: width, height: height)
+            pointer.bubbleRect = vm.geometry.bubbleScreenRect(islandWidth: width, height: height, count: count)
         } else {
             rootView.bubbleRect = .zero
             pointer.bubbleRect = .zero

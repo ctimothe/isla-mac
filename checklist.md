@@ -1903,6 +1903,25 @@ are run.
   finding (a click on an alert opens Music) is R8's, recorded below. Nothing
   merged. The hardware checks below are owed.
 
+- [x] **First look on hardware (owner, 2026-10-17)** found two faults, fixed
+  on this branch and written into spec §19.1 and §19.7 as dated amendments:
+  - **The island never rested.** Show Screen Captures is on by default, so
+    the Shelf filled to its 60 with screenshots and stayed live for good:
+    "60" beside every song, and on the bare notch with nothing playing. Now
+    only a file a person put there (a drop, a promised file from one, the
+    AirDrop well's fallback) keeps the Shelf live; a file Isla collected (a
+    copied screenshot or recording, a recording picked up from the capture
+    folder) shows the Shelf for 2 s and the island rests. The count is still
+    everything on the Shelf. Each card saves its origin (by path, so an older
+    build reordering the list cannot move it); a Shelf saved before that
+    reads as collected. At the limit, collected cards leave before a
+    person's. A Shelf card let go over the panel is refused rather than
+    made a person's. `ShelfLivenessTests`.
+  - **"60" touched the bubble's shoulders.** The bubble is now 8 wider per
+    digit past the first (66 for 10–60), growing to the right; a test
+    measures the padding in the count's own font for every count to 60.
+    `IslandBubbleTests`.
+
 Deliberate differences from spec §19, kept on purpose:
 
 - **Music's label stays "Playing: title, artist"** (or "Paused: …"), not
@@ -1938,7 +1957,9 @@ Owed on hardware (record the Mac model and macOS version when run):
   on each, never on the bare notch, never along the top edge.
 - [ ] **R7-H4** Music with files on the Shelf: the bubble sits beside the
   island, the gap between them passes clicks to the menu bar, and a click on
-  the bubble opens the Shelf.
+  the bubble opens the Shelf. A copied screenshot shows the Shelf for about
+  2 s, then the island rests; a file dropped on the notch keeps it; "60" sits
+  inside the bubble with room on both sides.
 - [ ] **R7-H5** AirPods connecting (the expanded headphones alert), and the
   volume keys with Volume and Brightness on (the expanded pop-up: the output's
   name, the amber bar, the number).
