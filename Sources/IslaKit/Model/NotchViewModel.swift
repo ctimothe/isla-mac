@@ -1917,6 +1917,11 @@ final class NotchViewModel: ObservableObject {
             of: clipboard.items, filter: clipboardBrowser.filter, query: clipboardBrowser.query,
             isHidden: { [privacy] in privacy.hides(.clipboard, $0.id.uuidString) }
         )
+        // The Images grid draws no selection, so the keys are not its own:
+        // they moved one nobody could see, and Return copied a picture nobody
+        // chose and closed (R8 review F5). The same test `ClipboardPane` draws
+        // the grid by; a search shows rows again.
+        if clipboardBrowser.filter == .images, !listing.isSearch { return .ignored }
         switch key {
         case .up:
             clipboardBrowser.selection = ClipboardBrowser.moved(-1, in: listing, selection: clipboardBrowser.selection)
@@ -1925,7 +1930,11 @@ final class NotchViewModel: ObservableObject {
             clipboardBrowser.selection = ClipboardBrowser.moved(1, in: listing, selection: clipboardBrowser.selection)
             return .handled
         case .enter:
-            guard let index = ClipboardBrowser.selectedIndex(in: listing, selection: clipboardBrowser.selection) else {
+            // A standing question — Clear All's bar — is answered by its own
+            // buttons or Escape; Return copying and closing behind it left
+            // the question unanswered and the panel gone.
+            guard !ArmedConfirmations.shared.hasArmed,
+                  let index = ClipboardBrowser.selectedIndex(in: listing, selection: clipboardBrowser.selection) else {
                 return .handled
             }
             clipboard.copy(listing.items[index])

@@ -127,6 +127,10 @@ final class ArmedConfirmations {
         disarms[token] = nil
     }
 
+    /// Whether a question stands anywhere. Return on Clipboard's list asks,
+    /// so it never copies and closes behind a Clear All nobody has answered.
+    var hasArmed: Bool { !disarms.isEmpty }
+
     /// Takes back every armed question. True when there was one, which is
     /// what makes this Escape spent.
     func disarmAll() -> Bool {

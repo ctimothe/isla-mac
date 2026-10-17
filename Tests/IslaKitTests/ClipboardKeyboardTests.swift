@@ -162,4 +162,37 @@ final class ClipboardKeyboardTests: XCTestCase {
         XCTAssertEqual(vm.surface, .clipboard)
         XCTAssertFalse(vm.consumeEscape(), "the second closes the panel")
     }
+
+    /// The Images grid draws no selection (§19.8 draws it on rows), so the
+    /// keys are not the grid's: ↑ ↓ moved a selection nobody could see, and
+    /// Return copied a picture nobody chose and closed (R8 review F5). A
+    /// search shows rows again, and the keys come back with them.
+    func testTheImagesGridLetsTheListKeysThrough() throws {
+        let image = try XCTUnwrap(ClipImage.make(
+            data: ClipboardPinsTests.png(width: 40, height: 30, noise: false), type: .png, sourceApp: nil
+        ))
+        vm.clipboard.record(ClipItem(payload: .image(image), date: Date()))
+        vm.open(.clipboard)
+        vm.clipboardBrowser.filter = .images
+        let before = isolated.pasteboard.changeCount
+        for key in [NotchPanel.ListKey.up, .down, .enter] {
+            XCTAssertEqual(vm.consumeListKey(key), .ignored, "the grid took \(key)")
+        }
+        XCTAssertEqual(isolated.pasteboard.changeCount, before, "nothing was copied")
+    }
+
+    /// Return while the Clear All question stands copies nothing and keeps
+    /// the panel: the question is answered by its own buttons or by Escape.
+    func testReturnLeavesAStandingQuestionAlone() {
+        fill()
+        vm.open(.clipboard)
+        let question = ClipboardClearConfirmation()
+        question.ask(count: 3)
+        defer { question.cancel() }
+        let before = isolated.pasteboard.changeCount
+        XCTAssertEqual(vm.consumeListKey(.enter), .handled)
+        XCTAssertEqual(isolated.pasteboard.changeCount, before)
+        XCTAssertTrue(question.isAsking, "the question still stands")
+    }
 }
+

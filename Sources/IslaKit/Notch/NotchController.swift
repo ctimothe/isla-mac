@@ -762,16 +762,19 @@ final class NotchController {
     /// The toggle is right for a key — one key is the whole round trip — and
     /// wrong for a Shortcut or a Focus automation called *Show*, which ran on a
     /// panel already showing the words and folded them away (F-024).
-    func showLyrics() {
+    ///
+    /// `pin: false` is the island menu's row on a panel already open; see
+    /// `performMenu`.
+    func showLyrics(pin: Bool = true) {
         guard let vm = viewModel else { return }
         guard admitsCommandedOpen(vm) else { return }
         guard NotchViewModel.showLyricsVerdict(isOpen: vm.isOpen, surface: vm.surface) == .open else { return }
-        openOnLyrics(vm)
+        openOnLyrics(vm, pin: pin)
     }
 
     /// The open half of `toggleLyrics()`, shared with `showLyrics()` so the
     /// two cannot open the page in two different ways.
-    private func openOnLyrics(_ vm: NotchViewModel) {
+    private func openOnLyrics(_ vm: NotchViewModel, pin: Bool = true) {
         peekWork?.cancel()
         vm.isPeeking = false
         // Through `choose`, so a press during the first-run welcome retires
@@ -783,9 +786,9 @@ final class NotchController {
         // on the keyboard, not on the notch, and an unpinned panel nobody is
         // hovering folds a third of a second after it appears. Lyrics are read
         // for the length of a song, which is the longest any of these stays up.
-        vm.isPinnedOpen = true
+        if pin { vm.isPinnedOpen = true }
         setOpen(true)
-        pointer.setInside(true)
+        pointer.setInside(true, grace: pin ? 0 : NotchMetrics.menuReturnGrace)
         updatePinnedClickMonitor()
     }
 
@@ -825,7 +828,12 @@ final class NotchController {
             let items = IslandMenu.items(
                 bindings: HotKeyCenter.shared.bindings, songPlaying: vm.media.track != nil
             )
-            let menu = IslandMenu.menu(items) { [weak self] kind in self?.performMenu(kind) }
+            // Read before the menu tracks: a row's open is pinned only from
+            // the closed island (see `performMenu`).
+            let fromOpenPanel = vm.isOpen
+            let menu = IslandMenu.menu(items) { [weak self] kind in
+                self?.performMenu(kind, fromOpenPanel: fromOpenPanel)
+            }
             // Returns once a row is chosen or the menu is dismissed: AppKit
             // tracks it in its own loop.
             menu.popUp(positioning: nil, at: point, in: rootView)
@@ -833,13 +841,20 @@ final class NotchController {
         }
     }
 
-    private func performMenu(_ kind: IslandMenuItem.Kind) {
+    /// A row of the island's menu. From the closed island the row is the
+    /// whole gesture and the open is pinned, as a command's is. From the
+    /// header of a panel already open the pointer stays in charge (§19.1's
+    /// closing rule): pinned, the panel ignored the pointer leaving and held
+    /// Escape system-wide until a click elsewhere (R8 review F3). The menu's
+    /// return grace covers a row that hung below the body.
+    func performMenu(_ kind: IslandMenuItem.Kind, fromOpenPanel: Bool) {
+        let pin = !fromOpenPanel
         switch kind {
-        case .clipboard: openCommanded(.clipboard)
+        case .clipboard: openCommanded(.clipboard, pin: pin)
         case .translateClipboard: translateCommanded(NSPasteboard.general.string(forType: .string))
-        case .shelf: openCommanded(.tray)
-        case .lyrics: showLyrics()
-        case .settings: openCommanded(.settings)
+        case .shelf: openCommanded(.tray, pin: pin)
+        case .lyrics: showLyrics(pin: pin)
+        case .settings: openCommanded(.settings, pin: pin)
         case .quit: NSApp.terminate(nil)
         case .separator: break
         }
@@ -850,15 +865,31 @@ final class NotchController {
     /// menu or a key rather than resting on the notch — the chosen row can sit
     /// below the open body, and an unpinned panel would fold as it opened.
     /// Through `choose`, so a menu row during the first-run welcome retires it.
-    func openCommanded(_ surface: NotchViewModel.Surface) {
+    ///
+    /// Unpinned (`pin: false`, a menu row on an open panel), the pointer gets
+    /// the menu's return grace here as well as from `MenuTracking`: which of
+    /// the two runs first — the row's action or the menu's close — is
+    /// AppKit's, and a grace given there would otherwise be taken back here.
+    func openCommanded(_ surface: NotchViewModel.Surface, pin: Bool = true) {
         guard let vm = viewModel, admitsCommandedOpen(vm) else { return }
         peekWork?.cancel()
         vm.isPeeking = false
         vm.choose(surface)
-        vm.isPinnedOpen = true
+        if pin { vm.isPinnedOpen = true }
         setOpen(true)
-        pointer.setInside(true)
+        pointer.setInside(true, grace: pin ? 0 : NotchMetrics.menuReturnGrace)
         updatePinnedClickMonitor()
+    }
+
+    /// Escape, or Return on a Clipboard row: the keyboard folds the panel
+    /// with the pointer perhaps resting on it. Not a plain `setInside(false)`
+    /// — the open body's rect is still cut while the panel folds, so the
+    /// resting pointer read as an arrival and, with Open on Hover on,
+    /// reopened the island 50 ms later (R8 review F2); see
+    /// `PointerWatcher.closedByHand()`.
+    func closeFromKeyboard() {
+        setOpen(false)
+        pointer.closedByHand()
     }
 
     /// Opens on Translate with this text already in it — or, with no text (an
@@ -1437,11 +1468,7 @@ final class NotchController {
             return true
         }
 
-        panel.onEscape = { [weak self] in
-            guard let self else { return }
-            self.setOpen(false)
-            self.pointer.setInside(false)
-        }
+        panel.onEscape = { [weak self] in self?.closeFromKeyboard() }
 
         // Escape reaches the panes first, and only folds the panel if none of
         // them wanted it. Swallowing every Escape here made the two panes'
@@ -1464,8 +1491,7 @@ final class NotchController {
             case .handled:
                 return true
             case .handledAndClose:
-                self.setOpen(false)
-                self.pointer.setInside(false)
+                self.closeFromKeyboard()
                 return true
             }
         }
