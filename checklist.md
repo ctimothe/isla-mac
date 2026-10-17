@@ -2053,8 +2053,27 @@ and by ⌃Tab / ⌃⇧Tab while the panel has the keyboard. Tools goes, previews
 all; every page and the stage carry the gear in its place. Nothing new leaves
 the Mac, touches an account or changes a system setting.
 
-- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
-  installed.
+- [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed (2026-10-18). Commits ff75dbd, a0c9070, 98bdaf3, 63ef9a2,
+  fa574d7, then review fixes 61b66c4, 85d4828, 2e09e6a, ad678ba. Gate 11/11,
+  2537 tests, 0 failures (37 skipped). Codex: two P1/P2 notes on the first
+  review answered with pinning tests, then clean on each of the four fix
+  commits. Opus: a high review and three re-reviews; every finding fixed
+  test-first except the lows below.
+
+Accepted lows (each owed a look on hardware, none blocks the release):
+
+- A swipe that catches a dot's straight or joined leg pages along that
+  strip rather than the row, so one swipe can land two places along the row
+  (R8b review N4; already true of the pair legs before the joins).
+- Whether a swallowed `.ended` leaves the Shelf's strip mid-gesture is
+  unmeasured off hardware (P3, now part of R8b-H4); P5 likewise.
+- The press-conversion test builds its window points with the controller's
+  own formula: it catches a flipped axis, not a `contentRect` that differs
+  from where SwiftUI draws (F10).
+- On Translate or Clipboard reached without the keyboard, ⌘C on selected
+  translation text and the arrow keys on Clipboard's rows go to the app in
+  front until the field is clicked — what §19.16 asks for.
 
 Deliberate differences from spec §19.16, kept on purpose (each also written
 into the spec as a dated amendment):
