@@ -1893,7 +1893,7 @@ ask:
   R10 merges.
 
 Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
-R8-H1…H8, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+R8-H1…H8, R8b-H1…H8, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
 
@@ -2043,3 +2043,52 @@ Owed on hardware (record the Mac model and macOS version when run):
   on the far end, let the peek fold, rest there: the next track still peeks.
 - [ ] **R8-H8** ⌃⌥⌘I, then right-click the header row and press Escape: the
   menu closes and the panel stays. Escape again folds the panel.
+
+### R8b — Pages and dots (`feat/redesign-r8b-pages`)
+
+Spec §19.16 (decision 18, owner 2026-10-18): the four surfaces a person moves
+between — Music, the Shelf, Clipboard, Translate — become pages in a row,
+turned by a sideways two-finger swipe, by a row of four dots under each page,
+and by ⌃Tab / ⌃⇧Tab while the panel has the keyboard. Tools goes, previews and
+all; every page and the stage carry the gear in its place. Nothing new leaves
+the Mac, touches an account or changes a system setting.
+
+- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed.
+
+Deliberate differences from spec §19.16, kept on purpose (each also written
+into the spec as a dated amendment):
+
+- **The dots' VoiceOver element carries the label "Pages"** ahead of its
+  value, so the row reads "Pages, Page 2 of 4, Shelf" rather than its value
+  alone (§19.16 strings, 2026-10-18).
+- **A ⌃Tab turn keeps the keyboard**, onto the Shelf and Music too, so the
+  next ⌃⇧Tab still reaches the panel rather than switching the tabs of the
+  app in front; a swipe or a dot afterwards gives it back (§19.16 keyboard,
+  2026-10-18).
+
+Owed on hardware (record the Mac model and macOS version when run):
+
+- [ ] **R8b-H1** A slow and a flicked swipe through all four pages and back
+  on the built-in trackpad: the pages follow the fingers 1:1, a flick turns
+  one page and never two, the ends rubber-band, and nothing stutters at 120 Hz
+  on a ProMotion display with Clipboard's list and the player's artwork on
+  screen — the per-frame cost of re-rendering the shell is not measured off
+  hardware (§19.15).
+- [ ] **R8b-H2** The same on a Magic Mouse.
+- [ ] **R8b-H3** A wheel mouse: the wheel scrolls the page under it and never
+  turns one; the dots turn them.
+- [ ] **R8b-H4** The tray with eight files: a swipe scrolls the strip first,
+  and turns the page only once it began at the strip's end.
+- [ ] **R8b-H5** VoiceOver: the dots read after the page as "Pages, Page n of
+  4, name", and VO-⇧-↑/↓ (increment, decrement) turn one page and stop at the
+  ends.
+- [ ] **R8b-H6** Reduce Motion: a dot and ⌃Tab crossfade in place; a swipe
+  still follows the fingers and settles without the spring's overshoot.
+- [ ] **R8b-H7** Typing in Safari, swipe to Clipboard: Safari keeps the
+  keyboard and its caret keeps blinking. ⌃⌥⌘V then ⌃Tab: Translate takes the
+  caret; ⌃⇧Tab twice reaches the Shelf and the next ⌃⇧Tab turns to Music
+  rather than switching Safari's tab; Escape folds the panel.
+- [ ] **R8b-H8** Every page in Russian at Panel Width 480 and 620: the dots
+  and the gear clear the content, and the tooltips read Музыка, Полка, Буфер
+  обмена, Перевод.

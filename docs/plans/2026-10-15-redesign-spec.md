@@ -2846,6 +2846,17 @@ green.
   reconnect flow; until a person has granted it, no star for Spotify.
 - **The unlock band** (R10): 18 % is measured on the 14- and 16-inch lock
   screens with a picture and a long name before the layout ships (R10-H1).
+- **A swipe's frames** (R8b, added 2026-10-18): every frame of a swipe or a
+  settle re-renders the open island's shell and the pages on screen, with
+  animations disabled. `PageTravel` is an object of its own so nothing else
+  that watches the view model re-renders with it. Whether that holds 120 Hz on
+  a ProMotion display with Clipboard's list and the player's artwork is
+  measured on hardware (R8b-H1); if it does not, the pages move as one layer
+  under a single offset rather than being laid out again each frame.
+- **Music beside the page under the fingers** (R8b, added 2026-10-18): the
+  player drawn as a neighbour mid-swipe keeps the media clock off until it is
+  the page on screen, so its position can trail by the length of the swipe.
+  Accepted: the clock starts on the release, before the settle ends.
 
 ### 19.16 Pages and dots (2026-10-18, owner)
 

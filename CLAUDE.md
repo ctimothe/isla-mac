@@ -46,11 +46,13 @@ update the spec/design first, then checklist and code in the same change.
 Notes and the Teleprompter on 2026-08-22 (`57650e0`), taking the second rail and
 the tall panel body with them. Since R8 (spec §19, 2026-10-18) there are no
 tabs and no rail: the panel shows one surface at a time — the player, the
-lyric stage, the Shelf's tray, the drop surface, Tools, Clipboard, Translate,
+lyric stage, the Shelf's tray, the drop surface, Clipboard, Translate,
 Settings and the welcome (`NotchViewModel.Surface`) — reached from the
-island, Tools, the right-click menu and the hot keys, and
-`Tests/IslaKitTests/SurfaceContractTests.swift` asserts every surface and
-every road to it, so neither a removed feature nor a tab can creep back. The parity design records each removal as a dated
+island, the pages' dots and swipe, the gear, the right-click menu and the hot
+keys. Tools went with R8b (spec §19.16, 2026-10-18), previews and all, rather
+than staying as a fifth page. `Tests/IslaKitTests/SurfaceContractTests.swift`
+asserts every surface and every road to it, so neither a removed feature nor
+a tab can creep back. The parity design records each removal as a dated
 **Withdrawn** amendment in place rather than deleting the section: amend it the
 same way, never by rewriting the original contract.
 
@@ -146,7 +148,10 @@ content. Level is `CGWindowLevelForKey(.statusWindow) + 1` (`NotchPanel.normalLe
 collection behavior `.canJoinAllSpaces`/`.stationary`/`.fullScreenAuxiliary`/`.ignoresCycle`.
 `canBecomeMain` is always false and `canBecomeKey` only while a surface that
 types asks for the keyboard — Clipboard and Translate (`Surface.takesKeyboard`),
-and Settings only while a shortcut field records. Because the panel never activates, `NSScreen.main` is
+and Settings only while a shortcut field records. A page reached by a swipe
+or a dot never takes it; ⌃Tab, which only a key panel hears, carries it onto
+the page it turns to, the Shelf and Music included
+(`NotchViewModel.turnPageByKey`). Because the panel never activates, `NSScreen.main` is
 meaningless here — never use it to pick the target display, and recompute
 geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
 `.accessory` — no Dock icon, no menu-bar item, no window — and the policy is set
@@ -178,7 +183,7 @@ eats those keys in every app. Third-party app icons (Spotify, the players in
 Settings, the empty player's buttons) come only from the installed app at
 runtime (`AppIcons`); no brand asset ships in the bundle.
 
-**Window sizing.** The window is cut once to the tallest body any tab can ask
+**Window sizing.** The window is cut once to the tallest body any surface can ask
 for and then never resized — it is transparent outside the visible panel, and
 what is *clickable* is decided separately by `activeRect` on `NotchRootView`
 (everything outside it is click-through). Resizing across a lock produced
@@ -222,7 +227,8 @@ MediaRemote permission. Music deactivates, the island collapses, and
 `NowPlayingFailurePolicy` backs the restart delay off rather than retrying every
 two seconds.
 
-**UI.** `NotchContentView` switches panes by tab. Every translucent surface goes
+**UI.** `NotchContentView` switches panes by surface, and draws two pages side
+by side only while they travel. Every translucent surface goes
 through `glassSurface(...)` — do not hand-mix another gradient. It picks one of
 two implementations: Apple's own material via `glassEffect` on macOS 26 where
 there is a backdrop to sample, and `GlassSurface`'s hand-drawn recipe otherwise
@@ -253,9 +259,22 @@ player, the Shelf its tray, and an alert folds instead of opening anything.
 While Music holds the island, files on the Shelf wait as a bubble beside it,
 which has a hit region of its own (`NotchRootView.bubbleRect`) so the gap
 between the two stays click-through; a click on the bubble opens the tray.
-Every open surface's header row carries the way back — a Tools button where
-the surface was reached from Tools — and a click on the notch's own span of
-that row closes the panel. A right-click on the island or the header row opens
+The open island has four **pages** side by side — Music, the Shelf, Clipboard,
+Translate (`Surface.pages`, spec §19.16) — and four dots under each
+(`PageDots`) say where you are and turn to any page on a click; VoiceOver
+reads the row as one adjustable element, "Pages, Page 2 of 4, Shelf". A
+sideways two-finger swipe over the pages turns them one at a time:
+`PageSwipe` takes precise scroll events only, locks a direction after 10 pt,
+tracks 1:1, rubber-bands past either end and projects the release's momentum;
+the Shelf's strip scrolls first. `PageTravel` draws every frame on the
+display's own clock, with animations disabled, so no implicit `.animation`
+lays a curve over the fingers; the settle is the island's spring. An ordinary
+wheel never turns a page — the dots are its way — and ⌃Tab and ⌃⇧Tab turn
+them while the panel has the keyboard. The clickable region is cut over every
+page a gesture can reach, once per gesture. The stage and Settings sit a level
+below the pages: every page and the stage carry the **gear**, which opens
+Settings and, lit there, goes back. A click on the notch's own span of the
+header row closes the panel. A right-click on the island or the header row opens
 `IslandMenu` (Clipboard, Shelf, Translate Clipboard, lyrics, Settings…, Quit);
 it is the app's only menu, since an `.accessory` app has no menu bar.
 Hover-to-open survives as **Open on Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
