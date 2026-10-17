@@ -1893,8 +1893,15 @@ are run.
 
 ### R7 — The island and its activities (`feat/redesign-r7-island`)
 
-- [ ] Built, `./scripts/check` green, Codex and Opus reviews answered,
-  installed — *filled in when the gate and the reviews close.*
+- [x] Built, `./scripts/check` green, Codex and Opus reviews answered,
+  installed — 2026-10-17 at `3ebb1f8`: 11 of 11 steps, 2417 tests with 37
+  skipped and 0 failures. Codex (`codex exec review --base
+  feat/redesign-activities`): no actionable defects. Opus (high): an alert
+  could grow under a resting pointer, and a re-cut during a close's fold let
+  clicks through the folding panel — both fixed in `3ebb1f8` with tests that
+  fail without the fix, and Codex re-read the fix: no defects. Its spec-gap
+  finding (a click on an alert opens Music) is R8's, recorded below. Nothing
+  merged. The hardware checks below are owed.
 
 Deliberate differences from spec §19, kept on purpose:
 
