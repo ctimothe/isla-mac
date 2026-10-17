@@ -46,6 +46,27 @@ final class LockedIslandIsInertTests: XCTestCase {
         XCTAssertFalse(vm.isOpen, "nothing opens over the shield")
     }
 
+    /// A right-click over the lock is the same refusal (spec §19.9): the
+    /// island's shake, never its menu — whose Settings… and Quit would act
+    /// over the password field — on the island and on its bubble alike.
+    func testALockedRightClickShakesAndOffersNoMenu() {
+        let island = CGRect(x: 400, y: 562, width: 300, height: 40)
+        let bubble = CGRect(x: 716, y: 562, width: 58, height: 40)
+        for point in [CGPoint(x: 450, y: 580), CGPoint(x: 740, y: 580)] {
+            XCTAssertEqual(
+                IslandMenu.secondaryClick(
+                    at: point, active: island, bubble: bubble, isOpen: false, isLocked: true, headerHeight: 38
+                ),
+                .shake, "\(point)"
+            )
+        }
+        let vm = model()
+        vm.isLockedPresentation = true
+        vm.nudgeLockedIsland()
+        XCTAssertEqual(vm.lockedHoverNudges, 1, "what the controller plays out on `.shake`")
+        XCTAssertFalse(vm.isOpen)
+    }
+
     /// A deliberate open command — ⌃⌥⌘I, the translate shortcut, the welcome —
     /// is refused over the shield, exactly as a click is. Opened there, the
     /// panel would grow its clickable region from the deliberate pill-sized

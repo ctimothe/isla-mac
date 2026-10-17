@@ -555,3 +555,7 @@
 "Drag files to the notch to keep them." = "Drag files to the notch to keep them.";
 "Pinned" = "Pinned";
 "↩ Copy" = "↩ Copy";
+
+/* The island's right-click menu (spec §19.9). */
+"Translate Clipboard" = "Translate Clipboard";
+"Settings…" = "Settings…";

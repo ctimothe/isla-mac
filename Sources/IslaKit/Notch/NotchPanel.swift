@@ -143,6 +143,22 @@ final class NotchPanel: NSPanel {
     /// and the field with the caret never hears of it.
     var listKeyHandled: ((ListKey) -> Bool)?
 
+    /// A right-click, or a left click with Control and nothing else held,
+    /// which macOS means as one.
+    static func isSecondaryClick(type: NSEvent.EventType, flags: NSEvent.ModifierFlags) -> Bool {
+        switch type {
+        case .rightMouseDown: return true
+        case .leftMouseDown: return flags.intersection([.command, .control, .option, .shift]) == .control
+        default: return false
+        }
+    }
+
+    /// Asked on a secondary click, with its point in the content view. True
+    /// means the island took it — its menu, or the locked island's shake
+    /// (spec §19.9) — and nothing under the point hears of it; false passes it
+    /// on to a clipboard row's own menu or a tile's Open With.
+    var secondaryClickHandled: ((NSPoint) -> Bool)?
+
     /// Whether a press is ⌘, — Settings, the shortcut every Mac app gives its
     /// settings (spec §19.1). Only ⌘ may be held, Caps Lock aside. The comma
     /// is the one the press printed when it printed something Latin, which
@@ -209,6 +225,12 @@ final class NotchPanel: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        // Ahead of the latch: the menu tracks the mouse in a loop of its own
+        // and takes the release, so a press latched here would never end.
+        if Self.isSecondaryClick(type: event.type, flags: event.modifierFlags),
+           secondaryClickHandled?(event.locationInWindow) == true {
+            return
+        }
         // First, ahead of every early return below, so no path through here
         // can latch a press and then skip its release.
         switch event.type {

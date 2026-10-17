@@ -561,3 +561,7 @@
 "Drag files to the notch to keep them." = "Перетащите файлы к вырезу, чтобы сохранить их.";
 "Pinned" = "Закреплено";
 "↩ Copy" = "↩ Скопировать";
+
+/* The island's right-click menu (spec §19.9). */
+"Translate Clipboard" = "Перевести буфер обмена";
+"Settings…" = "Настройки…";

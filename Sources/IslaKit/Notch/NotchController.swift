@@ -789,6 +789,62 @@ final class NotchController {
         updatePinnedClickMonitor()
     }
 
+    /// A secondary click at `point`, in the content view: the island's menu,
+    /// the locked island's shake, or nothing of the island's (spec §19.9).
+    private func secondaryClicked(at point: NSPoint) -> Bool {
+        guard let vm = viewModel, let rootView else { return false }
+        switch IslandMenu.secondaryClick(
+            at: point, active: rootView.activeRect, bubble: rootView.bubbleRect,
+            isOpen: vm.isOpen, isLocked: vm.isLockedPresentation,
+            headerHeight: vm.geometry.notchSize.height
+        ) {
+        case .passThrough:
+            return false
+        case .shake:
+            vm.nudgeLockedIsland()
+            return true
+        case .menu:
+            // A paused song still has words to show, so Lyrics follows the
+            // song, not the play state.
+            let items = IslandMenu.items(
+                bindings: HotKeyCenter.shared.bindings, songPlaying: vm.media.track != nil
+            )
+            let menu = IslandMenu.menu(items) { [weak self] kind in self?.performMenu(kind) }
+            // Returns once a row is chosen or the menu is dismissed: AppKit
+            // tracks it in its own loop.
+            menu.popUp(positioning: nil, at: point, in: rootView)
+            return true
+        }
+    }
+
+    private func performMenu(_ kind: IslandMenuItem.Kind) {
+        switch kind {
+        case .clipboard: openCommanded(.clipboard)
+        case .translateClipboard: translateCommanded(NSPasteboard.general.string(forType: .string))
+        case .shelf: openCommanded(.tray)
+        case .lyrics: showLyrics()
+        case .settings: openCommanded(.settings)
+        case .quit: NSApp.terminate(nil)
+        case .separator: break
+        }
+    }
+
+    /// Opens on `surface` the way a command does: refused over the shield
+    /// like every command, and pinned, because the hand that asked is on a
+    /// menu or a key rather than resting on the notch — the chosen row can sit
+    /// below the open body, and an unpinned panel would fold as it opened.
+    /// Through `choose`, so a menu row during the first-run welcome retires it.
+    func openCommanded(_ surface: NotchViewModel.Surface) {
+        guard let vm = viewModel, admitsCommandedOpen(vm) else { return }
+        peekWork?.cancel()
+        vm.isPeeking = false
+        vm.choose(surface)
+        vm.isPinnedOpen = true
+        setOpen(true)
+        pointer.setInside(true)
+        updatePinnedClickMonitor()
+    }
+
     /// Opens on Translate with this text already in it — or, with no text (an
     /// image on the clipboard), on Translate saying so. It used to
     /// return without a trace on no text, which looked exactly like a shortcut
@@ -1399,6 +1455,12 @@ final class NotchController {
             guard let vm = self?.viewModel, vm.presented != .settings else { return false }
             vm.open(.settings)
             return true
+        }
+
+        // A right-click on the island, its bubble or an open surface's header
+        // row opens the island's menu (spec §19.9); over the lock it shakes.
+        panel.secondaryClickHandled = { [weak self] point in
+            self?.secondaryClicked(at: point) ?? false
         }
 
         // ⇧⌘C copies the translation, which no responder owns: the caret is

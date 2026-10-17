@@ -9,10 +9,11 @@ final class AppSurfaceContractTests: XCTestCase {
     /// No Dock icon, ever.
     ///
     /// A window and a `.regular` policy were tried and removed by owner
-    /// decision: the panel's own Settings tab already carries Open Panel, About
-    /// and Quit, so a second front door was a second place to keep in sync. A
-    /// policy that can change is what put an icon in the Dock, so the constant
-    /// is asserted rather than the call.
+    /// decision: the panel already carries About and Quit in Settings, and
+    /// since R8 the island's right-click menu offers Settings… and Quit Isla
+    /// from any state (spec §19.9), so a second front door was a second place
+    /// to keep in sync. A policy that can change is what put an icon in the
+    /// Dock, so the constant is asserted rather than the call.
     func testTheAppIsAnAccessoryAndNothingElse() {
         XCTAssertEqual(IslaApplication.activationPolicy, .accessory)
     }
