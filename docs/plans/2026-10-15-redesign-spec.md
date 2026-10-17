@@ -39,9 +39,10 @@ Upstream of this document:
 | 12 | Clipboard gets the same Expand/Collapse button as Lyrics, Shelf and Translate. *Withdrawn 17 Oct 2026 with decision 7.* |
 | 13 | Volume and brightness pop-up in the island: a full replacement of the Mac's pop-up (volume, mute, display and keyboard brightness), opt-in, off by default, needs Accessibility; its own release (R5). |
 | 14 | *(17 Oct 2026)* The tabs leave the rail for the notch's wings: Music and Shelf left of the camera, Clipboard and Translate right of it, Settings at the far right edge (§18, release R6). **Withdrawn 17 Oct 2026** by decision 15. |
-| 15 | *(17 Oct 2026)* Activities first. The island shows the one thing happening — an alert, the music, the Shelf's files — and a click opens it; Clipboard, Translate and Settings are summoned (a shortcut, the right-click menu, Tools), never tabs. The wings (decision 14, §18, R6) are withdrawn. §19. |
+| 15 | *(17 Oct 2026)* Activities first. The island shows the one thing happening — an alert, the music, the Shelf's files — and a click opens it; Clipboard, Translate and Settings are summoned (a shortcut, the right-click menu, Tools), never tabs. The wings (decision 14, §18, R6) are withdrawn. §19. *Amended 18 Oct 2026 by decision 18: Clipboard and Translate are also pages beside Music and the Shelf, and Tools is withdrawn; still no tabs.* |
 | 16 | *(17 Oct 2026)* The island and its activities are drawn exactly as in DynamicNotch's published screenshots — sizes, quadratic corners, the 2 pt tinted stroke, the overshooting spring, content arriving from a blur — rebuilt from scratch with Apple's SF Symbols and Isla's own words. No DynamicNotch code, image or text (GPL-3.0). §19.2–§19.5. |
 | 17 | *(17 Oct 2026)* Music and its lyrics are the main activity; the Shelf appears when files are dragged to the notch; a second live activity waits as a bubble beside the island. §19.1, §19.6, §19.7. |
+| 18 | *(18 Oct 2026)* Pages and dots. The open panel's four places — Music, Shelf, Clipboard, Translate — are pages in a fixed order: a two-finger swipe turns them and a row of dots under each shows where you are. Settings is a gear at the top right of every page. Tools is withdrawn. §19.16, release R8b. |
 
 ## 1. Conventions
 
@@ -1741,6 +1742,30 @@ Finder drag into Keep on Shelf and onto AirDrop; R8-H3 ⌃⌥⌘V from Safari, t
 and with Ice running; R8-H5 the player's sung line on a synced song; R8-H6
 Favourite in Music.
 
+### R8b — Pages and dots (`feat/redesign-r8b-pages`)
+
+*Added 2026-10-18 (owner, decision 18).* In: §19.16; the dated notes it left
+in §19.1 and §19.6–§19.11; the welcome's legend; `CLAUDE.md`'s interaction
+paragraph. Tests: the page order and that no page is ever missing; every road
+in §19.16's table; the bare notch opening the last page shown and Music at
+launch; Tools absent with the removed features; the swipe as a pure function
+over scroll events — the 10 pt direction lock, a vertical start never paging,
+the tray strip's edge rule, rubber-banding past both ends, the projection
+choosing at most one page, momentum events ignored, a phaseless wheel
+ignored, an interrupted settle starting from the presented offset; the
+outline's size between two pages at a given travel; the dots' frames, hit
+targets, tooltips and VoiceOver value on every page at `bw` 480, 560 and 620;
+the gear on every page and the stage, lit on Settings and going back; the
+tray's Remove All clear of the gear at `nw` 180–240; a page reached by a swipe
+or a dot not taking the keyboard, Clipboard summoned by ⌃⌥⌘V taking it, and
+leaving giving it back; ⌃Tab and ⌃⇧Tab. Owed on hardware: R8b-H1 a slow and a
+flicked swipe through all four pages and back on the built-in trackpad;
+R8b-H2 the same on a Magic Mouse; R8b-H3 a wheel mouse — the dots only;
+R8b-H4 the tray with eight files, the strip first, then the page; R8b-H5
+VoiceOver adjusting the dots; R8b-H6 Reduce Motion; R8b-H7 Clipboard reached by
+a swipe while typing in Safari — Safari keeps the keyboard; R8b-H8 every page
+in Russian at 480 and 620.
+
 ### R9 — New alerts (`feat/redesign-r9-alerts`)
 
 In: §19.5 a, b, e and f; the headphone battery ring (§19.5 c) if §19.15
@@ -1828,6 +1853,24 @@ of them by amending this section.
 - The Settings row "Charging" is renamed "Charger Connected" so the island
   can say «Зарядка».
 
+
+*Calls made for §19.16, 2026-10-18 (owner may veto any):*
+
+- Four pages, Music · Shelf · Clipboard · Translate, in that order and always
+  all four; Settings is not a page but the gear, as on the board the owner
+  chose.
+- The stage and Settings are a level below a page, with no dots and no
+  swipe; the gear on Settings stands lit and takes you back.
+- The bare notch with no song opens the page last shown since launch, Music
+  at launch. It is not saved across launches.
+- One page per swipe, no wrap, a rubber band at both ends; the settle rides
+  the island's spring, the one that overshoots.
+- Every page grows 16 pt for the dots rather than squeezing them into the
+  measured layouts.
+- A page reached by a swipe or a dot never takes the keyboard; ⌃Tab and ⌃⇧Tab
+  turn the page while the panel has it.
+- An ordinary wheel never turns a page; the dots are its way.
+- Tools goes entirely, previews included, rather than staying as a fifth page.
 
 ## 18. Tabs in the notch's wings (2026-10-17, owner)
 
@@ -2139,6 +2182,11 @@ The surfaces, and every way to reach each:
 | Translate (19.8) | a click on the Translated alert, the Tools card; the Services item "Translate in Isla" as today |
 | Settings (19.8) | the gear on Tools, the menu's Settings…, ⌘, while a surface has the keyboard |
 
+*Amended 2026-10-18 (owner, decision 18).* Music, the Shelf, Clipboard and
+Translate are pages, turned by a swipe or their dots (§19.16). The bare notch
+with no song, and ⌃⌥⌘I with nothing live, open the page last shown instead of
+Tools, which is withdrawn; §19.16 restates this table.
+
 ### 19.2 The outline
 
 Every activity and surface is one black shape hung from the top of the screen.
@@ -2441,6 +2489,11 @@ folds back to the player on its own.
 The lyric column (C) and the tall page (T) of §5.1 are withdrawn; the stage
 is the one lyric surface in the island.
 
+*Amended 2026-10-18 (owner, decision 18).* The player is the Music page and
+grows 16 for the dots (§19.16); with no song it is still drawn, in §4.8's
+Nothing Playing state, and "a click opens Tools" reads "opens the page last
+shown". The stage's Tools button is the gear.
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the
@@ -2511,6 +2564,11 @@ a one-digit count and **8 wider for each further digit** (66 for 10–60): at 58
 a two-digit count touched the shoulders. 8 pt is one tabular digit of 13
 semibold, so every count keeps the one-digit bubble's padding. Its left edge
 stays 16 right of the island's outline; it grows to the right.
+
+*Amended 2026-10-18 (owner, decision 18).* The tray is the Shelf page and
+grows 16 for the dots; "opened from Tools" reads "turned to". Remove All ends
+8 before the gear's well, and the tray's minimum width counts the gear
+(§19.16).
 
 ### 19.8 Tools and the summoned surfaces
 
@@ -2591,6 +2649,13 @@ playing." / "Right-click it for everything else." / "Drag files to the notch
 to keep them." / "⌃⌥⌘V Clipboard · ⌃⌥⌘T Translate · ⌃⌥⌘L Lyrics", the keys
 drawn from `HotKeyCenter`.
 
+*Amended 2026-10-18 (owner, decision 18).* **Tools is withdrawn**, with its
+cards, previews and the Tools button (§19.16). The Tools button's place holds
+the gear on every page and the stage; on Settings it stands lit and goes
+back. Clipboard and Translate are pages and grow 16 for the dots; reached by a
+swipe or a dot they do not take the keyboard. The welcome's second line
+becomes "Swipe sideways for the Shelf, Clipboard and Translate."
+
 ### 19.9 The right-click menu
 
 `R2-Menu`. An `NSMenu` at the click, in the system's appearance:
@@ -2622,6 +2687,11 @@ row chosen from an open surface's header leaves the pointer in charge, so
 walking away still closes it (§19.1), with the menu's return grace for a row
 that hung below the body. While one of the app's menus is open, Escape is the
 menu's and not the pin's.
+
+
+*Amended 2026-10-18 (owner, decision 18).* "With Tools, the menu is how
+everything is reached when nothing is live" reads "with the pages": the menu
+stays, and its rows open their pages (§19.16).
 
 ### 19.10 Lock screen
 
@@ -2674,6 +2744,9 @@ column and the tall page (§5.1 C and T); the Shelf's grid and selection bar
 (§8.1, §8.2). **Removed features stay removed:** the surface contract that
 replaces `TabContractTests` asserts, as it did, that Snippets, Calendar,
 Notes and the Teleprompter are absent.
+
+*Amended 2026-10-18 (owner, decision 18).* Tools — the surface, its cards and
+previews, the Tools button — is withdrawn too (§19.16).
 
 ### 19.12 Displays, accessibility and stress
 
@@ -2773,3 +2846,134 @@ green.
   reconnect flow; until a person has granted it, no star for Spotify.
 - **The unlock band** (R10): 18 % is measured on the 14- and 16-inch lock
   screens with a picture and a long name before the layout ships (R10-H1).
+
+### 19.16 Pages and dots (2026-10-18, owner)
+
+> **Added 2026-10-18 (owner, decision 18).** On R8 the owner found the Shelf,
+> Clipboard and Translate hidden: from the player they were reached only by a
+> right-click or a shortcut, and nothing on screen said they were there. Shown
+> three directions (a switcher in the header, a Control Center grid, pages
+> with dots), the owner chose **pages and dots**. This section amends §19.1
+> and §19.6–§19.11; where they disagree, it wins. It is release R8b (§16), built
+> on R8 before R9. Every call it makes without asking is listed in §17.
+
+**The pages.** The open panel holds four pages in one fixed order, left to
+right: **Music** (the player, §19.6), **Shelf** (the tray, §19.7),
+**Clipboard** and **Translate** (§19.8). The order never changes and no page
+is ever missing: Music with no song shows §4.8's Nothing Playing state in the
+player's frame, and an empty Shelf shows §19.7's one line. A row of places
+only teaches where things are if it holds still. They are pages, not tabs:
+nothing names them in a bar, and the island still opens on what it shows.
+
+**A level below the pages** sit the lyrics stage (from Music's cover or
+title), Settings (from the gear) and the two presented surfaces (the drop
+surface, the welcome). They carry no dots and do not page; Hide Lyrics and
+the lit gear go back up to the page they came from.
+
+**The dots.** Under every page, one row centred on the shape: four dots,
+6 pt, on a 14 pt pitch. The current page's dot is white 0.90; the others are
+white 0.30, and 0.45 while the pointer is over the row. Each page grows by
+**16** to hold the row — the player 198 → 214, the tray 158 → 174, Clipboard
+300 → 316, Translate 268 → 284, each at a 38 pt notch and moving with the
+notch as §19.8's heights do — and the row's centre sits 10 above the shape's
+bottom. Nothing else on a page moves.
+
+- Each dot is a button with a 14 × 20 hit target centred on it, answering on
+  press as `PanelButtonStyle` does. A click goes to its page.
+- Its tooltip (`help`) is its page's name: "Music", "Shelf", "Clipboard",
+  "Translate".
+- For VoiceOver the row is one adjustable element, "Page %d of %d, %@", whose
+  increment and decrement turn the page. It reads after the page's content.
+
+**The gear.** Where the Tools button stood — (`bw − 46`, 6) on Clipboard,
+Translate and the stage; 46 from the right edge on the player and the tray —
+every page and the stage carry **Settings**: `gearshape` 14 in the 26 × 26
+well, label "Settings", with the 5 pt update badge Tools' gear carried. A
+click opens Settings in place of the page on the island's spring. On
+Settings the same gear stands lit (white 0.18, radius 7, as Hide Lyrics is)
+and a second click goes back to the page or stage it came from. On the tray,
+Remove All moves left to end 8 before the gear's well, and §19.7's minimum
+width counts the gear on its side.
+
+**Swiping.** A two-finger sideways swipe on a trackpad, or a swipe on a Magic
+Mouse — any scroll gesture that has phases and precise deltas — anywhere over
+a page turns it.
+
+- **Direction.** The first 10 pt of travel decide. A gesture that starts more
+  sideways than up or down pages; one that starts up or down belongs to the
+  page (Clipboard's list, Settings) for the whole gesture.
+- **The tray's strip** scrolls first while it has more than four items. A
+  gesture that begins with the strip already at its end, moving past it,
+  turns the page.
+- **Tracking.** The content follows the fingers one to one: the page leaves
+  to one side, the next arrives from the side it lies on, both at full opacity
+  and clipped by the outline. The outline's width and height move between the
+  two pages' sizes in step with the travel. Past Music and past Translate the
+  travel rubber-bands (`rubberband(overshoot, width, 0.55)`, the apple-design
+  formula); the pages do not wrap.
+- **Release.** The release velocity is projected
+  (`velocity / 1000 × 0.998 / 0.002`) and the page nearest the projected
+  offset is chosen, at most one page from where the gesture began. The page
+  and the outline settle on `islandSpring`, starting at the fingers' velocity.
+  The momentum events macOS sends after the fingers lift are ignored: the
+  projection has already spent them.
+- **Interruptible.** A swipe that starts while a page is settling picks it up
+  where it is on screen.
+- **A wheel without phases** — an ordinary mouse — never turns a page. Its way
+  is the dots.
+- **Reduce Motion.** The content still follows the fingers (it is under the
+  person's hand); the settle is §19.3's ease-in-out 0.24 with no overshoot,
+  and a dot's click crossfades in 0.24.
+- §19.3's content arrival (blur and scale) is for opening and summoning, not
+  for turning a page.
+
+**The keyboard.** A page reached by a swipe or a dot never takes the
+keyboard: looking through the pages must not take typing away from the app in
+front. Clipboard and Translate take it when summoned (⌃⌥⌘V, ⌃⌥⌘T, the menu,
+the Translated alert) or when their field is clicked, and leaving the page
+gives it back. While the panel has the keyboard, ⌃Tab and ⌃⇧Tab turn the
+page, as they move between tabs in Safari and Finder.
+
+**Opening.** A click on the island opens the page of what it shows, as §19.1
+says: Music for a song, playing or paused (§19.6's amendment), the Shelf for
+its activity or bubble. The bare notch with no song, and ⌃⌥⌘I with nothing
+live, open **the page last shown** since launch — Music at launch — where
+§19.1 sent them to Tools. The menu, the shortcuts, the Translated alert and
+the Services item open their pages directly. Turning a page neither pins nor
+unpins the panel; closing is §19.1's.
+
+The surfaces, and every way to reach each, now read:
+
+| Surface | Reached by |
+|---|---|
+| Music (19.6) | a click on the Music activity or the peek; ⌃⌥⌘I with a song; its dot; a swipe; Hide Lyrics |
+| Lyrics stage (19.6) | ⌃⌥⌘L, the menu's Lyrics, a click on the player's cover or title |
+| Shelf (19.7) | a click on the Shelf activity or its bubble; the menu's Shelf; its dot; a swipe |
+| Clipboard (19.8) | ⌃⌥⌘V; the menu; its dot; a swipe |
+| Translate (19.8) | a click on the Translated alert; the Services item; its dot; a swipe |
+| Settings (19.8) | the gear on every page and the stage; the menu's Settings…; ⌘, while the panel has the keyboard |
+| the last page shown | a click on the bare notch with no song; ⌃⌥⌘I with nothing live |
+
+**Tools is withdrawn** — §19.8's Tools surface, its cards and previews, and
+the Tools button. With every place one swipe or one dot away, a fourth road
+to the same places is noise. `Surface.tools` goes, and `SurfaceContractTests`
+asserts it absent alongside the removed features.
+
+**The welcome's legend.** Its second line, "Right-click it for everything
+else.", becomes "Swipe sideways for the Shelf, Clipboard and Translate."
+
+**Displays and stress.** The dots and the gear hold at `bw` 480, 560 and 620,
+at `nw` 180–240 and `H` 24, 32 and 38, in English and Russian. The window's
+single cut is unchanged: the tallest page is Clipboard at 316, under the
+stage's and Settings' 400. `activeRect` follows the outline through a swipe.
+
+**Strings.**
+
+| English (key) | Russian |
+|---|---|
+| Page %d of %d, %@ | Страница %d из %d, %@ |
+| Swipe sideways for the Shelf, Clipboard and Translate. | Смахните в сторону, чтобы открыть полку, буфер обмена и перевод. |
+
+"Tools", "Empty" and "or drag files here" leave both tables with Tools if
+nothing else uses them; "Right-click it for everything else." leaves with the
+welcome's old line.

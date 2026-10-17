@@ -273,6 +273,15 @@ transitions.
 > when summoned, as Translate does. On the lock screen a full-screen layout —
 > the cover, the lyrics and a glass player, with the unlock controls left
 > clear — becomes the default, and the 2026-10-15 card stays as a choice.
+
+> **Amended 2026-10-18 — pages and dots.** The Shelf, Clipboard and Translate
+> were too hard to find from the player. The open panel now holds four pages
+> in a fixed order — Music, Shelf, Clipboard, Translate — turned by a
+> two-finger swipe or a click on a row of dots under each page. Settings is a
+> gear at the top right of every page. The small Tools surface is withdrawn.
+> The island still opens on what it shows, and the menu and the shortcuts still
+> open their pages directly; the removed features stay removed. Binding
+> detail: `docs/plans/2026-10-15-redesign-spec.md` §19.16 (release R8b).
 > Binding detail: `docs/plans/2026-10-15-redesign-spec.md` §19 (releases
 > R7–R10).
 

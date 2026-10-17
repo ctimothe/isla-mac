@@ -29,7 +29,8 @@ under `.worktrees/`:
 |---|---|---|
 | R7 | `feat/redesign-r7-island` | `feat/redesign-activities` (this spec, on the R5 chain and its release keys) |
 | R8 | `feat/redesign-r8-surfaces` | R7 |
-| R9 | `feat/redesign-r9-alerts` | R8 |
+| R8b | `feat/redesign-r8b-pages` | R8 *(added 2026-10-18, decision 18)* |
+| R9 | `feat/redesign-r9-alerts` | R8b |
 | R10 | `feat/redesign-r10-lock` | R9 |
 
 None merges to `main` without the owner; the redesign chain R1–R5 is still
@@ -219,6 +220,86 @@ paragraph's "while the Translate tab asks for the keyboard" and its three hot
 keys, and the Interaction paragraph, rewritten for §19. Checklist R8-H1…H6.
 Gate, reviews, commit, bundle, install.
 
+## R8b — Pages and dots
+
+*Added 2026-10-18 (owner, decision 18).* Contract: spec §19.16 and the dated
+notes it left in §19.1 and §19.6–§19.11. Branch `feat/redesign-r8b-pages`, cut
+from R8 (`e003969`), worktree `.worktrees/redesign-r8b-pages`; R9 is then cut
+from R8b, not from R8. Line numbers are those at `e003969`.
+
+Done when §19.16 holds, `Surface.tools` and `ToolsSurface` are gone, every
+road in §19.16's table is a test, and R8b-H1…H8 are listed in `checklist.md`.
+
+**Tasks 1–2 are one change and one commit.** Removing Tools breaks the gear's
+routes, the welcome and their tests at once.
+
+**Task 1 — the page model.** Tests first in `SurfaceContractTests`: the page
+order (`Surface.pages == [.player, .tray, .clipboard, .translate]`); every
+road in §19.16's table; Tools absent with the removed features; the bare notch
+with no song opening the last page shown, Music at launch; a song, playing or
+paused, still opening Music. Then `Model/Surface.swift`: `.tools` leaves the
+enum (13), `reachable` (17), `title` (27), `symbol`, `hasToolsButton` (52,
+becomes `hasGear`) and `SurfaceLayout.bodySize` (168–184, `toolsWidth` /
+`toolsHeight` go; each page's height + 16); `openTarget` (106) takes the last
+page. `Model/NotchViewModel.swift`: `surface`'s default (243) becomes
+`.player`; a `lastPage` held for the launch, set whenever a page is presented;
+`turnPage(to:)` beside `open(_:)` (1849), which presents a page without
+setting `wantsKeyboard`; `openSettings(at:)` remembers the page or stage to go
+back to. `ToolsSurfaceTests` is deleted with `UI/ToolsSurface.swift`.
+
+**Task 2 — the gear.** Tests first in `HeaderNotchBandTests` and a new
+`PageGearTests`: the gear's frame on every page and the stage at `bw` 480, 560
+and 620 and `nw` 180–240; the update badge; lit on Settings; a second click
+going back; the tray's Remove All ending 8 before the gear's well and the
+tray's minimum width counting it. Then `UI/NotchContentView.swift`'s header
+switch (935–960): `toolsButton` (966) becomes the gear, and the player and the
+tray gain it; `ShelfPane`'s header. The welcome's second line
+(`UI/WelcomePane.swift`) and its strings. Run `swift test`; commit tasks 1–2.
+
+**Task 3 — the swipe.** Tests first in a new `PageSwipeTests`, all on a pure
+`PageSwipe` value fed (phase, Δx, Δy, momentum, precise, time) and the pages'
+widths: the 10 pt direction lock; a vertical start never paging for the rest
+of the gesture; a phaseless or imprecise event ignored; momentum events after
+release ignored; 1:1 travel inside the pages and `rubberband(…, 0.55)` past
+both ends; the projection (0.998) choosing at most one page; a new gesture
+during a settle starting from the presented offset; the strip-edge rule given
+the strip's "at its end" as an input. `SurfaceLayout` gains the outline's size
+between two pages at a travel fraction, tested at 0, 0.5 and 1. Then a new
+`UI/PageSwipeMonitor.swift` — a local `.scrollWheel` monitor in the manner of
+`UI/ScrollWheelWatch.swift`, installed only while a page is presented and the
+pointer is inside `activeRect`, passing every event it does not consume —
+and the paging container in `NotchContentView.panes` (1197): the two pages
+side by side, clipped by the outline, offset by the travel; the settle on
+`Theme.islandSpring` (ease-in-out 0.24 under Reduce Motion) with the release
+velocity handed over. `ShelfPane`'s strip (88) reports whether it is at an
+end. Commit.
+
+**Task 4 — the dots.** Tests first in a new `PageDotsTests`: the row's frame
+on every page (centre 10 above the bottom; 6 pt dots on a 14 pt pitch), the
+14 × 20 hit targets, the tooltips, the VoiceOver value "Page %d of %d, %@" in
+English and Russian and its increment and decrement, white 0.90 / 0.30 /
+0.45, a dot click turning the page without the keyboard, the crossfade under
+Reduce Motion. Then a new `UI/PageDots.swift` placed by the paging container.
+`activeRect` (`Notch/NotchRootView.swift:23`) already follows the outline;
+the test asserts it covers the row. Commit.
+
+**Task 5 — the keyboard.** Tests first in `PanelKeyRoutingTests`,
+`ClipboardKeyboardTests` and `KeyboardAndMenuCloseTests`: a swipe or a dot to
+Clipboard or Translate leaves `NotchPanel.canBecomeKey` (`Notch/NotchPanel.swift:28`)
+false; ⌃⌥⌘V and a click into the field make it true; leaving the page lowers
+it; ⌃Tab and ⌃⇧Tab turn the page while the panel has the keyboard and are
+ignored over the lock. Then `NotchViewModel.consumeListKey` (1924) and the
+panel's key routing. Commit.
+
+**Task 6 — docs and the gate.** `CLAUDE.md`'s Interaction paragraph (pages,
+dots, the gear; no Tools) and its Shell paragraph if the keyboard rule's
+wording changes; `checklist.md` R8b-H1…H8 and a Built line; spec §19.15 gains
+any technical question the swipe raised. Gate with the xctest domain set
+aside, `codex exec review --base feat/redesign-r8-surfaces` (never alongside
+the gate: both take the SwiftPM lock), an Opus review at high effort, fixes
+test-first, commit, `bash Scripts/bundle.sh release`, `bash
+Scripts/install.sh`, `pgrep`.
+
 ## R9 — New alerts
 
 Done when §19.5 a, b, e and f hold, §19.15's MagSafe and headphone-battery
@@ -306,6 +387,14 @@ with the tested Mac model and macOS version recorded after each run.
 | R8-H4 | the right-click menu over a full-screen app and with Ice running |
 | R8-H5 | the sung line in the player on a synced song |
 | R8-H6 | Favourite in Music |
+| R8b-H1 | a slow and a flicked swipe through all four pages and back, built-in trackpad |
+| R8b-H2 | the same on a Magic Mouse |
+| R8b-H3 | a wheel mouse: the dots only |
+| R8b-H4 | the tray with eight files: the strip first, then the page |
+| R8b-H5 | VoiceOver adjusting the dots |
+| R8b-H6 | Reduce Motion |
+| R8b-H7 | Clipboard reached by a swipe while typing in Safari: Safari keeps the keyboard |
+| R8b-H8 | every page in Russian at 480 and 620 |
 | R9-H1 | Battery Low at 20 % |
 | R9-H2 | Full Battery on MagSafe and on USB-C |
 | R9-H3 | the MagSafe light turning green |
