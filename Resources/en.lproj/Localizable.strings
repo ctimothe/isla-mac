@@ -549,6 +549,8 @@
 "Drag files to the notch to keep them here." = "Drag files to the notch to keep them here.";
 "Click the island to open what’s playing." = "Click the island to open what’s playing.";
 "Swipe sideways for the Shelf, Clipboard and Translate." = "Swipe sideways for the Shelf, Clipboard and Translate.";
+"Pages" = "Pages";
+"Page %d of %d, %@" = "Page %d of %d, %@";
 "Drag files to the notch to keep them." = "Drag files to the notch to keep them.";
 "Pinned" = "Pinned";
 "↩ Copy" = "↩ Copy";

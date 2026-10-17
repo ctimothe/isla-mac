@@ -2018,6 +2018,48 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    /// A dot, VoiceOver's increment and decrement, ⌃Tab (§19.16): the page
+    /// at once — the header and the gear follow it — and never the keyboard,
+    /// while the pages travel there on the island's spring from where they
+    /// are on screen. One page along travels the row; further travels a
+    /// straight leg between the two pages alone, so the outline does not
+    /// flicker through the sizes of the pages between. Under Reduce Motion
+    /// nothing slides: the page is replaced in place, on the crossfade every
+    /// pane swap has. Anything that is not a page, or not open, is refused.
+    func travel(to page: Surface, reduceMotion: Bool) {
+        guard isOpen, !isLockedPresentation, page.isPage, presented.isPage, page != surface else { return }
+        guard !reduceMotion else {
+            pageTravel.finish()
+            turnPage(to: page)
+            return
+        }
+        let row = pageStrip()
+        guard let target = row.pages.firstIndex(of: page) else { return }
+        if let leg = pageTravel.leg, let index = leg.strip.pages.firstIndex(of: page) {
+            pageTravel.aim(strip: leg.strip, from: leg.position, to: index, reduceMotion: false)
+        } else {
+            pageTravel.finish()
+            let start = presented.pageIndex ?? 0
+            if abs(target - start) == 1 {
+                pageTravel.aim(strip: row, from: CGFloat(start), to: target, reduceMotion: false)
+            } else {
+                let pair = [Surface.pages[min(start, target)], Surface.pages[max(start, target)]]
+                let strip = PageStrip(pages: pair, widths: pair.map { openSize(of: $0).width })
+                pageTravel.aim(strip: strip, from: start < target ? 0 : 1, to: start < target ? 1 : 0, reduceMotion: false)
+            }
+        }
+        isTurningByTravel = true
+        turnPage(to: page)
+        isTurningByTravel = false
+    }
+
+    /// One page along, as VoiceOver's increment and decrement and ⌃Tab turn
+    /// them; nothing past either end.
+    func adjustPage(by step: Int, reduceMotion: Bool) {
+        guard let page = page(by: step) else { return }
+        travel(to: page, reduceMotion: reduceMotion)
+    }
+
     /// The page `step` places along from the one presented, or nil past
     /// either end — the pages do not wrap — or when what is presented is not
     /// a page (the stage, Settings, the drop surface, the welcome).

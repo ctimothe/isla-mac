@@ -1192,15 +1192,33 @@ struct NotchContentView: View {
     // MARK: - Body
 
     private var content: some View {
-        panes
-            .frame(
-                width: size.width,
-                // A page's dots have their own band under it (§19.16): the
-                // pane ends above the band, so no list or card runs under them.
-                height: max(0, size.height - vm.geometry.notchSize.height - SurfaceLayout.dotsBand(for: vm.presented)),
-                alignment: .topLeading
-            )
-            .frame(height: max(0, size.height - vm.geometry.notchSize.height), alignment: .top)
+        let headerHeight = vm.geometry.notchSize.height
+        return ZStack(alignment: .topLeading) {
+            panes
+                .frame(
+                    width: size.width,
+                    // A page's dots have their own band under it (§19.16): the
+                    // pane ends above the band, so no list or card runs under them.
+                    height: max(0, size.height - headerHeight - SurfaceLayout.dotsBand(for: vm.presented)),
+                    alignment: .topLeading
+                )
+                // Between two pages the taller arriving one would run on into
+                // the band, under the dots; cut there while they travel. At
+                // rest nothing is cut, as before.
+                .clipShape(PaneClip(isCutting: vm.travellingLeg != nil))
+            // After the pages, so VoiceOver reads the row after the page.
+            if vm.presented.isPage {
+                PageDots(
+                    current: PageDots.current(leg: vm.travellingLeg, presented: vm.presented),
+                    bodySize: size, headerHeight: headerHeight,
+                    turn: { vm.travel(to: $0, reduceMotion: reduceMotion) },
+                    adjust: { vm.adjustPage(by: $0, reduceMotion: reduceMotion) }
+                )
+                .accessibilitySortPriority(-1)
+                .transition(.opacity)
+            }
+        }
+            .frame(width: size.width, height: max(0, size.height - headerHeight), alignment: .topLeading)
             // A sideways swipe anywhere over a page turns it (§19.16).
             .onPageSwipe(enabled: vm.presented.isPage && !vm.isLockedPresentation) { event, over in
                 vm.pageScroll(event, over: over)
@@ -1381,6 +1399,17 @@ struct NotchContentView: View {
         case .welcome:
             WelcomePane(onDismiss: { vm.dismissWelcome() })
         }
+    }
+}
+
+/// The pages' frame while they travel, and no cut at all at rest: a pane's
+/// shadows, its menus' anchors and the cover flying in from the pill are
+/// never clipped by it outside a swipe.
+private struct PaneClip: Shape {
+    var isCutting: Bool
+
+    func path(in rect: CGRect) -> Path {
+        Path(isCutting ? rect : rect.insetBy(dx: -10_000, dy: -10_000))
     }
 }
 

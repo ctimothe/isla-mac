@@ -555,6 +555,8 @@
 "Drag files to the notch to keep them here." = "Перетащите файлы к вырезу, чтобы они хранились здесь.";
 "Click the island to open what’s playing." = "Нажмите на остров, чтобы открыть то, что играет.";
 "Swipe sideways for the Shelf, Clipboard and Translate." = "Смахните в сторону, чтобы открыть полку, буфер обмена и перевод.";
+"Pages" = "Страницы";
+"Page %d of %d, %@" = "Страница %d из %d, %@";
 "Drag files to the notch to keep them." = "Перетащите файлы к вырезу, чтобы сохранить их.";
 "Pinned" = "Закреплено";
 "↩ Copy" = "↩ Скопировать";

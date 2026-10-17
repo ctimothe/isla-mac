@@ -376,6 +376,15 @@ struct PageSettle: Equatable {
         return from + CGFloat(change)
     }
 
+    /// Pages a second at `time`: what a settle re-aimed mid-way starts from.
+    func velocity(at time: TimeInterval) -> CGFloat {
+        guard !reduceMotion, !isDone(at: time) else { return 0 }
+        let elapsed = max(0, time - start)
+        return CGFloat(Self.spring.velocity(
+            target: Double(to - from), initialVelocity: Double(velocity), time: elapsed
+        ))
+    }
+
     func isDone(at time: TimeInterval) -> Bool {
         let elapsed = time - start
         if reduceMotion { return elapsed >= Theme.reducedMotionDuration }

@@ -67,12 +67,17 @@ final class PageTravel: ObservableObject {
         clock.start { [weak self] in self?.step() }
     }
 
-    /// Starts a leg between two pages that are not under the fingers — a dot,
-    /// ⌃Tab — and settles it on the second.
-    func turn(strip: PageStrip, from: Int, to target: Int, reduceMotion: Bool) {
-        let position = leg?.strip == strip ? (leg?.position ?? CGFloat(from)) : CGFloat(from)
-        grab(strip: strip, position: position, reach: min(from, target)...max(from, target))
-        settle(to: target, velocity: 0, reduceMotion: reduceMotion)
+    /// Sends the pages to `target` without the fingers — a dot, VoiceOver's
+    /// increment, ⌃Tab — from `position` on `strip`. A settle already under
+    /// way on the same strip is re-aimed at the speed it has on screen, so
+    /// the change of mind is a bend in its path rather than a stop and a
+    /// start.
+    func aim(strip: PageStrip, from position: CGFloat, to target: Int, reduceMotion: Bool) {
+        let velocity = leg?.strip == strip ? (settle?.velocity(at: clock.now) ?? 0) : 0
+        let low = min(Int(position.rounded(.down)), target)
+        let high = max(Int(position.rounded(.up)), target)
+        grab(strip: strip, position: position, reach: max(0, low)...min(strip.lastIndex, high))
+        settle(to: target, velocity: velocity, reduceMotion: reduceMotion)
     }
 
     /// One frame of a settle: the pages where the curve has them now, and the

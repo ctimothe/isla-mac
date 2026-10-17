@@ -2971,9 +2971,16 @@ stage's and Settings' 400. `activeRect` follows the outline through a swipe.
 
 | English (key) | Russian |
 |---|---|
+| Pages | Страницы |
 | Page %d of %d, %@ | Страница %d из %d, %@ |
 | Swipe sideways for the Shelf, Clipboard and Translate. | Смахните в сторону, чтобы открыть полку, буфер обмена и перевод. |
 
 "Tools", "Empty" and "or drag files here" leave both tables with Tools if
 nothing else uses them; "Right-click it for everything else." leaves with the
 welcome's old line.
+
+*Amended 2026-10-18 (R8b build):* "Pages" joins the table as the adjustable
+element's label. VoiceOver reads an adjustable element as label then value,
+and without a label the row was announced as its value alone, with nothing
+saying what was being adjusted. With it the row reads "Pages, Page 2 of 4,
+Shelf".
