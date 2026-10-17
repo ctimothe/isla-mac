@@ -1623,6 +1623,12 @@ of them by amending this section.
 
 ## 18. Tabs in the notch's wings (2026-10-17, owner)
 
+> **Paused 2026-10-17 (owner).** Not to be built. After comparing Isla with an
+> event-driven notch app, the owner asked for a second canvas round on an
+> activities-first model (the island shows what is happening; tools are
+> summoned, not tabbed). This section stands as a record until that round
+> settles; if the round is chosen, it is withdrawn by a dated amendment.
+
 > **Added 2026-10-17 (owner).** The owner judged the vertical rail on the
 > body's left edge an app sidebar hung under a camera, not something Apple
 > would ship for the notch, and chose direction **A** of the navigation canvas

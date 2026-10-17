@@ -1,5 +1,11 @@
 # Tabs in the notch's wings — implementation plan (R6)
 
+> **Paused 2026-10-17 (owner).** Not to be built. After comparing Isla with an
+> event-driven notch app, the owner asked for a second canvas round on an
+> activities-first model (the island shows what is happening; tools are
+> summoned, not tabbed). This section stands as a record until that round
+> settles; if the round is chosen, it is withdrawn by a dated amendment.
+
 Date: 2026-10-17. Contract: `docs/plans/2026-10-15-redesign-spec.md` §18 and
 the dated notes that point to it; the parity design's 2026-10-17 amendment.
 Where this plan and §18 disagree, §18 wins and this plan is fixed.
