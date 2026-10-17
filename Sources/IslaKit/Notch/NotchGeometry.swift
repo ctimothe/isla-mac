@@ -305,6 +305,33 @@ struct NotchGeometry {
         return CGRect(x: rect.minX, y: 0, width: rect.width, height: bodySize.height)
     }
 
+    /// The Shelf's bubble beside a compact island `islandWidth` wide (spec
+    /// §19.7), its whole shape, in AppKit window coordinates — the space
+    /// `NotchRootView.bubbleRect` is in.
+    func bubbleRect(islandWidth: CGFloat, height: CGFloat) -> CGRect {
+        CGRect(
+            x: windowSize.width / 2 + IslandBubbleLayout.centreOffset(islandWidth: islandWidth)
+                - IslandBubbleLayout.width / 2,
+            y: windowSize.height - height,
+            width: IslandBubbleLayout.width,
+            height: height
+        )
+    }
+
+    /// The same, in the coordinates a SwiftUI gesture reports (top-left
+    /// origin), as `compactGestureRect` is the island's.
+    func bubbleGestureRect(islandWidth: CGFloat, height: CGFloat) -> CGRect {
+        let rect = bubbleRect(islandWidth: islandWidth, height: height)
+        return CGRect(x: rect.minX, y: 0, width: rect.width, height: height)
+    }
+
+    /// The same on screen, for the pointer sampler.
+    func bubbleScreenRect(islandWidth: CGFloat, height: CGFloat) -> CGRect {
+        includingTopEdge(
+            bubbleRect(islandWidth: islandWidth, height: height).offsetBy(dx: windowFrame.minX, dy: windowFrame.minY)
+        )
+    }
+
     func contentRect(for size: CGSize) -> CGRect {
         CGRect(
             x: (windowSize.width - size.width) / 2,

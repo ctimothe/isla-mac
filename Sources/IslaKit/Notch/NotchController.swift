@@ -442,6 +442,9 @@ final class NotchController {
         let window = panel?.frame.size ?? vm.geometry.windowSize
         rootView.activeRect = .zero
         rootView.dropRect = .zero
+        // The bubble never stands over the shield (spec §19.1).
+        rootView.bubbleRect = .zero
+        pointer.bubbleRect = .zero
 
         // The pill's own region. It opens nothing — the island stays shut over
         // the shield, by design — but it answers: a hover draws the edge, and a
@@ -838,7 +841,9 @@ final class NotchController {
     /// over the shield on purpose, and a click there has to say *not here*
     /// rather than either opening over the password field or doing nothing at
     /// all, which reads as a dead app rather than a decision.
-    private func islandClicked() {
+    /// `opening` is what was clicked: the bubble opens the Shelf, the island
+    /// what it shows (`NotchViewModel.clickTarget`).
+    private func islandClicked(opening tab: NotchViewModel.Tab? = nil) {
         guard let vm = viewModel else { return }
         // Diagnostic, behind DI_GEOM=1: the third line of the click trail, so
         // a gesture that fired reads here as refused, closed, or opened.
@@ -872,7 +877,7 @@ final class NotchController {
         // opens the panel the way a hover did rather than by a second path that
         // merely ends up open too. The tab, the lift and the pin are the view
         // model's — `clickOpened` — and the panel's own machinery is here.
-        vm.clickOpened(pointerIsOnPanel: pointerIsOnOpenPanel)
+        vm.clickOpened(pointerIsOnPanel: pointerIsOnOpenPanel, opening: tab)
         // Before `setOpen`, not after. Telling the watcher afterwards let it
         // re-enter `onChange` mid-expansion and re-run the open path against a
         // panel that was already opening.
@@ -1242,6 +1247,7 @@ final class NotchController {
         // launch rather than being silently spent.
         vm.isShowingWelcome = showingWelcome
         vm.onIslandClick = { [weak self] in self?.islandClicked() }
+        vm.onBubbleClick = { [weak self] in self?.islandClicked(opening: .shelf) }
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
@@ -2524,6 +2530,21 @@ final class NotchController {
         pointer.interactiveRect = vm.geometry
             .contentScreenRect(for: size)
             .insetBy(dx: -slack, dy: 0)
+        // The Shelf's bubble beside Music, its own region (spec §19.7). Re-cut
+        // with the island: everything that brings it or takes it away — a
+        // track, a pause settling, an alert, the Shelf's first and last file,
+        // opening, the lock — already re-cuts these rects.
+        if !open, vm.bubbleCount != nil {
+            let width = vm.bodySize.width, height = vm.bodySize.height
+            rootView.bubbleRect = NotchRootView.reachingTopEdge(
+                vm.geometry.bubbleRect(islandWidth: width, height: height),
+                windowHeight: vm.geometry.windowSize.height
+            )
+            pointer.bubbleRect = vm.geometry.bubbleScreenRect(islandWidth: width, height: height)
+        } else {
+            rootView.bubbleRect = .zero
+            pointer.bubbleRect = .zero
+        }
     }
 }
 

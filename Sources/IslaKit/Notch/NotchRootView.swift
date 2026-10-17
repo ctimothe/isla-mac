@@ -24,7 +24,18 @@ final class NotchRootView: NSView {
         }
     }
 
+    /// The Shelf's bubble beside the island while it shows, else zero (spec
+    /// §19.7). A rect of its own rather than a wider `activeRect`: the 16 pt
+    /// between the two is the menu bar's, and a union would take its clicks.
+    var bubbleRect: CGRect = .zero {
+        didSet {
+            guard bubbleRect != oldValue else { return }
+            refreshCursorArea()
+        }
+    }
+
     private var cursorArea: NSTrackingArea?
+    private var bubbleCursorArea: NSTrackingArea?
 
     /// Region that answers a hover with a nudge instead of opening.
     ///
@@ -111,7 +122,7 @@ final class NotchRootView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         // While a drag is in flight the whole window must stay a valid target,
         // otherwise AppKit drops us as the destination mid-animation.
-        let hit = isReceivingDrag || activeRect.contains(point)
+        let hit = isReceivingDrag || activeRect.contains(point) || bubbleRect.contains(point)
         // Diagnostic, behind DI_GEOM=1 like the geometry trail: a click that
         // never reaches the panel leaves no other trace, so a dead spot on the
         // island — the physical cutout in particular, where the cursor itself
@@ -151,6 +162,19 @@ final class NotchRootView: NSView {
         if let cursorArea {
             removeTrackingArea(cursorArea)
             self.cursorArea = nil
+        }
+        if let bubbleCursorArea {
+            removeTrackingArea(bubbleCursorArea)
+            self.bubbleCursorArea = nil
+        }
+        if !bubbleRect.isEmpty {
+            let area = NSTrackingArea(
+                rect: bubbleRect,
+                options: [.cursorUpdate, .mouseEnteredAndExited, .activeAlways],
+                owner: self
+            )
+            addTrackingArea(area)
+            bubbleCursorArea = area
         }
         for area in textAreas { removeTrackingArea(area) }
         textAreas = []
@@ -209,7 +233,8 @@ final class NotchRootView: NSView {
 
     private func applyCursor(for event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        Self.cursor(at: point, active: activeRect, text: textRects)?.set()
+        (Self.cursor(at: point, active: activeRect, text: textRects)
+            ?? (bubbleRect.contains(point) ? NSCursor.arrow : nil))?.set()
     }
 
     override func cursorUpdate(with event: NSEvent) {

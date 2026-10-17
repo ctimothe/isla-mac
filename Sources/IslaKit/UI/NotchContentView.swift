@@ -194,8 +194,35 @@ struct NotchContentView: View {
             .animation(nil, value: vm.isLockedPresentation)
             .transaction { $0.animation = nil }
         } else {
-            shell
+            // The island first, then the bubble: the order VoiceOver reads
+            // them in (spec §19.12).
+            ZStack(alignment: .top) {
+                shell
+                bubbleLayer
+            }
         }
+    }
+
+    // MARK: - The bubble (spec §19.7)
+
+    /// The Shelf waiting beside Music, 16 right of the island's outline. It
+    /// arrives and leaves as compact content does, and follows the island's
+    /// edge on the outline's spring as the island changes width. The rest of
+    /// this window-sized layer is empty and takes no clicks; the bubble's own
+    /// are cut by `NotchRootView.bubbleRect`.
+    private var bubbleLayer: some View {
+        ZStack(alignment: .top) {
+            if let count = vm.bubbleCount {
+                IslandBubble(count: count, height: size.height, increaseContrast: appearance.increaseContrast) {
+                    vm.onBubbleClick?()
+                }
+                .offset(x: IslandBubbleLayout.centreOffset(islandWidth: size.width))
+                .transition(Theme.compactArrival(reduceMotion: reduceMotion))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.bubbleCount != nil)
+        .animation(Theme.island(reduceMotion: reduceMotion), value: size.width)
     }
 
     /// The pill over the shield: the same pill, and the same fold.

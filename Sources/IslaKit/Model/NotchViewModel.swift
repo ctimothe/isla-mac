@@ -617,13 +617,14 @@ final class NotchViewModel: ObservableObject {
     ///   False only for a click that did not come from the mouse at all — the
     ///   compact island's accessibility action, which VoiceOver fires from the
     ///   keyboard with the cursor wherever it was left.
-    func clickOpened(pointerIsOnPanel: Bool) {
+    func clickOpened(pointerIsOnPanel: Bool, opening tab: Tab? = nil) {
         // The tab first. A hover always landed on Music — the island is for
         // glancing at a track, and the other tabs are somewhere to go once it
         // is open, not somewhere to arrive. Skipping it meant a click opened
         // whatever had been left behind and then swapped panes *during* the
-        // expansion, which is most of what read as an unsmooth open.
-        select(.media)
+        // expansion, which is most of what read as an unsmooth open. What was
+        // clicked decides it now (spec §19.1): the bubble names the Shelf.
+        select(tab ?? clickTarget)
         // The hover lift goes out with the same animation that opens the panel,
         // rather than snapping off the instant `isOpen` flips.
         isHovering = false
@@ -836,6 +837,16 @@ final class NotchViewModel: ObservableObject {
     /// controller owns what that means — open, close, or refuse while locked —
     /// because only it knows.
     var onIslandClick: (() -> Void)?
+    /// The same for the Shelf's bubble (spec §19.7).
+    var onBubbleClick: (() -> Void)?
+
+    /// What a click on the island opens: what it shows (spec §19.1). The
+    /// Shelf opens today's Shelf tab until R8 gives it the tray; everything
+    /// else opens Music, as every click did before the Shelf was live.
+    var clickTarget: Tab {
+        if case .shelf = activity { return .shelf }
+        return .media
+    }
 
     /// Whether the panel currently holds the keyboard.
     ///

@@ -17,6 +17,9 @@ final class PointerWatcher {
     /// Where the panel takes clicks. Everywhere else the window must let them
     /// through, so this doubles as the `ignoresMouseEvents` trigger.
     var interactiveRect: CGRect = .zero
+    /// The Shelf's bubble, which takes clicks too while it shows (spec §19.7),
+    /// and only it: the gap between it and the island stays click-through.
+    var bubbleRect: CGRect = .zero
 
     /// Exactly the island as it is drawn, with none of `openRect`'s padding.
     ///
@@ -240,7 +243,7 @@ final class PointerWatcher {
         let point = NSEvent.mouseLocation
         updateRate(for: point)
 
-        let interactive = isDragging() || interactiveRect.contains(point)
+        let interactive = isDragging() || interactiveRect.contains(point) || bubbleRect.contains(point)
         if wasInteractive != interactive {
             wasInteractive = interactive
             onInteractiveChange?(interactive)
