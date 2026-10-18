@@ -75,7 +75,19 @@ build/Isla-<version>.dmg   # <version> from Scripts/version
 ```
 
 The app is built inside a `.noindex` folder so Spotlight does not list it
-beside the installed copy. Install and open it:
+beside the installed copy.
+
+The disk image opens into a laid-out window: the app on the left, the
+Applications folder on the right, an arrow between them on a black field of
+lines, no sidebar or toolbar. `Scripts/dmg.sh` gets that from
+[dmgbuild](https://github.com/dmgbuild/dmgbuild), which writes the Finder
+metadata without driving Finder; it installs itself into
+`build/dmgbuild-venv` on first use, and a machine that cannot reach PyPI
+falls back to a plain `hdiutil` image with a note. The layout is
+`Scripts/dmg-settings.py`; the background is `Resources/dmg/background.png`,
+drawn by `swift Scripts/dmg-background.swift Resources/dmg/background.png`
+(660 × 400 points at 2x). Check the result by opening the image: the
+`.DS_Store` only takes effect in Finder. Install and open it:
 
 ```bash
 bash Scripts/install.sh

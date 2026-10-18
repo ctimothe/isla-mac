@@ -55,13 +55,36 @@ ln -s /Applications "$STAGE/Applications"
 
 echo "==> сборка $DMG"
 rm -f "$DMG"
-hdiutil create \
-    -volname "Isla $VERSION" \
-    -srcfolder "$STAGE" \
-    -fs HFS+ \
-    -format UDZO \
-    -quiet \
-    "$DMG"
+
+# The window the image opens into is laid out by dmgbuild (icon positions,
+# background, no sidebar or toolbar), which writes the .DS_Store itself and
+# needs no Finder. It lives in a virtualenv under build/, made on first use;
+# a machine that cannot reach PyPI still gets a plain image from hdiutil,
+# with a note, so the release gate never fails on cosmetics.
+VENV="$ROOT/build/dmgbuild-venv"
+if [ ! -x "$VENV/bin/dmgbuild" ]; then
+    python3 -m venv "$VENV" >/dev/null 2>&1 \
+        && "$VENV/bin/pip" install --quiet --disable-pip-version-check 'dmgbuild>=1.6,<2' >/dev/null 2>&1 \
+        || true
+fi
+if [ -x "$VENV/bin/dmgbuild" ]; then
+    "$VENV/bin/dmgbuild" \
+        -s "$ROOT/Scripts/dmg-settings.py" \
+        -D app="$STAGE/Isla.app" \
+        -D background="$ROOT/Resources/dmg/background.png" \
+        -D version="$VERSION" \
+        "Isla $VERSION" "$DMG" >/dev/null
+    echo "==> окно образа оформлено (dmgbuild)"
+else
+    echo "    dmgbuild недоступен (нет PyPI?), образ без оформления окна" >&2
+    hdiutil create \
+        -volname "Isla $VERSION" \
+        -srcfolder "$STAGE" \
+        -fs HFS+ \
+        -format UDZO \
+        -quiet \
+        "$DMG"
+fi
 
 SIZE="$(du -h "$DMG" | cut -f1 | tr -d ' ')"
 echo "==> готово: $DMG ($SIZE)"
