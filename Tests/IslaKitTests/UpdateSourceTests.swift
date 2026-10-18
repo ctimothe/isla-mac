@@ -143,6 +143,34 @@ final class UpdateSourceTests: XCTestCase {
         XCTAssertEqual(asked.value, 0)
     }
 
+    /// The release `Scripts/publish-dev-update.sh` writes, through the very
+    /// writer it calls, is one the check offers and the installer can install.
+    /// The first version of the script named the commit's page as the
+    /// release's, which the page rule refuses (G-027), so the feed never
+    /// offered anything; the hand-built answer above did not catch it because
+    /// it was not the script's.
+    func testTheReleaseThePublishScriptWritesIsOffered() throws {
+        let feed = try folder()
+        let out = feed.appendingPathComponent("release.json")
+        let writer = VisualLab.repositoryRoot.appendingPathComponent("Scripts/dev-feed-release.py")
+        let (status, output) = UpdateTestSupport.run("/usr/bin/python3", [
+            "-I", writer.path, out.path, feed.path, "0.3.0.4", "57", String(repeating: "a", count: 40), "5242880", "88",
+            "- The island stays at the notch while locked\n- Lyrics follow the voice",
+        ])
+        XCTAssertEqual(status, 0, output)
+        let data = try Data(contentsOf: out)
+        guard case .available(let found) = UpdateCheck.state(forRelease: data, localVersion: "0.3.0.3", rehearsal: feed)
+        else { return XCTFail("the check refused the script's release: \(UpdateCheck.state(forRelease: data, localVersion: "0.3.0.3", rehearsal: feed))") }
+        XCTAssertEqual(found.version, "0.3.0.4")
+        XCTAssertTrue(found.isInstallable, "both files, confined to the feed")
+        XCTAssertEqual(found.dmg?.size, 5_242_880)
+        XCTAssertEqual(UpdateOffer(release: found).summary, "The island stays at the notch while locked")
+        // The fields only the script reads back are where it looks for them.
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["isla_build"] as? Int, 57)
+        XCTAssertEqual(object["isla_commit"] as? String, String(repeating: "a", count: 40))
+    }
+
     /// A dev build is offered over the build it replaces, and the next real
     /// release is offered over every dev build of the one before it.
     func testDevVersionsSortBetweenReleases() {

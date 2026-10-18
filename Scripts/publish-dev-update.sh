@@ -211,29 +211,8 @@ SIG_SIZE="$(stat -f %z "$STAGE/$IMAGE.sig")"
 # watching Isla never reads a release whose files are not there yet.
 mv "$STAGE/$IMAGE" "$FEED/$IMAGE"
 mv "$STAGE/$IMAGE.sig" "$FEED/$IMAGE.sig"
-/usr/bin/python3 -I - "$STAGE/release.json" "$FEED" "$NEW_VERSION" "$NEW_BUILD" "$COMMIT" "$SIZE" "$SIG_SIZE" "$NOTES" <<'PY'
-import json, sys
-out, feed, version, build, commit, size, sig_size, notes = sys.argv[1:9]
-image = f"Isla-{version}.dmg"
-release = {
-    "tag_name": f"v{version}",
-    "html_url": f"https://github.com/ctimothe/isla-mac/commit/{commit}",
-    "draft": False,
-    "prerelease": False,
-    "body": notes,
-    "assets": [
-        {"name": image, "size": int(size), "browser_download_url": f"file://{feed}/{image}"},
-        {"name": f"{image}.sig", "size": int(sig_size), "browser_download_url": f"file://{feed}/{image}.sig"},
-    ],
-    # Read back by this script only (Isla's decoder ignores them): the build
-    # and commit the next publish counts from.
-    "isla_build": int(build),
-    "isla_commit": commit,
-}
-with open(out, "w") as f:
-    json.dump(release, f, indent=2)
-    f.write("\n")
-PY
+/usr/bin/python3 -I "$ROOT/Scripts/dev-feed-release.py" \
+    "$STAGE/release.json" "$FEED" "$NEW_VERSION" "$NEW_BUILD" "$COMMIT" "$SIZE" "$SIG_SIZE" "$NOTES"
 mv -f "$STAGE/release.json" "$FEED/release.json"
 
 # 10. Only the newest images stay: the one just published and the one before,
