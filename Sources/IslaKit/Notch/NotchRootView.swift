@@ -37,6 +37,12 @@ final class NotchRootView: NSView {
         }
     }
 
+    /// The hosting view that draws the island itself (`NotchStage`). The
+    /// outline's layer views sit under and over it, so "the first subview" is
+    /// not the island any more, and the controller's geometry check asks for it
+    /// by name.
+    weak var islandHosting: NSView?
+
     private var cursorArea: NSTrackingArea?
     private var bubbleCursorArea: NSTrackingArea?
 
