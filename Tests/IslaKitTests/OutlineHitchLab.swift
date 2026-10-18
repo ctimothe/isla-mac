@@ -110,11 +110,17 @@ private struct MainThreadClock {
 private final class OutlineProbe: @unchecked Sendable {
     struct Sample { var time: CFTimeInterval; var width: Double }
     private let roots: [CALayer]
+    /// Layers as wide as the window are containers, not the island: the
+    /// outline is the widest thing that is not.
+    private let ceiling: Double
     private let lock = NSLock()
     private var running = false
     private var samples: [Sample] = []
 
-    init(roots: [CALayer]) { self.roots = roots }
+    init(roots: [CALayer], windowWidth: CGFloat) {
+        self.roots = roots
+        ceiling = Double(windowWidth) - 2
+    }
 
     func start() {
         lock.withLock { running = true; samples = [] }
@@ -122,7 +128,7 @@ private final class OutlineProbe: @unchecked Sendable {
             Thread.current.qualityOfService = .userInteractive
             while lock.withLock({ running }) {
                 let now = CACurrentMediaTime()
-                let width = autoreleasepool { roots.map { Self.extent(of: $0, depth: 0) }.max() ?? 0 }
+                let width = autoreleasepool { roots.map { Self.extent(of: $0, depth: 0, below: ceiling) }.max() ?? 0 }
                 lock.withLock { samples.append(Sample(time: now, width: width)) }
                 usleep(1000)
             }
@@ -135,17 +141,19 @@ private final class OutlineProbe: @unchecked Sendable {
         return lock.withLock { samples }
     }
 
-    private static func extent(of layer: CALayer, depth: Int) -> Double {
+    private static func extent(of layer: CALayer, depth: Int, below ceiling: Double) -> Double {
         let shown = layer.presentation() ?? layer
         var widest = 0.0
         if let shape = shown as? CAShapeLayer, let path = shape.path {
-            widest = Double(path.boundingBox.width)
+            let width = Double(path.boundingBox.width)
+            if width < ceiling, !shown.isHidden { widest = width }
         } else if depth > 0, shown.frame.minY <= 0.5, shown.frame.height > 8, !shown.isHidden {
-            widest = Double(shown.frame.width)
+            let width = Double(shown.frame.width)
+            if width < ceiling { widest = width }
         }
-        guard depth < 4 else { return widest }
+        guard depth < 5 else { return widest }
         for child in layer.sublayers ?? [] {
-            widest = max(widest, extent(of: child, depth: depth + 1))
+            widest = max(widest, extent(of: child, depth: depth + 1, below: ceiling))
         }
         return widest
     }
@@ -426,7 +434,10 @@ final class OutlineHitchLab: VisualLabCase {
 
                 let frames = FrameRecorder()
                 frames.start(on: rig.hosting)
-                let probe = OutlineProbe(roots: [rig.root.layer, rig.hosting.layer].compactMap { $0 })
+                let probe = OutlineProbe(
+                    roots: [rig.root.layer, rig.hosting.layer].compactMap { $0 },
+                    windowWidth: rig.panel.frame.width
+                )
                 probe.start()
                 let clock = MainThreadClock()
                 var windows: [HitchWindow] = []
