@@ -146,13 +146,15 @@ final class HUDMomentTests: XCTestCase {
     // MARK: Motion (spec §2.4)
 
     func testTheMotionValuesAreTheSpecs() {
-        XCTAssertEqual(Theme.hudLevel, Animation.easeOut(duration: 0.12))
+        // The bar follows the key on a short critically damped spring, which
+        // a held key retargets without a seam (amended 2026-10-18).
+        XCTAssertEqual(Theme.hudLevel, Animation.spring(response: 0.2, dampingFraction: 1.0))
         XCTAssertEqual(Theme.hudLinger, 1.5)
-        // The pop-up widens and folds on the outline's spring (spec §19.3), in
-        // the controller and in the shell alike; Reduce Motion crossfades it,
-        // and the bar steps.
-        XCTAssertEqual(Theme.island(reduceMotion: false), Theme.islandSpring)
-        XCTAssertEqual(Theme.island(reduceMotion: true), Theme.reducedMotion)
+        // The pop-up widens and folds on its own quick spring (spec §19.3,
+        // amended 2026-10-18), in the controller and in the shell alike;
+        // Reduce Motion crossfades it, and the bar steps.
+        XCTAssertEqual(Theme.hud(reduceMotion: false), Theme.hudSpring)
+        XCTAssertEqual(Theme.hud(reduceMotion: true), Theme.reducedMotion)
         XCTAssertEqual(Theme.hudLevel(reduceMotion: false), Theme.hudLevel)
         XCTAssertNil(Theme.hudLevel(reduceMotion: true), "no glide")
     }

@@ -2566,8 +2566,13 @@ final class NotchController {
 
         let reduceMotion = SystemAppearance.shared.reduceMotion
         if vm.hud == nil {
-            // Unfolding, on the outline's spring. It replaces what it outranks
-            // — the charger, headphones, a peek — and the replaced alert is
+            // Unfolding, on the pop-up's own quick, critically damped spring
+            // (`Theme.hud`): on the island's slower, bouncier curve a key
+            // press felt heavy, and the owner's review (2026-10-18) asked for
+            // the system's feel — there at once, no overshoot.
+            //
+            // It replaces what it outranks — the charger, headphones, a
+            // peek — and the replaced alert is
             // dropped with its timer, not left underneath to come back when
             // this folds (spec §19.1): a percentage shown again after the
             // pop-up is a percentage from before it.
@@ -2575,7 +2580,7 @@ final class NotchController {
             peekWork = nil
             ambientWork?.cancel()
             ambientWork = nil
-            withAnimation(Theme.island(reduceMotion: reduceMotion)) {
+            withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
                 vm.isPeeking = false
                 vm.ambient = nil
                 vm.hud = moment
@@ -2590,9 +2595,9 @@ final class NotchController {
             guard let self, let vm = self.viewModel else { return }
             self.hudFoldWork = nil
             // The island returns to its live activity — the song, the Shelf —
-            // on the curve it would have used to arrive, or to an alert that
-            // waited for the pop-up and is still inside its second.
-            withAnimation(Theme.island(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            // on the curve the pop-up arrived on, or to an alert that waited
+            // for the pop-up and is still inside its second.
+            withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.hud = nil
             }
             self.promoteWaitingAlert()

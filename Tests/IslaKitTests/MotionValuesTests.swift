@@ -74,7 +74,10 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertTrue(shell.contains(".animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hud != nil)"),
                       "the pop-up has its own quick spring (spec §19.3, amended 2026-10-18)")
         XCTAssertFalse(shell.contains("withAnimation(Theme.expand("), "the body's Expand moves the outline")
-        XCTAssertTrue(controller.contains("withAnimation(Theme.island(reduceMotion: reduceMotion)) {\n                vm.isPeeking = false\n                vm.ambient = nil\n                vm.hud = moment"))
+        XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: reduceMotion)) {\n                vm.isPeeking = false\n                vm.ambient = nil\n                vm.hud = moment"),
+                      "the pop-up arrives on its own spring, not the island's")
+        XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {\n                vm.hud = nil"),
+                      "and folds on it")
     }
 
     /// The outline's curves left the critically damped list; every curve that
