@@ -58,14 +58,24 @@ ctx.fill(CGRect(x: 0, y: Double(h) - 1, width: Double(w), height: 1))
 ctx.fill(CGRect(x: 0, y: 0, width: Double(w), height: 1))
 
 // The arrow, between where dmgbuild places the two icons (165 and 495 on x).
-ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.9))
+// Finder draws a still picture and nothing else, so the motion is drawn in:
+// two ghost chevrons trail the head, each fainter and further back, the way
+// a long exposure would show the drag the picture asks for.
+let ay = 215.0
 ctx.setLineWidth(2)
 ctx.setLineCap(.round)
 ctx.setLineJoin(.round)
-let ay = 215.0
+func chevron(at x: Double, alpha: CGFloat) {
+    ctx.setStrokeColor(CGColor(gray: 1, alpha: alpha))
+    ctx.move(to: CGPoint(x: x - 16, y: ay + 12)); ctx.addLine(to: CGPoint(x: x, y: ay)); ctx.addLine(to: CGPoint(x: x - 16, y: ay - 12))
+    ctx.strokePath()
+}
+chevron(at: 328, alpha: 0.22)
+chevron(at: 356, alpha: 0.45)
+ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.9))
 ctx.move(to: CGPoint(x: 270, y: ay)); ctx.addLine(to: CGPoint(x: 390, y: ay))
-ctx.move(to: CGPoint(x: 374, y: ay + 12)); ctx.addLine(to: CGPoint(x: 390, y: ay)); ctx.addLine(to: CGPoint(x: 374, y: ay - 12))
 ctx.strokePath()
+chevron(at: 390, alpha: 0.9)
 
 // The one line of copy.
 let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center
