@@ -475,7 +475,8 @@ struct SettingsPane: View {
             installerRelease: installer.release,
             manualReason: updates.lastAvailable.flatMap { installer.manualReason(for: $0) },
             runningVersion: updates.runningVersion,
-            rehearsal: updates.isRehearsal
+            rehearsal: updates.isRehearsal,
+            localFeed: updates.isLocalFeed
         )
     }
 

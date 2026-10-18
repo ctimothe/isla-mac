@@ -88,7 +88,8 @@ struct UpdateEnvironment {
     var scratchRoot: URL
     /// A fresh private folder under `scratchRoot` for one run's download and mount.
     var makeScratchFolder: () throws -> URL
-    /// The rehearsal folder (`DI_UPDATE_REHEARSAL`), whose files the assets may be.
+    /// The folder releases are read from (`UpdateSource`: a rehearsal's or the
+    /// local feed's), whose files the assets may be; nil for GitHub.
     var rehearsal: URL? = nil
 
     static func live() -> UpdateEnvironment {
@@ -116,7 +117,7 @@ struct UpdateEnvironment {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
                 return folder
             },
-            rehearsal: DebugTrail.updateRehearsal
+            rehearsal: UpdateSource.current.folder
         )
     }
 }

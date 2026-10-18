@@ -88,27 +88,46 @@ final class UpdateCheck: ObservableObject {
 
     private let fetch: Fetch
     private let currentVersion: () -> String
-    /// The rehearsal folder (`DI_UPDATE_REHEARSAL`), or nil, which is every
-    /// normal run. Given, never read from the environment here.
-    private let rehearsal: URL?
+    /// Where releases come from (`UpdateSource`): GitHub, a rehearsal folder
+    /// or the local feed. Given, never read from the environment or the
+    /// defaults here.
+    let source: UpdateSource
+    /// The folder a release is read from — the rehearsal's or the local
+    /// feed's — or nil for GitHub. Named for the rehearsal, which brought the
+    /// folder rules; the local feed reads its folder by the same ones.
+    private var rehearsal: URL? { source.folder }
     private var timer: Timer?
 
     init(
         fetch: @escaping Fetch = { try await PrivateNetwork.session.data(for: $0) },
         currentVersion: @escaping () -> String = { ProductIdentity.version },
-        rehearsal: URL? = DebugTrail.updateRehearsal
+        source: UpdateSource = .current
     ) {
         self.fetch = fetch
         self.currentVersion = currentVersion
-        self.rehearsal = rehearsal
+        self.source = source
+    }
+
+    /// A check on a rehearsal folder, or on GitHub when `rehearsal` is nil.
+    convenience init(fetch: @escaping Fetch, currentVersion: @escaping () -> String, rehearsal: URL?) {
+        self.init(fetch: fetch, currentVersion: currentVersion, source: rehearsal.map { .rehearsal($0) } ?? .github)
     }
 
     /// The most a rehearsal's release.json may be.
     nonisolated static let rehearsalReleaseLimit = 64 * 1024
 
-    /// Whether this is a rehearsal: the release comes from a local folder, and
-    /// the card says so.
-    var isRehearsal: Bool { rehearsal != nil }
+    /// Whether this is a rehearsal: the release comes from a folder named at
+    /// launch, and the card says so.
+    var isRehearsal: Bool {
+        if case .rehearsal = source { return true }
+        return false
+    }
+
+    /// Whether this Mac follows the local feed, and the card says so.
+    var isLocalFeed: Bool {
+        if case .localFeed = source { return true }
+        return false
+    }
 
     // MARK: - Checking
 

@@ -60,10 +60,12 @@ struct UpdatePresentation: Equatable {
     let footnotes: [String]
     /// The release the buttons act on.
     let release: UpdateCheck.Release?
-    /// "Rehearsal: update from a local folder", under the card's title: set only
-    /// when the check reads a local folder (`DI_UPDATE_REHEARSAL`), so nobody
-    /// mistakes a rehearsal for a real release.
-    let rehearsalNote: String?
+    /// Where updates come from, under the card's title, when it is not GitHub:
+    /// "Rehearsal: update from a local folder" for a rehearsal
+    /// (`DI_UPDATE_REHEARSAL`), so nobody mistakes one for a real release, and
+    /// "Updates come from a folder on this Mac." for the local feed
+    /// (`UpdateSource`), so a Mac following it says so where its updates are.
+    let sourceNote: String?
 
     /// Before any check, with nothing known: the About section as a test or the
     /// default context sees it.
@@ -78,12 +80,15 @@ struct UpdatePresentation: Equatable {
         installerRelease: UpdateCheck.Release?,
         manualReason: UpdateInstaller.ManualReason?,
         runningVersion: String,
-        rehearsal: Bool = false
+        rehearsal: Bool = false,
+        localFeed: Bool = false
     ) -> UpdatePresentation {
         let stage = stage(
             check: check, known: known, phase: phase, installerRelease: installerRelease, manualReason: manualReason
         )
-        return UpdatePresentation(stage: stage, check: check, runningVersion: runningVersion, rehearsal: rehearsal)
+        return UpdatePresentation(
+            stage: stage, check: check, runningVersion: runningVersion, rehearsal: rehearsal, localFeed: localFeed
+        )
     }
 
     private static func stage(
@@ -113,7 +118,7 @@ struct UpdatePresentation: Equatable {
         }
     }
 
-    private init(stage: Stage, check: UpdateCheck.State, runningVersion: String, rehearsal: Bool) {
+    private init(stage: Stage, check: UpdateCheck.State, runningVersion: String, rehearsal: Bool, localFeed: Bool) {
         self.stage = stage
         var title = ""
         var subtitle: String?
@@ -201,7 +206,13 @@ struct UpdatePresentation: Equatable {
         self.actions = actions
         self.footnotes = footnotes
         self.release = release
-        self.rehearsalNote = rehearsal ? localized("Rehearsal: update from a local folder") : nil
+        if rehearsal {
+            sourceNote = localized("Rehearsal: update from a local folder")
+        } else if localFeed {
+            sourceNote = localized("Updates come from a folder on this Mac.")
+        } else {
+            sourceNote = nil
+        }
     }
 
     /// One reason line per failure; the signature one says the file was

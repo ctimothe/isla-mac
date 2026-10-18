@@ -35,11 +35,14 @@ struct URLSessionUpdateDownloader: UpdateDownloading {
     var makeSession: @Sendable (URLSessionDelegate) -> URLSession = {
         PrivateNetwork.makeSession(delegate: $0, requestTimeout: 30, resourceTimeout: 15 * 60)
     }
-    /// The rehearsal folder (`DI_UPDATE_REHEARSAL`), the only place a file URL
-    /// is accepted from; nil, which is every normal run, accepts none.
+    /// The folder releases are read from — a rehearsal's or the local feed's
+    /// (`UpdateSource`) — the only place a file URL is accepted from; nil, which
+    /// is GitHub, accepts none.
     var rehearsal: URL?
 
-    init(rehearsal: URL? = DebugTrail.updateRehearsal) { self.rehearsal = rehearsal }
+    init(rehearsal: URL?) { self.rehearsal = rehearsal }
+
+    init(source: UpdateSource = .current) { self.rehearsal = source.folder }
 
     func download(
         from url: URL, into folder: URL, as fileName: String, expectedBytes: Int64,
