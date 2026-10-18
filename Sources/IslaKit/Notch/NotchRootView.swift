@@ -14,8 +14,11 @@ final class NotchRootView: NSView {
     /// nothing else.
     static func reachingTopEdge(_ rect: CGRect, windowHeight: CGFloat) -> CGRect {
         guard rect.maxY >= windowHeight else { return rect }
-        return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height + 2)
+        return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height + topEdgeReach)
     }
+
+    /// How far past the window's top `reachingTopEdge` takes a rect.
+    static let topEdgeReach: CGFloat = 2
 
     var activeRect: CGRect = .zero {
         didSet {
@@ -24,7 +27,24 @@ final class NotchRootView: NSView {
         }
     }
 
+    /// The Shelf's bubble beside the island while it shows, else zero (spec
+    /// §19.7). A rect of its own rather than a wider `activeRect`: the 16 pt
+    /// between the two is the menu bar's, and a union would take its clicks.
+    var bubbleRect: CGRect = .zero {
+        didSet {
+            guard bubbleRect != oldValue else { return }
+            refreshCursorArea()
+        }
+    }
+
+    /// The hosting view that draws the island itself (`NotchStage`). The
+    /// outline's layer views sit under and over it, so "the first subview" is
+    /// not the island any more, and the controller's geometry check asks for it
+    /// by name.
+    weak var islandHosting: NSView?
+
     private var cursorArea: NSTrackingArea?
+    private var bubbleCursorArea: NSTrackingArea?
 
     /// Region that answers a hover with a nudge instead of opening.
     ///
@@ -67,7 +87,17 @@ final class NotchRootView: NSView {
 
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
+    /// Where a drag in flight is, in this view's coordinates (AppKit's, origin
+    /// at the bottom-left). The Shelf has two wells, Keep and AirDrop, and the
+    /// one under the pointer is the one the drop takes (spec §8.3), so the
+    /// controller needs every move, and the position of the release itself —
+    /// raised just before `onDrop` and `onPromisedDrop`.
+    var onDragMoved: ((CGPoint) -> Void)?
     var onDrop: (([URL]) -> Bool)?
+    /// A drop that only promised its files (Mail, Photos, a browser) is about
+    /// to be received. The files arrive later, through the inbox, so the target
+    /// that was under the pointer has to be handed to it now.
+    var onPromisedDrop: (() -> Bool)?
     /// Receives the files a drag only promised; owned by the session's stores,
     /// so it outlives this view. See `PromisedDropInbox`.
     var promises: PromisedDropInbox?
@@ -101,7 +131,7 @@ final class NotchRootView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         // While a drag is in flight the whole window must stay a valid target,
         // otherwise AppKit drops us as the destination mid-animation.
-        let hit = isReceivingDrag || activeRect.contains(point)
+        let hit = isReceivingDrag || activeRect.contains(point) || bubbleRect.contains(point)
         // Diagnostic, behind DI_GEOM=1 like the geometry trail: a click that
         // never reaches the panel leaves no other trace, so a dead spot on the
         // island — the physical cutout in particular, where the cursor itself
@@ -141,6 +171,19 @@ final class NotchRootView: NSView {
         if let cursorArea {
             removeTrackingArea(cursorArea)
             self.cursorArea = nil
+        }
+        if let bubbleCursorArea {
+            removeTrackingArea(bubbleCursorArea)
+            self.bubbleCursorArea = nil
+        }
+        if !bubbleRect.isEmpty {
+            let area = NSTrackingArea(
+                rect: bubbleRect,
+                options: [.cursorUpdate, .mouseEnteredAndExited, .activeAlways],
+                owner: self
+            )
+            addTrackingArea(area)
+            bubbleCursorArea = area
         }
         for area in textAreas { removeTrackingArea(area) }
         textAreas = []
@@ -199,7 +242,8 @@ final class NotchRootView: NSView {
 
     private func applyCursor(for event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        Self.cursor(at: point, active: activeRect, text: textRects)?.set()
+        (Self.cursor(at: point, active: activeRect, text: textRects)
+            ?? (bubbleRect.contains(point) ? NSCursor.arrow : nil))?.set()
     }
 
     override func cursorUpdate(with event: NSEvent) {
@@ -236,6 +280,7 @@ final class NotchRootView: NSView {
         guard carriesFiles(sender), aimedAtPanel(sender) else { return [] }
         isReceivingDrag = true
         onDragEntered?()
+        onDragMoved?(convert(sender.draggingLocation, from: nil))
         return .copy
     }
 
@@ -250,6 +295,7 @@ final class NotchRootView: NSView {
             isReceivingDrag = true
             onDragEntered?()
         }
+        onDragMoved?(convert(sender.draggingLocation, from: nil))
         return .copy
     }
 
@@ -297,6 +343,9 @@ final class NotchRootView: NSView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         isReceivingDrag = false
+        // The release is a position too: the last move may have been a frame
+        // ago, and a drop is decided by where the pointer *is*.
+        onDragMoved?(convert(sender.draggingLocation, from: nil))
         let files = urls(from: sender)
         if !files.isEmpty { return onDrop?(files) ?? false }
 
@@ -307,6 +356,11 @@ final class NotchRootView: NSView {
         guard !receivers.isEmpty else { return false }
         let destination = AppPaths.dropInbox()
         guard let destination else { return false }
+        // The destination is read now, at the release, and travels with this
+        // drop's own receiver callbacks: a second drop made before this one's
+        // files land must not change where they go (review 2026-10-15).
+        let toAirDrop = onPromisedDrop?() ?? false
+        let releasedAt = Date()
         // Not counted — coalesced.
         //
         // There is no reliable count to wait for: the reader is called once per
@@ -331,7 +385,7 @@ final class NotchRootView: NSView {
         guard let inbox = promises else { return false }
         for receiver in receivers {
             receiver.receivePromisedFiles(atDestination: destination, options: [:], operationQueue: queue) { url, error in
-                inbox.arrived(url: url, error: error)
+                inbox.arrived(url: url, error: error, toAirDrop: toAirDrop, releasedAt: releasedAt)
             }
         }
         return true

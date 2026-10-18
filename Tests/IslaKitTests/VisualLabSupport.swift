@@ -356,12 +356,12 @@ final class LabSession {
             // Off, so opening the Shelf never scans a real captures folder.
             NotchViewModel.importRecordingsKey: false,
             NotchViewModel.opensOnHoverKey: false,
-            NotchViewModel.sneakPeekKey: true,
+            NotchViewModel.newTracksKey: true,
             NotchViewModel.showOnLockScreenKey: true,
             NotchViewModel.lockCardStyleKey: NotchViewModel.LockCardStyle.glass.rawValue,
             NotchViewModel.lockCardSizeKey: NotchViewModel.LockCardSize.standard.rawValue,
-            NotchViewModel.showChargingKey: true,
-            NotchViewModel.showHeadphonesKey: true,
+            NotchViewModel.chargingKey: true,
+            NotchViewModel.headphonesKey: true,
             NotchViewModel.musicOnlyKey: true,
             NotchViewModel.hideFromCaptureKey: true,
             NotchViewModel.hasCompletedFirstRunKey: true,
@@ -433,7 +433,7 @@ final class LabSession {
 
     /// A fresh set of session stores, every one pointed at the lab's own
     /// suite, pasteboard and temporary folder.
-    func makeStores() -> NotchStores {
+    func makeStores(hud: MediaKeyHUD? = nil) -> NotchStores {
         labTrace("makeStores")
         // Each state starts from an empty suite: a privacy switch or a
         // translation target set for one state must not leak into the next.
@@ -448,7 +448,8 @@ final class LabSession {
             clipboard: clipboard,
             screenshotVault: ScreenshotVault(paths: paths),
             translator: Translator(defaults: suite, preferredLanguages: ["ru"]),
-            privacy: PrivacyMode(defaults: suite)
+            privacy: PrivacyMode(defaults: suite),
+            hud: hud
         )
         labTrace("isolate")
         stores.media.isolateFromPlayers()
@@ -477,8 +478,9 @@ enum LabGeometry {
     /// rect the views read is relative to the window, which is centred on the
     /// notch, so the screen only has to exist.
     static let physicalNotch = CGSize(width: 185, height: 32)
-    /// What `NotchGeometry.current()` draws on a display with no cutout.
-    static let syntheticNotch = CGSize(width: 180, height: 24)
+    /// What `NotchGeometry.current()` draws on a display with no cutout: 200
+    /// wide since the redesign (spec §3.8), it was 180.
+    static let syntheticNotch = CGSize(width: NotchGeometry.syntheticNotchWidth, height: 24)
 
     static func make(physical: Bool = true) throws -> NotchGeometry {
         // A process with no window-server session (a sandbox, a CI runner)

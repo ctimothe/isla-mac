@@ -1,5 +1,56 @@
 import Foundation
 
+/// Whether MyMemory's anonymous daily allowance is spent, remembered for the
+/// rest of its day so that nothing keeps asking a service that has said no.
+///
+/// Set by `OnlineTranslation.translate` the moment the service answers that the
+/// allowance is gone — whichever surface asked, the Translate tab or a lyric
+/// batch — and read by the lyric batches, which are the callers that would
+/// otherwise go on sending a song's lines one after another into a refusal, and
+/// would spend the little a Translate-tab paste needs (review 2026-10-15). In
+/// memory only: a relaunch asks once, is told, and sets it again. The day is
+/// taken to turn over at midnight UTC, the service's own and the only one it
+/// publishes; a guess that is a few hours early costs a few refused requests
+/// and one that is late costs a few hours without lyric translation.
+final class OnlineAllowance: @unchecked Sendable {
+    static let shared = OnlineAllowance()
+
+    private let lock = NSLock()
+    private var until: Date?
+    private let now: @Sendable () -> Date
+
+    init(now: @escaping @Sendable () -> Date = { Date() }) {
+        self.now = now
+    }
+
+    /// True from the service's refusal until its day turns over.
+    var isExhausted: Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let until else { return false }
+        if now() >= until {
+            self.until = nil
+            return false
+        }
+        return true
+    }
+
+    func markExhausted() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        let current = now()
+        let midnight = calendar.nextDate(
+            after: current, matching: DateComponents(hour: 0, minute: 0, second: 0), matchingPolicy: .nextTime
+        ) ?? current.addingTimeInterval(24 * 3600)
+        lock.lock(); defer { lock.unlock() }
+        until = midnight
+    }
+
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        until = nil
+    }
+}
+
 /// The one part of Translate that reaches the network, and only when **Translate
 /// Online** is switched on in Settings. It is off by default.
 ///
@@ -54,6 +105,16 @@ enum OnlineTranslation {
         /// translation is kept — it was already paid for out of the
         /// allowance — together with why the rest did not come.
         indirect case partial(text: String, cause: Failure)
+
+        /// Whether this is the spent allowance, directly or as the reason a
+        /// later piece did not come.
+        var isQuotaExhausted: Bool {
+            switch self {
+            case .quotaExhausted: return true
+            case .partial(_, let cause): return cause.isQuotaExhausted
+            case .unreachable, .refused: return false
+            }
+        }
     }
 
     /// The service's name for a language. Its Chinese is a region, not a
@@ -89,7 +150,18 @@ enum OnlineTranslation {
     /// The pieces go one after another, never in parallel: parallel requests
     /// spend the allowance just as fast and the service throttles them.
     static func translate(_ text: String, from source: TranslationLanguage, to target: TranslationLanguage,
-                          session: URLSession = PrivateNetwork.session) async throws -> Reply {
+                          session: URLSession = PrivateNetwork.session,
+                          allowance: OnlineAllowance = .shared) async throws -> Reply {
+        do {
+            return try await send(text, from: source, to: target, session: session)
+        } catch let failure as Failure where failure.isQuotaExhausted {
+            allowance.markExhausted()
+            throw failure
+        }
+    }
+
+    private static func send(_ text: String, from source: TranslationLanguage, to target: TranslationLanguage,
+                             session: URLSession) async throws -> Reply {
         let pieces = chunks(of: text)
         // Whole pieces, so the cut lands where a piece ends — on a sentence
         // where there is one — and never mid-word. Each piece is at most one

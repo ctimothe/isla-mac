@@ -39,7 +39,7 @@ final class UpdateCheckTests: XCTestCase {
         let newer = Data(#"{"tag_name":"v0.3.0","html_url":"https://github.com/ctimothe/isla-mac/releases/tag/v0.3.0","draft":false,"prerelease":false}"#.utf8)
         XCTAssertEqual(
             UpdateCheck.state(forRelease: newer, localVersion: "0.2.0"),
-            .available(version: "0.3.0", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.3.0")!)
+            .available(UpdateCheck.Release(version: "0.3.0", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.3.0")!))
         )
         XCTAssertEqual(UpdateCheck.state(forRelease: newer, localVersion: "0.3.0"), .upToDate(version: "0.3.0"))
         let draft = Data(#"{"tag_name":"v9.0.0","html_url":"https://example.com","draft":true}"#.utf8)
@@ -68,7 +68,7 @@ final class UpdateCheckTests: XCTestCase {
         let good = "https://github.com/ctimothe/isla-mac/releases/tag/v9.9.9"
         XCTAssertEqual(
             UpdateCheck.state(forRelease: answer(good), localVersion: "0.2.0"),
-            .available(version: "9.9.9", page: URL(string: good)!)
+            .available(UpdateCheck.Release(version: "9.9.9", page: URL(string: good)!))
         )
     }
 

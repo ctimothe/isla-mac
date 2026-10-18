@@ -43,15 +43,20 @@ enum AudioOutputs {
             AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids
         ) == noErr else { return [] }
 
-        return ids.compactMap { id in
-            guard hasOutputStreams(id),
-                  isListable(canBeDefault: flag(kAudioDevicePropertyDeviceCanBeDefaultDevice,
-                                                scope: kAudioDevicePropertyScopeOutput, of: id),
-                             isHidden: flag(kAudioDevicePropertyIsHidden,
-                                            scope: kAudioObjectPropertyScopeGlobal, of: id)),
-                  let name = name(of: id) else { return nil }
-            return Output(id: id, name: name, transport: transport(of: id), dataSource: dataSource(of: id))
-        }
+        return ids.compactMap { output(id: $0) }
+    }
+
+    /// One device as the picker lists it, or nil when it is not an output the
+    /// picker would show. The single-device half of `available()`: the volume
+    /// pop-up needs one glyph and used to walk every device on the Mac to get it.
+    static func output(id: AudioDeviceID) -> Output? {
+        guard hasOutputStreams(id),
+              isListable(canBeDefault: flag(kAudioDevicePropertyDeviceCanBeDefaultDevice,
+                                            scope: kAudioDevicePropertyScopeOutput, of: id),
+                         isHidden: flag(kAudioDevicePropertyIsHidden,
+                                        scope: kAudioObjectPropertyScopeGlobal, of: id)),
+              let name = name(of: id) else { return nil }
+        return Output(id: id, name: name, transport: transport(of: id), dataSource: dataSource(of: id))
     }
 
     /// Whether a device belongs in the picker (K-009). A Teams or Loopback
@@ -161,6 +166,21 @@ enum AudioOutputs {
         default: return "speaker.wave.2"
         }
     }
+
+    /// The glyph for the device the sound goes to now, or `fallback` when the
+    /// list does not hold it (nothing read yet, no default, a device that has
+    /// just gone). The one place that turns "which device is current" into a
+    /// symbol, so the lock card's foot rail and the island's Output button name
+    /// the same device the same way; each passes the fallback that suits it —
+    /// the card's AirPlay glyph, the island's plain speaker.
+    static func symbol(outputs: [Output], current: AudioDeviceID?, fallback: String) -> String {
+        guard let current, let device = outputs.first(where: { $0.id == current }) else { return fallback }
+        return device.symbol
+    }
+
+    /// What the island's Output button draws before it knows where the sound
+    /// goes: a speaker says "output" without naming a device it has not seen.
+    static let outputFallbackSymbol = "speaker.wave.2"
 
     // MARK: - Output latency
 

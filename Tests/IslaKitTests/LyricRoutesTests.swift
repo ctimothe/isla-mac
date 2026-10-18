@@ -8,29 +8,31 @@ import XCTest
 final class LyricRoutesTests: XCTestCase {
 
     /// The lyrics shortcut is its own key, not a second name for one already
-    /// bound. All three share ⌃⌥⌘, so the key codes are the only thing keeping
+    /// bound. All four share ⌃⌥⌘, so the key codes are the only thing keeping
     /// them apart.
-    func testTheThreeHotkeysAreDistinct() {
+    func testTheFourHotkeysAreDistinct() {
         let codes = HotKeyAction.allCases.map(\.defaultBinding.keyCode)
-        XCTAssertEqual(Set(codes).count, 3, "⌃⌥⌘I, ⌃⌥⌘T and ⌃⌥⌘L must be three different keys")
+        XCTAssertEqual(Set(codes).count, 4, "⌃⌥⌘I, ⌃⌥⌘V, ⌃⌥⌘T and ⌃⌥⌘L must be four different keys")
         XCTAssertEqual(HotKeyBinding.defaultModifiers, UInt32(controlKey | optionKey | cmdKey))
     }
 
-    /// Leaving Music folds the page. Without this, opening Shelf and coming
-    /// back landed on a wall of words from whatever was playing three songs
-    /// ago, rather than on the player the tab is named for.
-    func testLeavingTheMusicTabFoldsTheLyricsPage() {
+    /// Leaving the stage folds the lyrics. Without this, opening the tray and
+    /// coming back landed on a wall of words from whatever was playing three
+    /// songs ago, rather than on the player. The stage is a surface (§19.6),
+    /// not a flag on one, so choosing another surface is what leaves it.
+    func testLeavingTheStageFoldsTheLyrics() {
         guard let geometry = NotchGeometry.current() else {
             return XCTFail("a test host always has a screen")
         }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
-        vm.select(.media)
-        vm.isShowingLyrics = true
-        vm.select(.shelf)
-        XCTAssertFalse(vm.isShowingLyrics, "the page belongs to the Music tab")
+        vm.open(.player)
+        vm.openStage()
+        XCTAssertTrue(vm.isShowingLyrics)
+        vm.open(.tray)
+        XCTAssertFalse(vm.isShowingLyrics, "the stage is a surface of its own")
 
-        // And coming back does not restore it: the tab opens on the player.
-        vm.select(.media)
+        // And coming back does not restore it: the player opens as the player.
+        vm.open(.player)
         XCTAssertFalse(vm.isShowingLyrics)
     }
 

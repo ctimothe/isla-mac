@@ -34,6 +34,11 @@ struct LyricRow: View {
     /// The default is the title role both surfaces had already gathered at.
     var fontSize: CGFloat = Theme.TypeRole.title.size
     var weight: Font.Weight = .bold
+    /// The weight of a line that is not being sung, when it differs from the
+    /// sung line's: the column draws the sung line bold and the rest semibold
+    /// (spec §2.2), the tall page bold throughout. Nil is `weight`, which is
+    /// what the stage and the lock card always did.
+    var contextWeight: Font.Weight? = nil
     var lineLimit: Int = 1
     var accent: Color = .white
     var reduceMotion: Bool = false
@@ -61,6 +66,27 @@ struct LyricRow: View {
     /// the song, and a correction made there would be made blind to the
     /// panel's own Reset.
     var syncHere: (() -> Void)?
+    /// Where this row stands against the sung one, for the stage's own depth
+    /// (spec §19.6): a signed row offset, because the board dims the lines above
+    /// the sung one differently from the lines below it. Nil keeps the
+    /// symmetric `Ramp.context` falloff, which is what the lock card uses.
+    var board: BoardDepth? = nil
+    /// The translation drawn under the line (spec §5.3), or nil. Plain text in
+    /// the board's own sizes (`PlayerLayout.translationStyle`) and brightness
+    /// (`translationOpacity`): the sung line's translation sweeps nothing, so a
+    /// song with word timing never has two things moving in one row. Needs
+    /// `board`, the stage's, and is ignored without it, which is what the lock
+    /// card's rows are.
+    var translation: String? = nil
+    /// What to draw as the line itself when it is not the whole of `line.text`:
+    /// a bilingual file's first row, its second being the translation. Nil is
+    /// `line.text`, as every surface drew until the redesign.
+    var displayText: String? = nil
+
+    struct BoardDepth: Equatable {
+        /// Rows from the sung row, negative above it.
+        let offset: Int
+    }
 
     enum Surface {
         /// The island's own black.
@@ -196,7 +222,10 @@ struct LyricRow: View {
 
     var body: some View {
         Button { seek?() } label: {
-            content
+            VStack(alignment: .leading, spacing: Self.translationGap) {
+                content
+                translationRow
+            }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }
@@ -217,11 +246,38 @@ struct LyricRow: View {
                 Button(localized("Sync Here"), action: syncHere)
             }
         }
-        .accessibilityLabel(line.text)
+        .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
         // The menu is a pointer's way in; VoiceOver and Switch Control reach
         // the same item as a named action on the row.
         .modifier(SyncHereAction(action: syncHere))
+    }
+
+    /// The air between a line and its translation: 2 pt, the board's gap at both
+    /// sizes (`Ct` 89 → 107 under a 13 pt line, `Tt` 188 → 212 under 17).
+    static let translationGap: CGFloat = 2
+
+    /// What VoiceOver reads: the line, then its translation as a second
+    /// sentence — one element per row, as the line always was.
+    private var accessibilityText: String {
+        guard let translation else { return line.text }
+        return [displayText ?? line.text, translation].joined(separator: ". ")
+    }
+
+    @MainActor
+    @ViewBuilder
+    private var translationRow: some View {
+        if let translation, board != nil, !line.isCredit {
+            let style = PlayerLayout.translationStyle(isSung: isCurrent)
+            Text(translation)
+                .islandFont(style.size, weight: style.weight)
+                .foregroundStyle(.white.opacity(PlayerLayout.translationOpacity(
+                    isSung: isCurrent, increaseContrast: SystemAppearance.shared.increaseContrast
+                )))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .transition(.opacity)
+        }
     }
 
     /// Adds the "Sync Here" accessibility action only where a handler exists.
@@ -242,9 +298,11 @@ struct LyricRow: View {
     /// Plain text, and the pasteboard cleared first — without the clear, a copy
     /// leaves whatever richer flavour the last one wrote sitting underneath,
     /// and the paste takes that instead.
+    @MainActor
     static func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        let pasteboard = PasteboardRead.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     @MainActor
@@ -273,7 +331,7 @@ struct LyricRow: View {
             ZStack(alignment: .leading) {
                 if isCurrent {
                     KaraokeText(
-                        text: line.text,
+                        text: displayText ?? line.text,
                         // The same function the lab's resolutions report, so
                         // the sweep a surface claims is the sweep it draws.
                         fraction: LyricSweep.drawnFraction(
@@ -307,9 +365,9 @@ struct LyricRow: View {
                     // rasterises every glyph soft. Clamped to the ramp's floor,
                     // never the bare 0.18: without the clamp the far lines sat
                     // at 1.54:1, unreadable as text.
-                    Text(line.text)
-                        .islandFont(fontSize, weight: weight)
-                        .foregroundStyle(.white.opacity(ramp.context(distance: distance, reading: reading)))
+                    Text(displayText ?? line.text)
+                        .islandFont(fontSize, weight: contextWeight ?? weight)
+                        .foregroundStyle(.white.opacity(contextOpacity))
                         .lineLimit(lineLimit)
                         .truncationMode(.tail)
                         .transition(.opacity)
@@ -317,6 +375,17 @@ struct LyricRow: View {
             }
             .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
         }
+    }
+
+    /// The opacity of a line that is not being sung: the board's (raised to the
+    /// ramp's floor, `PlayerLayout.lyricOpacity`) where the row knows its signed
+    /// offset, the symmetric falloff where it does not.
+    @MainActor
+    private var contextOpacity: Double {
+        if let board {
+            return PlayerLayout.lyricOpacity(offset: board.offset, ramp: ramp, reading: reading)
+        }
+        return ramp.context(distance: distance, reading: reading)
     }
 
     /// This surface's steps at the setting as it stands now. The floor always
@@ -370,6 +439,16 @@ struct InterludeMarker: View {
     /// The same surface as the lines around it, so on the lock card a marker
     /// is the card's grey and not the panel's dimmer one beside a card line.
     var surface: LyricRow.Surface = .panel
+    /// What the rest looks like. The lock card keeps the note and the filling
+    /// track; the panel's column and tall page draw three dots (spec §5.4,
+    /// `Lyrics-Instrumental`): 7 pt, at 0.9, 0.55 and 0.3, left-aligned where
+    /// the sung line goes.
+    var style: Style = .track
+
+    enum Style: Equatable {
+        case track
+        case dots
+    }
 
     /// How long the track is. Short on purpose: a progress bar the width of
     /// a lyric would read as a second scrubber, and this is a rest in the
@@ -389,9 +468,40 @@ struct InterludeMarker: View {
     }
 
     var body: some View {
+        if style == .dots {
+            dots
+        } else {
+            track
+        }
+    }
+
+    /// Three static dots. The current interlude shows them at the board's own
+    /// strengths; one the song has passed or has yet to reach is the same three
+    /// dimmed to its row's context step, so the page's depth reaches it. They do
+    /// not animate and carry no progress: a rest is not a loading state, and the
+    /// words coming back is the next row down.
+    @MainActor
+    private var dots: some View {
+        let scale = isCurrent ? 1 : opacity / max(surface.ramp(increaseContrast: SystemAppearance.shared.increaseContrast).unswept, 0.01)
+        return HStack(spacing: Theme.instrumentalDotSpacing) {
+            ForEach(Array(Theme.instrumentalDotOpacities.enumerated()), id: \.offset) { _, level in
+                Circle()
+                    .fill(Color.white.opacity(level * min(scale, 1)))
+                    .frame(width: Theme.instrumentalDotSize, height: Theme.instrumentalDotSize)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.accessibilityLabel)
+        .accessibilityAddTraits(isCurrent ? [.isStaticText, .isSelected] : [.isStaticText])
+    }
+
+    @MainActor
+    private var track: some View {
         let clockDriven = clock != nil && !reduceMotion
         let tone = Color.white.opacity(opacity)
-        HStack(spacing: 8) {
+        return HStack(spacing: 8) {
             // An image inside a `Text`, so the row takes a text line's height
             // at this size: on the lock card the window's rows are measured
             // by their type, and a symbol image framed on its own came out a

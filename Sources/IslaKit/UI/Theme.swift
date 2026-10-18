@@ -1,6 +1,39 @@
 import SwiftUI
 
 enum Theme {
+    // MARK: - The island's outline (spec §19.3)
+
+    /// The island's outline springs on response 0.5, damping 0.75 for every
+    /// change of its size: an activity growing out of the notch, one activity
+    /// turning into another, opening into a surface, the body growing or
+    /// folding, closing, and folding back into the notch.
+    ///
+    /// The one place Isla overshoots, about 3 % once, and a deliberate
+    /// exception to the rule under it. That rule is about momentum — nothing a
+    /// click opened should wobble at you — and it still holds for everything
+    /// *inside* a surface. The outline is not something inside the interface:
+    /// it is the object, a black shape growing out of the bezel, and the
+    /// reference the owner chose on 2026-10-17 (spec §19, decision 15) draws
+    /// it with exactly this overshoot. Drawn critically damped beside it, the
+    /// same shape read as painted on rather than as a thing that arrived. 0.75
+    /// keeps it to one swing: the return is under a tenth of a percent, so the
+    /// eye sees the island arrive, not bounce.
+    ///
+    /// It is quicker off the mark than the 0.34 critically damped open it
+    /// replaced — 99 % of the way in 0.28 s against 0.36 — crosses its end at
+    /// 0.29 s, and is within half a point of it over the widest travel by
+    /// 0.63 s. `MotionValuesTests` holds the values, the overshoot and every
+    /// entry point that rides it; the content that arrives with it is
+    /// `IslandArrival`.
+    static let islandResponse: Double = 0.5
+    static let islandDamping: Double = 0.75
+    static let islandSpring = Animation.spring(response: islandResponse, dampingFraction: islandDamping)
+
+    /// The outline under Reduce Motion: the 0.24 ease-in-out, no overshoot.
+    static func island(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : islandSpring
+    }
+
     /// Critically damped, on purpose.
     ///
     /// Apple's own rule, from *Designing Fluid Interfaces*: start at a damping
@@ -14,10 +47,14 @@ enum Theme {
     /// at the end of every open. Response is the time to reach the target, not
     /// a duration — Apple ships 0.4 for a move and 0.3 for a sheet, and this
     /// sits between them.
+    ///
+    /// Since 2026-10-17 the outline opens on `islandSpring` (spec §19.3), and
+    /// this curve is left to what moves inside a surface: the player changing
+    /// between two layouts of one height (`PlayerLayout.animation`).
     static let openResponse: Double = 0.34
     static let openAnimation = Animation.spring(response: openResponse, dampingFraction: 1.0)
 
-    /// The panel folding shut: the open's own spring, started a beat late.
+    /// The panel folding shut: the outline's own spring, started a beat late.
     ///
     /// The open's rule is that the panel has height before the body has alpha;
     /// the close has to be the same rule backwards, the body gone before the
@@ -45,7 +82,12 @@ enum Theme {
     /// `testTheHitAreaOutlastsTheDelayedClose` that the hit area still
     /// shrinks only after the later settle.
     static let closeShapeDelay: Double = 0.03
-    static let closeAnimation = openAnimation.delay(closeShapeDelay)
+    static let closeAnimation = islandSpring.delay(closeShapeDelay)
+
+    /// The outline opening (spec §19.3). Reduce Motion: the 0.24 crossfade.
+    static func open(reduceMotion: Bool) -> Animation {
+        island(reduceMotion: reduceMotion)
+    }
 
     /// Reduce Motion gets the reduced open with no delay: the delay is
     /// choreography between two moving things, and that is what was refused.
@@ -57,64 +99,26 @@ enum Theme {
     /// threw, so also critically damped.
     static let compactAnimation = Animation.spring(response: 0.28, dampingFraction: 1.0)
 
-    /// The pill growing out of the notch, and folding back into it.
+    /// The pill growing out of the notch, and folding back into it, and its
+    /// content arriving and leaving with it: the outline's spring, both ways
+    /// (spec §19.3).
     ///
-    /// These used to be `compactAnimation` too, and on the lock screen they
-    /// were not animations at all: a pause folded the pill away in a single
-    /// frame, filmed on 2026-09-21 — "too intense, too raw". A fold is the
-    /// island's largest idle motion, 52 pt of wing on each side going into a
-    /// hole in the display, and at 0.28 s it read as a snap even where it did
-    /// animate. Apple's own reposition is 0.4, and both sit just past it.
+    /// The fold and the unfold were 0.42 critically damped springs, and the
+    /// content rode a pair of its own — out at 0.20, in at 0.36 behind a 70 ms
+    /// delay — so that it left before the contracting edge could slice through
+    /// it and arrived after there was a wing under it (2026-09-21, H-013). The
+    /// content has been pinned to the island's edges since the 2026-10-15
+    /// redesign, so no edge crosses it any more, and the reference arrives its
+    /// content on the shape's own curve: from blur and a narrower scale, with
+    /// the shape, and leaves the same way reversed (`IslandArrival.compact`).
+    /// One curve also ends the bare wing H-013 was about — the content is gone
+    /// in the frame the shape is. `PillFoldTests` holds both.
     ///
-    /// The fold used to sit further out, at 0.5, on the argument that a fold
-    /// nobody asked for should not pull the eye. It pulled it anyway, the
-    /// wrong way: its content leaves on its own faster curve, so for about
-    /// 300 ms after the cover was gone an empty black wing still hung past
-    /// the notch (H-013, settled at 529 ms against the content's 233 ms).
-    /// Leaving took longer than arriving. The fold now matches the unfold,
-    /// which leaves about 230 ms of bare wing and keeps it above the 0.4
-    /// floor that guards the 2026-09-21 "not a snap". Going further — the
-    /// audit's 0.32 — lands within 0.04 s of the 0.28 that was the snap.
-    /// `PillFoldTests` holds the order, the floor and the bare-wing time.
-    /// Both critically damped — neither was thrown. The peek's end rides the
-    /// fold too, so it got quicker by the same amount.
-    static let pillUnfoldResponse: Double = 0.42
-    static let pillFoldResponse: Double = 0.42
-    static let pillUnfold = Animation.spring(response: pillUnfoldResponse, dampingFraction: 1.0)
-    static let pillFold = Animation.spring(response: pillFoldResponse, dampingFraction: 1.0)
-
-    /// The fold or the unfold, by where the pill is going.
-    static func pill(appearing: Bool, reduceMotion: Bool) -> Animation {
-        guard !reduceMotion else { return reducedMotion }
-        return appearing ? pillUnfold : pillFold
-    }
-
-    /// The pill's own content — the cover and the equalizer — arriving and
-    /// leaving, on a curve of its own rather than the shape's.
-    ///
-    /// Out faster than the wing it sits on: the content has to be gone before
-    /// the contracting edge reaches it, or the edge slices through the cover
-    /// on its way into the notch. In behind a short delay, so there is a wing
-    /// under it before it materializes — content drawn ahead of its surface is
-    /// content floating on the wallpaper. `PillFoldTests` holds both halves
-    /// against the shape's own springs.
-    ///
-    /// Out is tied to the fold: when the fold quickened to 0.42 its edge
-    /// reached the 22 pt cover sooner (130 ms instead of 154), and at the old
-    /// 0.22 the cover was still 12 % opaque there. 0.20 is the largest
-    /// hundredth that keeps it under a tenth (about 0.09) when the edge
-    /// arrives; 0.21 misses by a hair. Any slower and the edge slices the
-    /// cover, any faster and the cover blinks out rather than leaves.
-    static let pillContentOutResponse: Double = 0.20
-    static let pillContentInResponse: Double = 0.36
-    static let pillContentInDelay: Double = 0.07
-    static let pillContentOut = Animation.spring(response: pillContentOutResponse, dampingFraction: 1.0)
-    static let pillContentIn = Animation.spring(response: pillContentInResponse, dampingFraction: 1.0)
-        .delay(pillContentInDelay)
-
-    static func pillContent(shown: Bool, reduceMotion: Bool) -> Animation {
-        guard !reduceMotion else { return reducedMotion }
-        return shown ? pillContentIn : pillContentOut
+    /// A lock-screen pause still folds as a motion and not a cut — the
+    /// 2026-09-21 film — because the locked pill declares this curve beneath
+    /// the lock's own refusal (`NotchContentView.lockedPill`).
+    static func pill(reduceMotion: Bool) -> Animation {
+        island(reduceMotion: reduceMotion)
     }
 
     static let contentAnimation = Animation.easeOut(duration: 0.16)
@@ -140,10 +144,116 @@ enum Theme {
     /// Listed rather than inferred so the guard is a list somebody has to
     /// deliberately edit. It used to be hardcoded inside the test, which meant
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
+    ///
+    /// The outline's curves left it on 2026-10-17 — the close, the pill's fold
+    /// and unfold and its content, the pop-up's — because they are all
+    /// `islandSpring` now (spec §19.3); what is left is every curve that moves
+    /// something inside a surface.
     static let criticallyDampedSprings: [Animation] = [
-        openAnimation, closeAnimation, compactAnimation, pillUnfold, pillFold, pillContentOut, pillContentIn,
-        captionTurnOut, captionTurnIn,
+        openAnimation, compactAnimation, captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph,
+        hudSpring, hudLevel,
     ]
+
+    /// The volume and brightness pop-up (redesign 2026-10-15, spec §2.4, §12)
+    /// widens and folds on a spring of its own: response 0.3, critically
+    /// damped, and its content arrives by opacity and a slight scale, with no
+    /// blur (`hudArrival`).
+    ///
+    /// It rode the outline's 0.5 spring with its 0.75 damping from 2026-10-17,
+    /// and its content focused in from a 30-point blur at 0.6 × 0.2 of its
+    /// size. A key press is the most frequent thing the island answers and
+    /// carries no momentum to express; on the owner's Mac (2026-10-18) the
+    /// pop-up felt heavy and laggy beside the system's own, which appears at
+    /// once and only fades, and the animated blur is among the costliest
+    /// things SwiftUI draws, frame by frame on the main thread, while the Mac
+    /// is busy (perf review, finding 3).
+    static let hudResponse: Double = 0.3
+    static let hudSpring = Animation.spring(response: hudResponse, dampingFraction: 1.0)
+
+    /// The pop-up's curve, or the 0.24 ease-in-out under Reduce Motion.
+    static func hud(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : hudSpring
+    }
+
+    /// The pop-up's content arriving and leaving: opacity and 0.94 of its
+    /// size about the top edge, on the transaction's curve — `hudSpring`.
+    static func hudArrival(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: hudArrivalScale, anchor: .top))
+    }
+    static let hudArrivalScale: CGFloat = 0.94
+
+    /// The level bar following each press: a critically damped spring of
+    /// 0.2 s (spec §2.4, amended 2026-10-18). Short, because a held key
+    /// presses again every few tens of milliseconds and a bar still
+    /// travelling when the next step lands would trail the keys; a spring
+    /// rather than the 0.12 s ease-out it was because a spring takes the next
+    /// step from where the bar is and at the speed it has, where each new
+    /// ease-out began from rest and the bar moved in a stutter of restarts.
+    static let hudLevel = Animation.spring(response: 0.2, dampingFraction: 1.0)
+
+    /// How long the pop-up stays after the *last* press (spec §2.4: 1.5 s idle)
+    /// before it folds on the outline's spring. Each press
+    /// restarts it.
+    static let hudLinger: TimeInterval = 1.5
+
+    /// The bar's step. Reduce Motion: it steps — a bar that glides is travel,
+    /// and the number of presses is what a person is counting.
+    static func hudLevel(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : hudLevel
+    }
+
+    /// The body growing from 208 to 400 and back (spec §2.4, §6): spring 0.40 /
+    /// 1.0. A little slower than the open's 0.34 because it moves a body that is
+    /// already on screen by 192 pt, with a cover, a title and a transport riding
+    /// it — the longest travel the panel makes, and a travel the eye follows
+    /// from a button at the top to a row at the bottom. Critically damped: a
+    /// tall body that rebounded would show the tail of its own cut (the
+    /// window is never resized, so the clip is the edge). `Lyrics-Frames` is the
+    /// board.
+    ///
+    /// Since 2026-10-17 the island's body grows and folds on `islandSpring`
+    /// (spec §19.3) — `island(reduceMotion:)` at every site that moves it — and
+    /// this spring is left to the one block inside a surface that still grows:
+    /// the Settings update card changing stage (`UpdateCard`).
+    static let expandResponse: Double = 0.40
+    static let expandAnimation = Animation.spring(response: expandResponse, dampingFraction: 1.0)
+
+    /// When a shrinking body has, for a pointer, stopped: what may only shrink
+    /// once the body has (the active and close rects,
+    /// `NotchController.openRectHeight`) waits this long.
+    ///
+    /// The body shrinks on `islandSpring` now. It crosses its end at 0.29 s and
+    /// overshoots *inward* — smaller than the body it is going to, so inside
+    /// the rect cut for it — and the swing back out is under a tenth of a
+    /// percent of the travel, 0.15 pt on the 192 pt fold. So from 0.29 s on no
+    /// drawn point lies outside the smaller rect; 0.5 s, chosen for the
+    /// critically damped 0.40 it replaced, still holds with room.
+    /// `NotchControllerTests` checks it against the spring's closed form.
+    static let expandSettle: TimeInterval = 0.5
+
+    /// Reduce Motion: no travel, the 0.24 crossfade the rest of the panel uses.
+    static func expand(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : expandAnimation
+    }
+
+    /// The lock banner growing into the card, and the card shrinking back
+    /// (spec §2.4, §7.1): spring 0.36 / 1.0, **in place** — the banner's top edge
+    /// is the card's top edge and both are centred on the same x, so the cover,
+    /// the title and the artist travel down and out rather than being replaced.
+    /// (`Lock-Frames` is the board: banner, halfway, card.) A touch slower than
+    /// the panel's 0.34 open because the card is three times the banner's
+    /// height and the eye follows the cover the whole way; critically damped,
+    /// because the card's window is never resized and a rebound would show the
+    /// tail of its own clip (see `LockCardWindow`).
+    static let lockCardMorphResponse: Double = 0.36
+    static let lockCardMorph = Animation.spring(response: lockCardMorphResponse, dampingFraction: 1.0)
+
+    /// Reduce Motion: nothing travels, the 0.24 crossfade the rest of the app
+    /// uses (`LockScreenCard` gives each form an identity of its own so the two
+    /// shapes dissolve into one another).
+    static func lockCardMorph(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : lockCardMorph
+    }
 
     /// The Music pane's caption giving one lyric line up to the next
     /// (`AnyTransition.lyricLine`): the old line leaving and the new one
@@ -278,10 +388,8 @@ enum Theme {
     /// `reducedMotion`, which carries nothing past its end and starts and
     /// stops at rest, and scale transitions become plain opacity, rather
     /// than the panel snapping between states with no transition at all.
-    static func open(reduceMotion: Bool) -> Animation {
-        reduceMotion ? reducedMotion : openAnimation
-    }
-
+    /// (`open(reduceMotion:)`, `pill(reduceMotion:)` and `island(reduceMotion:)`
+    /// are the outline's, at the top of this file.)
     static func compact(reduceMotion: Bool) -> Animation {
         reduceMotion ? reducedMotion : compactAnimation
     }
@@ -306,20 +414,43 @@ enum Theme {
     /// keep `contentAnimation` with the setting on.
     /// `MotionValuesTests.testReduceMotionNeverJumpsTheFirstFrame` holds
     /// every variant to this one description and samples its first frame.
-    static let reducedMotion = Animation.easeInOut(duration: 0.24)
+    static let reducedMotionDuration: TimeInterval = 0.24
+    static let reducedMotion = Animation.easeInOut(duration: reducedMotionDuration)
 
     static func scaleIn(_ scale: CGFloat, reduceMotion: Bool) -> AnyTransition {
         reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: scale))
     }
 
     /// The tab swap's scales: the arriving pane from 0.97, the leaving one
-    /// to 1.02, and 1 for both under Reduce Motion, so the swap is a plain
+    /// to 0.98 (it grew to 1.02 until 2026-10-18, past the edges it was
+    /// leaving), and 1 for both under Reduce Motion, so the swap is a plain
     /// crossfade. The swap built its scale inline beside `scaleIn`, which
     /// exists for exactly this, and so every tab switch still zoomed with the
     /// setting on (F-017).
     static func paneSwapScales(reduceMotion: Bool) -> (insertion: CGFloat, removal: CGFloat) {
-        reduceMotion ? (1, 1) : (0.97, 1.02)
+        reduceMotion ? (1, 1) : (0.97, 0.98)
     }
+
+    /// One surface replacing another in the open island — the gear opening
+    /// Settings, its X closing it, the stage and the player trading places:
+    /// the old pane leaves on `swapOut`, and the new one starts only once it
+    /// has gone.
+    ///
+    /// The swap shared the open's `paneIn`/`paneOut`, whose 0.04 s delay lets
+    /// the arriving body start while the leaving one is still most of the way
+    /// opaque; the leaving pane also grew to 1.02 as it went. On the owner's
+    /// film (2026-10-18) the gear's change from the player to Settings read
+    /// as two screens printed over each other, inside an island that was
+    /// growing at the same time: "make sure the motions are clean, not
+    /// anything just overlapping". Now the leaving pane recedes to 0.98 and
+    /// is gone in 0.08 s, the island growing on its spring meanwhile; the new
+    /// one arrives from 0.97 about the top edge — hanging from the notch, as
+    /// everything in the island does — beginning in the frame the old one
+    /// ends. `MotionValuesTests.testASwapNeverShowsTwoPanesAtOnce` holds it.
+    static let swapOutDuration: Double = 0.08
+    static let swapOut = Animation.easeOut(duration: swapOutDuration)
+    static let swapInDuration: Double = 0.20
+    static let swapIn = Animation.easeOut(duration: swapInDuration).delay(swapOutDuration)
 
     // MARK: - Type
 
@@ -370,10 +501,19 @@ enum Theme {
         case caption
         /// The reading voice: row titles, translated text, status lines.
         case body
+        /// The redesign's reading text (spec §2.2): the boards' 12 and 12.5 —
+        /// a player's subtitle, a clipboard row, the charge level and a device
+        /// name on the compact island. Half a point over `body`, which is the
+        /// difference between a status line and a line that is the content.
+        case reading
         /// One step up from reading: rail icons, empty-state status, picker rows.
         case subhead
         /// Track titles and lyric lines.
         case title
+        /// The tall lyric page (spec §2.2): 17 pt, a step over `title` because
+        /// the page is read from an arm's length and the sung line is carried
+        /// by weight and brightness, never by size (decision 6).
+        case lyric
         /// Empty-state glyphs and transport symbols.
         case display
         /// The artwork placeholder and the lock card's play button.
@@ -383,8 +523,10 @@ enum Theme {
             switch self {
             case .caption: return 10
             case .body: return 11
+            case .reading: return 12.5
             case .subhead: return 13
             case .title: return 16
+            case .lyric: return 17
             case .display: return 21
             case .hero: return 28
             }
@@ -409,8 +551,10 @@ enum Theme {
     /// The resting island's bottom corners, larger than the hardware notch's
     /// own so the curve stays inside the cutout rather than poking a black nub
     /// past it at each corner. Inside the cutout nothing is visible, which is
-    /// the point: at rest the island *is* the notch.
-    static let restingNotchBottomRadius: CGFloat = 12
+    /// the point: at rest the island *is* the notch. 12.67 since spec §19.2 —
+    /// the reference's resting notch, and never less than the compact
+    /// island's corner, so folding into the notch never gains one.
+    static let restingNotchBottomRadius: CGFloat = 12.67
 
     /// The island waking under the pointer when it rests hidden in the notch.
     ///
@@ -434,10 +578,46 @@ enum Theme {
         reduceMotion ? reducedMotion : hoverNudge
     }
 
-    static let collapsedTopRadius: CGFloat = 6
-    static let collapsedBottomRadius: CGFloat = 9
-    static let openTopRadius: CGFloat = 12
-    static let openBottomRadius: CGFloat = 22
+    /// The compact island's shoulders and bottom corners, the reference's
+    /// 8.67 and 12.67 (spec §19.2, §19.4; they were 6 and 12). Quadratic
+    /// corners (`NotchShape`), so 12.67 reads lighter than a circular 12 did.
+    /// Still no rounder than `restingNotchBottomRadius`, so the island folding
+    /// into the notch never gains a corner.
+    static let collapsedTopRadius: CGFloat = 8.67
+    static let collapsedBottomRadius: CGFloat = 12.67
+    /// The peek island's bottom corners (spec §2.3, kept by §19.4): 16, round
+    /// the 34 pt cover's 8 pt corner.
+    static let peekBottomRadius: CGFloat = 16
+    // The open radii are the surface's own (`Surface.topRadius`,
+    // `bottomRadius`, §19.2): 34 / 44, and 24 / 34 for the tray.
+
+    // MARK: - Lyric column and tall page (spec §5.4)
+
+    /// The Sync pill's solid fill: `#3A3A3C` at 0.96. A solid, not glass — it
+    /// sits in an opaque panel with nothing behind it to sample — and a Theme
+    /// value rather than a colour written at the view, as the rule asks.
+    static let syncPillFill = Color(red: 58.0 / 255, green: 58.0 / 255, blue: 60.0 / 255).opacity(0.96)
+    static let syncPillSize = CGSize(width: 74, height: 24)
+
+    /// The version-mismatch notice: 488 x 40, radius 9, white 0.07 with a
+    /// hairline (`Lyrics-Version-Mismatch`). Its width is the pane's at the
+    /// default body; it follows the pane at other widths.
+    static let mismatchNoticeHeight: CGFloat = 40
+    static let mismatchNoticeRadius: CGFloat = 9
+    static let mismatchNoticeFill = Color.white.opacity(0.07)
+
+    /// The Edit Lyrics sheet (spec §5.5, `Lyrics-Editor`): `#2A2A2C`, with fields
+    /// at white 0.06 inside a white 0.16 hairline.
+    static let sheetFill = Color(red: 42.0 / 255, green: 42.0 / 255, blue: 44.0 / 255)
+    static let editorFieldFill = Color.white.opacity(0.06)
+    static let editorFieldEdge = Color.white.opacity(0.16)
+
+    /// The instrumental gap's three dots (spec §5.4): 7 pt, white at 0.9, 0.55
+    /// and 0.3 — a rest in the song, not a loading indicator, so they do not
+    /// move.
+    static let instrumentalDotSize: CGFloat = 7
+    static let instrumentalDotSpacing: CGFloat = 6
+    static let instrumentalDotOpacities: [Double] = [0.9, 0.55, 0.3]
 
     // MARK: - Artwork
 
@@ -462,9 +642,178 @@ enum Theme {
     /// `side / 5.5` is right for the 42–62 pt thumbnail it was set on and wrong
     /// at this size, so each end keeps the value it actually wants and the
     /// morph interpolates the frame between them.
+    ///
+    /// The compact end is 22 pt at radius 5 since spec §19.4 (2026-10-17; it
+    /// was 24 at 6 from 2026-10-15, and 22 at 6 before that): the reference's
+    /// cover, at (17.3, 8) on a 38 pt island. On the 24 pt island Isla draws
+    /// for a display without a notch it is 16 (`CompactIslandLayout`).
+    ///
+    /// The open end is the player's cover, 60 pt at radius 10 since R8 (spec
+    /// §19.6; it was 132 at 14 from 2026-10-15, and 118 before that): the
+    /// player is one row now, the cover at its left. Read from `PlayerLayout`
+    /// so the morph cannot end on a cover the player no longer draws — R8 left
+    /// this at 132 for a day, and the lab's keyframes grew the cover past the
+    /// row it lands in.
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
-        isOpen ? (118, 14) : (22, 6)
+        isOpen ? (PlayerLayout.coverSide, PlayerLayout.coverRadius) : (22, 5)
     }
+
+    /// The cover while a new track peeks (spec §3.5): 34 pt at radius 8,
+    /// concentric with the peek's 16 pt corner and 8 pt inset. A third size of
+    /// the one cover, not a second cover — the pill's artwork view takes it
+    /// while `isPeeking` and the frame interpolates between the two.
+    static let peekArtworkMetrics: (side: CGFloat, cornerRadius: CGFloat) = (34, 8)
+
+    // MARK: - The compact island's surface (spec §2.1, §3.2, §3.3)
+
+    /// A paused cover darkens to 0.55 of itself rather than turning 0.58
+    /// see-through (spec §3.2). The old opacity let a bright wallpaper
+    /// through the cover — on a pale desktop a paused cover read as a ghost —
+    /// where multiplying the picture by 0.55 darkens it on any background.
+    static let pausedCoverBrightness: Double = 0.55
+
+    /// The well behind a missing cover on the compact island (spec §3.2): white
+    /// at 0.14 under a `music.note`, drawn in place of the picture so the left
+    /// wing never reads as a hole.
+    static let coverWell = Color.white.opacity(0.14)
+
+    // MARK: - The player (spec §4)
+
+    /// The owner's red, `#FF453A` (spec §2.1): the LIVE mark and the circle under
+    /// the output that is playing. Fixed rather than the system accent — it is
+    /// a mark of Isla's own — and white on it holds the 3:1 non-text floor
+    /// (3.4:1), which is all a glyph in a circle is asked for.
+    static let accent = Color(red: 255.0 / 255, green: 69.0 / 255, blue: 58.0 / 255)
+    static let accentNSColor = NSColor(srgbRed: 255.0 / 255, green: 69.0 / 255, blue: 58.0 / 255, alpha: 1)
+
+    /// A paused cover in the player dims to 0.8 of itself (spec §4.2) — the
+    /// island's 0.55 is for a 24 pt thumbnail that has to read as asleep; a 132
+    /// pt picture only needs to say so. Applied with `colorMultiply`, never
+    /// SwiftUI's `.brightness`, which is additive and would lift the black.
+    static let playerPausedCoverBrightness: Double = 0.8
+
+    /// The sung line while paused (spec §4.2): 0.7 of itself.
+    static let playerPausedLyricOpacity: Double = 0.7
+
+    /// The lyric band's *next* line (spec §4.3): the board's white 0.36 is the
+    /// panel's own lyric floor (`LyricRow.Ramp.panel(...).floor`, held at 3:1 over
+    /// black by `ContrastRampTests`), so the band follows the ramp instead of
+    /// stating a second 0.36 that could drift from it — and Increase Contrast
+    /// lifts it with the rest of the ramp.
+    static func lyricBandNextOpacity(increaseContrast: Bool) -> Double {
+        LyricRow.Ramp.panel(increaseContrast: increaseContrast).floor
+    }
+
+    @MainActor static var lyricBandNext: Color {
+        Color.white.opacity(lyricBandNextOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// White 0.30 (0.50 with Increase Contrast): placeholders and glyphs nobody
+    /// has to read (spec §2.1 `quaternary`) — the note in a missing cover's well.
+    static func quaternaryOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.50 : 0.30
+    }
+
+    @MainActor static var quaternary: Color {
+        Color.white.opacity(quaternaryOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The well that stands in for a missing cover (spec §4.7): white 0.08, the
+    /// board's `fill` token.
+    static let coverMissingWell = Color.white.opacity(0.08)
+
+    /// The empty player's well, edge and note (spec §4.8): a step under the
+    /// missing cover's, so a player with nothing in it reads as emptier than one
+    /// whose song has no picture.
+    static let emptyWell = Color.white.opacity(0.07)
+    static let emptyWellEdge = Color.white.opacity(0.10)
+    static let emptyWellNote = Color.white.opacity(0.26)
+
+    /// The note in a missing cover's well, and in the empty player's: 35 and 40
+    /// points (spec §4.7, §4.8). Glyphs fitted to a 132 pt well, not type, so
+    /// they are sizes of their own and not roles.
+    static let playerCoverNoteSize: CGFloat = 35
+    static let emptyNoteSize: CGFloat = 40
+
+    /// The glyphs of the player's transport (spec §4.1): previous and next 16 pt,
+    /// play and pause 20 pt, each in a 28 pt target.
+    static let playerSkipGlyphSize: CGFloat = 16
+    static let playerPlayGlyphSize: CGFloat = 20
+    static let playerTransportTarget: CGFloat = 28
+
+    // MARK: - The player, activities first (spec §19.6)
+
+    /// The title, white 0.80 at 16 medium; the artist under it, white 0.50 at
+    /// 14 regular — and the same 0.50 for the artist after "–" while the sung
+    /// line has the subtitle.
+    static let playerTitleOpacity: Double = 0.80
+    static let playerArtistOpacity: Double = 0.50
+    /// The sung line's sweep: the part sung at 0.82, the rest at 0.45.
+    static let playerSungOpacity: Double = 0.82
+    static let playerUnsungOpacity: Double = 0.45
+    /// The times either side of the bar: SF Pro Rounded 11 medium at 0.40.
+    static let playerTimeOpacity: Double = 0.40
+    /// The progress bar's track and fill.
+    static let playerTrackOpacity: Double = 0.15
+    static let playerFillOpacity: Double = 0.50
+    /// Previous, Play / Pause and Next at 0.90; Favourite and Output, the
+    /// controls either side that are not the transport, at 0.50.
+    static let playerTransportOpacity: Double = 0.90
+    static let playerSecondaryControlOpacity: Double = 0.50
+
+    // MARK: - The lyrics stage's foot (spec §19.6)
+
+    /// The hairline over the foot, white 0.12.
+    static let stageHairline = Color.white.opacity(0.12)
+    /// The artist under the title, white 0.55.
+    static let stageArtistOpacity: Double = 0.55
+    /// The transport's wells, white 0.10.
+    static let stageTransportFill = Color.white.opacity(0.10)
+    /// The progress's track, white 0.18; its fill is the cover's tint.
+    static let stageTrack = Color.white.opacity(0.18)
+
+    /// The mark on a hairline round the player's cover (spec §4.1): white 0.14.
+    static let coverEdge = Color.white.opacity(0.14)
+
+    /// The island's colour under the pointer: a solid `#1C1C1E` in place of the
+    /// white gradient lift it wore until 2026-10-15. Nothing moves on a playing
+    /// island — the surface alone answers the pointer — and the resting notch's
+    /// nudge (`hoverNudge`) grows into the same fill.
+    static let islandHover = Color(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
+
+    /// The lock card's Solid panel (spec §7.2): `#1C1C1E`, the same grey the
+    /// island takes under the pointer. Also what stands in for the cover's light
+    /// when a song has no cover (`LockCardMaterial.Layer.neutralFill`) — Automatic
+    /// and Tinted keep their opacity floor with or without a picture.
+    static let lockCardSolid = islandHover
+
+    /// The lock card's Transparent panel (spec §7.2): black at 0.30.
+    static let lockCardTransparent = lockCardTransparent(alpha: LockCardMaterial.transparentAlpha)
+
+    /// The same black at the alpha the decision gave it: 0.30 over a dark
+    /// wallpaper, more where the type needs it (`LockCardLegibility.transparentWash`).
+    static func lockCardTransparent(alpha: Double) -> Color { Color.black.opacity(alpha) }
+
+    /// The system green, `#30D158`: the charging bolt and its level.
+    static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
+
+    /// The island's stroke (spec §19.2), which replaced §3.3's key line: 2 pt
+    /// centred on the outline, the activity's tint at 0.21 or white at 0.14,
+    /// raised to 0.42 and 0.30 under Increase Contrast. Measured from the
+    /// reference screenshots; to be confirmed on Aerial, Sonoma and a white
+    /// wallpaper, owed check R7-H3.
+    static let islandStrokeWidth: CGFloat = 2
+    static let islandStrokeTintOpacity: Double = 0.21
+    static let islandStrokeWhiteOpacity: Double = 0.14
+    static let islandStrokeTintContrastOpacity: Double = 0.42
+    static let islandStrokeWhiteContrastOpacity: Double = 0.30
+
+    /// The shadow a tall shape casts (spec §19.2): black 0.22, radius 14, no
+    /// offset, on a shape taller than 68 — a surface or an alert, never a
+    /// compact activity or the peek.
+    static let islandShadowThreshold: CGFloat = 68
+    static let islandShadowOpacity: Double = 0.22
+    static let islandShadowRadius: CGFloat = 14
 
     // MARK: - Contrast ramp
     //
@@ -505,9 +854,14 @@ enum Theme {
     /// label's backdrop is stated once and measured by `ContrastRampTests`.
     enum Fill {
         case surface, surfaceHover, selectedChip
+        /// The form's group and the sidebar's selected row (spec §10): a
+        /// footnote or a value sits on the first, a sidebar label on the second.
+        case settingsGroup, settingsSidebarSelection
 
         func opacity(increaseContrast: Bool) -> Double {
             switch self {
+            case .settingsGroup: return Theme.settingsGroupOpacity(increaseContrast: increaseContrast)
+            case .settingsSidebarSelection: return Theme.settingsSidebarSelectionOpacity(increaseContrast: increaseContrast)
             case .surface: return Theme.surfaceOpacity(increaseContrast: increaseContrast)
             case .surfaceHover: return Theme.surfaceHoverOpacity(increaseContrast: increaseContrast)
             case .selectedChip: return Theme.selectedChipOpacity(increaseContrast: increaseContrast)
@@ -751,12 +1105,14 @@ enum Theme {
     /// the three headers used to carry 0.8, 0.8 and 0.6 for the same role.
     static let capsTracking: CGFloat = 0.8
 
-    /// A Shelf card whose disk is not plugged in draws its preview at this
-    /// opacity: present enough to be recognised as the same card, faded
-    /// enough to read as out of reach before its caption is read. The
-    /// caption itself stays at the tertiary ramp, which is what carries the
-    /// words.
-    static let offlineThumbnailOpacity: Double = 0.45
+    /// A Shelf tile whose disk is not plugged in draws its icon at this
+    /// opacity, in greyscale (spec §8.4, `Shelf-Disk-Missing`): present enough
+    /// to be recognised as the same tile, faded enough to read as out of reach
+    /// before its caption is read. The caption itself stays at the tertiary
+    /// ramp, which is what carries the words. 0.45 until 2026-10-15; the board
+    /// draws 0.4 and takes the colour out as well, since a coloured icon at
+    /// 0.45 still read as "available, a little shy".
+    static let offlineThumbnailOpacity: Double = 0.4
 
     /// The smallest target a caption-sized control in the panel may offer.
     /// A word set at the caption role is 13 pt tall, and a button that is
@@ -775,11 +1131,247 @@ enum Theme {
     /// the card dims to this opacity instead.
     static let pressDimOpacity: Double = 0.85
 
+    // MARK: - The Shelf (spec §8)
+
+    /// The blue of the Shelf (spec §19.7): the bubble's count, the drop target
+    /// under the pointer and a picked tile's ring. The system's own blue, the
+    /// same value as `SettingsTint.blue`.
+    static var shelfBlue: Color { SettingsTint.blue.color }
+
+    /// A tile's plate: white 0.10, 0.14 under the pointer; picked, white 0.18
+    /// inside a 1.5 pt blue ring (§19.7).
+    static let shelfTilePlate = Color.white.opacity(0.10)
+    static let shelfHoverWell = Color.white.opacity(0.14)
+    static let shelfSelectedWell = Color.white.opacity(0.18)
+    static let shelfSelectedRingWidth: CGFloat = 1.5
+    /// A tile's name: white 0.86.
+    static let shelfTileNameOpacity: Double = 0.86
+
+    /// The remove badge (§19.7): `xmark.circle.fill` at white 0.62 over a 14 pt
+    /// disc of black 0.28, so the cross reads on a bright thumbnail.
+    static let shelfBadgeGlyph = Color.white.opacity(0.62)
+    static let shelfBadgeDisc = Color.black.opacity(0.28)
+
+    /// A drop target under the pointer (spec §19.7): blue 0.18 inside a 2 pt
+    /// blue ring, its second line white 0.75; the other white 0.07, its second
+    /// line white 0.55.
+    static var shelfDropWellLit: Color { shelfBlue.opacity(0.18) }
+    static let shelfDropRingWidth: CGFloat = 2
+    static let shelfDropWellResting = Color.white.opacity(0.07)
+    static let shelfDropCaptionLit: Double = 0.75
+    static let shelfDropCaptionResting: Double = 0.55
+    static let shelfDropWellRadius: CGFloat = 14
+
+    /// The empty tray's line, white 0.55.
+    static let shelfEmptyLineOpacity: Double = 0.55
+
+    // MARK: - Pages (spec §19.16)
+
+    /// The row of dots under a page: the current page's dot white 0.90, the
+    /// others white 0.30, and 0.45 while the pointer is over the row.
+    static let pageDotCurrent: Double = 0.90
+    static let pageDotOther: Double = 0.30
+    static let pageDotOtherHovered: Double = 0.45
+
     /// How far a list fades into an edge that cuts it (`scrollEdgeFade`,
     /// H-017). Ten points: enough to read as "continues" at a 26 pt row, and
     /// short enough that a covered clipboard row under the drifting dots
     /// still reads as covered rather than as a third state.
     static let scrollFadeLength: CGFloat = 10
+
+    // MARK: - The Clipboard (spec §9)
+
+    /// The well behind a hovered row and a row that has just been copied, white
+    /// at 0.08 (spec §9.2) — Increase Contrast steps it to 0.18, the same rule
+    /// every translucent fill follows (§2.1), so a hovered row can still be told
+    /// from the rest.
+    static func clipboardWellOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.18 : 0.08
+    }
+
+    @MainActor static var clipboardWell: Color {
+        Color.white.opacity(clipboardWellOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The open search field's fill, white at 0.10 (spec §9.3), with the same
+    /// step under Increase Contrast.
+    static func searchFieldOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.20 : 0.10
+    }
+
+    @MainActor static var searchFieldFill: Color {
+        Color.white.opacity(searchFieldOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    // MARK: - Translate (redesign 2026-10-15, spec §11)
+
+    /// The source card's fill: white at 0.07 on the black island (spec §11), the
+    /// well a person can tell is typed into. Increase Contrast steps it to 0.16 —
+    /// the same rule every translucent fill follows (§2.1) — so the card still
+    /// reads as a shape; the placeholder and the counter on it are drawn through
+    /// `tertiary` and `quaternary`, which carry their own contrast floors.
+    static func translateCardOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.16 : 0.07
+    }
+
+    /// The card's half-point hairline, white at 0.08 (spec §11); 0.35 as a
+    /// defined edge under Increase Contrast, between the base hairline and the
+    /// selected chip's 0.55 so a card is edged without shouting.
+    static func translateCardEdgeOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.35 : 0.08
+    }
+
+    /// The language pop-ups' plate: white at 0.12 (the board's `popup()`), 0.24
+    /// under Increase Contrast — the `surface` ratio, doubled and rounded.
+    static func popUpOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.24 : 0.12
+    }
+
+    @MainActor static var translateCardFill: Color {
+        Color.white.opacity(translateCardOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    @MainActor static var translateCardEdge: Color {
+        Color.white.opacity(translateCardEdgeOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    @MainActor static var popUpFill: Color {
+        Color.white.opacity(popUpOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// A search match: `#FFD60A` behind `#1D1D1F` text (spec §2.1, §9.3) — the
+    /// find-in-page yellow Safari, Notes and Mail mark a match with, so nobody
+    /// has to be told what it means. Dark text on it, whatever the row's own
+    /// colour: white on this yellow would be 1.4:1.
+    static let findHighlight = Color(red: 255.0 / 255, green: 214.0 / 255, blue: 10.0 / 255)
+    static let findHighlightText = Color(red: 29.0 / 255, green: 29.0 / 255, blue: 31.0 / 255)
+
+    /// The warning orange `#FF9F0A` (spec §2.1): an alert that is a warning and
+    /// not a failure. The denied-access alert's glyph, ring and fill are this
+    /// at full, 0.35 and 0.12.
+    static let warning = Color(red: 255.0 / 255, green: 159.0 / 255, blue: 10.0 / 255)
+
+    // MARK: - Settings: the sidebar and the grouped form (spec §10)
+
+    /// The colour of a section's 18 pt icon in the sidebar, by name so the five
+    /// the boards use are tokens and not hex in a view. The values are the
+    /// system's own: the grey System Settings gives General and Keyboard, the
+    /// blue of Privacy & Security, the pink of Music, the orange of the lyric
+    /// bubble and the indigo of the lock screen.
+    enum SettingsTint: CaseIterable {
+        case grey, blue, rose, orange, indigo
+
+        var hex: UInt32 {
+            switch self {
+            case .grey: return 0x8E8E93
+            case .blue: return 0x0A84FF
+            case .rose: return 0xFF375F
+            case .orange: return 0xFF9F0A
+            case .indigo: return 0x5E5CE6
+            }
+        }
+
+        var color: Color {
+            Color(
+                red: Double((hex >> 16) & 0xFF) / 255,
+                green: Double((hex >> 8) & 0xFF) / 255,
+                blue: Double(hex & 0xFF) / 255
+            )
+        }
+    }
+
+    /// "Connected" under Spotify's name (spec §2.1's `green`): the colour of the
+    /// charging bolt, because green means "on and working" in both places.
+    static let settingsConnected = chargingGreen
+
+    /// A form group's fill, white at 0.055 (spec §10). So faint a step is the
+    /// board's whole point — System Settings groups are a shade off the
+    /// window, not a card — and Increase Contrast raises it to 0.14 so the
+    /// group is still a shape (§2.1: every translucent fill steps up).
+    static func settingsGroupOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.14 : 0.055
+    }
+
+    /// The selected sidebar row, white at 0.12 (spec §10), 0.24 with Increase
+    /// Contrast.
+    static func settingsSidebarSelectionOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.24 : 0.12
+    }
+
+    /// A group header's white, 0.85 (spec §10): a step under the label so the
+    /// header reads as the heading of what is under it. Full white with
+    /// Increase Contrast, where a step down is the thing the setting asks
+    /// against.
+    static func settingsHeaderOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? 1.0 : 0.85
+    }
+
+    @MainActor static var settingsGroupFill: Color {
+        Color.white.opacity(settingsGroupOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var settingsSidebarSelection: Color {
+        Color.white.opacity(settingsSidebarSelectionOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+    @MainActor static var settingsHeader: Color {
+        Color.white.opacity(settingsHeaderOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The glyph on a sidebar icon's tile and the tile's lit top edge (the
+    /// board's half-point inset highlight), so a flat swatch reads as an icon.
+    static let settingsIconGlyph = Color.white
+    static let settingsIconEdge = Color.white.opacity(0.25)
+    /// The Lock Screen section's style previews: the ring round the chosen one
+    /// (spec §10, accent 2 pt) and the hairline round the others.
+    static let settingsPreviewRingWidth: CGFloat = 2
+    static let settingsPreviewEdge = Color.white.opacity(0.2)
+
+    /// A group's inner edge, white at 0.06 (the board's half-point inset line);
+    /// the contrast variant is the panel's own hairline step.
+    static func settingsGroupEdgeOpacity(increaseContrast: Bool) -> Double {
+        increaseContrast ? hairlineOpacity(increaseContrast: true) : 0.06
+    }
+    @MainActor static var settingsGroupEdge: Color {
+        Color.white.opacity(settingsGroupEdgeOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    }
+
+    /// The field that is recording a shortcut: the accent at 0.18 under a 1.5 pt
+    /// accent ring (spec §2.1, "the recording field").
+    static let recordingFill = accent.opacity(0.18)
+    static let recordingRingWidth: CGFloat = 1.5
+
+    /// How much larger than its frame an app's icon is drawn so its squircle
+    /// fills the frame. macOS app icons sit an 824 pt squircle in a 1024 pt
+    /// canvas (the Big Sur grid) and leave the margin transparent; drawn to
+    /// fit, a real icon read as a smaller tile than the SF-symbol ones beside
+    /// it. `AppIconImage` is the one place it is applied.
+    static let appIconOpticalScale: CGFloat = 1024.0 / 824.0
+
+    /// The fallback Spotify mark's green and the near-black of its arcs, shown
+    /// only when the real Spotify is not installed — everyone who has it sees
+    /// its own icon (`AppIcons`). Drawn rather than shipped: no brand asset
+    /// travels in the bundle. Not `settingsConnected`: that green says "on and
+    /// working", this one is a brand's.
+    static let spotifyMark = Color(red: 29.0 / 255, green: 185.0 / 255, blue: 84.0 / 255)
+    static let spotifyMarkInk = Color(red: 25.0 / 255, green: 20.0 / 255, blue: 20.0 / 255)
+
+    // MARK: Lock Screen style previews (spec §10)
+    //
+    // Each preview is the R2 card's material over a stand-in wallpaper, drawn
+    // by `LockCardMaterial.decision` and never a screenshot of it. The wallpaper
+    // is Sonoma's three bands, the board's own sample; the cover's light is the
+    // warm brown the board's sample cover lights its card with.
+
+    static let settingsPreviewWallpaper: [Color] = [
+        Color(red: 242.0 / 255, green: 116.0 / 255, blue: 90.0 / 255),
+        Color(red: 63.0 / 255, green: 143.0 / 255, blue: 91.0 / 255),
+        Color(red: 111.0 / 255, green: 123.0 / 255, blue: 232.0 / 255),
+    ]
+    static let settingsPreviewCoverLight = Color(red: 122.0 / 255, green: 62.0 / 255, blue: 51.0 / 255)
+    /// The marks on the miniature card: the title and scrubber's fill, and the
+    /// quieter artist line, track and transport.
+    static let settingsPreviewInk = Color.white.opacity(0.9)
+    static let settingsPreviewInkSoft = Color.white.opacity(0.45)
+    static let settingsPreviewCover = Color.white.opacity(0.30)
 }
 
 /// The pressed state `.plain` does not give.
@@ -796,6 +1388,94 @@ struct PanelButtonStyle: ButtonStyle {
         configuration.label
             .opacity(configuration.isPressed ? 0.55 : 1)
             .animation(Theme.contentAnimation, value: configuration.isPressed)
+    }
+}
+
+/// The toolbar push button (spec §2.2): a word on a 0.14 white plate, 22 tall,
+/// radius 6, 10 pt either side — the Shelf's bar, and Translate's in R4.
+///
+/// Text only, as the push buttons in a Finder window's bottom bar are: with a
+/// glyph beside each word the Shelf's five verbs ran 40 points into the count
+/// (the board's own note). `danger` is for the one confirmation that destroys
+/// something — Remove All — and is `Theme.danger` on the same plate; a
+/// button that merely removes a selection (decision 9) is the normal kind.
+/// Pressed it dims as every panel button does, and disabled it steps back to
+/// 0.4 so a verb with nothing to act on reads as such.
+struct ToolbarPushButtonStyle: ButtonStyle {
+    enum Kind { case normal, danger }
+    var kind: Kind = .normal
+    /// A square plate (the Shelf's "…" is 22 × 22) instead of one that follows
+    /// its word.
+    var width: CGFloat? = nil
+
+    static let height: CGFloat = 22
+    static let radius: CGFloat = 6
+    static let horizontalPadding: CGFloat = 10
+
+    func makeBody(configuration: Configuration) -> some View {
+        PlateLabel(configuration: configuration, kind: kind, width: width)
+    }
+
+    private struct PlateLabel: View {
+        let configuration: ButtonStyleConfiguration
+        let kind: Kind
+        let width: CGFloat?
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(kind == .danger ? Theme.danger : Color.white)
+                .lineLimit(1)
+                .padding(.horizontal, width == nil ? ToolbarPushButtonStyle.horizontalPadding : 0)
+                .frame(width: width, height: ToolbarPushButtonStyle.height)
+                .background(
+                    RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous)
+                        .fill(Color.white.opacity(0.14))
+                        // The plate's lit top edge: the board draws a half-point
+                        // inset highlight, which is what makes a flat grey read
+                        // as a button rather than a well.
+                        .overlay(alignment: .top) {
+                            Rectangle().fill(Color.white.opacity(0.12)).frame(height: 0.5)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
+                .opacity(isEnabled ? (configuration.isPressed ? 0.55 : 1) : 0.4)
+                .animation(Theme.contentAnimation, value: configuration.isPressed)
+        }
+    }
+}
+
+/// The default button of a form: the toolbar push button's shape in the system
+/// blue with white type, the one control a card offers when there is one thing
+/// to do (Update Now). Same height, radius and padding as `ToolbarPushButtonStyle`
+/// so the two sit on one line; dims on press and steps back when disabled, as
+/// every panel button does.
+struct ProminentPushButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PlateLabel(configuration: configuration)
+    }
+
+    private struct PlateLabel: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .islandFont(.body, weight: .semibold)
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .padding(.horizontal, ToolbarPushButtonStyle.horizontalPadding)
+                .frame(height: ToolbarPushButtonStyle.height)
+                .background(
+                    RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous)
+                        .fill(Theme.SettingsTint.blue.color)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
+                .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
+                .animation(Theme.contentAnimation, value: configuration.isPressed)
+        }
     }
 }
 
@@ -816,6 +1496,9 @@ struct OfferButtonStyle: ButtonStyle {
     var fill: Color = Theme.surface
     var horizontalPadding: CGFloat = 12
     var verticalPadding: CGFloat = 5
+    /// A height of its own, for a row of them the board measures — the empty
+    /// player's buttons are 22 tall (spec §4.8). Nil takes the padding's.
+    var fixedHeight: CGFloat? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -827,6 +1510,7 @@ struct OfferButtonStyle: ButtonStyle {
             // role and these paddings every label is already larger, so this
             // changes no existing button; it is the floor for a short one.
             .frame(minWidth: Theme.minimumHitSize.width, minHeight: Theme.minimumHitSize.height)
+            .frame(height: fixedHeight)
             .background(fill, in: Capsule())
             .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
             .opacity(configuration.isPressed ? 0.55 : 1)
@@ -871,7 +1555,9 @@ struct PanelSwitchStyle: ToggleStyle {
     }
 
     /// The row's own height and inset, so the hit target is the row the card
-    /// draws rather than the label's text.
+    /// draws rather than the label's text. A height is a floor: Settings' grouped
+    /// form wraps a long label (Russian at 480) onto a second line before it
+    /// shrinks the switch, so the row grows with its words.
     var rowHeight: CGFloat = 26
     var horizontalInset: CGFloat = 8
 
@@ -897,7 +1583,7 @@ private struct PanelSwitch: View {
                 track(look)
             }
             .padding(.horizontal, horizontalInset)
-            .frame(height: rowHeight)
+            .frame(minHeight: rowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())
@@ -1037,5 +1723,12 @@ extension View {
     /// so read as regular, must keep saying `.regular` out loud.
     func islandFont(_ role: Theme.TypeRole, weight: Font.Weight? = nil) -> some View {
         islandFont(role.size, weight: weight ?? role.weight)
+    }
+
+    /// Sets a line of text on a baseline `y` below the top of a `.topLeading`
+    /// stack: the reference measures an alert's text by its baseline, and a
+    /// frame's top would move with the font's ascent.
+    func islandBaseline(_ y: CGFloat) -> some View {
+        alignmentGuide(.top) { $0[.firstTextBaseline] - y }
     }
 }

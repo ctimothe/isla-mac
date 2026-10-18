@@ -1,6 +1,13 @@
 #!/bin/bash
 # Builds Isla.app without Xcode: SwiftPM produces the binary, this script
 # assembles the bundle around it and ad-hoc signs it.
+#
+# ISLA_VERSION_OVERRIDE and ISLA_BUILD_OVERRIDE are for Scripts/rehearse-update.sh
+# ONLY: they build the bundle as a later version than Scripts/version says, so
+# an update can be rehearsed on a real Mac. Both must be set together, the
+# version as dotted numbers and the build as a whole number. Nothing else sets
+# them; a release (Scripts/release.sh) never does, and Scripts/version stays the
+# truth.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,13 +33,35 @@ case "$BUILD" in
     ''|*[!0-9]*) echo "Scripts/version needs BUILD= and a whole number" >&2; exit 1 ;;
 esac
 
-# The app icon is a tracked asset (Resources/AppIcon.icns), copied verbatim into
-# the bundle. This script used to generate a placeholder icon into build/ so a
-# mid-build write could never dirty the tracked tree after release.sh had checked
-# it was clean; with a real, committed icon that indirection is gone. The build
-# dir is still created here because the per-build entitlements below live in it.
+# The rehearsal override (see the header): both or neither, and well formed.
+if [ -n "${ISLA_VERSION_OVERRIDE:-}" ] || [ -n "${ISLA_BUILD_OVERRIDE:-}" ]; then
+    [ -n "${ISLA_VERSION_OVERRIDE:-}" ] && [ -n "${ISLA_BUILD_OVERRIDE:-}" ] || {
+        echo "ISLA_VERSION_OVERRIDE and ISLA_BUILD_OVERRIDE must be set together" >&2; exit 1
+    }
+    case "$ISLA_VERSION_OVERRIDE" in
+        ''|*[!0-9.]*|.*|*.|*..*) echo "ISLA_VERSION_OVERRIDE must be dotted numbers, got '$ISLA_VERSION_OVERRIDE'" >&2; exit 1 ;;
+    esac
+    case "$ISLA_BUILD_OVERRIDE" in
+        ''|*[!0-9]*) echo "ISLA_BUILD_OVERRIDE must be a whole number, got '$ISLA_BUILD_OVERRIDE'" >&2; exit 1 ;;
+    esac
+    VERSION="$ISLA_VERSION_OVERRIDE"
+    BUILD="$ISLA_BUILD_OVERRIDE"
+    echo "==> REHEARSAL BUILD: version $VERSION build $BUILD (not Scripts/version)" >&2
+fi
+
+# The app icon is two tracked assets, copied verbatim into the bundle:
+# Resources/Assets.car, the layered Icon Composer icon that macOS 26 draws in
+# every appearance (named by CFBundleIconName), and Resources/AppIcon.icns, the
+# flattened fallback (named by CFBundleIconFile). Both are compiled from
+# Resources/AppIcon.icon by Scripts/make-app-icon.sh, run by hand when the
+# icon changes, so a build needs no Xcode. This script used to generate a
+# placeholder icon into build/ so a mid-build write could never dirty the
+# tracked tree after release.sh had checked it was clean; with a real,
+# committed icon that indirection is gone. The build dir is still created here
+# because the per-build entitlements below live in it.
 mkdir -p "$ROOT/build"
 ICON="$ROOT/Resources/AppIcon.icns"
+ICON_CATALOG="$ROOT/Resources/Assets.car"
 
 # Universal. The README only ever said "macOS 15 or later", and macOS 15 and
 # 26 still run on Intel Macs, which got an app that refused to open. Intel Macs
@@ -61,6 +90,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>com.ctimothe.isla</string>
     <key>CFBundleExecutable</key><string>Isla</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleURLTypes</key>
     <array><dict>
         <key>CFBundleURLName</key><string>com.ctimothe.isla.oauth</string>
@@ -99,11 +129,32 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-if [ ! -f "$ICON" ]; then
-    echo "missing app icon: $ICON" >&2
-    exit 1
+# The public half of the update signing key (Scripts/make-update-key.sh). Update
+# Now installs only a disk image signed by its private half, so a build without
+# it can still find an update but only offers the download page. Checked here
+# rather than trusted: a key that is not 32 bytes of base64 would make every
+# update fail its signature check, and that is better found by the build.
+UPDATE_KEY_FILE="$ROOT/Resources/update-public-key.txt"
+if [ -s "$UPDATE_KEY_FILE" ]; then
+    UPDATE_KEY="$(tr -d '[:space:]' < "$UPDATE_KEY_FILE")"
+    [ "$(printf '%s' "$UPDATE_KEY" | base64 -D 2>/dev/null | wc -c | tr -d ' ')" = 32 ] || {
+        echo "!!! $UPDATE_KEY_FILE is not a 32-byte base64 Ed25519 public key" >&2
+        exit 1
+    }
+    /usr/libexec/PlistBuddy -c "Add :IslaUpdatePublicKey string $UPDATE_KEY" "$APP/Contents/Info.plist" >/dev/null
+    echo "==> update key: $UPDATE_KEY"
+else
+    echo "==> no update key (Resources/update-public-key.txt): Update Now offers only the download page" >&2
 fi
+
+for asset in "$ICON" "$ICON_CATALOG"; do
+    if [ ! -f "$asset" ]; then
+        echo "missing app icon: $asset (rebuild it with Scripts/make-app-icon.sh)" >&2
+        exit 1
+    fi
+done
 cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
+cp "$ICON_CATALOG" "$APP/Contents/Resources/Assets.car"
 
 echo "==> licenses and notices"
 mkdir -p "$APP/Contents/Resources/Licenses"
@@ -208,19 +259,75 @@ fi
 echo "==> stripping release symbols"
 strip -x "$APP/Contents/MacOS/Isla"
 
-SIGN_IDENTITY="${DEVELOPER_ID_APPLICATION:--}"
 SIGN_KEYCHAIN=""
 KEYCHAIN_ARGS=()
-# Ad-hoc is fine here, deliberately.
+# The identity, in order: a Developer ID when one is given (releases), then the
+# fixed self-signed "Isla Code Signing" identity when this Mac has one, then
+# ad-hoc. ISLA_SIGN_ADHOC=1 forces ad-hoc. Not ISLA_ADHOC: release.sh already uses
+# that to mean "publish without a Developer ID", and such a release is exactly
+# the build that should carry the fixed identity.
 #
-# An earlier version of this script provisioned a self-signed identity so that
-# local builds would have a stable signature, because the login keychain
-# refuses to recognise a rebuilt ad-hoc app and asks for the password again.
-# That was solving the wrong problem: it needed a trust setting, which needs an
-# authorization prompt of its own, so it traded a recurring interruption for an
-# intrusive one. `TokenStore` removed the reason instead — an unsigned build
-# keeps its credentials in an owner-only file rather than in a keychain whose
-# ACL it can never satisfy — so nothing about local signing has to be clever.
+# Why the middle step (owner, 2026-10-16): an ad-hoc signature's designated
+# requirement is the build's cdhash, so to macOS every rebuild and every update
+# is a different app. The Accessibility permission the Volume and Brightness
+# pop-up needs then stops applying while System Settings still shows Isla
+# switched on, and the only way back was to remove Isla from the list and add it
+# again, after every update. A certificate's requirement names the certificate,
+# not the build, so the permission survives. `Scripts/make-signing-identity.sh`
+# makes the identity, once, by hand; nothing here creates one.
+#
+# An earlier version of this script provisioned a self-signed identity itself
+# and was dropped because it needed a trust setting, an authorization prompt of
+# its own. This one needs none: codesign signs with an untrusted identity and
+# `codesign --verify --strict` accepts it (checked on 2026-10-16). Credentials
+# are unaffected: there is still no team, so `TokenStore` keeps the Spotify
+# tokens in its owner-only file exactly as it does for an ad-hoc build.
+#
+# Pinned, not merely named (review, 2026-10-16). Any certificate called "Isla
+# Code Signing" would satisfy a name match, and a second one, made after a lost
+# backup or on another Mac, is a different designated requirement: every user
+# would lose the permission again, which is the one thing this exists to stop.
+# Scripts/signing-identity.sha1 holds the SHA-1 of the one certificate releases
+# are signed with (make-signing-identity.sh writes it), and only that one is
+# used. A same-named certificate with another hash stops the build. Signing is
+# by that hash, so codesign can never pick between two by name.
+#
+# With no pinned identity in the keychain the build is ad-hoc, loudly: fine for
+# a clone of the repository or for CI, never for a release, which release.sh
+# checks against the pin itself.
+LOCAL_IDENTITY_NAME="Isla Code Signing"
+PIN_FILE="$ROOT/Scripts/signing-identity.sha1"
+PINNED_HASH=""
+[ -f "$PIN_FILE" ] && PINNED_HASH="$(tr -d '[:space:]' < "$PIN_FILE" | tr '[:lower:]' '[:upper:]')"
+if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
+    SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION"
+elif [ "${ISLA_SIGN_ADHOC:-0}" != "1" ]; then
+    # Without -v: an untrusted self-signed identity is left out of the "valid"
+    # list, and it is the only kind this looks for.
+    LOCAL_HASHES="$(security find-identity -p codesigning 2>/dev/null \
+        | grep -F "\"$LOCAL_IDENTITY_NAME\"" | awk '{print $2}' | sort -u || true)"
+    if [ -z "$LOCAL_HASHES" ]; then
+        SIGN_IDENTITY="-"
+        echo "==> no \"$LOCAL_IDENTITY_NAME\" identity on this Mac: signing ad-hoc," >&2
+        echo "    so macOS forgets Isla's Accessibility permission on every install." >&2
+        echo "    Once per build Mac: bash Scripts/make-signing-identity.sh" >&2
+    elif [ -z "$PINNED_HASH" ]; then
+        echo "!!! \"$LOCAL_IDENTITY_NAME\" is in the keychain but $PIN_FILE is missing;" >&2
+        echo "    rerun Scripts/make-signing-identity.sh to write it, or set ISLA_SIGN_ADHOC=1" >&2
+        exit 1
+    elif printf '%s\n' "$LOCAL_HASHES" | grep -qx "$PINNED_HASH"; then
+        SIGN_IDENTITY="$PINNED_HASH"
+    else
+        echo "!!! the keychain's \"$LOCAL_IDENTITY_NAME\" is not the pinned certificate:" >&2
+        printf '      keychain %s\n' $LOCAL_HASHES >&2
+        echo "      pinned   $PINNED_HASH ($PIN_FILE)" >&2
+        echo "    Restore the pinned one from its backup; a different certificate makes" >&2
+        echo "    every installed Isla lose its permissions. ISLA_SIGN_ADHOC=1 builds anyway." >&2
+        exit 1
+    fi
+else
+    SIGN_IDENTITY="-"
+fi
 
 # Entitlements are assembled per build, because one of them depends on the
 # signing identity. `keychain-access-groups` needs the team prefix — the ten
@@ -255,7 +362,11 @@ if [ "$SIGN_IDENTITY" = "-" ]; then
         --sign -
     )
 else
-    echo "==> signing: $SIGN_IDENTITY"
+    if [ -n "${DEVELOPER_ID_APPLICATION:-}" ]; then
+        echo "==> signing: $SIGN_IDENTITY"
+    else
+        echo "==> signing: $LOCAL_IDENTITY_NAME ($SIGN_IDENTITY)"
+    fi
     # `--timestamp` only for a real Developer ID. A self-signed local identity
     # has no business contacting Apple's timestamp server, and the request
     # fails the build when it cannot.
@@ -299,6 +410,14 @@ if [ -f "$APP/Contents/Resources/libislamedia.dylib" ]; then
 fi
 codesign "${SIGN_ARGS[@]}" "$APP" || {
     echo "!!! codesign не смог подписать бандл — см. вывод выше" >&2
+    if [ "$SIGN_IDENTITY" != "-" ] && [ -z "${DEVELOPER_ID_APPLICATION:-}" ]; then
+        # The usual causes with the local identity: the login keychain is
+        # locked (an SSH session), or codesign was refused the key at its
+        # first-use prompt. errSecInternalComponent is how both look.
+        echo "    with \"$LOCAL_IDENTITY_NAME\": unlock the login keychain and answer" >&2
+        echo "    codesign's prompt with Always Allow, or build ad-hoc: ISLA_SIGN_ADHOC=1." >&2
+        echo "    \"ambiguous\" means the same identity is in two keychains; delete one." >&2
+    fi
     exit 1
 }
 codesign --verify --strict "$APP" || {

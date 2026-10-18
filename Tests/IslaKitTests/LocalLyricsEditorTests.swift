@@ -233,6 +233,57 @@ final class LocalLyricsEditorTests: XCTestCase {
         XCTAssertEqual(saved.lines[0].end, 6.0, "the pause the listener placed ends the line")
     }
 
+    /// Edit Lyrics… on a bound file the parser refused opens on the file, not on
+    /// an empty page: Save Copy used to replace the binding with a near-empty
+    /// copy of a file that had one bad stamp in it (review 2026-10-15).
+    func testEditingAnUnreadableFileOpensOnItsLinesWithTheBrokenOneToFix() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let good = try library.importDocument("[00:01.00]one\n[00:02.00]two\n", binding: identity())
+        let stored = root.appendingPathComponent("lyrics-local/imports/\(good.id.uuidString).lrc")
+        let broken = "[ti:Up Here]\n[ar:Mira Sol]\n[00:01.00]one\n[00:7x.00]two\n[00:03.00]three\n[00:04.00]four"
+        try broken.write(to: stored, atomically: true, encoding: .utf8)
+        XCTAssertEqual(library.invalidLine(for: identity()), 4, "the strict read still refuses it")
+        XCTAssertThrowsError(try LocalLyricsDocument.parse(broken))
+
+        let session = LocalLyricsEditor.EditingSession.unreadable(identity: identity(), library: library)
+        let lines = session.candidate.document.lines
+        XCTAssertEqual(lines.count, 4, "the three good lines and the broken one")
+        XCTAssertEqual(lines.map(\.text), ["[00:7x.00]two", "one", "three", "four"],
+                       "the broken line as written, at the top, to be fixed; the others in time")
+        XCTAssertEqual(lines[0].at, 0)
+        XCTAssertEqual(lines.dropFirst().map(\.at), [1, 3, 4])
+        XCTAssertEqual(session.candidate.document.metadata.title, "Up Here", "the file's own tags are kept")
+        XCTAssertEqual(session.candidate.document.metadata.artist, "Mira Sol")
+
+        // The editor shows them as rows, and fixing the broken one saves.
+        let draft = LocalLyricsDraft(document: session.candidate.document)
+        XCTAssertEqual(draft.rows.count, 4)
+        draft.rows[0].line.text = "two"
+        draft.retime(row: 0, to: 2)
+        XCTAssertEqual(try draft.document().lines.map(\.text), ["one", "two", "three", "four"])
+    }
+
+    /// Left as written, the broken row is refused at Save rather than written
+    /// into a file the next read would refuse again.
+    func testSavingTheBrokenRowUnfixedIsRefusedNotWritten() throws {
+        let document = try XCTUnwrap(LocalLyricsDocument.parseRepairing("[00:01.00]one\n[00:7x.00]two"))
+        let draft = LocalLyricsDraft(document: document)
+        XCTAssertThrowsError(try draft.document())
+    }
+
+    func testAnUnboundSongOrAFileWithNothingInItFallsBackToABlankEditor() throws {
+        let library = LocalLyricsLibrary(directory: root)
+        let blank = LocalLyricsEditor.EditingSession.unreadable(identity: identity(), library: library)
+        XCTAssertEqual(blank.candidate.document.lines.map(\.text), [""], "nothing is bound: the blank sheet")
+        XCTAssertNil(LocalLyricsDocument.parseRepairing("no timed lyrics here"))
+    }
+
+    /// Only the editor's read is lenient: the strict one is unchanged.
+    func testTheRepairingReadKeepsTheStrictReadsDocumentsExactly() throws {
+        let raw = "[ti:T]\n[offset:500]\n[00:01.00]a\n[00:01.00]b\n[00:02.00]c"
+        XCTAssertEqual(try LocalLyricsDocument.parse(raw), LocalLyricsDocument.parseRepairing(raw))
+    }
+
     private func identity() -> LocalTrackIdentity {
         LocalTrackIdentity(
             playerID: "test", title: "Song", artist: "Artist", album: "Album",

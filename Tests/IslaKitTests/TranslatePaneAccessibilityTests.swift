@@ -29,14 +29,19 @@ final class TranslatePaneAccessibilityTests: XCTestCase {
         .background(Color.black)
     }
 
-    /// One menu per language, each a row tall enough to land; a swap that is
+    /// One pop-up per language, each a row tall enough to land; a swap that is
     /// a target and not a glyph; and a field that says what it is for.
+    ///
+    /// Redesign 2026-10-15, spec §11: the headings became real pop-up buttons,
+    /// the drawn control opening an `NSMenu` and its accessibility representation
+    /// being a SwiftUI `Menu` with the same rows. Found by its name, as before,
+    /// whichever menu role the representation carries.
     func testOneMenuPerLanguageAndATappableSwap() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
 
         let root = await AXProbe.tree(of: pane(isolated), size: size)
-        let menus = root.all(role: "AXMenuButton")
+        let menus = root.all { $0.role == "AXPopUpButton" || $0.role == "AXMenuButton" }
         for name in ["Translate From", "Translate To"] {
             let found = menus.filter { $0.label == name || $0.title == name }
             XCTAssertEqual(found.count, 1, "\(name) is announced \(found.count) times\n\(root.dump)")

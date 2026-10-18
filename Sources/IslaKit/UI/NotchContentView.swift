@@ -2,6 +2,9 @@ import SwiftUI
 
 struct NotchContentView: View {
     @ObservedObject var vm: NotchViewModel
+    /// The pages on their way between two (spec §19.16): watched here, where
+    /// the outline and the pages are drawn from it, and nowhere else.
+    @ObservedObject private var travel: PageTravel
     /// Reduce Motion and Increase Contrast from the app's one source rather than
     /// from SwiftUI's environment. The environment answers Reduce Motion on
     /// macOS — it is the only one of the three display settings it carries —
@@ -14,6 +17,34 @@ struct NotchContentView: View {
     /// tree under it — rail, panes, and lyric lines alike.
     @ObservedObject private var appearance = SystemAppearance.shared
     private var reduceMotion: Bool { appearance.reduceMotion }
+    /// The update badge on Tools' Settings, and the shortcuts Tools' cards
+    /// name: both follow their sources while the panel is up.
+    @ObservedObject private var updates = UpdateCheck.shared
+    @ObservedObject private var hotKeys = HotKeyCenter.shared
+
+    /// The Core Animation outline the panel draws the island's shape with
+    /// (`NotchStage`, spec §19.12), or none. With one, this view draws no fill,
+    /// no shadow, no mask and no line of its own: it only says what the outline
+    /// is (`outlineState`) and on which transaction it changes, and the layers
+    /// do the moving off the main thread. Without one — a preview, a test, the
+    /// visual lab — it draws all of it in SwiftUI, as it did before, and the
+    /// equivalence tests hold the two to one picture.
+    private let outline: IslandOutlineHost?
+
+    init(vm: NotchViewModel, outline: IslandOutlineHost? = nil) {
+        _vm = ObservedObject(wrappedValue: vm)
+        _travel = ObservedObject(wrappedValue: vm.pageTravel)
+        self.outline = outline
+    }
+
+    /// Translate's History is offered only while Keep History is on (spec
+    /// §11): read from the translator's own defaults when the header draws,
+    /// which every surface change does.
+    private var translateKeepsHistory: Bool {
+        TranslateHeader.showsHistory(
+            keepHistory: vm.translator.defaults.bool(forKey: NotchViewModel.translateKeepHistoryKey)
+        )
+    }
 
     /// Geometry identities shared between the pill and the open panel.
     ///
@@ -67,10 +98,13 @@ struct NotchContentView: View {
     private var size: CGSize { vm.bodySize }
     @State private var isPressed = false
     private var compactActivity: CompactMediaActivity { vm.compactMediaActivity }
-    /// Whether the collapsed pill is out of the notch: music, or the charger
-    /// or headphones having their moment.
-    private var pillShown: Bool { compactActivity.isVisible || vm.ambient != nil }
-    private var topRadius: CGFloat { isOpen ? Theme.openTopRadius : Theme.collapsedTopRadius }
+    /// Whether the collapsed pill is out of the notch: any activity at all —
+    /// an alert, the song, or the Shelf holding files (`IslandActivity`).
+    private var pillShown: Bool { vm.activity != .none }
+    /// The shoulder: the open panel's, or what the shut island shows —
+    /// an expanded alert's are wider than a compact activity's
+    /// (`IslandShapeRadii`).
+    private var topRadius: CGFloat { isOpen ? vm.openTopRadius : vm.closedTopRadius }
 
     // MARK: - Resting in the notch
 
@@ -97,9 +131,65 @@ struct NotchContentView: View {
     }
 
     private var shapeBottomRadius: CGFloat {
-        if isOpen { return Theme.openBottomRadius }
+        // The surface's own: 34 for the Shelf's two, 44 for every other
+        // (spec §19.6–§19.8). The shape animates its radii, so they spring with
+        // the body when one surface turns into another.
+        if isOpen { return vm.openBottomRadius }
         if restsInNotch && !isAwake { return Theme.restingNotchBottomRadius }
-        return Theme.collapsedBottomRadius
+        // The peek's taller island takes 16, each expanded alert its own
+        // (§19.5), every compact activity 12.67 — whichever is drawn, since
+        // an alert replaces what it outranks.
+        return IslandShapeRadii.closed(for: vm.activity).bottom
+    }
+
+    /// The island's surface: black, or `#1C1C1E` while the pointer is on it
+    /// or a press is under way (spec §3.2). One solid fill rather than a lift
+    /// painted over the black — nothing about a playing island moves, only its
+    /// colour answers the pointer, and the resting notch growing out of the
+    /// cutout takes the same colour. Open, the panel is always black.
+    ///
+    /// Not an overlay on the wings that stops at the cutout, as the old lift
+    /// was: that existed to keep a pale rectangle out of the camera housing,
+    /// and the housing is not a display — there is no pixel inside the cutout
+    /// for the fill to light, so the whole shape can be one colour.
+    private var shapeFill: Color {
+        !isOpen && isAwake ? Theme.islandHover : Color.black
+    }
+
+    // MARK: - Stroke (spec §19.2)
+
+    /// Whether the island draws its stroke: whenever the shape is out of the
+    /// notch, on every wallpaper — never on the bare notch.
+    private var strokeShown: Bool {
+        IslandStroke.isShown(isOpen: isOpen, activityShowing: pillShown, notchAwake: restsInNotch && isAwake)
+    }
+
+    /// The activity's tint at 0.21, or white at 0.14 (0.42 and 0.30 under
+    /// Increase Contrast).
+    private var strokeColor: Color {
+        IslandStroke.color(
+            tint: IslandStroke.tint(for: vm.activity, isOpen: isOpen),
+            increaseContrast: appearance.increaseContrast
+        )
+    }
+
+    // MARK: - The outline (spec §19.12)
+
+    /// What the outline is right now, for the layers that draw it: the shape's
+    /// size and radii, the fill, the line with whether it is shown folded into
+    /// its alpha (a hidden line is one with none, and fades in as it), and the
+    /// shadow's strength. The same properties that drew the SwiftUI outline,
+    /// so the two cannot say different things.
+    private var outlineState: OutlineState {
+        let height = shapeSize.height
+        return OutlineState(
+            width: Double(shapeSize.width), height: Double(height),
+            topRadius: Double(shapeTopRadius), bottomRadius: Double(shapeBottomRadius),
+            fill: OutlineColor(shapeFill),
+            stroke: OutlineColor(strokeColor).scalingAlpha(by: strokeShown ? 1 : 0),
+            strokeWidth: Double(Theme.islandStrokeWidth),
+            shadowOpacity: IslandStroke.castsShadow(height: height) ? Theme.islandShadowOpacity : 0
+        )
     }
 
     private var shapeSize: CGSize {
@@ -155,7 +245,16 @@ struct NotchContentView: View {
             .animation(nil, value: vm.isLockedPresentation)
             .transaction { $0.animation = nil }
         } else {
-            shell
+            // The island first, then the bubble: the order VoiceOver reads
+            // them in (spec §19.12).
+            ZStack(alignment: .top) {
+                shell
+                // With the outline on Core Animation the island's content is
+                // cut by its mask, and the bubble lives outside the outline:
+                // it is drawn by a hosting view of its own, above this one
+                // (`IslandBubbleLayer`, `NotchStage`).
+                if outline == nil { IslandBubbleLayer(vm: vm) }
+            }
         }
     }
 
@@ -173,17 +272,28 @@ struct NotchContentView: View {
     /// the controller flips it with animations disabled, which an `.animation`
     /// in here cannot re-enable.
     private var lockedPill: some View {
-        let shown = compactActivity.isVisible
+        // The wings are the island's own and the banner or the card is the
+        // song's: while it is up the island rests in the notch, wherever the
+        // song is playing (spec §3.7, owner decision 1; `LockedIsland`).
+        let shown = vm.lockedIslandShowsWings
         let notch = vm.geometry.notchSize
+        // The notch the banner or the card leaves alone still answers: a hover
+        // wakes it as it wakes any resting notch, and a click shakes it. Only over
+        // a real cutout — a display without one draws no resting island to wake.
+        let answers = vm.lockSurfacePresentsSong && vm.geometry.isPhysical
+        let awake = !shown && answers && vm.isHovering
+        let out = shown || awake
         let shape = shown
             ? CGSize(width: size.width + 2 * Theme.collapsedTopRadius, height: notch.height)
-            : Self.restingShape(notch: notch)
+            : (awake
+                ? Self.awakeShape(notch: notch, shoulder: Theme.collapsedTopRadius)
+                : Self.restingShape(notch: notch))
         return ZStack(alignment: .top) {
             NotchShape(
-                topRadius: shown ? Theme.collapsedTopRadius : 0,
-                bottomRadius: shown ? Theme.collapsedBottomRadius : Theme.restingNotchBottomRadius
+                topRadius: out ? Theme.collapsedTopRadius : 0,
+                bottomRadius: out ? Theme.collapsedBottomRadius : Theme.restingNotchBottomRadius
             )
-            .fill(Color.black)
+            .fill(out && vm.isHovering ? Theme.islandHover : Color.black)
             .frame(width: shape.width, height: shape.height)
             // A display with no cutout has nowhere to fold into, so there the
             // shape itself goes; over a real notch it ends inside the hole,
@@ -193,15 +303,24 @@ struct NotchContentView: View {
             // unlocked one are two branches of `body` that swap in a single
             // transaction, so sharing an identity would hand the lock a
             // travelling cover to interpolate — and the lock is a cut.
-            compactMediaHeader(morph: nil)
-                // Held inside the wings the way the unlocked shell holds it,
-                // so the last blurred trace of the cover can never be drawn on
-                // the wallpaper beside a shape that has already moved in.
-                .frame(width: size.width, alignment: .center)
-                .clipped()
-                // The refusal under Reduce Motion: the content dips, the black
-                // shape above stays put (see `RefusalShake`).
-                .refusalContentDim()
+            if shown {
+                compactMediaHeader(morph: nil)
+                    // Held inside the wings the way the unlocked shell holds it,
+                    // so the last blurred trace of the cover can never be drawn on
+                    // the wallpaper beside a shape that has already moved in.
+                    .frame(width: size.width, alignment: .center)
+                    .clipped()
+                    // The refusal under Reduce Motion: the content dips, the black
+                    // shape above stays put (see `RefusalShake`).
+                    .refusalContentDim()
+            } else {
+                // The wings are not drawn but the island still has the notch's
+                // height and the width the pointer is answered over: the row the
+                // click target and VoiceOver's frame are cut from, as the header
+                // was when nothing played.
+                Color.clear
+                    .frame(width: answers ? vm.lockedIslandSize.width : size.width, height: notch.height)
+            }
         }
         // Isla over the shield too, folded or not: pressed, it gives the
         // refusal a click gets. With nothing playing this island used to be
@@ -213,21 +332,28 @@ struct NotchContentView: View {
         // the pointer could deliver lands anywhere different.
         .contentShape(Rectangle())
         .frame(maxWidth: .infinity, alignment: .top)
-        // The same lift as unlocked, and the same exclusion: the cutout is a
-        // hole and nothing may be drawn in it. Only on a pill that is there.
-        .overlay { if shown { hoverLift } }
+        // The same `#1C1C1E` under the pointer as unlocked, on the pill's own
+        // fill above — only on a pill that is there.
         .animation(Theme.contentAnimation, value: vm.isHovering)
+        // The resting notch waking under the pointer, and going back, on the
+        // same bump it has anywhere: a hover over the lock screen is the same
+        // question the island answers on the desktop.
+        .animation(Theme.hoverNudge(reduceMotion: reduceMotion), value: awake)
         // The edge says the island is there; the shake says it is not opening
         // here. Two different answers to two different gestures, rather than
         // one shake for both.
         .onTapGesture { vm.onIslandClick?() }
         // Folded, the shape sits one point inside the cutout, and an 11 pt
         // swing would carry ten of them out onto the wallpaper beside it. There
-        // is no pill to shake, so nothing shakes.
-        .refusalShake(trigger: vm.lockedHoverNudges, amplitude: shown ? RefusalShake.standardAmplitude : 0)
-        // Folded, there is nothing here to answer: the notch is only a notch.
-        .allowsHitTesting(shown)
-        .animation(Theme.pill(appearing: shown, reduceMotion: reduceMotion), value: compactActivity)
+        // is no pill to shake, so nothing shakes. Hovered — and a click needs
+        // a pointer on it — the notch has grown past the cutout and shakes with
+        // it (`Lock-Refusal`).
+        .refusalShake(trigger: vm.lockedHoverNudges, amplitude: out ? RefusalShake.standardAmplitude : 0)
+        // Folded, there is nothing here to answer: the notch is only a notch —
+        // unless the banner or the card holds the song, when the pointer's
+        // hover and click are the two answers the board asks for.
+        .allowsHitTesting(shown || answers)
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
     }
 
     /// The part of the shell gesture that acts: the drawn collapsed island,
@@ -251,16 +377,30 @@ struct NotchContentView: View {
         // The shape is wider than the body by `topRadius` on each side: that
         // slack is where the concave shoulders live, so it must not be clipped.
         ZStack(alignment: .top) {
-            NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
-            .fill(Color.black)
-            .frame(width: shapeSize.width, height: shapeSize.height)
-            .shadow(
-                color: .black.opacity(
-                    isOpen ? 0.5 : (pillShown || (restsInNotch && isAwake) ? 0.28 : 0)
-                ),
-                radius: isOpen ? 18 : 5,
-                y: isOpen ? 8 : 2
-            )
+            if let outline {
+                // The fill, the shadow, the mask below and the line over it are
+                // layers (`IslandOutlineHost`): this says what they are and on
+                // which transaction they change, and holds no size and takes
+                // no place in the layout.
+                IslandOutlineBridge(host: outline, state: outlineState)
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            } else {
+                NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
+                .fill(shapeFill)
+                .frame(width: shapeSize.width, height: shapeSize.height)
+                // A surface or an alert separates from a busy window under it; a
+                // compact activity sits on the menu bar's strip and casts nothing
+                // (spec §19.2). Faded rather than switched, so it grows with the
+                // shape instead of arriving after it.
+                .shadow(
+                    color: .black.opacity(
+                        IslandStroke.castsShadow(height: shapeSize.height) ? Theme.islandShadowOpacity : 0
+                    ),
+                    radius: Theme.islandShadowRadius
+                )
+            }
 
             // The shape is the only black. A second black layer used to sit
             // over the wings, faded out on its own 0.12 s while the shape
@@ -269,15 +409,6 @@ struct NotchContentView: View {
             // screen, dimming, over a shape already moving in. A fold that
             // begins as a fade is not a fold. Both layers were plain black by
             // then, so the one that could not move is the one that went.
-
-            // Above the shape, never beneath it. Under the old opaque wing
-            // layer the only place it showed was the one place it must never
-            // show — that layer left the cutout clear, so the lift appeared as
-            // a lighter square inside the physical notch and nowhere else.
-            // Not while resting in the notch: there the island growing out of
-            // the cutout *is* the answer to the pointer, and a lift painted in
-            // the old pill's outline would sit on the wrong shape.
-            if !isOpen, !restsInNotch { hoverLift }
 
             VStack(spacing: 0) {
                 header
@@ -324,7 +455,48 @@ struct NotchContentView: View {
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .top)
+            // Nothing is ever drawn outside the island (owner, 2026-10-18: no
+            // content may go over the island's edges, "that's a hard rule").
+            // The clip used to be square at rest and rounded only
+            // while two pages travelled, so every other motion could leave
+            // content outside the outline: a pane removed on a surface change
+            // keeps the frame it had while the outline springs to the new
+            // size, and a close folds the corners in over a body still fading
+            // — both drew past the rounded bottom corners onto the wallpaper.
+            // Masked by the outline itself, built from the same radii and the
+            // same frame as the black shape, the content follows the shape
+            // through every spring and cannot leave it in any frame.
+            //
+            // The rectangle first: a mask from a path is applied to what
+            // SwiftUI draws, and a square clip is what AppKit-backed views —
+            // the text editor, the scroll views, the pop-up menus — are
+            // guaranteed to honour as well, so the rule does not depend on how
+            // a control happens to be drawn.
             .clipped()
+            // With the outline on Core Animation its layer mask cuts the hosting
+            // view's whole layer instead, on the render server's clock, so this
+            // cut is not made twice (and not on the main thread).
+            .modifier(OutlineMask(
+                active: outline == nil, topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius, size: shapeSize
+            ))
+
+            // Over the black *and over the content*, centred on its edge, so
+            // half the line lies outside the shape and half inside. It sat
+            // under the content until 2026-10-18, and Translate's input card
+            // swiped past the last page slid over the inner half of the line:
+            // the island's own border looked overlapped by what it holds
+            // (owner's review). The border is the edge of the island; nothing
+            // inside passes over it. Always mounted and faded, never inserted,
+            // so it folds and unfolds with the shape instead of arriving after
+            // it, and built from the same radii and the same frame, so it
+            // follows the outline through every spring.
+            if outline == nil {
+                IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
+                    .stroke(strokeColor, lineWidth: Theme.islandStrokeWidth)
+                    .frame(width: shapeSize.width, height: shapeSize.height)
+                    .opacity(strokeShown ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         // A click anywhere on the collapsed island opens it. The equalizer
@@ -397,17 +569,51 @@ struct NotchContentView: View {
         // geometry to overshoot, so the bump only ever shows where it means
         // something.
         .animation(Theme.hoverNudge(reduceMotion: reduceMotion), value: vm.isHovering)
-        // Out of the notch and back into it, by direction — see `Theme.pill`.
-        // The peek is the same gesture made wider, so it rides the same pair.
-        .animation(Theme.pill(appearing: compactActivity.isVisible, reduceMotion: reduceMotion),
-                   value: compactActivity)
-        .animation(Theme.pill(appearing: vm.isPeeking, reduceMotion: reduceMotion), value: vm.isPeeking)
-        .animation(Theme.pill(appearing: vm.ambient != nil, reduceMotion: reduceMotion), value: vm.ambient)
-        .animation(Theme.paneAnimation, value: vm.tab)
+        // A press deepens nothing now — it is the same `#1C1C1E` as the hover —
+        // but it still arrives on a quick ease rather than a cut.
+        .animation(Theme.contentAnimation, value: isPressed)
+        // Out of the notch and back into it, on the outline's spring both ways
+        // (spec §19.3) — see `Theme.pill`. The peek and the charger are the same
+        // gesture made wider, so they ride it too.
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.isPeeking)
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.ambient)
+        // The pop-up widens and folds on its own quick, critically damped
+        // spring (`Theme.hudSpring`, spec §19.3 amended 2026-10-18). Keyed to
+        // whether it is up, not to its level: a press only moves the bar,
+        // which has a curve of its own.
+        .animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hud != nil)
+        // The Shelf as the live activity coming and going, and its count
+        // changing (spec §19.4) — a file kept with the panel shut. Keyed to
+        // the live count, not the Shelf's: a collected file's moment begins
+        // and ends with no change to the count — at the Shelf's limit a
+        // capture adds one card and evicts one — and the island jumped in and
+        // out of the notch without its spring (R7 review).
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.liveShelfCount)
+        // The shoulders follow the surface: 24 for the Shelf's, 34 for the rest.
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.openTopRadius)
+        // The body growing or folding (spec §6): its height, its bottom radius
+        // and — through the same value — the stroke that follows them, on the
+        // outline's spring (spec §19.3), or the 0.24 crossfade under Reduce
+        // Motion. Keyed to the
+        // *open* body's height, which opening and closing do not change, so this
+        // never answers the open spring's own change of size.
+        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.openBodySize.height)
         // The welcome ending is a pane change like any other, and it arrives
         // from a `Button` — which animates nothing by itself, so without this
         // the crossfade above would be a cut.
         .animation(Theme.paneAnimation, value: vm.isShowingWelcome)
+        // A surface change, outermost, so that when it also changes the
+        // body's size the outline's spring above wins for the shape. It used
+        // to sit inside them, and the innermost `.animation` a change reaches
+        // is the one its transaction keeps: the gear opening Settings grew
+        // the island from the player's size to Settings' on this 0.18 s
+        // ease-out while every other change of size rode the spring, the one
+        // motion in the island that moved like something else (owner's
+        // review, 2026-10-18: treat the island as one thing). What
+        // the change alone moves — the header's title, the dots — still fades
+        // on it; the panes carry their own curves (`Theme.swapIn`/`swapOut`).
+        .animation(Theme.paneAnimation, value: vm.presented)
     }
 
     // MARK: - Header
@@ -444,10 +650,22 @@ struct NotchContentView: View {
                 // removed, so the cover's morph and the fold described above
                 // are exactly as they were when the moment ends.
                 compactMediaHeader(morph: travellingMorph)
-                    .opacity(vm.ambient == nil ? 1 : 0)
-                if let ambient = vm.ambient {
+                    .opacity(vm.ambient == nil && vm.hud == nil ? 1 : 0)
+                // One activity at a time, the highest first (`IslandActivity`):
+                // an alert replaces what it outranks, and the replaced one is
+                // gone, not waiting underneath (spec §19.1).
+                switch vm.activity {
+                case .hud(let hud):
+                    hudHeader(hud)
+                        .transition(Theme.hudArrival(reduceMotion: reduceMotion))
+                case .ambient(let ambient):
                     ambientHeader(ambient)
-                        .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
+                        .transition(ambientArrival(ambient))
+                case .shelf(let count):
+                    shelfHeader(count: count)
+                        .transition(Theme.compactArrival(reduceMotion: reduceMotion))
+                case .peek, .music, .none:
+                    EmptyView()
                 }
             }
             // The island to assistive tech, on the stack that holds both the
@@ -455,6 +673,15 @@ struct NotchContentView: View {
             // element's value rather than swapping one element for another.
             .modifier(islandAccessibility(open: false))
             .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
+        }
+    }
+
+    /// The charger is a compact activity and arrives as one; headphones are
+    /// an expanded alert and arrive as one (spec §19.3).
+    private func ambientArrival(_ ambient: AmbientActivity) -> AnyTransition {
+        switch ambient {
+        case .charging: return Theme.compactArrival(reduceMotion: reduceMotion)
+        case .headphones: return Theme.expandedArrival(reduceMotion: reduceMotion)
         }
     }
 
@@ -501,173 +728,361 @@ struct NotchContentView: View {
     /// that there is none. The locked pill draws no moment, so over the shield
     /// it does not name one.
     private var closedIslandValue: String {
+        if !vm.isLockedPresentation, let hud = vm.hud { return hud.accessibilityLabel }
         if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
+        if !vm.isLockedPresentation, case .shelf(let count) = vm.activity { return localized("Shelf, %d items", count) }
         return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
     }
 
-    /// The open island's value: what the header strip shows — the tab, and
-    /// the count or the player on its right end. The welcome is not a tab
-    /// (see `openHeader`), so there it names the welcome instead.
+    /// The open island's value: the surface on screen, and the count or the
+    /// player beside it where it has one.
     private var openIslandValue: String {
-        if vm.isShowingWelcome { return localized("Welcome") }
+        let surface = vm.presented
         let detail: String?
-        switch vm.tab {
-        case .media: detail = vm.media.sourceName
-        case .shelf: detail = vm.shelf.items.isEmpty ? nil : "\(vm.shelf.items.count)"
-        case .clipboard: detail = vm.clipboard.items.isEmpty ? nil : "\(vm.clipboard.items.count)"
-        case .translate, .settings: detail = nil
+        switch surface {
+        case .player, .stage: detail = vm.media.sourceName
+        case .tray: detail = vm.shelf.items.isEmpty ? nil : "\(vm.shelf.items.count)"
+        case .clipboard: detail = nil
+        case .drop, .translate, .settings, .welcome: detail = nil
         }
-        guard let detail, !detail.isEmpty else { return vm.tab.title }
-        return "\(vm.tab.title), \(detail)"
+        guard let detail, !detail.isEmpty else { return surface.title }
+        return "\(surface.title), \(detail)"
     }
 
-    /// The charger or headphones, in the pill's two wings.
-    ///
-    /// One grammar for both: a glyph in the left wing where the cover sits,
-    /// and what it is about in the right wing where the equalizer sits. The
-    /// charge's level; the headphones' name. White on black like every other
-    /// wing, because the chrome does not take colour. "Connected" is left to
-    /// the accessibility label: the glyph arriving already says it.
+    /// The charger or the headphones on the island.
+    @ViewBuilder
     private func ambientHeader(_ ambient: AmbientActivity) -> some View {
-        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
-        let symbol: String
-        let value: String?
         switch ambient {
         case .charging(let level, _):
-            symbol = ambient.chargeSymbol
-            value = level.map { localized("%d%%", $0) }
-        case .headphones(let name, let deviceSymbol):
-            symbol = deviceSymbol
-            value = name
+            // `showsOnIsland` keeps a Mac with no level off the island; the
+            // guard is for the type, not a state that is drawn.
+            if let level { chargingHeader(ambient, level: level) }
+        case .headphones(let name, let symbol):
+            headphonesHeader(name: name, symbol: symbol)
         }
+    }
+
+    /// Charging (spec §19.4): "Charging" in the left wing, 14 regular, white
+    /// 0.88, from 18.5; in the right the level, 14 regular in the green
+    /// gradient, 6 pt, and a drawn battery ending 19.3 from the edge. A battery
+    /// that only holds is not charging, so it says nothing it would have to
+    /// take back: the plug in the word's place, and the level and battery in
+    /// white — as its stroke is white (`IslandStroke.tint`).
+    private func chargingHeader(_ ambient: AmbientActivity, level: Int) -> some View {
+        let charging = ambient.usesChargingGreen
+        let scale = CompactIslandLayout.glyphScale(height: size.height)
+        let tone: AnyShapeStyle = charging ? AnyShapeStyle(Theme.chargingGreen.gradient) : AnyShapeStyle(Color.white)
+        let track = (charging ? Theme.chargingGreen : Color.white).opacity(CompactIslandLayout.batteryTrackOpacity)
         return HStack(spacing: 0) {
-            Image(systemName: symbol)
-                .islandFont(.subhead, weight: .semibold)
-                .foregroundStyle(.white)
-                .frame(width: wingWidth, alignment: .center)
-
-            Color.clear
-                .frame(width: vm.geometry.notchSize.width, height: 1)
-
             Group {
-                if let value {
-                    Text(value)
-                        .font(Theme.TypeRole.caption.font().monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
+                if charging {
+                    Text(localized("Charging"))
+                        .islandFont(CompactIslandLayout.chargingTextSize)
+                        .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingTextOpacity))
                         .lineLimit(1)
-                        .truncationMode(.tail)
-                        .padding(.horizontal, 10)
+                } else {
+                    Image(systemName: ambient.chargeSymbol)
+                        .font(.system(size: CompactIslandLayout.chargingTextSize * scale, weight: .semibold))
+                        .foregroundStyle(Color.white)
                 }
             }
-            .frame(width: wingWidth, alignment: .center)
+            .padding(.leading, CompactIslandLayout.chargingTextInset)
+            Spacer(minLength: 0)
+            Text(localized("%d%%", level))
+                .font(.system(size: CompactIslandLayout.chargingTextSize).monospacedDigit())
+                .tracking(Theme.tracking(forSize: CompactIslandLayout.chargingTextSize))
+                .foregroundStyle(tone)
+                .lineLimit(1)
+                .fixedSize()
+            IslandBattery(level: level, fill: tone, track: track, scale: scale)
+                .padding(.leading, CompactIslandLayout.levelToBatteryGap)
+                .padding(.trailing, CompactIslandLayout.batteryTrailing - CompactIslandLayout.shoulder)
         }
-        .frame(width: size.width, height: vm.geometry.notchSize.height)
+        .frame(width: size.width, height: size.height)
         // No element of its own: the moment is the island's value, set on the
         // stack above it — see `islandAccessibility(open:)`.
     }
 
-    private var openHeader: some View {
-        HStack(spacing: 0) {
-            // Both ends go quiet for the welcome. This row labels the pane below
-            // it, and the welcome is not a pane the row can name: it is not a tab
-            // (see `NotchViewModel.isShowingWelcome`), and `vm.tab` is left on
-            // Music underneath it, so the strip read "MUSIC" over a pane that had
-            // nothing to do with Music and the right end named a player for it.
-            // The pane carries its own heading; the header has nothing to add for
-            // one launch.
-            if !vm.isShowingWelcome {
-                Text(vm.tab.title.uppercased())
-                    .islandFont(.caption, weight: .semibold)
-                    .tracking(Theme.capsTracking)
-                    .foregroundStyle(Theme.tertiary)
-                    .padding(.leading, 16)
-                    .id(vm.tab)
-                    .transition(.opacity)
-            }
-            Spacer(minLength: 0)
-            Color.clear.frame(width: vm.geometry.notchSize.width, height: 1)
-            Spacer(minLength: 0)
-            if !vm.isShowingWelcome {
-                trailing
-                    .padding(.trailing, 16)
-                    .transition(.opacity)
-            }
+    /// Headphones connected (spec §19.5 c), an expanded alert: the device's
+    /// own symbol, hierarchical, at left; "Connected" over the device's name
+    /// beside it, the name truncating at its tail. The battery ring waits for
+    /// a level Isla can read without a new permission (§19.15, R9), so the
+    /// name takes its width.
+    private func headphonesHeader(name: String, symbol: String) -> some View {
+        let notchHeight = vm.geometry.notchSize.height
+        let glyph = HeadphonesAlertLayout.glyphFrame(notchHeight: notchHeight)
+        return ZStack(alignment: .topLeading) {
+            Image(systemName: symbol)
+                .resizable()
+                .symbolRenderingMode(.hierarchical)
+                .scaledToFit()
+                .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.glyphOpacity))
+                .frame(width: glyph.width, height: glyph.height)
+                .offset(x: glyph.minX, y: glyph.minY)
+            Text(localized("Connected"))
+                .islandFont(HeadphonesAlertLayout.connectedSize)
+                .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.connectedOpacity))
+                .lineLimit(1)
+                .islandBaseline(HeadphonesAlertLayout.connectedBaseline(notchHeight: notchHeight))
+                .offset(x: HeadphonesAlertLayout.textLeading)
+            Text(name)
+                .islandFont(HeadphonesAlertLayout.nameSize)
+                .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.nameOpacity))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: HeadphonesAlertLayout.nameWidth(islandWidth: size.width), alignment: .leading)
+                .islandBaseline(HeadphonesAlertLayout.nameBaseline(notchHeight: notchHeight))
+                .offset(x: HeadphonesAlertLayout.textLeading)
         }
-        .frame(height: vm.geometry.notchSize.height)
-        // Clicking the island again closes the panel, and while the panel is
-        // open this strip is all of the island there is: the notch itself, at
-        // notch depth, with the body hanging below it. The close cannot be left
-        // to the gesture that opens the island — that one's shape is the whole
-        // window, so it would turn every click on a control in the panel into a
-        // click that shut the panel out from under the control just pressed.
-        //
-        // Safe to claim the full width because nothing in this row is a control
-        // on any tab: the title on the left, and a count or the source name on
-        // the right. The rail and the panes begin below it.
-        .contentShape(Rectangle())
-        .onTapGesture { vm.onIslandClick?() }
-        // The same close for assistive tech, as the same Isla button the shut
-        // island is — the gesture above has no trait and no action, so a panel
-        // opened from VoiceOver had no discoverable way to close (G-015).
-        .modifier(islandAccessibility(open: true))
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    /// The Shelf holding files (spec §19.4): `tray.full.fill`, white, 26 × 20
+    /// at (17.3, 9); the count in SF Pro Rounded 16, tabular, white, ending
+    /// 18.3 from the edge. The live activity when nothing plays.
+    private func shelfHeader(count: Int) -> some View {
+        let tray = CompactIslandLayout.shelfGlyphFrame(height: size.height)
+        return HStack(spacing: 0) {
+            Image(systemName: "tray.full.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color.white)
+                .frame(width: tray.width, height: tray.height)
+                .padding(.leading, tray.minX)
+            Spacer(minLength: 0)
+            Text(count, format: .number)
+                .font(.system(size: CompactIslandLayout.shelfCountFontSize, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color.white)
+                .contentTransition(.numericText(value: Double(count)))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.trailing, CompactIslandLayout.shelfCountTrailingInset)
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    /// The volume or brightness pop-up (spec §19.5 d), an expanded alert: the
+    /// output's name — or which brightness — over a row of the symbol, the
+    /// bar and the level as a number. The bar fills in amber with a glow;
+    /// muted, white 0.32 at the level it will return to, no glow. It steps on
+    /// `hudLevel` per press; under Reduce Motion it steps without gliding.
+    private func hudHeader(_ hud: HUDMoment) -> some View {
+        let notchHeight = vm.geometry.notchSize.height
+        let track = HUDLayout.trackFrame(islandWidth: size.width, notchHeight: notchHeight)
+        let symbol = HUDLayout.symbolFrame(notchHeight: notchHeight)
+        let fill = Color.white.opacity(hud.muted ? HUDLayout.mutedFillOpacity : HUDLayout.levelOpacity)
+        return ZStack(alignment: .topLeading) {
+            Text(hud.title)
+                .islandFont(HUDLayout.titleSize)
+                .foregroundStyle(Color.white.opacity(HUDLayout.titleOpacity))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: HUDLayout.titleWidth(islandWidth: size.width), alignment: .leading)
+                .islandBaseline(HUDLayout.titleBaseline(notchHeight: notchHeight))
+                .offset(x: HUDLayout.titleLeading)
+            Image(systemName: hud.symbol)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color.white)
+                .frame(width: symbol.width, height: symbol.height)
+                .offset(x: symbol.minX, y: symbol.minY)
+            RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
+                .fill(Color.white.opacity(HUDLayout.trackOpacity))
+                .frame(width: track.width, height: track.height)
+                .offset(x: track.minX, y: track.minY)
+            RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
+                .fill(fill)
+                .frame(width: track.width * CGFloat(hud.level), height: track.height)
+                .offset(x: track.minX, y: track.minY)
+                .animation(Theme.hudLevel(reduceMotion: reduceMotion), value: hud.level)
+            // Centred on the bar, its right edge on the reference's 34.5.
+            Text(hud.percent, format: .number)
+                .font(.system(size: HUDLayout.numberSize, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color.white.opacity(HUDLayout.numberOpacity))
+                .contentTransition(.numericText(value: Double(hud.percent)))
+                .lineLimit(1)
+                .fixedSize()
+                .frame(width: max(0, size.width - HUDLayout.numberTrailingInset), height: track.height,
+                       alignment: .trailing)
+                .offset(y: track.minY)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        // No element of its own: like the other moments, the pop-up is the
+        // island's value (`closedIslandValue`), set on the stack above it.
+    }
+
+    /// The open panel's header strip (spec §19.6–§19.8): the notch's height,
+    /// with the surface's title or glyph left of the notch and its tools
+    /// right of it, each centred on the strip.
+    ///
+    /// Only the notch's own span closes the panel. The strip used to close on
+    /// a click anywhere, which was safe while nothing in it was a control; the
+    /// surfaces carry Tools, History, Remove All and Settings here now, and a
+    /// click a few points beside one must not shut the panel out from under
+    /// the pointer. The span is where the island is, so a click on the island
+    /// still answers as it always has.
+    private var openHeader: some View {
+        let notch = vm.geometry.notchSize
+        let span = SurfaceHeaderLayout.closeSpan(bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height)
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+            // The close, and the island to assistive tech: the same Isla button
+            // the shut island is, which says it closes (G-015).
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { vm.onIslandClick?() }
+                .modifier(islandAccessibility(open: true))
+                .placedAt(span)
+            headerLeading(notch: notch)
+            headerTrailing(notch: notch)
+        }
+        .frame(width: size.width, height: notch.height, alignment: .topLeading)
+        .animation(Theme.contentAnimation, value: vm.presented)
+    }
+
+    @ViewBuilder
+    private func headerLeading(notch: CGSize) -> some View {
+        switch vm.presented {
+        case .clipboard, .translate, .settings:
+            if let symbol = vm.presented.symbol {
+                SurfaceHeaderTitle(symbol: symbol, title: vm.presented.title)
+                    .placedAt(SurfaceHeaderLayout.title(
+                        bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height
+                    ))
+                    .transition(.opacity)
+            }
+        case .player, .stage:
+            // Which app the sound comes from — Spotify, Music, Telegram, a
+            // browser — by its own icon and name, where the other pages name
+            // themselves (owner's review, 2026-10-18). The left of the
+            // player's header was empty while the right held the gear.
+            let source = PlayerSourceTitle(name: vm.media.sourceName, icon: vm.media.sourceIcon)
+            let room = SurfaceHeaderLayout.title(bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height)
+            SurfaceHeaderTitle(glyph: source.glyph, title: source.title, showsName: source.showsName(room: room.width))
+                .placedAt(room)
+                .transition(.opacity)
+        case .tray:
+            let count = vm.shelf.items.count
+            HeaderGlyphView(glyph: .symbol("tray.full.fill"))
+                .placedAt(SurfaceHeaderLayout.trayGlyph(notchHeight: notch.height))
+                .transition(.opacity)
+            if ShelfHeader.showsCount(itemCount: count) {
+                Text(count, format: .number)
+                    .font(.system(size: ShelfLayout.headerCountSize, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Color.white)
+                    .contentTransition(.numericText(value: Double(count)))
+                    .lineLimit(1)
+                    .placedAt(SurfaceHeaderLayout.trayCount(
+                        bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height
+                    ))
+                    .accessibilityLabel(ShelfHeader.countText(count))
+                    .transition(.opacity)
+            }
+        case .drop, .welcome:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func headerTrailing(notch: CGSize) -> some View {
+        let gear = SurfaceHeaderLayout.gear(bodyWidth: size.width, notchHeight: notch.height)
+        switch vm.presented {
+        case .tray:
+            if ShelfHeader.showsRemoveAll(itemCount: vm.shelf.items.count) {
+                let width = ShelfRemoveAllButton.width()
+                ShelfRemoveAllButton { vm.askToRemoveAll() }
+                    .placedAt(SurfaceHeaderLayout.removeAll(bodyWidth: size.width, width: width, notchHeight: notch.height))
+                    .transition(.opacity)
+            }
+            gearButton.placedAt(gear)
+        case .translate:
+            if translateKeepsHistory {
+                HeaderToolButton(
+                    symbol: "clock.arrow.circlepath", label: localized("History"), isOn: vm.translateShowsHistory
+                ) { vm.translateShowsHistory.toggle() }
+                .placedAt(SurfaceHeaderLayout.history(bodyWidth: size.width, notchHeight: notch.height))
+                .transition(.opacity)
+            }
+            gearButton.placedAt(gear)
+        case .player, .stage, .clipboard, .settings:
+            gearButton.placedAt(gear)
+        case .drop, .welcome:
+            EmptyView()
+        }
+    }
+
+    /// The gear (spec §19.16), where the Tools button stood: Settings from a
+    /// page or the stage on the island's spring, and on Settings a close
+    /// button, the way back (`HeaderGear`). It carries the update badge Tools'
+    /// own gear carried, so an update waiting shows on every page.
+    private var gearButton: some View {
+        let gear = HeaderGear(onSettings: vm.presented == .settings, hasUpdate: updates.hasUpdate)
+        return HeaderToolButton(symbol: gear.symbol, label: gear.label, badge: gear.badge) {
+            withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.pressGear() }
+        }
+        .transition(.opacity)
     }
 
     /// - Parameter morph: the namespace the cover and the equalizer travel in,
     ///   or `nil` where there is nowhere for them to travel to — over the lock
     ///   screen, where this pill is the only thing on screen.
     ///
-    /// Both wing objects stay laid out while the pill is folded, each centred
-    /// in a wing whose width follows the shape. That is what makes a fold read
-    /// as the island taking them in: as the wings contract the cover and the
-    /// bars travel inward with their edges, and `pillPresence` dissolves them
-    /// — blur, scale and fade together — on a curve that finishes before the
-    /// edge arrives.
+    /// The cover is 8 pt from the island's left edge and the equalizer's last
+    /// bar 8 pt from its right (spec §3.1), both centred in the island's height
+    /// — on the 38 pt notch that is the "7 from the bottom" the board draws, and
+    /// on the peek's 50 pt it is the 8 the peek's cover is inset. Pinned to the
+    /// island's own edges rather than centred in a wing, so the margins are the
+    /// same on a notch of any width.
+    ///
+    /// Both wing objects stay laid out while the pill is folded, still against
+    /// the edges of a shape that contracts to the notch. That is what makes a
+    /// fold read as the island taking them in: as the wings contract the cover
+    /// and the bars travel inward with their edges, and `pillPresence` dissolves
+    /// them — blur, scale and fade together — on a curve that finishes before
+    /// the edge arrives.
     private func compactMediaHeader(morph: Namespace.ID?) -> some View {
-        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2)
         let shown = compactActivity.isVisible
+        let notchWidth = vm.geometry.notchSize.width
         return HStack(spacing: 0) {
-            // Resting, each wing centres its content the way it always did —
-            // pinning to the edges put the artwork and equalizer flush against
-            // the pill's rounded ends with no inset at all. Only the peek
-            // leads-aligns, because a title reads from the left, and it takes
-            // an inset with it so nothing touches the curve.
-            HStack(spacing: 7) {
-                compactArtwork(morph: morph)
-                    .pillPresence(shown, reduceMotion: reduceMotion)
-                // Only while peeking, and only on the left wing: the title is
-                // what the peek exists to show, and the right wing keeps the
-                // equalizer so the pill still says whether audio is moving.
-                if vm.isPeeking, let track = vm.media.track {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(track.title)
-                            .islandFont(.caption, weight: .semibold)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Text(track.artist)
-                            .islandFont(.caption, weight: .regular)
-                            .foregroundStyle(Theme.secondary)
-                            .lineLimit(1)
-                    }
-                    // The title materializes rather than fading flat: the
-                    // same blur-and-settle the cover makes arriving. And it
-                    // dissolves with the cover when the pill folds — a pause
-                    // settling mid-peek used to fold the wing in over a title
-                    // still at full strength, slicing it.
-                    .pillPresence(shown, reduceMotion: reduceMotion)
-                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
-                    Spacer(minLength: 0)
+            compactArtwork(morph: morph)
+                .pillPresence(shown, reduceMotion: reduceMotion)
+                .padding(.leading, CompactIslandLayout.coverInset)
+            // Only while peeking, and only in the left wing on a real notch
+            // (see `CompactIslandLayout.peekTextWidth`): the title is what the
+            // peek exists to show, and the right wing keeps the equalizer so
+            // the island still says whether audio is moving.
+            if vm.isPeeking, let track = vm.media.track {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(track.title)
+                        .islandFont(.subhead, weight: .semibold)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(track.artist)
+                        .islandFont(.body, weight: .regular)
+                        .foregroundStyle(Theme.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                .frame(
+                    width: CompactIslandLayout.peekTextWidth(
+                        islandWidth: size.width, notchWidth: notchWidth, isPhysical: vm.geometry.isPhysical
+                    ),
+                    alignment: .leading
+                )
+                // The title materializes rather than fading flat: the same
+                // blur-and-settle the cover makes arriving. And it dissolves
+                // with the cover when the pill folds — a pause settling
+                // mid-peek used to fold the island in over a title still at
+                // full strength, slicing it.
+                .pillPresence(shown, reduceMotion: reduceMotion)
+                .padding(.leading, 10)
+                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
             }
-            .padding(.leading, vm.isPeeking ? 10 : 0)
-            .frame(width: wingWidth, alignment: vm.isPeeking ? .leading : .center)
-
-            Color.clear
-                .frame(width: vm.geometry.notchSize.width, height: 1)
-
+            Spacer(minLength: 0)
             compactPlaybackState(morph: morph)
                 .pillPresence(shown, reduceMotion: reduceMotion)
-                .padding(.trailing, vm.isPeeking ? 12 : 0)
-                .frame(width: wingWidth, alignment: vm.isPeeking ? .trailing : .center)
+                .padding(.trailing, CompactIslandLayout.equalizerTrailingInset)
                 // No gesture here, deliberately.
                 //
                 // The equalizer wing used to toggle playback, from when a hover
@@ -681,7 +1096,7 @@ struct NotchContentView: View {
                 // playing, and clicking anywhere on it opens the panel, where
                 // the controls actually are.
         }
-        .frame(width: size.width, height: vm.geometry.notchSize.height)
+        .frame(width: size.width, height: size.height)
         // No element of its own. It was one, hidden while folded, and so with
         // nothing playing the island did not exist to VoiceOver at all; the
         // island's one element now sits on whatever holds this header — see
@@ -690,89 +1105,9 @@ struct NotchContentView: View {
         // have, reachable only by people who cannot see that it has none.
     }
 
-    /// The island brightening under the pointer.
-    ///
-    /// Built the same way as the wing surface, and for the same reason: on a
-    /// Mac with a real notch the middle of this shape is a hole in the display.
-    /// Nothing may be drawn there. Lightening it does not lighten the island —
-    /// it puts a pale rectangle inside the camera housing, which is the one
-    /// place the whole design is trying to make disappear.
-    ///
-    /// So the lift lands on the wings, which are pixels, and stops at the
-    /// cutout, which is not. On a display with no notch there is no hole and
-    /// the middle lifts with everything else.
-    @ViewBuilder
-    private var hoverLift: some View {
-        if vm.isHovering || isPressed {
-            ZStack {
-                liftWings
-                // Pressing deepens the same light rather than introducing a
-                // second idea: the wings are lit a second time, so the surface
-                // catches more of it the harder you are asking. This used to be
-                // `.opacity(2.2)` on the one layer, which the compositor clamps
-                // to 1 — the press looked exactly like the hover, and the whole
-                // press-down path drew nothing.
-                if isPressed {
-                    liftWings.transition(.opacity)
-                }
-            }
-            .allowsHitTesting(false)
-            .animation(Theme.contentAnimation, value: isPressed)
-            .transition(.opacity)
-        }
-    }
-
-    /// The lift itself: both wings, faded toward the cutout, clipped to the
-    /// collapsed island.
-    private var liftWings: some View {
-        let wingWidth = max(0, (size.width - vm.geometry.notchSize.width) / 2 + topRadius)
-        return HStack(spacing: 0) {
-            // Each wing fades out toward the cutout, the way the wing
-            // surface underneath already fades into the hardware edge.
-            // Without it the two wings lit as hard-edged blocks either side
-            // of the notch — two rectangles switching on, rather than light
-            // falling across the island.
-            Self.liftFill
-                .frame(width: wingWidth)
-                .mask(Self.falloff(towards: .trailing))
-            if vm.geometry.isPhysical {
-                Color.clear.frame(width: vm.geometry.notchSize.width)
-            } else {
-                Self.liftFill.frame(width: vm.geometry.notchSize.width)
-            }
-            Self.liftFill
-                .frame(width: wingWidth)
-                .mask(Self.falloff(towards: .leading))
-        }
-        .frame(width: size.width + 2 * topRadius, height: size.height)
-        .clipShape(
-            NotchShape(
-                topRadius: Theme.collapsedTopRadius,
-                bottomRadius: Theme.collapsedBottomRadius
-            )
-        )
-    }
-
-    /// What macOS does when the pointer finds something pressable: lighten the
-    /// surface. Weighted to the bottom, furthest from the hardware.
-    /// Full strength at the outer edge, gone by the cutout.
-    static func falloff(towards edge: UnitPoint) -> LinearGradient {
-        LinearGradient(
-            colors: [.white, .white.opacity(0.35), .clear],
-            startPoint: edge == .trailing ? .leading : .trailing,
-            endPoint: edge
-        )
-    }
-
-    static let liftFill = LinearGradient(
-        colors: [.white.opacity(0.015), .white.opacity(0.075)],
-        startPoint: .top,
-        endPoint: .bottom
-    )
-
     /// The near end of the cover's travel.
     ///
-    /// It used to be a second cover: 22 pt here, 118 pt in `MediaPane`, each
+    /// It used to be a second cover: 22 pt here (24 since the redesign), 118 pt in `MediaPane`, each
     /// fading on its own schedule, so opening the panel crossfaded one album
     /// past itself. The two are one object now, and the pieces that make it one
     /// are worth naming, because none of them announces itself when it breaks:
@@ -789,14 +1124,20 @@ struct NotchContentView: View {
     ///   over the notch. `.frame(maxWidth: .infinity)` is not a substitute — it
     ///   grows to whatever the child reports, taking the clip with it.
     /// - `.morph` sits **inside** the outer frame, so the frame keeps reserving
-    ///   22 pt in the wing while the cover itself is somewhere between here and
+    ///   the cover's side in the wing while the cover itself is somewhere between here and
     ///   the panel.
     /// - The image carries no `.transition(.opacity)` of its own any more. A
     ///   travelling object that fades while it travels is a crossfade wearing a
     ///   morph's clothes, and the default transition already crossfades one
     ///   album into the next when the track changes.
     private func compactArtwork(morph: Namespace.ID?) -> some View {
-        let metrics = Theme.artworkMetrics(isOpen: false)
+        // 22 pt at radius 5 resting (16 at 4 on the short island), 34 at 8
+        // while a track peeks: one cover in three sizes, and the frame
+        // interpolates between them on the same curve the island grows on.
+        let metrics = vm.isPeeking && compactActivity.isVisible
+            ? Theme.peekArtworkMetrics
+            : (side: CompactIslandLayout.coverSide(height: size.height),
+               cornerRadius: CompactIslandLayout.coverRadius(height: size.height))
         return Color.clear
             .overlay {
                 Group {
@@ -806,31 +1147,35 @@ struct NotchContentView: View {
                             .scaledToFill()
                             .id(vm.media.track?.key)
                     } else {
-                        Image(systemName: "music.note")
-                            .islandFont(.caption, weight: .semibold)
-                            .foregroundStyle(Color.white.opacity(0.75))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Theme.surface)
+                        // A well and a note (spec §3.2): the left wing is never
+                        // a hole, and never a second, different kind of cover.
+                        Theme.coverWell
+                            .overlay {
+                                Image(systemName: "music.note")
+                                    .islandFont(.body, weight: .regular)
+                                    .foregroundStyle(Theme.secondary)
+                            }
                     }
                 }
-                .opacity(showsPausedCover ? 0.58 : 1)
+                // Paused darkens the cover to 0.55 of itself. It was 0.58
+                // opacity, which let a bright wallpaper through the picture —
+                // a paused cover on a pale desktop read as a ghost — where a
+                // multiply darkens it over anything.
+                .colorMultiply(showsPausedCover ? Color(white: Theme.pausedCoverBrightness) : .white)
             }
             .overlay {
                 if showsPausedCover {
-                    Circle()
-                        .fill(Color.black.opacity(0.72))
-                        .frame(width: 15, height: 15)
-                        .overlay(
-                            Image(systemName: "play.fill")
-                                // A glyph fitted inside a 15pt badge, not type:
-                                // the caption floor would burst the circle.
-                                .font(.system(size: 7, weight: .bold))
-                                .foregroundStyle(Color.white.opacity(0.92))
-                                .offset(x: 0.5)
-                        )
-                        .overlay(
-                            Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
-                        )
+                    // A bare glyph on the dimmed cover, 9 pt, white, with a
+                    // faint shadow for the one cover that is nearly white. The
+                    // 15 pt black badge this replaces was a second object on a
+                    // 22 pt cover; the glyph is fitted to the cover, not type,
+                    // so no role applies and the caption floor would be too
+                    // large for it.
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+                        .offset(x: 0.5)
                         .transition(Theme.scaleIn(0.82, reduceMotion: reduceMotion))
                 }
             }
@@ -858,172 +1203,223 @@ struct NotchContentView: View {
         activity.showsArtworkPlayBadge || (!activity.isVisible && !isPlaying)
     }
 
-    /// The equalizer travels too, and it is the easier half: both ends are the
-    /// same 10 pt box, so the effect only has to carry it from the pill's right
-    /// wing to the open header's right end. Without it the bars vanished on one
-    /// side of the notch and reappeared on the other, which reads as two
+    /// The equalizer travels too, and it is the easier half: the pill's bars
+    /// are carried to the open header's right end, so the bars never vanish on
+    /// one side of the notch and reappear on the other — which reads as two
     /// equalizers for one piece of music.
+    ///
+    /// Six bars in the cover's tint as a gradient while music plays; at rest,
+    /// 3 pt tall in tertiary, when it is paused (spec §19.4, §3.2). Three
+    /// quarters of its size on the short island, scaled rather than re-laid,
+    /// so the far end of the morph is the same view at the same proportions.
     private func compactPlaybackState(morph: Namespace.ID?) -> some View {
-        EqualizerBars(
+        let scale = CompactIslandLayout.glyphScale(height: size.height)
+        let side = CompactIslandLayout.equalizerSide * scale
+        return CompactEqualizer(
             isAnimating: compactActivity.animatesEqualizer,
-            opacity: compactActivity == .playing ? 0.82 : 0.58
+            colors: CompactEqualizerMotion.colors(
+                isPlaying: compactActivity.tintsEqualizer,
+                tint: vm.coverTint.nsColor,
+                increaseContrast: appearance.increaseContrast
+            )
         )
+        .scaleEffect(scale)
+        .frame(width: side, height: side)
         .morph(MorphID.compact(MorphID.equalizer, folded: !compactActivity.isVisible), in: morph)
     }
 
     /// The view model's, because the peek announces the same sentence.
     private var compactAccessibilityLabel: String { vm.compactAccessibilityLabel }
 
-    @ViewBuilder
-    private var trailing: some View {
-        switch vm.tab {
-        case .media:
-            HStack(spacing: 6) {
-                if vm.media.track != nil {
-                    // The far end of the equalizer's travel — the same bars that
-                    // were in the pill's right wing a moment ago, not a second
-                    // set switched on in their place.
-                    //
-                    // The compact end answers to this name only while the pill
-                    // shows (`MorphID.compact`); this end additionally needs a
-                    // track, the Media tab and no welcome pane, so the pair can
-                    // be half-present — open the panel on Shelf and only the
-                    // pill's bars exist. That is safe rather than accidental:
-                    // both ends are sources, so a lone member plays its own
-                    // transition instead of collapsing onto a frame that is not
-                    // there.
-                    EqualizerBars(isAnimating: vm.media.isPlaying)
-                        .morph(MorphID.equalizer, in: travellingMorph)
-                }
-                Text(vm.media.sourceName ?? "")
-                    .islandFont(.caption)
-                    .foregroundStyle(Theme.tertiary)
-            }
-        case .shelf:
-            counter(vm.shelf.items.count)
-        case .clipboard:
-            counter(Self.clipboardCounter(
-                count: vm.clipboard.items.count, covered: vm.privacy.covers(.clipboard)
-            ) ?? 0)
-        case .translate:
-            // Nothing: the columns name both languages already, and the strip
-            // is the one part of the panel worth not spending on a repeat.
-            EmptyView()
-        case .settings:
-            EmptyView()
-        }
-    }
-
-    /// The number the clipboard header shows, or nil for none. With the cover
-    /// on, the header read "6" over rows of dots, and a screen-share audience
-    /// learned how many things had been copied (H-026). Pure, so it is a test.
-    static func clipboardCounter(count: Int, covered: Bool) -> Int? {
-        covered || count <= 0 ? nil : count
-    }
-
-    @ViewBuilder
-    private func counter(_ value: Int) -> some View {
-        if value > 0 {
-            Text("\(value)")
-                .font(Theme.TypeRole.caption.font().monospacedDigit())
-                .foregroundStyle(Theme.tertiary)
-        }
-    }
-
     // MARK: - Body
 
     private var content: some View {
-        HStack(spacing: 14) {
-            Rail(vm: vm, tabs: NotchViewModel.Tab.contentTabs, footer: NotchViewModel.Tab.utilityTabs)
+        let headerHeight = vm.geometry.notchSize.height
+        return ZStack(alignment: .topLeading) {
             panes
+                .frame(
+                    width: size.width,
+                    // A page's dots have their own band under it (§19.16): the
+                    // pane ends above the band, so no list or card runs under them.
+                    height: max(0, size.height - headerHeight - SurfaceLayout.dotsBand(for: vm.presented)),
+                    alignment: .topLeading
+                )
+                // Between two pages the taller arriving one would run on into
+                // the band, under the dots; cut there while they travel. At
+                // rest nothing is cut, as before.
+                .clipShape(PaneClip(isCutting: vm.travellingLeg != nil))
+            // After the pages, so VoiceOver reads the row after the page.
+            if vm.presented.isPage {
+                PageDots(
+                    current: PageDots.current(leg: vm.travellingLeg, presented: vm.presented),
+                    chosen: vm.presented.pageIndex ?? 0,
+                    bodySize: size, headerHeight: headerHeight,
+                    turn: { vm.travel(to: $0, reduceMotion: reduceMotion) },
+                    adjust: { vm.adjustPage(by: $0, reduceMotion: reduceMotion) }
+                )
+                .accessibilitySortPriority(-1)
+                .transition(.opacity)
+            }
         }
-        .padding(.horizontal, 14)
-        // The body's height is measured from this same number, so the two
-        // cannot drift apart into a rail that does not fit.
-        .padding(.bottom, NotchGeometry.bodyBottomPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // VO-Escape, or Switch Control's Escape, anywhere in the body closes
-        // the panel, as the header does. A panel opened from assistive tech is
-        // pinned open, and the pin ends only on a real mouse-down in another
-        // app, so without this the only way out was the global hot key —
-        // which someone who opened Isla by its button may not know (G-015).
-        .accessibilityAction(.escape) { vm.onIslandClick?() }
+            .frame(width: size.width, height: max(0, size.height - headerHeight), alignment: .topLeading)
+            // A sideways swipe anywhere over a page turns it (§19.16).
+            // Weakly: the monitor must not keep a view model a rebuild replaced.
+            .onPageSwipe(enabled: vm.presented.isPage && !vm.isLockedPresentation) { [weak vm] event, over in
+                vm?.pageScroll(event, over: over) ?? false
+            }
+            // VO-Escape, or Switch Control's Escape, anywhere in the body closes
+            // the panel, as the header does. A panel opened from assistive tech is
+            // pinned open, and the pin ends only on a real mouse-down in another
+            // app, so without this the only way out was the global hot key —
+            // which someone who opened Isla by its button may not know (G-015).
+            .accessibilityAction(.escape) { vm.onIslandClick?() }
     }
 
     private var panes: some View {
-        // Content is replaced in place — no travel. The rail is vertical and
-        // the panes are unrelated, so a direction would only be decoration.
-        ZStack {
-            // For one launch, the welcome wins over the tab. Here rather than
-            // inside `pane` so the per-tab switch and its transitions are
-            // untouched, and so the rail — whose icons the welcome's legends sit
-            // level with, one line each, which is why its icon height goes
-            // down too — stays exactly where it is. A plain crossfade, because
-            // dismissing it is not travel between two tabs: one thing ends and
-            // the panel it was in carries on.
-            if vm.isShowingWelcome {
-                WelcomePane(onDismiss: { vm.dismissWelcome() }, railIconHeight: vm.geometry.railIconHeight)
-                    .transition(.opacity)
-            } else {
-                // The slight zoom is the only travel a swap has, and Reduce
-                // Motion takes it: the scales come from the theme, 1 under
-                // the setting, so the swap is a plain crossfade (F-017).
-                let scales = Theme.paneSwapScales(reduceMotion: reduceMotion)
-                pane
-                    .id(vm.tab)
-                    .transition(.asymmetric(
+        // At rest, one pane: the presented surface, replaced in place — the
+        // old one gone before the new one starts, each with the slight scale
+        // about the top edge that is the only travel a swap has, so the two
+        // are never on screen together (`Theme.swapOut`, `swapIn`). Reduce
+        // Motion takes the scale, and the swap is a plain fade out and in
+        // (F-017). The body's own size springs on the island's curve
+        // underneath (`openBodySize`), and the outline's mask cuts whatever
+        // of either pane is outside it on the way.
+        //
+        // Between two pages (§19.16), the two either side of the travel, side
+        // by side, each at its own size, moved by exactly the travel and
+        // clipped by the outline. One `ForEach` keyed by the surface for both,
+        // so the page on screen when a swipe begins stays the view it was —
+        // its scroll, its field, its hover — and the neighbour joins it, and
+        // later leaves, with no transition: it is off the outline when it does.
+        let scales = Theme.paneSwapScales(reduceMotion: reduceMotion)
+        let leg = vm.travellingLeg
+        let shown = leg?.mounted ?? [vm.presented]
+        return ZStack(alignment: .topLeading) {
+            ForEach(shown) { surface in
+                let frame = paneSize(surface)
+                pane(for: surface)
+                    .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+                    .offset(x: paneX(surface, leg: leg))
+                    .transition(leg != nil ? .identity : .asymmetric(
                         insertion: .opacity
-                            .combined(with: .scale(scale: scales.insertion))
-                            .animation(Theme.paneIn),
+                            .combined(with: .scale(scale: scales.insertion, anchor: .top))
+                            .animation(Theme.swapIn),
                         removal: .opacity
-                            .combined(with: .scale(scale: scales.removal))
-                            .animation(Theme.paneOut)
+                            .combined(with: .scale(scale: scales.removal, anchor: .top))
+                            .animation(Theme.swapOut)
                     ))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
-        // One group, named for what it holds. Loose, the pane's elements were
-        // read in among the rail's by position — the Translate tab put
-        // "Translate From" between Music and Shelf.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // One group, named for what it holds.
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(vm.isShowingWelcome ? localized("Welcome") : vm.tab.title)
+        .accessibilityLabel(vm.presented.title)
+    }
+
+    /// A pane's own frame: its surface's open body less the header row, and
+    /// less the dots' band on a page.
+    private func paneSize(_ surface: NotchViewModel.Surface) -> CGSize {
+        let body = vm.openSize(of: surface)
+        return CGSize(
+            width: body.width,
+            height: max(0, body.height - vm.geometry.notchSize.height - SurfaceLayout.dotsBand(for: surface))
+        )
+    }
+
+    /// Where a pane's leading edge sits in the outline: centred, and on the
+    /// way between two pages moved by exactly the travel (`PageStrip`).
+    private func paneX(_ surface: NotchViewModel.Surface, leg: PageTravel.Leg?) -> CGFloat {
+        guard let leg, let index = leg.strip.pages.firstIndex(of: surface) else {
+            return (size.width - vm.openSize(of: surface).width) / 2
+        }
+        return leg.strip.x(ofPage: index, at: leg.position, outlineWidth: size.width)
+    }
+
+    /// Whether a pane drawn now is the surface on screen, or a page beside it
+    /// only for a swipe's length (§19.16). Only the one on screen may hold
+    /// the keyboard or start work: a neighbour that took focus on appearing
+    /// would take the keyboard from the page the fingers are still on — and
+    /// keep it if they went back — and Translate passed on the way would
+    /// translate its text for nobody.
+    nonisolated static func paneIsLive(
+        _ surface: NotchViewModel.Surface, presented: NotchViewModel.Surface
+    ) -> Bool {
+        surface == presented
     }
 
     @ViewBuilder
-    private var pane: some View {
-        switch vm.tab {
-        case .media:
-            // The namespace goes down with the pane: the far end of the cover's
-            // travel is drawn inside it, and it is the one pane that has an end
-            // to offer. Open on any other tab and the compact cover is simply a
-            // lone member of the group — it leaves the way it always did.
+    private func pane(for surface: NotchViewModel.Surface) -> some View {
+        let bodyWidth = vm.openSize(of: surface).width
+        let live = Self.paneIsLive(surface, presented: vm.presented)
+        let keyboard = live ? $vm.wantsKeyboard : .constant(false)
+        switch surface {
+        case .player:
+            // The namespace goes down with the player: the far end of the
+            // cover's travel is drawn inside it, and it is the one surface that
+            // has an end to offer.
             MediaPane(
                 media: vm.media,
                 lyrics: vm.lyrics,
+                openStage: { withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.openStage() } },
+                bringPlayerForward: { vm.media.bringPlayerForward() },
+                openMusicOnlySetting: vm.openMusicOnlySetting,
+                morph: travellingMorph,
+                audio: vm.playerAudio,
+                spotify: vm.spotifyAccount,
+                coverTint: vm.coverTint.nsColor,
+                isLive: live
+            )
+            // Skipped on a pass that changes nothing it draws: during a page
+            // swipe this body is re-run on every frame, and without it so was
+            // each page under it (`MediaPane ==`).
+            .equatable()
+        case .stage:
+            LyricsStageSurface(
+                media: vm.media,
+                lyrics: vm.lyrics,
+                bodyWidth: bodyWidth,
                 localLookup: vm.lyricsCoordinator.localLookup,
-                retryLyrics: vm.lyricsCoordinator.retry,
                 turnOnLyrics: vm.turnOnLyrics,
                 turnOnOnlineLyrics: vm.turnOnOnlineLyrics,
                 importLocalFile: { vm.chooseLocalLyricsFile(from: .stage) },
-                lyricsNotice: vm.lyricsNotice?.origin == .stage ? vm.lyricsNotice?.text : nil,
+                notice: vm.lyricsNotice?.origin == .stage ? vm.lyricsNotice?.text : nil,
                 selectLocalCandidate: vm.lyricsCoordinator.selectLocalCandidate,
                 removeLocalBinding: vm.lyricsCoordinator.removeLocalBinding,
                 localLibrary: vm.localLyricsLibrary,
                 currentLocalTrackIdentity: { vm.lyricsCoordinator.currentLocalTrackIdentity },
-                openMusicOnlySetting: vm.openMusicOnlySetting,
-                morph: travellingMorph,
-                showingLyrics: $vm.isShowingLyrics
+                invalidLine: {
+                    vm.lyricsCoordinator.currentLocalTrackIdentity.flatMap { vm.localLyricsLibrary.invalidLine(for: $0) }
+                },
+                editingSession: $vm.lyricEditing,
+                moreMenu: vm.lyricsMoreMenu,
+                translateMenu: vm.lyricsTranslateMenu,
+                hideLyrics: { withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.hideLyrics() } },
+                audio: vm.playerAudio,
+                translation: vm.translation,
+                coverTint: vm.coverTint.nsColor
             )
-        case .shelf:
-            ShelfPane(shelf: vm.shelf, isTargeted: vm.isDropTargeted)
+        case .tray:
+            ShelfPane(shelf: vm.shelf, clear: vm.shelfClear, bodyWidth: bodyWidth)
+        case .drop:
+            ShelfDropSurface(bodyWidth: bodyWidth, dropTarget: vm.shelfDropTarget)
         case .clipboard:
             ClipboardPane(
-                clipboard: vm.clipboard, privacy: vm.privacy,
-                turnOnHistory: { vm.setClipboardHistory(true) }
+                clipboard: vm.clipboard, privacy: vm.privacy, browser: vm.clipboardBrowser,
+                bodyWidth: bodyWidth,
+                wantsKeyboard: keyboard,
+                translate: { vm.translateClipboardText($0) },
+                clearConfirmation: vm.clipboardClear,
+                turnOnHistory: { vm.setClipboardHistory(true) },
+                isLive: live
             )
+            .equatable()
         case .translate:
-            TranslatePane(translator: vm.translator, privacy: vm.privacy, wantsKeyboard: $vm.wantsKeyboard)
+            TranslatePane(
+                translator: vm.translator, privacy: vm.privacy, wantsKeyboard: keyboard,
+                showsHistory: $vm.translateShowsHistory, bodyWidth: bodyWidth, isLive: live,
+                isTravelling: vm.travellingLeg != nil
+            )
+                .equatable()
                 .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:
             SettingsPane(
@@ -1045,173 +1441,59 @@ struct NotchContentView: View {
                 privacy: vm.privacy,
                 wantsKeyboard: $vm.wantsKeyboard,
                 setClipboardHistory: vm.setClipboardHistory,
+                setClipboardIncludeImages: vm.setClipboardIncludeImages,
+                setClipboardKeepPinned: vm.setClipboardKeepPinned,
                 refreshClipboardPolling: vm.refreshClipboardPolling,
-                scrollTarget: $vm.settingsScrollTarget
+                setTranslateKeepHistory: vm.setTranslateKeepHistory,
+                setTranslateSpeakButton: vm.setTranslateSpeakButton,
+                setVolumeAndBrightness: vm.setVolumeAndBrightness,
+                accessibilityMissing: vm.accessibilityMissing,
+                accessibilityEntrySuspectedStale: vm.accessibilityEntrySuspectedStale,
+                accessibilityRepairing: vm.accessibilityRepairing,
+                volumeKeysRefused: vm.volumeKeysRefused,
+                selection: $vm.settingsSection,
+                // Built once the old pane has gone and this one is still
+                // transparent (`Theme.swapIn` starts then): the heaviest tree
+                // in the island, and the morph's costliest frame when it was
+                // built in the first one (§19.3, 2026-10-18).
+                mountsAfter: vm.arrivedOverAnOpenSurface ? Theme.swapOutDuration : 0
             )
+        case .welcome:
+            WelcomePane(onDismiss: { vm.dismissWelcome() })
         }
     }
 }
 
-/// Tab switcher.
-///
-/// A click changes the tab, and nothing else does. Hovering used to switch
-/// after a 150 ms dwell, which made the rail react to a pointer passing
-/// through it: moving across it on the way somewhere flipped panes, and each
-/// flip replayed the chosen glyph's fill, so a fast pass read as the rail
-/// stuttering behind the cursor (owner, 2026-09-21). macOS does not navigate
-/// on hover outside menus; a sidebar changes when it is clicked.
-///
-/// A hover draws a faint well under the glyph and nothing more, and both the
-/// well and the selection land on the frame they happen — no fade to wait
-/// out, no glyph growing, nothing to lag behind a fast pointer.
-///
-/// Internal rather than private for two readers: `WelcomePane`, whose legend
-/// column keeps this rail's rhythm, and the test that holds `isLit`.
-struct Rail: View {
-    @ObservedObject var vm: NotchViewModel
-    /// The run of content tabs people move between.
-    let tabs: [NotchViewModel.Tab]
-    /// Held to the bottom of the rail, below the gap: settings, which nobody
-    /// should have to hover past on the way to a track.
-    var footer: [NotchViewModel.Tab] = []
-
-    @State private var hovered: NotchViewModel.Tab?
-
-    /// The least room between the run of content tabs and Settings below it.
-    /// `WelcomePane` holds its Settings legend down with the same gap, so the
-    /// line stays level with the icon on a body that leaves no more than this.
-    static let footerGap: CGFloat = 10
-
-    /// Whether `tab`'s chip is drawn chosen — its fill, its filled glyph, its
-    /// edge — and carries the selected trait.
-    ///
-    /// Not while the welcome is up. The model leaves `tab` on Music underneath
-    /// it, so that Get Started lands there, and the chip used to follow `tab`
-    /// alone: the rail lit Music over a pane that was not Music, and VoiceOver
-    /// said "Music, selected" on the welcome (H-020). The welcome is not a tab,
-    /// so no tab is chosen while it shows.
-    static func isLit(_ tab: NotchViewModel.Tab, selected: NotchViewModel.Tab, welcoming: Bool) -> Bool {
-        !welcoming && tab == selected
-    }
-
-    private func isLit(_ tab: NotchViewModel.Tab) -> Bool {
-        Self.isLit(tab, selected: vm.tab, welcoming: vm.isShowingWelcome)
-    }
-
-    /// Read for one thing: whether Settings wears the mark that says a newer
-    /// Isla is out. Set only by a check the user ran or turned on.
-    @ObservedObject private var updates = UpdateCheck.shared
-
-    var body: some View {
-        VStack(spacing: NotchGeometry.railSpacing) {
-            ForEach(tabs) { icon(for: $0) }
-            if !footer.isEmpty {
-                Spacer(minLength: Self.footerGap)
-                ForEach(footer) { icon(for: $0) }
-            }
-        }
-        .frame(width: 30)
-        // The rail owns the body's full content height: the run of tabs at the
-        // top, settings held to the bottom by the gap between them.
-        .frame(height: vm.geometry.standardContentHeight, alignment: .center)
-        .frame(maxHeight: .infinity, alignment: .top)
-        // The five tabs together, under one name, and apart from the pane —
-        // see the pane's own group in `NotchContentView.panes`.
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(localized("Tabs"))
-    }
+/// The SwiftUI cut by the island's outline: the content masked by `NotchShape`
+/// at the shape's own size and radii. Active only for a shell that draws its
+/// own outline; with the outline on Core Animation the mask is a layer's.
+private struct OutlineMask: ViewModifier {
+    let active: Bool
+    let topRadius: CGFloat
+    let bottomRadius: CGFloat
+    let size: CGSize
 
     @ViewBuilder
-    private func icon(for tab: NotchViewModel.Tab) -> some View {
-        Button {
-            // `chooseTab`, not `select`: this is the one place a *person* picks
-            // a tab, and picking one is also how somebody answers the welcome
-            // with "not this, that" instead of pressing Get Started.
-            vm.chooseTab(tab)
-        } label: {
-            Image(systemName: tab.symbol)
-                // Filled when chosen, outlined otherwise — the tab bar's own
-                // grammar — swapped on the frame of the click. The note and the
-                // sliders have no filled form, so for Music and Settings the
-                // chip alone says which is chosen. The system's
-                // replace effect was tried and withdrawn the same day: it takes
-                // a third of a second, and a rail that answers a click a third
-                // of a second late reads as a rail catching up.
-                .symbolVariant(isLit(tab) ? .fill : .none)
-                .islandFont(.subhead)
-                .frame(width: 30, height: vm.geometry.railIconHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(fill(for: tab))
-                )
-                .overlay(
-                    // The selected chip's own edge, following `ShelfPane`'s
-                    // selected tile: a fill plus a 1.5pt border, rather than
-                    // the borrowed `surfaceHover` that made selected and
-                    // hovered the same colour with no edge on either.
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(
-                            Theme.selectedChipBorder.opacity(isLit(tab) ? 1 : 0),
-                            lineWidth: 1.5
-                        )
-                        .allowsHitTesting(false)
-                )
-                .foregroundStyle(isLit(tab) ? Color.white : Theme.tertiary)
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                // Nothing the shell animates reaches the glyph and its well: the
-                // pane change rides the shell's pane curve, and this would
-                // otherwise fade the chip along with it. The press dim is the
-                // button style's own and still answers on press-down.
-                .transaction { $0.animation = nil }
-        }
-        .buttonStyle(PanelButtonStyle())
-        .overlay(alignment: .topTrailing) {
-            // The app's badge, one primitive for two reasons: a newer version,
-            // found by a check the user asked for, and a screenshot that
-            // arrived while another tab was showing (it used to switch the tab
-            // under the user). A dot rather than a count, in the chrome's own
-            // white. It says "look here", and the pane says what.
-            if hasBadge(tab) {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 5, height: 5)
-                    .offset(x: -3, y: 3)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+    func body(content: Content) -> some View {
+        if active {
+            content.mask(alignment: .top) {
+                NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)
+                    .frame(width: size.width, height: size.height)
             }
-        }
-        .help(tab.title)
-        .accessibilityLabel(tab.title)
-        .accessibilityValue(badgeValue(tab))
-        .accessibilityAddTraits(isLit(tab) ? [.isButton, .isSelected] : .isButton)
-        .onHover { inside in
-            if inside {
-                hovered = tab
-            } else if hovered == tab {
-                hovered = nil
-            }
+        } else {
+            content
         }
     }
+}
 
-    @MainActor
-    private func hasBadge(_ tab: NotchViewModel.Tab) -> Bool {
-        switch tab {
-        case .settings: return updates.hasUpdate
-        case .shelf: return vm.shelfHasNew
-        default: return false
-        }
-    }
+/// The pages' frame while they travel, and no cut at all at rest: a pane's
+/// shadows, its menus' anchors and the cover flying in from the pill are
+/// never clipped by it outside a swipe.
+private struct PaneClip: Shape {
+    var isCutting: Bool
 
-    @MainActor
-    private func badgeValue(_ tab: NotchViewModel.Tab) -> String {
-        guard hasBadge(tab) else { return "" }
-        return tab == .shelf ? localized("New screenshot") : localized("Update available")
-    }
-
-    @MainActor
-    private func fill(for tab: NotchViewModel.Tab) -> Color {
-        if isLit(tab) { return Theme.selectedChip }
-        return hovered == tab ? Theme.surface : .clear
+    func path(in rect: CGRect) -> Path {
+        Path(isCutting ? rect : rect.insetBy(dx: -10_000, dy: -10_000))
     }
 }
 
@@ -1241,38 +1523,25 @@ private struct IslandAccessibility: ViewModifier {
 /// The pill's content arriving out of the notch and leaving back into it.
 ///
 /// Blur, scale and opacity together — the way the system's own island
-/// dissolves what it shows — rather than a flat fade, and on a curve of its
-/// own (`Theme.pillContent`), scoped to these three effects. The frame the
-/// content sits in is left to the shape's spring; only how present it is
-/// moves on this one, which is what lets the content leave ahead of the edge.
+/// dissolves what it shows — rather than a flat fade, on the outline's spring
+/// (spec §19.3): from blur 15 and 0.8 of its width, with the shape, and back the
+/// same way (`IslandArrival.compact`). The content is pinned to the island's
+/// edges (`CompactIslandLayout`), so it travels with them and no edge ever
+/// crosses it; only how present it is moves here.
 struct PillPresence: ViewModifier {
     let shown: Bool
     let reduceMotion: Bool
 
     /// How the content looks at either end. Pure, so "folded means nothing
     /// drawn" is a test rather than a hope — `PillFoldTests`.
-    struct Appearance: Equatable {
-        var blur: CGFloat
-        var scale: CGFloat
-        var opacity: Double
-    }
-
-    nonisolated static func appearance(shown: Bool, reduceMotion: Bool) -> Appearance {
-        if shown { return Appearance(blur: 0, scale: 1, opacity: 1) }
-        // Reduce Motion keeps the change and drops the travel: a fade, with no
-        // shrinking and no softening.
-        return reduceMotion
-            ? Appearance(blur: 0, scale: 1, opacity: 0)
-            : Appearance(blur: 5, scale: 0.72, opacity: 0)
+    nonisolated static func appearance(shown: Bool, reduceMotion: Bool) -> IslandArrival {
+        shown ? .arrived() : .compact(reduceMotion: reduceMotion)
     }
 
     func body(content: Content) -> some View {
         let look = Self.appearance(shown: shown, reduceMotion: reduceMotion)
-        return content.animation(Theme.pillContent(shown: shown, reduceMotion: reduceMotion)) { view in
-            view
-                .blur(radius: look.blur)
-                .scaleEffect(look.scale)
-                .opacity(look.opacity)
+        return content.animation(Theme.pill(reduceMotion: reduceMotion)) { view in
+            view.modifier(IslandArrivalEffect(look: look))
         }
     }
 }

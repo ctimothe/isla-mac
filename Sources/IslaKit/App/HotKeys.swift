@@ -1,10 +1,13 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// The three things the keyboard can reach from anywhere, whatever app is in
-/// front.
+/// The four things the keyboard can reach from anywhere, whatever app is in
+/// front. Declared in the order Settings › Shortcuts lists them.
 enum HotKeyAction: String, CaseIterable, Identifiable {
     case openPanel
+    /// Clipboard, with the caret in its search (spec §19.8). Added in R8, when
+    /// Clipboard stopped being a tab one clicked to.
+    case showClipboard
     case showLyrics
     case translateClipboard
 
@@ -13,6 +16,7 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .openPanel: return localized("Open the panel")
+        case .showClipboard: return localized("Show the clipboard")
         case .showLyrics: return localized("Show the lyrics")
         case .translateClipboard: return localized("Translate the clipboard")
         }
@@ -27,14 +31,18 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
     /// Browsers bind nothing to Control-Option-Command, which is why global
     /// utilities use it.
     ///
+    /// ⌃⌥⌘V joined in R8. ⌥⌘V is Finder's Move Item Here, which is why the
+    /// clipboard key carries ⌃ like the others and not one modifier fewer.
+    ///
     /// One overlap is known and accepted: ⌃⌥ is VoiceOver's VO key, so with
     /// VoiceOver running, ⌃⌥⌘L and ⌃⌥⌘T are also VO-⌘-L and VO-⌘-T, its
     /// next-link and next-table commands. Which one wins has not been checked
     /// on hardware (see `checklist.md`). Either way a VoiceOver user can move
-    /// all three in Settings, from the keyboard.
+    /// all four in Settings, from the keyboard.
     var defaultBinding: HotKeyBinding {
         switch self {
         case .openPanel: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_I), modifiers: HotKeyBinding.defaultModifiers)
+        case .showClipboard: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_V), modifiers: HotKeyBinding.defaultModifiers)
         case .showLyrics: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_L), modifiers: HotKeyBinding.defaultModifiers)
         case .translateClipboard: return HotKeyBinding(keyCode: UInt32(kVK_ANSI_T), modifiers: HotKeyBinding.defaultModifiers)
         }
@@ -246,6 +254,22 @@ final class HotKeyCenter: ObservableObject {
             if let binding = HotKeyBinding.stored(for: action, in: defaults) {
                 bindings[action] = binding
             }
+        }
+        // A default that arrived with an update can land on a combination the
+        // user had already given another action — ⌃⌥⌘V came with R8. Their
+        // choice wins, and Settings says so through `displaced`; left alone,
+        // two actions shared one key and only one could register (R8 review
+        // F11). Given way for this launch only and never written: the rule runs
+        // again at every launch while the clash stands, and once the user moves
+        // their own choice elsewhere the default comes back (R-9).
+        for action in HotKeyAction.allCases where defaults.object(forKey: action.defaultsKey) == nil {
+            guard let binding = bindings[action],
+                  let owner = HotKeyAction.allCases.first(where: { other in
+                      other != action && defaults.object(forKey: other.defaultsKey) != nil && bindings[other] == binding
+                  })
+            else { continue }
+            bindings[action] = nil
+            displaced = Displaced(binding: binding, from: action, to: owner)
         }
     }
 

@@ -21,8 +21,24 @@ enum DebugTrail {
     static let openPanel = flag("DI_OPEN_PANEL")
     /// DI_LOCK_PREVIEW=1: the lock card is presented without locking the Mac.
     static let lockPreview = flag("DI_LOCK_PREVIEW")
+    /// DI_UPDATE_REHEARSAL=<folder>: Update Now reads its release from
+    /// `<folder>/release.json` and downloads from that folder's own files
+    /// instead of GitHub's, so an update can be rehearsed on a real Mac before a
+    /// real release exists (`Scripts/rehearse-update.sh`). Only here is the
+    /// variable read; everything else asks this.
+    static let updateRehearsal: URL? = rehearsalFolder(from: ProcessInfo.processInfo.environment)
     /// DI_TEST_CLICK=next: a test drives lyric clicks.
     static let testClickNext = ProcessInfo.processInfo.environment["DI_TEST_CLICK"] == "next"
+
+    /// The folder named by DI_UPDATE_REHEARSAL, with symlinks resolved, or nil
+    /// when it is unset, empty, not absolute or not a folder.
+    static func rehearsalFolder(from environment: [String: String]) -> URL? {
+        guard let path = environment["DI_UPDATE_REHEARSAL"], path.hasPrefix("/") else { return nil }
+        let url = URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+        return url
+    }
 
     private static let records = geometry || openLyrics || media
 

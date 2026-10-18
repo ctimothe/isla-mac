@@ -98,7 +98,10 @@ final class NotchPanel: NSPanel {
     /// A tap gesture on the text editor never fires — the text view claims the
     /// mouse down first — so the one place a click on the field can reliably
     /// be noticed is here, where every event the window receives passes.
-    var onPress: (() -> Void)?
+    ///
+    /// With the press's point in the window: only a press into the field
+    /// asks for the keyboard (`NotchViewModel.pressClaimsKeyboard`).
+    var onPress: ((NSPoint) -> Void)?
 
     /// Raised on Escape, whatever has the keyboard. Collapsing is the one
     /// thing every tab agrees Escape should do, and binding it inside
@@ -109,6 +112,92 @@ final class NotchPanel: NSPanel {
     /// Escape — clearing a field, handing the keyboard back — and the panel
     /// stays open.
     var escapeHandled: (() -> Bool)?
+
+    /// Asked on Delete and ⌘⌫ while the panel is key (`isRemoveKey`). True means
+    /// the Shelf took the key and removed its selection; false lets it through
+    /// to whatever has the caret. The panel is key only on Translate, so this
+    /// is the half of "Delete removes the selection while the pointer is on the
+    /// Shelf or the panel is key" that a registered hot key does not cover —
+    /// kept because it costs a closure and the day a second tab takes the
+    /// keyboard it is already right (spec §8.2).
+    var removeKeyHandled: (() -> Bool)?
+
+    /// A key that moves through a list or acts on its selection (spec §19.8):
+    /// ↑, ↓ and Return, with no modifier.
+    enum ListKey: Equatable {
+        case up, down, enter
+    }
+
+    /// The list key a press is, or nil. ⇧, ⌘, ⌥ and ⌃ disqualify a press —
+    /// ⇧↑ extends a selection in the field and ⌘↑ goes to its start — while
+    /// Caps Lock, fn and the arrows' own numeric-pad flag do not.
+    static func listKey(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> ListKey? {
+        guard flags.intersection([.command, .control, .option, .shift]).isEmpty else { return nil }
+        switch Int(keyCode) {
+        case 126: return .up
+        case 125: return .down
+        case 36, 76: return .enter
+        default: return nil
+        }
+    }
+
+    /// Asked on ↑, ↓ and Return while the panel is key. True means the
+    /// surface took the key — Clipboard moving its selection, or copying it —
+    /// and the field with the caret never hears of it.
+    var listKeyHandled: ((ListKey) -> Bool)?
+
+    /// A right-click, or a left click with Control and nothing else held,
+    /// which macOS means as one.
+    static func isSecondaryClick(type: NSEvent.EventType, flags: NSEvent.ModifierFlags) -> Bool {
+        switch type {
+        case .rightMouseDown: return true
+        case .leftMouseDown: return flags.intersection([.command, .control, .option, .shift]) == .control
+        default: return false
+        }
+    }
+
+    /// Asked on a secondary click, with its point in the content view. True
+    /// means the island took it — its menu, or the locked island's shake
+    /// (spec §19.9) — and nothing under the point hears of it; false passes it
+    /// on to a clipboard row's own menu or a tile's Open With.
+    var secondaryClickHandled: ((NSPoint) -> Bool)?
+
+    /// Whether a press is ⌘, — Settings, the shortcut every Mac app gives its
+    /// settings (spec §19.1). Only ⌘ may be held, Caps Lock aside. The comma
+    /// is the one the press printed when it printed something Latin, which
+    /// keeps a layout that moves the comma working, and the US comma's key
+    /// position otherwise, as the editing keys fall back for Cyrillic.
+    static func isSettingsKey(keyCode: UInt16, characters: String?, flags: NSEvent.ModifierFlags) -> Bool {
+        guard flags.intersection([.command, .control, .option, .shift]) == .command else { return false }
+        if let first = characters?.first, first.isASCII { return first == "," }
+        return keyCode == 43
+    }
+
+    /// Asked on ⌘, while the panel is key. It is key only while a surface has
+    /// the keyboard, so this is the whole of "⌘, while a surface has the
+    /// keyboard": on every other surface ⌘, belongs to the app in front, and
+    /// the island never registers it as a global key. True means Settings
+    /// opened and the field with the caret never hears of it.
+    var settingsKeyHandled: (() -> Bool)?
+
+    /// The page a press turns to (spec §19.16): ⌃Tab one page on, ⌃⇧Tab one
+    /// back, as they move between tabs in Safari and Finder; nil for every
+    /// other press. Tab is key code 48 on every layout, so only the modifiers
+    /// decide, Caps Lock aside.
+    static func pageStep(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Int? {
+        guard keyCode == 48 else { return nil }
+        switch flags.intersection([.command, .control, .option, .shift]) {
+        case .control: return 1
+        case [.control, .shift]: return -1
+        default: return nil
+        }
+    }
+
+    /// Asked on ⌃Tab and ⌃⇧Tab while the panel is key, with the step. True
+    /// means the pages took it; false lets it through — to a shortcut being
+    /// recorded in Settings, say. Ahead of the field, which would take ⌃Tab
+    /// as a move to the next key view, one nobody can see in this panel.
+    var pageKeyHandled: ((Int) -> Bool)?
 
     /// Raised on ⇧⌘C, before the source field hears of it. Returns true when
     /// a translation was there to copy (or was there, but answers text since
@@ -158,6 +247,12 @@ final class NotchPanel: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        // Ahead of the latch: the menu tracks the mouse in a loop of its own
+        // and takes the release, so a press latched here would never end.
+        if Self.isSecondaryClick(type: event.type, flags: event.modifierFlags),
+           secondaryClickHandled?(event.locationInWindow) == true {
+            return
+        }
         // First, ahead of every early return below, so no path through here
         // can latch a press and then skip its release.
         switch event.type {
@@ -179,13 +274,33 @@ final class NotchPanel: NSPanel {
             onEscape?()
             return
         }
+        if event.type == .keyDown, Self.isRemoveKey(keyCode: event.keyCode, flags: event.modifierFlags),
+           removeKeyHandled?() == true {
+            return
+        }
+        if event.type == .keyDown, let key = Self.listKey(keyCode: event.keyCode, flags: event.modifierFlags) {
+            // A composition in progress owns its arrows and its Return, as it
+            // owns Escape: they pick and commit the candidate.
+            let composing = (firstResponder as? NSTextView)?.hasMarkedText() == true
+            if !composing, listKeyHandled?(key) == true { return }
+        }
+        if event.type == .keyDown,
+           Self.isSettingsKey(keyCode: event.keyCode, characters: event.characters, flags: event.modifierFlags),
+           settingsKeyHandled?() == true {
+            return
+        }
+        if event.type == .keyDown, let step = Self.pageStep(keyCode: event.keyCode, flags: event.modifierFlags) {
+            // A composition owns its keys, as it owns Escape and the arrows.
+            let composing = (firstResponder as? NSTextView)?.hasMarkedText() == true
+            if !composing, pageKeyHandled?(step) == true { return }
+        }
         if let command = Self.editingCommand(for: event) {
             if command == .copyTranslation, onCopyTranslation?() == true { return }
             if perform(command) { return }
         }
         // Before `super`, so the window is already key by the time the click
         // reaches the field and places a caret.
-        if event.type == .leftMouseDown { onPress?() }
+        if event.type == .leftMouseDown { onPress?(event.locationInWindow) }
         super.sendEvent(event)
     }
 

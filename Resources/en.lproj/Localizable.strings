@@ -8,9 +8,9 @@
 "Clipboard" = "Clipboard";
 "Translate" = "Translate";
 "Settings" = "Settings";
+"Close Settings" = "Close Settings";
 
 /* Menu bar */
-"Quit" = "Quit";
 
 /* Settings tab */
 "General" = "General";
@@ -22,11 +22,9 @@
 "Clear Screenshots Folder" = "Clear Screenshots Folder";
 "Clear Screenshots Folder (%@)" = "Clear Screenshots Folder (%@)";
 "Privacy" = "Privacy";
-"Application" = "Application";
 "About %@" = "About %@";
 
 /* Shelf */
-"%d selected" = "%d selected";
 "Deselect" = "Deselect";
 "Clear" = "Clear";
 "Copy" = "Copy";
@@ -40,7 +38,6 @@
 
 /* Translate */
 "Translation Languages…" = "Translation Languages…";
-"Retry" = "Retry";
 
 /* Countdown, lower-case: the capital is added where the label is built.
    Abbreviated on purpose: a panel header has room for "in 12 min"
@@ -79,7 +76,6 @@
 "Translate Online" = "Translate Online";
 "Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet." = "Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet.";
 "Translations stay on this Mac." = "Translations stay on this Mac.";
-"Clear Everything" = "Clear Everything";
 "Delete These Files" = "Delete These Files";
 "Quit Isla" = "Quit Isla";
 "Asks for confirmation before acting." = "Asks for confirmation before acting.";
@@ -91,7 +87,6 @@
 "%@ of %@" = "%@ of %@";
 "Remove Entry" = "Remove Entry";
 "Copy Entry" = "Copy Entry";
-"Peek at New Tracks" = "Peek at New Tracks";
 "Show Lyrics" = "Show Lyrics";
 "Lyrics" = "Lyrics";
 "Show on Lock Screen" = "Show on Lock Screen";
@@ -120,12 +115,9 @@
 "Cannot be stored on this Mac." = "Cannot be stored on this Mac.";
 
 /* Lyrics stage */
-"Back to Player" = "Back to Player";
 "Lyrics Earlier" = "Lyrics Earlier";
 "Lyrics Later" = "Lyrics Later";
 "Lyric Timing" = "Lyric Timing";
-"Reset lyric timing" = "Reset lyric timing";
-"Import Local LRC" = "Import Local LRC";
 "Remove Local Binding" = "Remove Local Binding";
 "Edit Lyrics" = "Edit Lyrics";
 "Save Copy" = "Save Copy";
@@ -136,7 +128,6 @@
 "Title" = "Title";
 "Artist" = "Artist";
 "Album" = "Album";
-"Version" = "Version";
 "Duration" = "Duration";
 "Add Lyric Line" = "Add Lyric Line";
 "Remove Lyric Line" = "Remove Lyric Line";
@@ -149,8 +140,6 @@
 
 /* Table stakes: transport modes, hover delay, empty state */
 "Shuffle" = "Shuffle";
-"Repeat" = "Repeat";
-"On" = "On";
 "Off" = "Off";
 "All Tracks" = "All Tracks";
 "This Track" = "This Track";
@@ -160,7 +149,6 @@
 "Sync" = "Sync";
 "Back to the current line" = "Back to the current line";
 "Sound Output" = "Sound Output";
-"Glass" = "Glass";
 "Solid" = "Solid";
 "Lock Screen" = "Lock Screen";
 "Transparent" = "Transparent";
@@ -201,8 +189,10 @@
 
 /* Music Only */
 "Music Only" = "Music Only";
-"Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show.";
 "Anything playing shows on the island, videos included." = "Anything playing shows on the island, videos included.";
+"Players on This Mac" = "Players on This Mac";
+"These players always show. Any other app shows when it says it is playing audio." = "These players always show. Any other app shows when it says it is playing audio.";
+"These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio." = "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio.";
 
 /* Keyboard Shortcuts */
 "Show the lyrics" = "Show the lyrics";
@@ -228,17 +218,35 @@
 
 /* Updates */
 "Check for Updates" = "Check for Updates";
-"Checking…" = "Checking…";
-"Isla %@ is the latest version." = "Isla %@ is the latest version.";
 "Download Isla %@" = "Download Isla %@";
 "Quit Isla, then replace it in Applications with the new version." = "Quit Isla, then replace it in Applications with the new version.";
 "Could not reach GitHub. Try again later." = "Could not reach GitHub. Try again later.";
 "Check for Updates Automatically" = "Check for Updates Automatically";
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Asks GitHub once a day for the latest version. It sends nothing about you.";
 "Update available" = "Update available";
+"Rehearsal: update from a local folder" = "Rehearsal: update from a local folder";
+"Software Update" = "Software Update";
+"Isla is up to date" = "Isla is up to date";
+"Checking for updates…" = "Checking for updates…";
+"Update available · %@" = "Update available · %@";
+"Update Now" = "Update Now";
+"More Info…" = "More Info…";
+"Downloading Isla %@…" = "Downloading Isla %@…";
+"Verifying…" = "Verifying…";
+"Installing…" = "Installing…";
+"Restarting Isla…" = "Restarting Isla…";
+"Isla has been updated. Quit Isla and open it again to finish." = "Isla has been updated. Quit Isla and open it again to finish.";
+"Isla couldn't open the downloaded update." = "Isla couldn't open the downloaded update.";
+"The update couldn't be installed." = "The update couldn't be installed.";
+"The download didn't match Isla's signature, so it was deleted." = "The download didn't match Isla's signature, so it was deleted.";
+"Isla couldn't reach GitHub." = "Isla couldn't reach GitHub.";
+"There isn't enough space on the disk." = "There isn't enough space on the disk.";
+"Isla couldn't replace itself in its folder." = "Isla couldn't replace itself in its folder.";
+"The downloaded app isn't a valid Isla update." = "The downloaded app isn't a valid Isla update.";
+"Isla can't update itself from this location." = "Isla can't update itself from this location.";
+"This update can only be installed from its download page." = "This update can only be installed from its download page.";
 
 /* Lyrics page offers */
-"Look Up Online" = "Look Up Online";
 "Sends the title, artist, album and length to LRCLIB." = "Sends the title, artist, album and length to LRCLIB.";
 
 /* Clipboard History */
@@ -274,11 +282,11 @@
 
 /* Charging and headphones */
 "Charging" = "Charging";
+"Charger Connected" = "Charger Connected";
 "Charging, %d percent" = "Charging, %d percent";
+"Shelf, %d items" = "Shelf, %d items";
 "%@ connected" = "%@ connected";
 "%d%%" = "%d%%";
-"Show Charging" = "Show Charging";
-"Show Headphones Connecting" = "Show Headphones Connecting";
 
 /* Shelf sharing */
 "Quick Look" = "Quick Look";
@@ -298,8 +306,6 @@
 "No lyrics for live audio." = "No lyrics for live audio.";
 "This track has no title to look up." = "This track has no title to look up.";
 "Unlock your Mac to open Isla." = "Unlock your Mac to open Isla.";
-"Drop files here to keep them" = "Drop files here to keep them";
-"From Finder, Mail, Photos or a browser. Holds %d." = "From Finder, Mail, Photos or a browser. Holds %d.";
 "Select" = "Select";
 "Selected" = "Selected";
 
@@ -311,7 +317,6 @@
 "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on.";
 "Opens the panel" = "Opens the panel";
 "Closes the panel" = "Closes the panel";
-"Tabs" = "Tabs";
 "Welcome" = "Welcome";
 "%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@ is translated online only. Turning on Translate Online sends this text to MyMemory.";
 "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory.";
@@ -321,7 +326,6 @@
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS is not letting Isla read what you copy, so nothing new is kept.";
 "Open Privacy Settings" = "Open Privacy Settings";
 "Nothing copied yet" = "Nothing copied yet";
-"Text and files you copy appear here. Copies from password managers are skipped." = "Text and files you copy appear here. Copies from password managers are skipped.";
 "Turn On" = "Turn On";
 "Something is playing that Music Only keeps off the island." = "Something is playing that Music Only keeps off the island.";
 "Open Settings" = "Open Settings";
@@ -343,8 +347,6 @@
 "Not asked yet" = "Not asked yet";
 "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.";
 "Open Automation Settings…" = "Open Automation Settings…";
-"Remove %d" = "Remove %d";
-"Remove %d from Shelf" = "Remove %d from Shelf";
 "Already on the Shelf" = "Already on the Shelf";
 "The Shelf holds %d, so the oldest card left it. Its file is untouched." = "The Shelf holds %d, so the oldest card left it. Its file is untouched.";
 "The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "The Shelf holds %d, so the %d oldest left it. Their files are untouched.";
@@ -361,11 +363,12 @@
 "Type or paste text" = "Type or paste text";
 "The clipboard has no text." = "The clipboard has no text.";
 "Only the first %@ characters were kept." = "Only the first %@ characters were kept.";
+"macOS is not letting Isla read what you copy." = "macOS is not letting Isla read what you copy.";
+"The limit is %@ characters." = "The limit is %@ characters.";
 "Muted" = "Muted";
 "AirDrop is not available on this Mac." = "AirDrop is not available on this Mac.";
 "AirDrop cannot send these files." = "AirDrop cannot send these files.";
 "Release to add to the Shelf" = "Release to add to the Shelf";
-"Drop to keep on the Shelf" = "Drop to keep on the Shelf";
 "Moved 1 file to the Trash." = "Moved 1 file to the Trash.";
 "Moved %d files to the Trash." = "Moved %d files to the Trash.";
 "Only the first %@ characters were translated online." = "Only the first %@ characters were translated online.";
@@ -374,18 +377,10 @@
 "No Dock or menu-bar icon. Click the notch or press %@ to come back." = "No Dock or menu-bar icon. Click the notch or press %@ to come back.";
 "No Dock or menu-bar icon. Click the notch to come back." = "No Dock or menu-bar icon. Click the notch to come back.";
 "Nothing leaves your Mac unless you turn it on." = "Nothing leaves your Mac unless you turn it on.";
-"What's playing, with lyrics (%@)" = "What's playing, with lyrics (%@)";
-"What's playing, with lyrics" = "What's playing, with lyrics";
-"Files you drop on the notch" = "Files you drop on the notch";
-"What you copied, kept in memory" = "What you copied, kept in memory";
-"%@ translates what you copied" = "%@ translates what you copied";
-"Translates what you copied" = "Translates what you copied";
-"Privacy, shortcuts and Quit" = "Privacy, shortcuts and Quit";
 "Needs your approval in Login Items." = "Needs your approval in Login Items.";
 "Open Login Items…" = "Open Login Items…";
 "Launch at Login failed: %@" = "Launch at Login failed: %@";
 "Reset Lyric Timing" = "Reset Lyric Timing";
-"Lyric timing correction" = "Lyric timing correction";
 "GitHub is limiting checks right now. Try again in an hour." = "GitHub is limiting checks right now. Try again in an hour.";
 "GitHub did not answer properly. Try again later." = "GitHub did not answer properly. Try again later.";
 "%@ now belongs to “%@”. “%@” has no shortcut." = "%@ now belongs to “%@”. “%@” has no shortcut.";
@@ -395,7 +390,6 @@
 "Reduce Transparency" = "Reduce Transparency";
 "Increase Contrast" = "Increase Contrast";
 "A file from the drag could not be received." = "A file from the drag could not be received.";
-"New screenshot" = "New screenshot";
 "Isla could not open your browser for Spotify sign-in." = "Isla could not open your browser for Spotify sign-in.";
 "The account was not imported. Try again, or connect it anew." = "The account was not imported. Try again, or connect it anew.";
 "Spotify signed you in, but Isla could not save the account on this Mac." = "Spotify signed you in, but Isla could not save the account on this Mac.";
@@ -412,3 +406,160 @@
 "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change." = "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change.";
 "Sync Here" = "Sync Here";
 "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here." = "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here.";
+
+/* The redesigned player (spec 4, 15) */
+"Repeat: %@" = "Repeat: %@";
+"LIVE" = "LIVE";
+"Sound Settings…" = "Sound Settings…";
+"Start a song in Music or Spotify, or open one here." = "Start a song in Music or Spotify, or open one here.";
+"Videos and films stay off the island." = "Videos and films stay off the island.";
+"Settings › Music says why, with Try Again." = "Settings › Music says why, with Try Again.";
+"In the player" = "In the player";
+"Output Button" = "Output Button";
+"Lyric Band" = "Lyric Band";
+"Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title." = "Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title.";
+
+/* The lyric column, the tall page and the header's tools (spec 5, 6, 15) */
+"Collapse" = "Collapse";
+"Hide Lyrics" = "Hide Lyrics";
+"Show Translation" = "Show Translation";
+"Hide Translation" = "Hide Translation";
+"More Lyrics Options" = "More Lyrics Options";
+"Import LRC File…" = "Import LRC File…";
+"Search Again" = "Search Again";
+"Search Online" = "Search Online";
+"Lyrics Settings…" = "Lyrics Settings…";
+"Looking for lyrics…" = "Looking for lyrics…";
+"Edit Lyrics…" = "Edit Lyrics…";
+
+/* Lyric translation (spec 5.3, 14, 15) */
+"Translate Lyrics" = "Translate Lyrics";
+"Translation" = "Translation";
+"Translated on this Mac" = "Translated on this Mac";
+"Translated on this Mac. Nothing is sent over the internet." = "Translated on this Mac. Nothing is sent over the internet.";
+"Before macOS 26 this Mac cannot translate lyrics itself. Turn on Translate Online to translate them." = "Before macOS 26 this Mac cannot translate lyrics itself. Turn on Translate Online to translate them.";
+
+/* Translate To: the stored-nothing choice (review 2026-10-15). */
+"Automatic" = "Automatic";
+
+/* The lock screen: the banner, the card and its panes (redesign 2026-10-15, spec 7, 15) */
+"Back to Player" = "Back to Player";
+"Sound" = "Sound";
+"Rest as Banner" = "Rest as Banner";
+"The card waits as a slim banner under the clock; click it to open." = "The card waits as a slim banner under the clock; click it to open.";
+"Card Style" = "Card Style";
+"Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid." = "Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid.";
+
+/* The Shelf as Finder's icon view (redesign 2026-10-15, spec 8, 15) */
+"%d items" = "%d items";
+"1 item" = "1 item";
+"Remove" = "Remove";
+"Keep on Shelf" = "Keep on Shelf";
+"Send to a nearby device" = "Send to a nearby device";
+"Remove all %d items? Files are untouched." = "Remove all %d items? Files are untouched.";
+"Remove All" = "Remove All";
+"Open With" = "Open With";
+
+/* The Clipboard: kinds, pins, search, images (redesign 2026-10-15, spec 9, 15) */
+"Now" = "Now";
+"%d min" = "%d min";
+"%d hr" = "%d hr";
+"Today" = "Today";
+"Yesterday" = "Yesterday";
+"Kind" = "Kind";
+"All" = "All";
+"Text" = "Text";
+"Links" = "Links";
+"Images" = "Images";
+"Files" = "Files";
+"Image" = "Image";
+"%d files" = "%d files";
+"%@, %@ and %d more" = "%@, %@ and %d more";
+"Pin" = "Pin";
+"Unpin" = "Unpin";
+"Copy as Plain Text" = "Copy as Plain Text";
+"Clear Everything…" = "Clear Everything…";
+"Clear %d entries? Pinned items stay." = "Clear %d entries? Pinned items stay.";
+"Clear History" = "Clear History";
+"Search" = "Search";
+"Clear Search" = "Clear Search";
+"No Results for “%@”" = "No Results for “%@”";
+"Check the spelling or try a new search." = "Check the spelling or try a new search.";
+"No Text" = "No Text";
+"No Links" = "No Links";
+"No Images" = "No Images";
+"No Files" = "No Files";
+"Copies of this kind appear here." = "Copies of this kind appear here.";
+"Text, links, images and files you copy appear here. Copies from password managers are skipped." = "Text, links, images and files you copy appear here. Copies from password managers are skipped.";
+"Images are kept in memory, like the rest of the history." = "Images are kept in memory, like the rest of the history.";
+"Include Images" = "Include Images";
+"Keep Pinned Items" = "Keep Pinned Items";
+"History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac." = "History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac.";
+
+/* Settings: the sidebar and the grouped form (R4) */
+"About" = "About";
+"Account" = "Account";
+"Acknowledgements…" = "Acknowledgements…";
+"Automation" = "Automation";
+"Click the notch to open the panel. Open on Hover also opens it when the pointer rests there." = "Click the notch to open the panel. Open on Hover also opens it when the pointer rests there.";
+"Connected" = "Connected";
+"Cover" = "Cover";
+"From another Mac" = "From another Mac";
+"Headphones Connecting" = "Headphones Connecting";
+"History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice." = "History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice.";
+"Keep History" = "Keep History";
+"New Tracks" = "New Tracks";
+"Not connected" = "Not connected";
+"Now Playing" = "Now Playing";
+"Now Playing reader" = "Now Playing reader";
+"Online" = "Online";
+"Permission" = "Permission";
+"Settings sections" = "Settings sections";
+"Shortcuts" = "Shortcuts";
+"Speak Button" = "Speak Button";
+"The island shows" = "The island shows";
+"Version %@" = "Version %@";
+"Volume and Brightness" = "Volume and Brightness";
+"Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission.";
+"Accessibility" = "Accessibility";
+"Open Privacy & Security…" = "Open Privacy & Security…";
+"Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again." = "Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again.";
+"Isla has the permission but macOS isn’t passing it the volume and brightness keys yet. Switch Volume and Brightness off and on again; if that doesn’t help, restart the Mac." = "Isla has the permission but macOS isn’t passing it the volume and brightness keys yet. Switch Volume and Brightness off and on again; if that doesn’t help, restart the Mac.";
+"Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up." = "Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up.";
+"Volume %@" = "Volume %@";
+"Brightness %@" = "Brightness %@";
+"Keyboard Brightness %@" = "Keyboard Brightness %@";
+
+/* Translate: pair bar, Paste, Speak, History (R4) */
+"On this Mac" = "On this Mac";
+"Recent" = "Recent";
+"Paste" = "Paste";
+"Speak" = "Speak";
+"Stop Speaking" = "Stop Speaking";
+"History" = "History";
+"Use Online" = "Use Online";
+"No translations yet" = "No translations yet";
+"Sends this text to MyMemory over the internet." = "Sends this text to MyMemory over the internet.";
+
+/* The volume pop-up names what the brightness keys move (spec §19.5 d). */
+"Display Brightness" = "Display Brightness";
+"Keyboard Brightness" = "Keyboard Brightness";
+
+/* Activities first: the surfaces that replaced the tabs (spec §19.6–§19.8). */
+"Favorite" = "Favorite";
+"Remove from Favorites" = "Remove from Favorites";
+"Drag files to the notch to keep them here." = "Drag files to the notch to keep them here.";
+"Click the island to open what’s playing." = "Click the island to open what’s playing.";
+"Swipe sideways for the Shelf, Clipboard and Translate." = "Swipe sideways for the Shelf, Clipboard and Translate.";
+"Pages" = "Pages";
+"Page %d of %d, %@" = "Page %d of %d, %@";
+"Drag files to the notch to keep them." = "Drag files to the notch to keep them.";
+"Pinned" = "Pinned";
+"↩ Copy" = "↩ Copy";
+
+/* The island's right-click menu (spec §19.9). */
+"Translate Clipboard" = "Translate Clipboard";
+"Settings…" = "Settings…";
+
+/* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
+"Show the clipboard" = "Show the clipboard";

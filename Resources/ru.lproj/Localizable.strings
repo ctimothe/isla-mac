@@ -14,9 +14,9 @@
 "Clipboard" = "Буфер обмена";
 "Translate" = "Перевод";
 "Settings" = "Настройки";
+"Close Settings" = "Закрыть настройки";
 
 /* Меню-бар */
-"Quit" = "Выйти";
 
 /* Вкладка настроек */
 "General" = "Общее";
@@ -28,11 +28,9 @@
 "Clear Screenshots Folder" = "Очистить папку скриншотов";
 "Clear Screenshots Folder (%@)" = "Очистить папку скриншотов (%@)";
 "Privacy" = "Конфиденциальность";
-"Application" = "Приложение";
 "About %@" = "О программе %@";
 
 /* Полка */
-"%d selected" = "Выбрано %d";
 "Deselect" = "Снять выбор";
 "Clear" = "Очистить";
 "Copy" = "Копировать";
@@ -46,7 +44,6 @@
 
 /* Перевод */
 "Translation Languages…" = "Языки перевода…";
-"Retry" = "Повторить";
 
 /* Отсчёт со строчной: прописную ставит то место, где строится подпись.
    Сокращения намеренные: в шапку панели помещается «через 12 мин», но
@@ -75,7 +72,7 @@
 "%@ (Online)" = "%@ (онлайн)";
 "Swap Languages" = "Поменять языки местами";
 "Translate From" = "Исходный язык";
-"Translate To" = "Язык перевода";
+"Translate To" = "Переводить на";
 "%@ is not downloaded for translation on this Mac." = "%@: язык не загружен для перевода на этом Mac.";
 "Online translation is not reachable right now." = "Онлайн-перевод сейчас недоступен.";
 "Today's free online translations are used up." = "Бесплатный онлайн-перевод на сегодня исчерпан.";
@@ -85,7 +82,6 @@
 "Translate Online" = "Переводить онлайн";
 "Languages this Mac cannot translate itself, such as Uzbek, are sent to MyMemory over the internet." = "Языки, которые этот Mac не переводит сам, например узбекский, отправляются в MyMemory через интернет.";
 "Translations stay on this Mac." = "Переводы остаются на этом Mac.";
-"Clear Everything" = "Очистить всё";
 "Delete These Files" = "Удалить эти файлы";
 "Quit Isla" = "Выйти из Isla";
 "Asks for confirmation before acting." = "Запрашивает подтверждение перед действием.";
@@ -97,7 +93,6 @@
 "%@ of %@" = "%@ из %@";
 "Remove Entry" = "Удалить запись";
 "Copy Entry" = "Копировать запись";
-"Peek at New Tracks" = "Показывать новые треки";
 "Show Lyrics" = "Показывать текст песни";
 "Lyrics" = "Текст песни";
 "Show on Lock Screen" = "Показывать на экране блокировки";
@@ -126,12 +121,9 @@
 "Cannot be stored on this Mac." = "Не удаётся сохранить на этом Mac.";
 
 /* Lyrics stage */
-"Back to Player" = "Назад к плееру";
 "Lyrics Earlier" = "Текст раньше";
 "Lyrics Later" = "Текст позже";
 "Lyric Timing" = "Тайминг текста";
-"Reset lyric timing" = "Сбросить тайминг текста";
-"Import Local LRC" = "Импортировать локальный LRC";
 "Remove Local Binding" = "Удалить привязку локального текста";
 "Edit Lyrics" = "Редактировать текст";
 "Save Copy" = "Сохранить копию";
@@ -142,7 +134,6 @@
 "Title" = "Название";
 "Artist" = "Исполнитель";
 "Album" = "Альбом";
-"Version" = "Версия";
 "Duration" = "Длительность";
 "Add Lyric Line" = "Добавить строку текста";
 "Remove Lyric Line" = "Удалить строку текста";
@@ -155,8 +146,6 @@
 
 /* Table stakes: transport modes, hover delay, empty state */
 "Shuffle" = "Перемешать";
-"Repeat" = "Повтор";
-"On" = "Вкл";
 "Off" = "Выкл";
 "All Tracks" = "Все треки";
 "This Track" = "Этот трек";
@@ -166,7 +155,6 @@
 "Sync" = "К строке";
 "Back to the current line" = "Вернуться к текущей строке";
 "Sound Output" = "Выход звука";
-"Glass" = "Стекло";
 "Solid" = "Сплошное";
 "Lock Screen" = "Экран блокировки";
 "Transparent" = "Прозрачное";
@@ -207,8 +195,10 @@
 
 /* Только музыка */
 "Music Only" = "Только музыка";
-"Videos and films stay off the island. Music apps, podcasts, and songs in Telegram still show." = "Видео и фильмы не появляются на острове. Музыкальные приложения, подкасты и песни в Telegram по-прежнему видны.";
 "Anything playing shows on the island, videos included." = "На острове показывается всё, что играет, включая видео.";
+"Players on This Mac" = "Плееры на этом Mac";
+"These players always show. Any other app shows when it says it is playing audio." = "Эти плееры показываются всегда. Любое другое приложение показывается, когда сообщает, что воспроизводит звук.";
+"These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio." = "Эти плееры показываются всегда, кроме Telegram: он показывает песни, но не видео. Любое другое приложение показывается, когда сообщает, что воспроизводит звук.";
 
 /* Сочетания клавиш */
 "Show the lyrics" = "Показать текст песни";
@@ -234,17 +224,35 @@
 
 /* Обновления */
 "Check for Updates" = "Проверить обновления";
-"Checking…" = "Проверка…";
-"Isla %@ is the latest version." = "Isla %@ — последняя версия.";
 "Download Isla %@" = "Скачать Isla %@";
 "Quit Isla, then replace it in Applications with the new version." = "Закройте Isla и замените её в Программах новой версией.";
 "Could not reach GitHub. Try again later." = "Не удалось связаться с GitHub. Попробуйте позже.";
 "Check for Updates Automatically" = "Проверять обновления автоматически";
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Раз в день спрашивает у GitHub последнюю версию. О вас ничего не отправляется.";
 "Update available" = "Доступно обновление";
+"Rehearsal: update from a local folder" = "Репетиция: обновление из локальной папки";
+"Software Update" = "Обновление ПО";
+"Isla is up to date" = "Установлена последняя версия Isla";
+"Checking for updates…" = "Поиск обновлений…";
+"Update available · %@" = "Доступно обновление · %@";
+"Update Now" = "Обновить сейчас";
+"More Info…" = "Подробнее…";
+"Downloading Isla %@…" = "Загрузка Isla %@…";
+"Verifying…" = "Проверка…";
+"Installing…" = "Установка…";
+"Restarting Isla…" = "Перезапуск Isla…";
+"Isla has been updated. Quit Isla and open it again to finish." = "Isla обновлена. Закройте Isla и откройте её снова, чтобы завершить.";
+"Isla couldn't open the downloaded update." = "Isla не удалось открыть загруженное обновление.";
+"The update couldn't be installed." = "Не удалось установить обновление.";
+"The download didn't match Isla's signature, so it was deleted." = "Загруженный файл не совпал с подписью Isla, поэтому он удалён.";
+"Isla couldn't reach GitHub." = "Isla не удалось связаться с GitHub.";
+"There isn't enough space on the disk." = "На диске недостаточно места.";
+"Isla couldn't replace itself in its folder." = "Не удалось заменить Isla в её папке.";
+"The downloaded app isn't a valid Isla update." = "Загруженное приложение — не подлинное обновление Isla.";
+"Isla can't update itself from this location." = "Isla не может обновить себя из этого расположения.";
+"This update can only be installed from its download page." = "Это обновление можно установить только со страницы загрузки.";
 
 /* Предложения страницы текста */
-"Look Up Online" = "Найти в интернете";
 "Sends the title, artist, album and length to LRCLIB." = "Отправляет в LRCLIB название, исполнителя, альбом и длительность.";
 
 /* История буфера обмена */
@@ -279,12 +287,12 @@
 "Isla is still starting up. Try again in a moment." = "Isla ещё запускается. Попробуйте через мгновение.";
 
 /* Зарядка и наушники */
-"Charging" = "Заряжается";
-"Charging, %d percent" = "Заряжается: %d %%";
+"Charging" = "Зарядка";
+"Charger Connected" = "Подключение зарядки";
+"Charging, %d percent" = "Зарядка, %d %%";
+"Shelf, %d items" = "Полка, объектов: %d";
 "%@ connected" = "%@: подключено";
 "%d%%" = "%d %%";
-"Show Charging" = "Показывать зарядку";
-"Show Headphones Connecting" = "Показывать подключение наушников";
 
 /* Отправка с Полки */
 "Quick Look" = "Быстрый просмотр";
@@ -304,8 +312,6 @@
 "No lyrics for live audio." = "Для прямого эфира текста нет.";
 "This track has no title to look up." = "У этого трека нет названия для поиска.";
 "Unlock your Mac to open Isla." = "Разблокируйте Mac, чтобы открыть Isla.";
-"Drop files here to keep them" = "Перетащите сюда файлы, чтобы держать их под рукой";
-"From Finder, Mail, Photos or a browser. Holds %d." = "Из Finder, Почты, Фото или браузера. Помещается %d.";
 "Select" = "Выбрать";
 "Selected" = "Выбрано";
 
@@ -317,7 +323,6 @@
 "Copied text is not kept. Copies are still checked for screenshots while Save Clipboard Screenshots is on." = "Скопированный текст не сохраняется. Пока включено «Сохранять скриншоты из буфера», скопированное проверяется на скриншоты.";
 "Opens the panel" = "Открывает панель";
 "Closes the panel" = "Закрывает панель";
-"Tabs" = "Вкладки";
 "Welcome" = "Добро пожаловать";
 "%@ is translated online only. Turning on Translate Online sends this text to MyMemory." = "%@: перевод есть только онлайн. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
 "Translation on this Mac needs macOS 26 or newer. Turning on Translate Online sends this text to MyMemory." = "На этом Mac для перевода нужна macOS 26 или новее. Если включить «Переводить онлайн», текст уйдёт в MyMemory.";
@@ -327,7 +332,6 @@
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется.";
 "Open Privacy Settings" = "Открыть настройки конфиденциальности";
 "Nothing copied yet" = "Пока ничего не скопировано";
-"Text and files you copy appear here. Copies from password managers are skipped." = "Здесь появится то, что вы копируете. Копии из менеджеров паролей не сохраняются.";
 "Turn On" = "Включить";
 "Something is playing that Music Only keeps off the island." = "Сейчас играет то, что «Только музыка» не показывает на острове.";
 "Open Settings" = "Открыть настройки";
@@ -349,8 +353,6 @@
 "Not asked yet" = "Ещё не запрашивалось";
 "Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation." = "Isla не может читать плеер, которым ей не разрешено управлять. Разрешите Isla в разделе «Конфиденциальность и безопасность» › «Автоматизация».";
 "Open Automation Settings…" = "Открыть настройки автоматизации…";
-"Remove %d" = "Убрать %d";
-"Remove %d from Shelf" = "Убрать с полки: %d";
 "Already on the Shelf" = "Уже на полке";
 "The Shelf holds %d, so the oldest card left it. Its file is untouched." = "На полке помещается %d, поэтому самая старая карточка убрана. Сам файл не тронут.";
 "The Shelf holds %d, so the %d oldest left it. Their files are untouched." = "На полке помещается %d, поэтому самые старые убраны: %d. Сами файлы не тронуты.";
@@ -367,11 +369,12 @@
 "Type or paste text" = "Введите или вставьте текст";
 "The clipboard has no text." = "В буфере обмена нет текста.";
 "Only the first %@ characters were kept." = "Сохранены только первые %@ символов.";
+"macOS is not letting Isla read what you copy." = "macOS не разрешает Isla читать скопированное.";
+"The limit is %@ characters." = "Больше %@ символов не поместится.";
 "Muted" = "Звук выключен";
 "AirDrop is not available on this Mac." = "AirDrop недоступен на этом Mac.";
 "AirDrop cannot send these files." = "AirDrop не может отправить эти файлы.";
 "Release to add to the Shelf" = "Отпустите, чтобы положить на полку";
-"Drop to keep on the Shelf" = "Отпустите, чтобы оставить на полке";
 "Moved 1 file to the Trash." = "Перемещён в Корзину 1 файл.";
 "Moved %d files to the Trash." = "Перемещено в Корзину файлов: %d.";
 "Only the first %@ characters were translated online." = "Онлайн переведены только первые %@ символов.";
@@ -380,18 +383,10 @@
 "No Dock or menu-bar icon. Click the notch or press %@ to come back." = "Значка в Dock и строке меню нет. Нажмите на вырез или %@, чтобы вернуться.";
 "No Dock or menu-bar icon. Click the notch to come back." = "Значка в Dock и строке меню нет. Нажмите на вырез, чтобы вернуться.";
 "Nothing leaves your Mac unless you turn it on." = "Ничто не покидает ваш Mac, пока вы это не включите.";
-"What's playing, with lyrics (%@)" = "Что играет — с текстом песни (%@)";
-"What's playing, with lyrics" = "Что играет — с текстом песни";
-"Files you drop on the notch" = "Файлы, брошенные на вырез";
-"What you copied, kept in memory" = "Скопированное, только в памяти";
-"%@ translates what you copied" = "%@ переводит скопированное";
-"Translates what you copied" = "Переводит скопированное";
-"Privacy, shortcuts and Quit" = "Приватность, сочетания клавиш и выход";
 "Needs your approval in Login Items." = "Нужно ваше разрешение в разделе «Объекты входа».";
 "Open Login Items…" = "Открыть «Объекты входа»…";
 "Launch at Login failed: %@" = "Не удалось включить автозапуск: %@";
 "Reset Lyric Timing" = "Сбросить смещение текста";
-"Lyric timing correction" = "Смещение текста песни";
 "GitHub is limiting checks right now. Try again in an hour." = "GitHub сейчас ограничивает проверки. Попробуйте через час.";
 "GitHub did not answer properly. Try again later." = "GitHub ответил с ошибкой. Попробуйте позже.";
 "%@ now belongs to “%@”. “%@” has no shortcut." = "%@ теперь у действия «%@». У «%@» больше нет сочетания клавиш.";
@@ -401,7 +396,6 @@
 "Reduce Transparency" = "Понижение прозрачности";
 "Increase Contrast" = "Увеличение контраста";
 "A file from the drag could not be received." = "Не удалось получить файл из перетаскивания.";
-"New screenshot" = "Новый скриншот";
 "Isla could not open your browser for Spotify sign-in." = "Isla не смогла открыть браузер для входа в Spotify.";
 "The account was not imported. Try again, or connect it anew." = "Учётная запись не перенесена. Повторите попытку или подключите её заново.";
 "Spotify signed you in, but Isla could not save the account on this Mac." = "Вход в Spotify выполнен, но Isla не смогла сохранить учётную запись на этом Mac.";
@@ -418,3 +412,160 @@
 "The island's one-line lyric turns to the next line a little before it is sung; Auto gives longer lines more time. Highlight timing does not change." = "Однострочный текст на острове переключается на следующую строку чуть раньше, чем её запоют; в режиме «Авто» длинным строкам даётся больше времени. Подсветка слов не меняется.";
 "Sync Here" = "Синхронизировать здесь";
 "These lyrics are timed for a longer version of the song and may run late. Right-click the line being sung and choose Sync Here." = "Текст рассчитан на более длинную версию песни и может отставать. Нажмите правой кнопкой на строке, которая сейчас поётся, и выберите «Синхронизировать здесь».";
+
+/* The redesigned player (spec 4, 15) */
+"Repeat: %@" = "Повтор: %@";
+"LIVE" = "ЭФИР";
+"Sound Settings…" = "Настройки звука…";
+"Start a song in Music or Spotify, or open one here." = "Включите песню в Музыке или Spotify либо откройте одно из приложений здесь.";
+"Videos and films stay off the island." = "Видео и фильмы на острове не показываются.";
+"Settings › Music says why, with Try Again." = "Причина — в Настройках › Музыка, там же кнопка «Повторить».";
+"In the player" = "В плеере";
+"Output Button" = "Кнопка выхода звука";
+"Lyric Band" = "Строка текста";
+"Output Button puts the sound output menu in the player. Lyric Band is the sung line and the next one, under the title." = "«Кнопка выхода звука» добавляет в плеер меню выбора выхода звука. «Строка текста» — исполняемая и следующая строки под названием.";
+
+/* The lyric column, the tall page and the header's tools (spec 5, 6, 15) */
+"Collapse" = "Свернуть";
+"Hide Lyrics" = "Скрыть текст";
+"Show Translation" = "Показать перевод";
+"Hide Translation" = "Скрыть перевод";
+"More Lyrics Options" = "Другие параметры текста";
+"Import LRC File…" = "Импортировать файл LRC…";
+"Search Again" = "Искать снова";
+"Search Online" = "Искать в интернете";
+"Lyrics Settings…" = "Настройки текста…";
+"Looking for lyrics…" = "Ищем текст…";
+"Edit Lyrics…" = "Изменить текст…";
+
+/* Lyric translation (spec 5.3, 14, 15) */
+"Translate Lyrics" = "Переводить текст";
+"Translation" = "Перевод";
+"Translated on this Mac" = "Переведено на этом Mac";
+"Translated on this Mac. Nothing is sent over the internet." = "Перевод выполняется на этом Mac. В интернет ничего не отправляется.";
+"Before macOS 26 this Mac cannot translate lyrics itself. Turn on Translate Online to translate them." = "До macOS 26 этот Mac сам не переводит тексты песен. Включите «Переводить онлайн», чтобы перевести их.";
+
+/* Translate To: the stored-nothing choice (review 2026-10-15). */
+"Automatic" = "Автоматически";
+
+/* The lock screen: the banner, the card and its panes (redesign 2026-10-15, spec 7, 15) */
+"Back to Player" = "Назад к плееру";
+"Sound" = "Звук";
+"Rest as Banner" = "Показывать полоской";
+"The card waits as a slim banner under the clock; click it to open." = "Карточка ждёт тонкой полоской под часами; нажмите, чтобы открыть.";
+"Card Style" = "Стиль карточки";
+"Automatic tints the card with the cover and reads the wallpaper behind it. With Reduce Transparency it is Solid." = "«Автоматически» окрашивает карточку в цвет обложки и учитывает обои за ней. При уменьшении прозрачности она сплошная.";
+
+/* The Shelf as Finder's icon view (redesign 2026-10-15, spec 8, 15) */
+"%d items" = "Всего: %d";
+"1 item" = "Всего: 1";
+"Remove" = "Убрать";
+"Keep on Shelf" = "Оставить на полке";
+"Send to a nearby device" = "Отправить на устройство поблизости";
+"Remove all %d items? Files are untouched." = "Убрать все объекты (%d)? Сами файлы не затрагиваются.";
+"Remove All" = "Убрать все";
+"Open With" = "Открыть в приложении";
+
+/* The Clipboard: kinds, pins, search, images (redesign 2026-10-15, spec 9, 15) */
+"Now" = "Сейчас";
+"%d min" = "%d мин";
+"%d hr" = "%d ч";
+"Today" = "Сегодня";
+"Yesterday" = "Вчера";
+"Kind" = "Тип";
+"All" = "Все";
+"Text" = "Текст";
+"Links" = "Ссылки";
+"Images" = "Изображения";
+"Files" = "Файлы";
+"Image" = "Изображение";
+"%d files" = "Файлов: %d";
+"%@, %@ and %d more" = "%@, %@ и ещё %d";
+"Pin" = "Закрепить";
+"Unpin" = "Открепить";
+"Copy as Plain Text" = "Скопировать как простой текст";
+"Clear Everything…" = "Очистить всё…";
+"Clear %d entries? Pinned items stay." = "Очистить записи (%d)? Закреплённые останутся.";
+"Clear History" = "Очистить историю";
+"Search" = "Поиск";
+"Clear Search" = "Очистить поиск";
+"No Results for “%@”" = "Нет результатов для «%@»";
+"Check the spelling or try a new search." = "Проверьте написание или попробуйте другой запрос.";
+"No Text" = "Нет текста";
+"No Links" = "Нет ссылок";
+"No Images" = "Нет изображений";
+"No Files" = "Нет файлов";
+"Copies of this kind appear here." = "Здесь появятся копии этого типа.";
+"Text, links, images and files you copy appear here. Copies from password managers are skipped." = "Здесь появляются скопированные тексты, ссылки, изображения и файлы. Копии из менеджеров паролей пропускаются.";
+"Images are kept in memory, like the rest of the history." = "Изображения хранятся в памяти, как и вся история.";
+"Include Images" = "Сохранять изображения";
+"Keep Pinned Items" = "Хранить закреплённые";
+"History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac." = "История хранится в памяти и очищается при выходе из Isla. «Хранить закреплённые» сохраняет только закреплённое и только на этом Mac.";
+
+/* Settings: the sidebar and the grouped form (R4) */
+"About" = "О программе";
+"Account" = "Учётная запись";
+"Acknowledgements…" = "Благодарности…";
+"Automation" = "Автоматизация";
+"Click the notch to open the panel. Open on Hover also opens it when the pointer rests there." = "Нажмите на вырез, чтобы открыть панель. «Открывать при наведении» открывает её, когда указатель задерживается на нём.";
+"Connected" = "Подключено";
+"Cover" = "Скрытие";
+"From another Mac" = "С другого Mac";
+"Headphones Connecting" = "Подключение наушников";
+"History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice." = "История хранит последние 20 переводов в памяти. «Произнести» читает перевод вслух системным голосом.";
+"Keep History" = "Хранить историю";
+"New Tracks" = "Новые треки";
+"Not connected" = "Не подключено";
+"Now Playing" = "Сейчас играет";
+"Now Playing reader" = "Чтение «Сейчас играет»";
+"Online" = "Онлайн";
+"Permission" = "Разрешение";
+"Settings sections" = "Разделы настроек";
+"Shortcuts" = "Сочетания клавиш";
+"Speak Button" = "Кнопка «Произнести»";
+"The island shows" = "Остров показывает";
+"Version %@" = "Версия %@";
+"Volume and Brightness" = "Громкость и яркость";
+"Volume and Brightness replaces the Mac’s own pop-up and needs Accessibility permission." = "«Громкость и яркость» заменяет системное окно Mac и требует разрешения универсального доступа.";
+"Accessibility" = "Универсальный доступ";
+"Open Privacy & Security…" = "Открыть «Универсальный доступ»…";
+"Already switched on in the list? macOS may be holding a permission from an older copy of Isla. Select Isla, remove it with −, then switch Volume and Brightness off and on again." = "Уже включено в списке? Возможно, macOS хранит разрешение от более старой копии Isla. Выберите Isla, удалите её кнопкой −, затем выключите и снова включите «Громкость и яркость».";
+"Isla has the permission but macOS isn’t passing it the volume and brightness keys yet. Switch Volume and Brightness off and on again; if that doesn’t help, restart the Mac." = "У Isla есть разрешение, но macOS пока не передаёт ей клавиши громкости и яркости. Выключите и снова включите «Громкость и яркость»; если не поможет, перезагрузите Mac.";
+"Isla can’t see the volume keys yet. Until it can, the Mac shows its own pop-up." = "Isla пока не видит клавиши громкости. До тех пор Mac показывает своё окно.";
+"Volume %@" = "Громкость: %@";
+"Brightness %@" = "Яркость: %@";
+"Keyboard Brightness %@" = "Яркость клавиатуры: %@";
+
+/* Translate: pair bar, Paste, Speak, History (R4) */
+"On this Mac" = "На этом Mac";
+"Recent" = "Недавние";
+"Paste" = "Вставить";
+"Speak" = "Произнести";
+"Stop Speaking" = "Остановить";
+"History" = "История";
+"Use Online" = "Перевести онлайн";
+"No translations yet" = "Переводов пока нет";
+"Sends this text to MyMemory over the internet." = "Отправляет этот текст в MyMemory через интернет.";
+
+/* The volume pop-up names what the brightness keys move (spec §19.5 d). */
+"Display Brightness" = "Яркость дисплея";
+"Keyboard Brightness" = "Подсветка клавиатуры";
+
+/* Activities first: the surfaces that replaced the tabs (spec §19.6–§19.8). */
+"Favorite" = "В избранное";
+"Remove from Favorites" = "Убрать из избранного";
+"Drag files to the notch to keep them here." = "Перетащите файлы к вырезу, чтобы они хранились здесь.";
+"Click the island to open what’s playing." = "Нажмите на остров, чтобы открыть то, что играет.";
+"Swipe sideways for the Shelf, Clipboard and Translate." = "Смахните в сторону, чтобы открыть полку, буфер обмена и перевод.";
+"Pages" = "Страницы";
+"Page %d of %d, %@" = "Страница %d из %d, %@";
+"Drag files to the notch to keep them." = "Перетащите файлы к вырезу, чтобы сохранить их.";
+"Pinned" = "Закреплено";
+"↩ Copy" = "↩ Скопировать";
+
+/* The island's right-click menu (spec §19.9). */
+"Translate Clipboard" = "Перевести буфер обмена";
+"Settings…" = "Настройки…";
+
+/* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
+"Show the clipboard" = "Показать буфер обмена";

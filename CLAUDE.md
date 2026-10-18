@@ -51,10 +51,15 @@ update the spec/design first, then checklist and code in the same change.
 
 **Removed features stay removed.** Snippets and Calendar went on 2026-08-20;
 Notes and the Teleprompter on 2026-08-22 (`57650e0`), taking the second rail and
-the tall panel body with them. Five tabs ship — Music, Shelf, Clipboard,
-Translate, Settings — on one rail, and
-`Tests/IslaKitTests/TabContractTests.swift` asserts the absence so a tab
-cannot creep back. The parity design records each removal as a dated
+the tall panel body with them. Since R8 (spec §19, 2026-10-18) there are no
+tabs and no rail: the panel shows one surface at a time — the player, the
+lyric stage, the Shelf's tray, the drop surface, Clipboard, Translate,
+Settings and the welcome (`NotchViewModel.Surface`) — reached from the
+island, the pages' dots and swipe, the gear, the right-click menu and the hot
+keys. Tools went with R8b (spec §19.16, 2026-10-18), previews and all, rather
+than staying as a fifth page. `Tests/IslaKitTests/SurfaceContractTests.swift`
+asserts every surface and every road to it, so neither a removed feature nor
+a tab can creep back. The parity design records each removal as a dated
 **Withdrawn** amendment in place rather than deleting the section: amend it the
 same way, never by rewriting the original contract.
 
@@ -102,7 +107,7 @@ Two harnesses are run by hand, never as gates:
 `Scripts/build-reference.sh`) and `Scripts/measure-sync.sh` (position accuracy
 against a live Spotify, using `Scripts/sync-probe/`).
 
-Verification-only environment hooks, all off unless set to `1` — a normal run
+Verification-only environment hooks, all off unless set (to `1`, or for `DI_UPDATE_REHEARSAL` to a folder) — a normal run
 never touches disk for them. `DebugTrail` reads each one once, at launch; ask it
 (`DebugTrail.geometry`, …) rather than the environment:
 
@@ -112,6 +117,7 @@ never touches disk for them. `DebugTrail` reads each one once, at launch; ask it
 - `DI_OPEN_PANEL=1` — open the panel on the player without a pointer, to film a skip.
 - `DI_MEDIA=1` — the media trail alone: every snapshot and hold decision, nothing drawn.
 - `DI_TEST_CLICK=next` — drive a lyric click from a test.
+- `DI_UPDATE_REHEARSAL=<folder>` — Update Now takes its release from `<folder>/release.json` and that folder's files, not GitHub; made by `Scripts/rehearse-update.sh`.
 
 ## After each change
 
@@ -147,25 +153,46 @@ running against superseded code.
 content. Level is `CGWindowLevelForKey(.statusWindow) + 1` (`NotchPanel.normalLevel`
 — it is read back by the lock path, so change it there and nowhere else);
 collection behavior `.canJoinAllSpaces`/`.stationary`/`.fullScreenAuxiliary`/`.ignoresCycle`.
-`canBecomeMain` is always false and `canBecomeKey` only while the Translate tab
-asks for the keyboard. Because the panel never activates, `NSScreen.main` is
+`canBecomeMain` is always false and `canBecomeKey` only while a surface that
+types asks for the keyboard — Clipboard and Translate (`Surface.takesKeyboard`),
+and Settings only while a shortcut field records. A page reached by a swipe,
+a dot, the pointer or a click on the bare notch never takes it: only a
+summons (⌃⌥⌘V, ⌃⌥⌘T, the menu), a press into the field
+(`NotchViewModel.pressClaimsKeyboard`) or focus moving into it (VoiceOver) does. ⌃Tab, which only a key panel hears, carries it onto
+the page it turns to, the Shelf and Music included
+(`NotchViewModel.turnPageByKey`). Because the panel never activates, `NSScreen.main` is
 meaningless here — never use it to pick the target display, and recompute
 geometry on `NSApplication.didChangeScreenParametersNotification`. The app is
 `.accessory` — no Dock icon, no menu-bar item, no window — and the policy is set
 once in `IslaApplication.run()` and never changed at runtime. There is
 no status item: Open Panel, About, Quit and the privacy toggles all live in the
-**Settings** tab (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
-directly). `NotchController` (~1400 lines) owns panel lifecycle, geometry,
-open/close timing, and the lock transition; `AppDelegate` owns the three global hot
-keys (⌃⌥⌘I open, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyrics page — rebindable, held
-by `HotKeyCenter`), the "Translate in
+**Settings** surface (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
+directly). Since 2026-10-15 Settings is a 400-tall sidebar of ten sections
+drawn from `SettingsTable`, a pure table of every row with its key and
+default; `NotchViewModel`'s accessors read their defaults back from it, so add
+a setting there, not in the view. `NotchController` (~1400 lines) owns panel lifecycle, geometry,
+open/close timing, and the lock transition; `AppDelegate` owns the four global hot
+keys (⌃⌥⌘I open, ⌃⌥⌘V clipboard, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyric stage —
+rebindable, held by `HotKeyCenter`), the "Translate in
 Isla" service (`NSApp.servicesProvider`, no Accessibility permission), and the
 Spotify URL-scheme callback. Since 2026-10-11 a pinned panel that is not key
 also holds plain Escape through a transient Carbon hot key, registered only
 while the pin stands (`NotchController.updateEscapeHotKey`), and ends on
 another app's activation; key status is unchanged by it.
+The Shelf's Delete key (⌫, ⌘⌫) uses the same mechanism since 2026-10-15
+(`ShelfDeleteKeyHolder`): held only while the panel is open on the Shelf's
+tray, the pointer is over it, Isla is not active, and the selection was made
+during this opening — a stuck one would eat Delete system-wide, so every
+other state releases it.
+Since 2026-10-15 **Volume and Brightness** (off by default) reads the media
+keys through a `CGEventTap` once Accessibility is granted (`MediaKeyHUD`,
+`MediaKeyTap`). It takes a key only when it can apply it, decides once per
+hold, and keeps the callback to a decode and a write — a slow or stuck tap
+eats those keys in every app. Third-party app icons (Spotify, the players in
+Settings, the empty player's buttons) come only from the installed app at
+runtime (`AppIcons`); no brand asset ships in the bundle.
 
-**Window sizing.** The window is cut once to the tallest body any tab can ask
+**Window sizing.** The window is cut once to the tallest body any surface can ask
 for and then never resized — it is transparent outside the visible panel, and
 what is *clickable* is decided separately by `activeRect` on `NotchRootView`
 (everything outside it is click-through). Resizing across a lock produced
@@ -209,7 +236,8 @@ MediaRemote permission. Music deactivates, the island collapses, and
 `NowPlayingFailurePolicy` backs the restart delay off rather than retrying every
 two seconds.
 
-**UI.** `NotchContentView` switches panes by tab. Every translucent surface goes
+**UI.** `NotchContentView` switches panes by surface, and draws two pages side
+by side only while they travel. Every translucent surface goes
 through `glassSurface(...)` — do not hand-mix another gradient. It picks one of
 two implementations: Apple's own material via `glassEffect` on macOS 26 where
 there is a backdrop to sample, and `GlassSurface`'s hand-drawn recipe otherwise
@@ -223,13 +251,51 @@ Animation curves and the collapsed/open corner radii live in `Theme`, including
 Reduce Motion variants and `tracking(forSize:)` — SwiftUI applies Apple's
 tracking table to semantic text styles and not to `.system(size:)`, which fixed
 panels have to use. Springs are critically damped: overshoot is for gestures
-that carried momentum, and nothing here is thrown.
+that carried momentum, and nothing here is thrown — except the island's
+outline (spec §19.3), which grows out of the bezel on `Theme.islandSpring`
+(response 0.5, damping 0.75) as the reference's does; the content inside it
+keeps the critically damped curves. The shut island carries a 2 pt stroke,
+tinted by its activity, on every wallpaper and never on the bare notch
+(`IslandStroke`).
 
-**Interaction.** A click opens the panel; a hover only brightens the island's
-surface. Every point of the compact island opens it, and the compact island has
-no controls — that hit region is cut from `bodySize.width` plus the corner
-radius, so it follows the width setting. Hover-to-open survives as **Open on
-Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
+**Interaction.** A click opens the panel on what the island shows; a hover
+only brightens the island's surface. Every point of the compact island opens
+it, and the compact island has no controls — that hit region is cut from
+`bodySize.width` plus the corner radius, so it follows the width setting. The
+island shows one activity at a time, by rank (`IslandActivity`, spec §19.1),
+and a click follows the rank (`NotchViewModel.openTarget`): Music opens the
+player, the Shelf its tray, and an alert folds instead of opening anything.
+While Music holds the island, files on the Shelf wait as a bubble beside it,
+which has a hit region of its own (`NotchRootView.bubbleRect`) so the gap
+between the two stays click-through; a click on the bubble opens the tray.
+The open island has four **pages** side by side — Music, the Shelf, Clipboard,
+Translate (`Surface.pages`, spec §19.16) — and four dots under each
+(`PageDots`) say where you are and turn to any page on a click; VoiceOver
+reads the row as one adjustable element, "Pages, Page 2 of 4, Shelf". A
+sideways two-finger swipe over the pages turns them one at a time:
+`PageSwipe` takes precise scroll events only, locks a direction after 10 pt,
+tracks 1:1, rubber-bands past either end and projects the release's momentum.
+Nothing on a page scrolls sideways — the Shelf is a grid that scrolls down —
+so sideways is always the pages'. Shelf, Clipboard and Translate share one
+size (`SurfaceLayout.toolPageHeight`, the panel's width); only Music keeps its
+own. `PageTravel` draws every frame on the
+display's own clock, with animations disabled, so no implicit `.animation`
+lays a curve over the fingers; the settle is the island's spring. An ordinary
+wheel never turns a page — the dots are its way — and ⌃Tab and ⌃⇧Tab turn
+them while the panel has the keyboard. The clickable region is cut over every
+page a gesture can reach, once per gesture. The stage and Settings sit a level
+below the pages: every page and the stage carry the **gear**, which opens
+Settings; on Settings it is an X (`HeaderGear`) that goes back. When the
+open body shrinks under a pointer that was on it (a dot to a shorter page),
+the body it left holds the panel until the pointer reaches the new one,
+leaves, heads away, or presses or scrolls off the panel
+(`PointerWatcher.shrunkFromRect`, with a global mouse monitor only while it
+stands; the controller's collapse check asks `holdsBeyondBody(at:)`, never a
+copy). A click on the notch's own span of the
+header row closes the panel. A right-click on the island or the header row opens
+`IslandMenu` (Clipboard, Shelf, Translate Clipboard, lyrics, Settings…, Quit);
+it is the app's only menu, since an `.accessory` app has no menu bar.
+Hover-to-open survives as **Open on Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
 brightens, a click shakes (`RefusalShake`). `PrivacyMode` covers per-section
 content (clipboard, translate) behind drifting dots. Haptics are sparing:
 `Haptics` fires `NSHapticFeedbackManager`'s `.alignment` when a lyric click lands

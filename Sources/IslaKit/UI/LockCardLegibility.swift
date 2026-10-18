@@ -21,38 +21,60 @@ import AppKit
 /// cover is left out: it moves chroma far more than luminance. The bottom
 /// gradient is left out too — it only ever darkens, and the artist line sits at
 /// the top where it does not reach.
+///
+/// The same model answers for Transparent (`transparentWash`): its black wash
+/// lies over the wallpaper as this one lies over the cover, so it is solved the
+/// same way with spec 7.2's 0.30 as the floor.
 enum LockCardLegibility {
     /// The AA ratio for body text. The card's smallest labels are 11–13pt, well
     /// under the 18pt where the looser 3:1 would apply.
     static let minimumContrast = 4.5
 
-    /// The wash each style had before it was solved for, kept as the floor: a
-    /// cover dark enough to hold at these values is drawn exactly as it was.
-    /// Increase Contrast keeps its heavier 0.56 in every style, and Transparent
-    /// keeps its lighter 0.2 because the card's own opacity already lets the
-    /// wallpaper through.
-    static func washFloor(style: NotchViewModel.LockCardStyle, increaseContrast: Bool) -> Double {
-        if increaseContrast { return 0.56 }
-        return style == .clear ? 0.2 : 0.34
+    /// The wash the cover had before it was solved for, kept as the floor: a
+    /// cover dark enough to hold at this value is drawn exactly as it was.
+    /// Increase Contrast keeps its heavier 0.56.
+    ///
+    /// There is no per-style floor any more (re-review 2026-10-15). Transparent
+    /// used to keep a lighter 0.2 here because "the card's own opacity lets the
+    /// wallpaper through"; since spec 7.2 it is not the cover's light at all but
+    /// a black wash over the wallpaper, solved below by `transparentWash`.
+    static func washFloor(increaseContrast: Bool) -> Double {
+        increaseContrast ? 0.56 : 0.34
     }
 
     /// The black wash over the blurred cover: the floor, or the least opacity
     /// above it at which `Theme.cardTertiary` — the dimmest type on the card —
     /// clears `minimumContrast` over what the cover becomes underneath it.
+    /// Solid draws no cover and never asks.
+    static func washOpacity(coverLuma: Double, increaseContrast: Bool) -> Double {
+        solvedWash(
+            backdropLuma: coverLuma, floor: washFloor(increaseContrast: increaseContrast),
+            increaseContrast: increaseContrast)
+    }
+
+    /// **Transparent's wash: 0.30 is the floor, not the answer** (re-review
+    /// 2026-10-15). Spec 7.2 made Transparent "black at 0.30 and a hairline", and
+    /// the commit that did it stopped asking this solver, so white secondary and
+    /// tertiary type over a bright wallpaper had no AA guarantee — only a 0.5
+    /// text shadow, which is not a contrast ratio. The black wash lies over the
+    /// wallpaper exactly as the cover wash lies over the cover — `L·(1 − α)` is the
+    /// grey a label sits on in both — so the same bisection answers for it:
+    /// the least alpha at or above 0.30 at which the dimmest type clears AA.
     ///
-    /// In Transparent this answers for the part of the card the cover lights.
-    /// The 38% of wallpaper that also shows through is behind the login shield,
-    /// where no window is given a backdrop to read, so it cannot be measured;
-    /// `checklist.md` records that divergence. Solid draws no cover and never
-    /// asks.
-    static func washOpacity(
-        coverLuma: Double,
-        style: NotchViewModel.LockCardStyle,
-        increaseContrast: Bool
-    ) -> Double {
-        let floor = washFloor(style: style, increaseContrast: increaseContrast)
+    /// `luminance` is `WallpaperTone`'s mean luma behind the card. Nil — a
+    /// wallpaper behind a privacy gate, one the system composes — is taken as
+    /// white, the solver's worst case: the heavier wash costs a see-through card
+    /// some of its see-through, the lighter one costs every label its legibility.
+    /// A dark wallpaper holds at 0.30 and is drawn exactly as the spec says.
+    static func transparentWash(luminance: Double?, increaseContrast: Bool = false) -> Double {
+        solvedWash(
+            backdropLuma: luminance ?? 1, floor: LockCardMaterial.transparentAlpha,
+            increaseContrast: increaseContrast)
+    }
+
+    private static func solvedWash(backdropLuma: Double, floor: Double, increaseContrast: Bool) -> Double {
         let text = Theme.cardTertiaryOpacity(increaseContrast: increaseContrast)
-        let luma = min(max(coverLuma, 0), 1)
+        let luma = min(max(backdropLuma, 0), 1)
         func holds(_ wash: Double) -> Bool {
             contrast(textOpacity: text, overGrey: luma * (1 - wash)) >= minimumContrast
         }
@@ -72,13 +94,9 @@ enum LockCardLegibility {
 
     /// The grey a label actually sits on: the cover, dimmed by its wash. An
     /// sRGB-encoded value in 0...1.
-    static func backdrop(
-        coverLuma: Double,
-        style: NotchViewModel.LockCardStyle,
-        increaseContrast: Bool
-    ) -> Double {
+    static func backdrop(coverLuma: Double, increaseContrast: Bool) -> Double {
         let luma = min(max(coverLuma, 0), 1)
-        return luma * (1 - washOpacity(coverLuma: luma, style: style, increaseContrast: increaseContrast))
+        return luma * (1 - washOpacity(coverLuma: luma, increaseContrast: increaseContrast))
     }
 
     /// WCAG contrast of white at `textOpacity` laid over an sRGB grey.

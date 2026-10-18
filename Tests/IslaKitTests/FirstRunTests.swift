@@ -37,9 +37,10 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
-    /// Dismissing the welcome leaves the panel on Music, not on whatever the
-    /// welcome replaced — the island is for glancing at a track.
-    func testDismissingTheWelcomeLandsOnMusic() {
+    /// Dismissing the welcome lands on what a click on the island would have
+    /// opened (spec §19.1) — Tools on the bare notch — not on whatever surface
+    /// was chosen underneath it.
+    func testDismissingTheWelcomeLandsOnWhatAClickWouldOpen() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
                 return XCTFail("a test host always has a screen")
@@ -50,35 +51,63 @@ final class FirstRunTests: XCTestCase {
 
             XCTAssertFalse(vm.isShowingWelcome)
             XCTAssertTrue(NotchViewModel.hasCompletedFirstRun)
-            XCTAssertEqual(vm.tab, .media)
+            XCTAssertEqual(vm.surface, vm.openTarget)
+            XCTAssertEqual(vm.surface, .player, "nothing is playing: the bare notch at launch opens Music, the first page")
         }
     }
 
-    /// Picking a tab out of the rail is an answer to the welcome too — it says
-    /// *not this, that* — so it may not leave the rail highlighted on a tab the
-    /// body is not showing.
-    func testChoosingATabFromTheRailAnswersTheWelcome() {
+    /// The same dismissal over a song lands on the player: what a click would
+    /// open is decided by what the island shows, not by a default.
+    func testDismissingTheWelcomeOverASongLandsOnThePlayer() {
+        withCleanFirstRun {
+            let isolated = ProbeFixtures.isolatedStores()
+            defer { isolated.release() }
+            guard let geometry = NotchGeometry.current() else {
+                return XCTFail("a test host always has a screen")
+            }
+            let vm = NotchViewModel(geometry: geometry, stores: isolated.stores)
+            var snapshot = NowPlayingFeed.Snapshot()
+            snapshot.title = "Test Song"
+            snapshot.artist = "Test Artist"
+            snapshot.duration = 180
+            snapshot.elapsed = 9.2
+            snapshot.rate = 1
+            snapshot.isPlaying = true
+            snapshot.takenAt = Date()
+            snapshot.playerPID = 999
+            isolated.stores.media.apply(snapshot)
+            vm.isShowingWelcome = true
+
+            vm.dismissWelcome()
+
+            XCTAssertEqual(vm.surface, .player)
+        }
+    }
+
+    /// Choosing a surface — a Tools card, the menu — is an answer to the welcome
+    /// too: it says *not this, that*, so the welcome may not stay over the
+    /// surface asked for.
+    func testChoosingASurfaceAnswersTheWelcome() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
                 return XCTFail("a test host always has a screen")
             }
             vm.isShowingWelcome = true
 
-            vm.chooseTab(.clipboard)
+            vm.choose(.clipboard)
 
             XCTAssertFalse(vm.isShowingWelcome)
             XCTAssertTrue(NotchViewModel.hasCompletedFirstRun)
-            XCTAssertEqual(vm.tab, .clipboard, "the tab asked for, not Music")
+            XCTAssertEqual(vm.surface, .clipboard, "the surface asked for, not the one a click opens")
         }
     }
 
     /// The pointer arriving on the panel must not count as an answer.
     ///
-    /// `pointerArrived()` selects Music — it is how the panel is handed back to
-    /// the pointer — and the pointer arrives by definition on the way to the Get
-    /// Started button. Hanging the dismissal off `select` would therefore have
-    /// wiped the welcome out from under the cursor reaching for it, before it
-    /// had been read.
+    /// `pointerArrived()` hands the panel back to the pointer, and the pointer
+    /// arrives by definition on the way to the Get Started button. Hanging the
+    /// dismissal off `open` would therefore have wiped the welcome out from
+    /// under the cursor reaching for it, before it had been read.
     func testThePointerCrossingThePanelDoesNotAnswerTheWelcome() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
@@ -93,144 +122,146 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
-    /// A file dropped on the island while the welcome is up must land where the
+    /// A file dragged to the island while the welcome is up must land where the
     /// user can see it.
     ///
-    /// The welcome is drawn over the pane switch, so with it still showing the
-    /// drop had no highlight, no card and no counter — and the `setOpen(true)`
-    /// the controller follows a drag with early-returns on the panel the welcome
-    /// had already opened, so nothing on screen moved and the file appeared to
-    /// have gone nowhere.
+    /// The drop surface is presented over whatever is chosen, the welcome
+    /// included (spec §19.7), so the drag has its two targets, its highlight
+    /// and its counter on screen instead of behind a pane the welcome had
+    /// already put up — which made a drop during the first launch invisible:
+    /// nothing moved and the file looked like it had gone nowhere. The welcome
+    /// is not taken down for it, only covered, and it comes back when the drag
+    /// ends.
     ///
-    /// The flag stays unset on purpose: a drop is a real interaction, but it is
-    /// not the user answering the welcome, and somebody who has only ever dropped
-    /// a file on the island has not been told where Quit is.
-    func testAFileDroppedOnTheWelcomeShowsTheShelf() {
+    /// The flag stays unset on purpose: a drag is a real interaction, but it
+    /// is not the user answering the welcome, and somebody who has only ever
+    /// dropped a file on the island has not been told where Quit is.
+    func testAFileDraggedOverTheWelcomeShowsTheDropSurface() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
                 return XCTFail("a test host always has a screen")
             }
             vm.isShowingWelcome = true
 
-            vm.showShelfForDrag()
+            vm.isDropTargeted = true
 
-            XCTAssertFalse(vm.isShowingWelcome, "the drop landed behind the welcome")
-            XCTAssertEqual(vm.tab, .shelf)
+            XCTAssertEqual(vm.presented, .drop, "the drag landed behind the welcome")
+            XCTAssertTrue(vm.isShowingWelcome, "covered by the drop surface, not answered")
             XCTAssertFalse(
                 NotchViewModel.hasCompletedFirstRun,
-                "a drop is not an answer to the welcome — the next launch still owes it"
+                "a drag is not an answer to the welcome — the next launch still owes it"
             )
+
+            vm.isDropTargeted = false
+            XCTAssertEqual(vm.presented, .welcome, "the welcome is still owed to the person")
         }
     }
 
-    /// And the same for the drop itself, not only the drag crossing the island:
-    /// `accept(urls:)` is the other place that used to set the tab straight.
-    func testAcceptingFilesTakesTheWelcomeDown() {
+    /// And for the drop itself: `accept(urls:)` keeps the files and moves
+    /// nothing (spec §19.7) — a drop over the welcome is a file kept, not an
+    /// answer to the welcome and not a request to look at the tray.
+    func testAcceptingFilesKeepsThemAndAnswersNothing() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
                 return XCTFail("a test host always has a screen")
             }
             vm.isShowingWelcome = true
+            let chosen = vm.surface
 
             XCTAssertTrue(vm.accept(urls: []))
 
-            XCTAssertFalse(vm.isShowingWelcome)
-            XCTAssertEqual(vm.tab, .shelf)
+            XCTAssertEqual(vm.surface, chosen, "the surface underneath is not moved")
+            XCTAssertTrue(vm.isShowingWelcome)
             XCTAssertFalse(NotchViewModel.hasCompletedFirstRun)
         }
     }
 
-    /// A drop lands on a shelf the drag already brought up, and `add` loads the
-    /// new cards' previews itself — so the drop must not pass over the whole
-    /// shelf again: a reachability check and a fresh QuickLook request per card,
-    /// each preview landing as a whole-panel redraw. The welcome, if the drop
-    /// beat it down, still goes.
-    func testADropOnTheShelfDoesNotRefreshItAgain() {
+    /// A drop lands on a tray the drag never refreshed, and `add` loads the new
+    /// cards' previews itself — so the drop must not pass over the whole shelf
+    /// again: a reachability check and a fresh QuickLook request per card, each
+    /// preview landing as a whole-panel redraw.
+    func testADropOnTheTrayDoesNotRefreshItAgain() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
                 return XCTFail("a test host always has a screen")
             }
-            vm.showShelfForDrag()
-            vm.isShowingWelcome = true
+            vm.isOpen = true
+            vm.open(.tray)
             let refreshes = vm.shelf.refreshesForTests
 
             XCTAssertTrue(vm.accept(urls: []))
 
-            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "the drag already refreshed the shelf")
-            XCTAssertEqual(vm.tab, .shelf)
-            XCTAssertFalse(vm.isShowingWelcome)
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "the tray was already refreshed on arrival")
+            XCTAssertEqual(vm.surface, .tray)
         }
     }
 
     /// A screenshot is nobody asking for anything, so it must not move a
-    /// person who is reading the clipboard to the Shelf (FOC-01; worst for
-    /// VoiceOver, where the focus goes with the pane). The rail marks the Shelf
-    /// instead, and looking at the Shelf takes the mark away.
+    /// person who is reading the clipboard to the tray (FOC-01; worst for
+    /// VoiceOver, where the focus goes with the surface). The rail's dot for
+    /// it went with the rail (§19.11); the island's collected moment says it
+    /// once the panel is shut.
     func testAScreenshotOnAnOpenPanelDoesNotMoveTheUser() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
                 return XCTFail("a test host always has a screen")
             }
             vm.isOpen = true
-            vm.tab = .clipboard
-            XCTAssertFalse(vm.shelfHasNew)
+            vm.surface = .clipboard
 
             vm.receivedScreenshot(at: URL(fileURLWithPath: "/tmp/Screenshot.png"))
 
-            XCTAssertEqual(vm.tab, .clipboard, "the tab is the user's")
-            XCTAssertTrue(vm.shelfHasNew)
-
-            vm.tab = .shelf
-            XCTAssertFalse(vm.shelfHasNew, "seeing the shelf answers the mark")
-
-            vm.receivedScreenshot(at: URL(fileURLWithPath: "/tmp/Screenshot.png"))
-            XCTAssertFalse(vm.shelfHasNew, "nothing to mark while the shelf is the pane on screen")
+            XCTAssertEqual(vm.surface, .clipboard, "the surface is the user's")
+            XCTAssertFalse(vm.isShowingCollected, "a surface is open: the island is not on screen")
         }
     }
 
-    /// The same for a screenshot arriving while the shelf is on screen: its
-    /// card is already there, and re-showing the shelf redid every other one.
-    func testAScreenshotArrivingOnTheShelfDoesNotRefreshIt() {
+    /// The same for a screenshot arriving while the tray is on screen: its
+    /// card is already there, and re-showing the tray redid every other one.
+    func testAScreenshotArrivingOnTheTrayDoesNotRefreshIt() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
                 return XCTFail("a test host always has a screen")
             }
             vm.isOpen = true
-            vm.tab = .shelf
+            vm.surface = .tray
             let refreshes = vm.shelf.refreshesForTests
 
             vm.receivedScreenshot(at: URL(fileURLWithPath: "/tmp/Screenshot.png"))
 
             XCTAssertEqual(vm.shelf.refreshesForTests, refreshes)
-            XCTAssertEqual(vm.tab, .shelf)
+            XCTAssertEqual(vm.surface, .tray)
         }
     }
 
-    /// And for a drag crossing back onto a shelf already on screen — every
-    /// exit and re-entry is another `draggingEntered`, and so is every later
-    /// drag. Only the shelf coming into view is refreshed: a panel left closed
-    /// on the shelf that the drag is about to open, or one under the welcome.
-    func testADragReenteringAnOpenShelfDoesNotRefreshIt() {
+    /// A drag crossing the island — every exit and re-entry is another
+    /// `draggingEntered`, and so is every later drag — only presents the drop
+    /// surface. It never passes over the shelf: the surface shows two targets,
+    /// not the cards, so nothing needs refreshing, in a shut panel, an open
+    /// tray or under the welcome.
+    func testADragOverTheIslandNeverRefreshesTheShelf() {
         withCleanFirstRun {
             guard let vm = Self.viewModel() else {
                 return XCTFail("a test host always has a screen")
             }
             vm.isOpen = true
-            vm.tab = .shelf
+            vm.surface = .tray
             let refreshes = vm.shelf.refreshesForTests
 
-            vm.showShelfForDrag()
-            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "the shelf was already on screen")
+            vm.isDropTargeted = true
+            vm.isDropTargeted = false
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "the tray was already on screen")
 
             vm.isOpen = false
-            vm.showShelfForDrag()
-            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes + 1, "a closed panel opens onto the shelf")
+            vm.isDropTargeted = true
+            vm.isDropTargeted = false
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "a closed panel opens onto the drop surface")
 
             vm.isOpen = true
             vm.isShowingWelcome = true
-            vm.showShelfForDrag()
-            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes + 2, "the welcome was covering it")
-            XCTAssertFalse(vm.isShowingWelcome)
+            vm.isDropTargeted = true
+            XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "the welcome is covered, nothing refreshed")
+            XCTAssertEqual(vm.presented, .drop)
         }
     }
 
@@ -255,7 +286,7 @@ final class FirstRunTests: XCTestCase {
 
             XCTAssertFalse(vm.isShowingWelcome, "the translation landed behind the welcome")
             XCTAssertTrue(NotchViewModel.hasCompletedFirstRun)
-            XCTAssertEqual(vm.tab, .translate)
+            XCTAssertEqual(vm.surface, .translate)
             XCTAssertTrue(vm.wantsKeyboard, "the field that appears takes the keyboard")
             XCTAssertEqual(vm.translator.input, "bonjour")
         }
@@ -275,39 +306,28 @@ final class FirstRunTests: XCTestCase {
 
             vm.receiveCommandedTranslation(Translator.prepareCommandInput(nil))
 
-            XCTAssertEqual(vm.tab, .translate)
+            XCTAssertEqual(vm.surface, .translate)
             XCTAssertEqual(vm.translator.input, "typed earlier")
             XCTAssertEqual(vm.translator.notice, "The clipboard has no text.")
         }
     }
-
-    /// The rule under the probe below, on its own: a chip is lit when it is the
-    /// tab and the welcome is not up. Nothing is lit while welcoming — not the
-    /// tab the model is parked on, and not any other.
-    func testNoTabIsLitWhileWelcoming() {
-        for tab in NotchViewModel.Tab.leftRail {
-            XCTAssertFalse(Rail.isLit(tab, selected: tab, welcoming: true), "\(tab) is lit under the welcome")
-            XCTAssertTrue(Rail.isLit(tab, selected: tab, welcoming: false))
-            for other in NotchViewModel.Tab.leftRail where other != tab {
-                XCTAssertFalse(Rail.isLit(tab, selected: other, welcoming: false))
-            }
-        }
-    }
-
-    /// H-020: none of the four features was named on the one screen every user
-    /// of an invisible app sees, and ⌃⌥⌘T was missing. Every rail tab has a
-    /// legend now, and the two that have a shortcut print the live one.
-    func testTheWelcomeNamesEveryTab() {
-        let pane = WelcomePane(
-            onDismiss: {}, railIconHeight: 24,
-            openKeys: "⌃⌥⌘I", lyricsKeys: "⌃⌥⌘L", translateKeys: "⌃⌥⌘T"
-        )
-        let legends = NotchViewModel.Tab.leftRail.map(pane.legend(for:))
-        XCTAssertEqual(legends.count, 5)
-        XCTAssertEqual(Set(legends).count, legends.count, "two tabs share a legend: \(legends)")
-        XCTAssertFalse(legends.contains(where: \.isEmpty), "\(legends)")
-        XCTAssertTrue(pane.legend(for: .translate).contains("⌃⌥⌘T"), pane.legend(for: .translate))
-        XCTAssertTrue(pane.legend(for: .media).contains("⌃⌥⌘L"), pane.legend(for: .media))
+    /// H-020: none of the features was named on the one screen every user of
+    /// an invisible app sees. The legend is four lines, each led by a glyph
+    /// (spec §19.8): a click opens what is playing, a right-click everything
+    /// else, files dragged to the notch are kept, and the live shortcuts.
+    func testTheWelcomeLegendHasFourDistinctLinesAndPrintsTheLiveShortcuts() {
+        let pane = WelcomePane(onDismiss: {}, openKeys: "⌃⌥⌘I", shortcuts: WelcomePane.liveShortcuts(
+            bindings: Dictionary(uniqueKeysWithValues: HotKeyAction.allCases.map { ($0, $0.defaultBinding) }),
+            copy: .english
+        ))
+        let legend = pane.legend
+        XCTAssertEqual(legend.count, 4)
+        XCTAssertEqual(Set(legend.map(\.text)).count, legend.count, "two lines share their words: \(legend)")
+        XCTAssertEqual(Set(legend.map(\.symbol)).count, legend.count, "two lines share a glyph: \(legend)")
+        XCTAssertFalse(legend.contains(where: { $0.text.isEmpty || $0.symbol.isEmpty }), "\(legend)")
+        // §19.8's fourth line, in its order, from the bindings as they ship.
+        XCTAssertEqual(pane.keysLine, "⌃⌥⌘V Clipboard · ⌃⌥⌘T Translate · ⌃⌥⌘L Lyrics")
+        XCTAssertEqual(legend.last?.text, pane.keysLine)
         XCTAssertTrue(pane.comeBackLine.contains("⌃⌥⌘I"), pane.comeBackLine)
         // "Click it to open", said on a panel that was already open, read as
         // done. The way back is what the line is for now.
@@ -316,30 +336,48 @@ final class FirstRunTests: XCTestCase {
 
     /// A shortcut can be cleared in Settings, and a reset first run then shows
     /// the welcome without it. The line that names it must not print an empty
-    /// gap where the keys were — "press  to come back", "lyrics ()".
+    /// gap where the keys were — "press  to come back" — and with every
+    /// shortcut cleared the fourth line drops out instead of printing nothing.
     func testAClearedShortcutLeavesNoGapInTheWelcome() {
-        let pane = WelcomePane(
-            onDismiss: {}, railIconHeight: 24,
-            openKeys: "", lyricsKeys: "", translateKeys: ""
-        )
-        for line in NotchViewModel.Tab.leftRail.map(pane.legend(for:)) + [pane.comeBackLine] {
+        let pane = WelcomePane(onDismiss: {}, openKeys: "", shortcuts: [])
+        XCTAssertEqual(pane.legend.count, 3, "no shortcut, no fourth line")
+        for line in pane.legend.map(\.text) + [pane.comeBackLine] {
             XCTAssertFalse(line.contains("%@"), line)
             XCTAssertFalse(line.contains("()"), line)
             XCTAssertFalse(line.contains("  "), line)
             XCTAssertFalse(line.hasPrefix(" "), line)
         }
+
+        // `liveShortcuts` drops a cleared binding from the line rather than
+        // leaving its name without keys.
+        let live = WelcomePane.liveShortcuts(bindings: [:], copy: .english)
+        XCTAssertEqual(live, [])
+        XCTAssertEqual(
+            WelcomePane.liveShortcuts(
+                bindings: [.translateClipboard: HotKeyAction.translateClipboard.defaultBinding],
+                copy: .english
+            ).map(\.name),
+            ["Translate"]
+        )
+        // Every key but the clipboard's: the line starts at Translate.
+        var withoutClipboard = Dictionary(uniqueKeysWithValues: HotKeyAction.allCases.map { ($0, $0.defaultBinding) })
+        withoutClipboard[.showClipboard] = nil
+        XCTAssertEqual(
+            WelcomePane.liveShortcuts(bindings: withoutClipboard, copy: .english).map(\.name),
+            ["Translate", "Lyrics"]
+        )
     }
 
-    /// H-020: the welcome is not a tab, and the rail said it was Music. The
-    /// view model leaves `tab` on Music under the welcome so Get Started lands
-    /// there, and the rail drew its chip — fill, filled glyph, edge and the
-    /// selected trait — straight off `tab`, so VoiceOver announced "Music,
-    /// selected" over a pane that was not Music.
+    /// H-020: the welcome is a surface of its own, and the island must say so.
+    /// The view model keeps the surface a click would have opened underneath
+    /// it, so Get Started lands there, and the open group drew its name off
+    /// that — VoiceOver announced "Tools" over a pane that was the welcome.
+    /// There is no rail to select anything in any more (§19.11).
     ///
     /// The second half is the control: the same probe on the same model, once
-    /// the welcome is answered, does find Music selected — so the first half is
-    /// not passing on a probe that cannot see the trait at all.
-    func testTheRailHasNothingSelectedUnderTheWelcome() async throws {
+    /// the welcome is answered, does find the surface chosen — so the first
+    /// half is not passing on a probe that cannot see the group at all.
+    func testTheOpenGroupIsTheWelcomeWhileWelcoming() async throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
@@ -348,23 +386,24 @@ final class FirstRunTests: XCTestCase {
         let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
 
         let welcoming = await AXProbe.tree(of: NotchContentView(vm: vm), size: size)
-        let rail = try XCTUnwrap(welcoming.first(label: "Tabs"), welcoming.dump)
-        let tabs = rail.all(role: "AXButton")
-        XCTAssertEqual(tabs.count, NotchViewModel.Tab.leftRail.count, rail.dump)
-        XCTAssertEqual(tabs.filter(\.selected).map(\.label), [], rail.dump)
-
-        // And the welcome names every tab, each legend under the tab's own
-        // name, since the icon it sits beside is in the other group.
+        XCTAssertNil(welcoming.first(label: "Tabs"), "the rail is gone\n\(welcoming.dump)")
+        XCTAssertNil(welcoming.first(label: "Tools"), "the surface under the welcome is not announced\n\(welcoming.dump)")
         let welcome = try XCTUnwrap(welcoming.first(label: "Welcome"), welcoming.dump)
-        for tab in NotchViewModel.Tab.leftRail {
-            let legend = welcome.all { $0.label == tab.title && !$0.value.isEmpty }
-            XCTAssertEqual(legend.count, 1, "\(tab.title) has no legend\n\(welcome.dump)")
+
+        // And it names its four lines, each readable as one element.
+        for text in [
+            WelcomePane.Copy.english.click, WelcomePane.Copy.english.swipe, WelcomePane.Copy.english.drag,
+        ] {
+            XCTAssertFalse(
+                welcome.all(where: { $0.label == text || $0.value == text || $0.title == text }).isEmpty,
+                "\(text) is not on screen\n\(welcome.dump)"
+            )
         }
 
         vm.isShowingWelcome = false
         let answered = await AXProbe.tree(of: NotchContentView(vm: vm), size: size)
-        let after = try XCTUnwrap(answered.first(label: "Tabs"), answered.dump)
-        XCTAssertEqual(after.all(role: "AXButton").filter(\.selected).map(\.label), ["Music"], after.dump)
+        XCTAssertNil(answered.first(label: "Welcome"), answered.dump)
+        XCTAssertNotNil(answered.first(label: vm.presented.title), answered.dump)
     }
 
     /// Every string the welcome shows must exist in both tables, and the Russian
@@ -436,22 +475,23 @@ final class FirstRunTests: XCTestCase {
         XCTAssertNotEqual(Self.value(for: "Word Karaoke", in: try Self.table("ru")), "Word Karaoke")
     }
 
-    /// The legends are one line each, beside their icons, and take the width
-    /// they need; the message column gets what is left. At the narrowest body a
-    /// user can choose, in the longer language, what is left must still be a
-    /// column — or the title and the button are squeezed to a word a line and
-    /// the height test below fails for a reason it cannot name.
-    ///
-    /// Measured with the default shortcuts, which are what a first run shows.
-    func testTheLegendsLeaveTheMessageAColumnInBothLanguages() throws {
-        for language in ["en", "ru"] {
-            let table = try Self.table(language)
-            let copy = WelcomePane.Copy.english.mapped { Self.value(for: $0, in: table) }
-            let pane = Self.pane(copy)
-            let legends = try Self.naturalSize(of: pane.legendColumn.fixedSize()).width
-            XCTAssertLessThanOrEqual(
-                legends + WelcomePane.columnGap + WelcomePane.messageMinWidth, Self.paneWidth,
-                "the \(language) legends take \(legends) pt of \(Self.paneWidth)"
+    /// The legend takes a share of the width and wraps inside it; the message
+    /// column gets the rest. At the narrowest body a user can choose, what is
+    /// left must still be a column — or the title and the button are squeezed
+    /// to a word a line and the height test below fails for a reason it cannot
+    /// name. The share is fixed, so the old pane's 150 pt floor is held by
+    /// arithmetic at every width the body can take, not by measuring the
+    /// longest legend (§19.8: the legend wraps rather than pushing the message
+    /// off the body).
+    func testTheLegendLeavesTheMessageAColumnAtEveryBodyWidth() {
+        let floor: CGFloat = 150
+        for width in [NotchMetrics.minimumBodyWidth, 560, NotchMetrics.maximumBodyWidth] {
+            let columns = WelcomePane.columns(bodyWidth: width)
+            XCTAssertGreaterThanOrEqual(columns.message, floor, "body \(width)")
+            XCTAssertEqual(
+                columns.legend + WelcomePane.columnGap + columns.message,
+                width - WelcomePane.margins.leading - WelcomePane.margins.trailing,
+                accuracy: 0.001, "the two columns and their gap fill the pane at \(width)"
             )
         }
     }
@@ -461,11 +501,13 @@ final class FirstRunTests: XCTestCase {
     /// it. Russian runs roughly a third longer than English, which is where a
     /// layout laid out in English overflows.
     ///
-    /// Measured, not eyeballed: the pane is rendered at the width a pane
-    /// actually gets, with its height unconstrained, and the height it asks for
-    /// is compared against the height it is given. The Russian pass reads the
-    /// shipped `ru.lproj` table off disk, because `Text` cannot look it up here
-    /// — see `testEveryWelcomeStringIsInBothTables`.
+    /// Measured, not eyeballed: the pane is rendered at the narrowest body a
+    /// user can choose, in a frame taller than it can need, and the lowest
+    /// pixel it draws is compared against the height it is given less the
+    /// foot's margin. (The pane lays itself out from a `GeometryReader`, which
+    /// has no ideal height to ask for.) The Russian pass reads the shipped
+    /// `ru.lproj` table off disk, because `Text` cannot look it up here — see
+    /// `testEveryWelcomeStringIsInBothTables`.
     func testTheWelcomeFitsTheBodyInBothLanguages() throws {
         // The shallowest body any supported Mac can hand the pane, tightened
         // further by the machine actually running this if it has a screen at
@@ -474,20 +516,13 @@ final class FirstRunTests: XCTestCase {
         // whatever the notch takes out of it, and display scaling makes the same
         // physical notch 38 pt on one setting and 32 on another (#27), so a
         // build machine with a shallow notch is the most forgiving case rather
-        // than a representative one.
-        //
-        // This used to `XCTSkip` without a screen, which meant the only guard
-        // against shipping a pane with its button cut off skipped itself on
-        // every headless CI machine — and it needed the screen only to build a
-        // `NotchViewModel` for the pane to talk to. `WelcomePane` takes an
-        // `onDismiss` closure now, so it renders with no model, no geometry and
-        // no display.
-        var available = NotchMetrics.standardBodyHeight
-            - Self.deepestNotch
-            - NotchGeometry.bodyBottomPadding
+        // than a representative one. The pane starts under the header row
+        // (§19.8), so the notch's height is what comes off the top.
+        var available = NotchMetrics.standardBodyHeight - Self.deepestNotch
         if let geometry = NotchGeometry.current() {
-            available = min(available, geometry.standardContentHeight)
+            available = min(available, NotchMetrics.standardBodyHeight - geometry.notchSize.height)
         }
+        available -= WelcomePane.margins.bottom
 
         for language in ["en", "ru"] {
             let table = try Self.table(language)
@@ -500,25 +535,16 @@ final class FirstRunTests: XCTestCase {
                     "the Russian pass must measure Russian"
                 )
             }
-            let asked = try Self.naturalHeight(of: Self.pane(copy), width: Self.paneWidth)
+            let drawn = try Self.drawnBottom(of: Self.pane(copy), width: NotchMetrics.minimumBodyWidth)
             XCTAssertLessThanOrEqual(
-                asked, available,
-                "the welcome asks for \(asked) pt in \(language) and the body has \(available)"
+                drawn, available,
+                "the welcome draws down to \(drawn) pt in \(language) and the body has \(available)"
             )
+            XCTAssertGreaterThan(drawn, WelcomePane.margins.top + 40, "the probe must see the pane draw")
         }
     }
 
     // MARK: - Harness
-
-    /// What the pane itself is given: the body, less the content padding either
-    /// side, less the rail and the gap beside it.
-    ///
-    /// Taken at the *narrowest* body a user can choose in Settings, not the
-    /// default 560: a narrower pane is what makes a line wrap, and a line that
-    /// wraps is what makes the pane taller than the body.
-    private static var paneWidth: CGFloat {
-        NotchMetrics.minimumBodyWidth - 2 * 14 - 30 - 14
-    }
 
     /// Deeper than any notch measured so far — 38 pt is the deepest a supported
     /// Mac has reported (#27) — so that the assertion has a little room in it
@@ -556,29 +582,45 @@ final class FirstRunTests: XCTestCase {
         return String(line[opening.upperBound..<closing.lowerBound])
     }
 
-    /// The height a view asks for at a fixed width — its ideal height, which is
-    /// exactly what overflows a body that cannot grow.
-    private static func naturalHeight<V: View>(of view: V, width: CGFloat) throws -> CGFloat {
-        try naturalSize(of: view.frame(width: width).fixedSize(horizontal: false, vertical: true)).height
-    }
-
-    private static func naturalSize<V: View>(of view: V) throws -> CGSize {
-        let renderer = ImageRenderer(content: view)
+    /// The row below the last pixel the view draws, rendered at `width` into a
+    /// frame tall enough for any pane: where its content really ends.
+    private static func drawnBottom<V: View>(of view: V, width: CGFloat) throws -> CGFloat {
+        let tall: CGFloat = 400
+        let renderer = ImageRenderer(content: view.frame(width: width, height: tall))
         renderer.scale = 1
-        let image = try XCTUnwrap(renderer.nsImage, "the pane must render")
-        return image.size
+        let image = try XCTUnwrap(renderer.cgImage, "the pane must render")
+        let (w, h) = (image.width, image.height)
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let space = CGColorSpaceCreateDeviceRGB()
+        let drew = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        XCTAssertTrue(drew, "a bitmap context to read the pane back")
+        for row in stride(from: h - 1, through: 0, by: -1) {
+            for column in 0..<w where pixels[(row * w + column) * 4 + 3] > 8 {
+                return CGFloat(row + 1) / CGFloat(h) * tall
+            }
+        }
+        return 0
     }
 
-    /// The pane as a first run shows it: the default shortcuts, all three
-    /// bound, and the rail's icons at their full 24 pt — which is what every
-    /// supported body gives them (154 pt of rail holds five 24s and their
-    /// gaps with room over), and so the tallest the legend column can be.
+    /// The pane as a first run shows it: the default shortcuts, both bound.
     private static func pane(_ copy: WelcomePane.Copy) -> WelcomePane {
         WelcomePane(
-            onDismiss: {}, copy: copy, railIconHeight: 24,
+            onDismiss: {}, copy: copy,
             openKeys: HotKeyAction.openPanel.defaultBinding.displayString,
-            lyricsKeys: HotKeyAction.showLyrics.defaultBinding.displayString,
-            translateKeys: HotKeyAction.translateClipboard.defaultBinding.displayString
+            shortcuts: WelcomePane.liveShortcuts(
+                bindings: [
+                    .translateClipboard: HotKeyAction.translateClipboard.defaultBinding,
+                    .showLyrics: HotKeyAction.showLyrics.defaultBinding,
+                ],
+                copy: copy
+            )
         )
     }
 }

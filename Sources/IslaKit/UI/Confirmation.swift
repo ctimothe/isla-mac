@@ -44,6 +44,8 @@ struct CopyButton: View {
     /// the copy. A count that also moves for the button's own press costs
     /// nothing: the flag is already up, and raising it again is the same tick.
     var copiesElsewhere: Int = 0
+    /// The plate's side: 22 everywhere, 24 for Translate's footer (spec §11).
+    var side: CGFloat = 22
     let copy: () -> Void
 
     @State private var copied = false
@@ -68,7 +70,7 @@ struct CopyButton: View {
                 .islandFont(.caption, weight: .semibold)
                 .foregroundStyle(copied ? Theme.success : Theme.secondary)
                 .symbolSwap(value: copied, reduceMotion: reduceMotion)
-                .frame(width: 22, height: 22)
+                .frame(width: side, height: side)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PanelButtonStyle())
@@ -248,10 +250,19 @@ struct ConfirmTextButton: View {
     }
 }
 
-/// The settings-row shape of `ConfirmTextButton`.
-struct ConfirmRow: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let symbol: String
+/// The Settings shape of `ConfirmTextButton` (redesign 2026-10-15, spec §10): a
+/// push button that asks before it acts.
+///
+/// Actions in Settings are push buttons on trailing rows and never red text
+/// rows — a red row is an iOS cell, and on a Mac the one button that destroys
+/// something is still a button. It looks like every other push button until it
+/// is pressed once; then its plate says the question ("Delete These Files",
+/// "Disconnect") in the destructive style, and a second press — before the
+/// arming lapses, Escape takes it back — does the thing. Same arming as
+/// `ConfirmTextButton`, so the pane footers and this cannot drift apart, and
+/// the same announcement for VoiceOver, which hears the arming rather than
+/// seeing it.
+struct ConfirmPushButton: View {
     let title: String
     let armedTitle: String
     var disabled = false
@@ -263,27 +274,10 @@ struct ConfirmRow: View {
         Button {
             arming.press(armedTitle: armedTitle, action: action)
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: arming.armed ? "exclamationmark.triangle.fill" : symbol)
-                    .islandFont(.body)
-                    .foregroundStyle(arming.armed ? Theme.danger : Theme.secondary)
-                    .symbolSwap(value: arming.armed, reduceMotion: reduceMotion)
-                    .frame(width: 16)
-                    // Decoration, as `RowIcon` is for every other row; armed,
-                    // the title already says what the warning glyph means.
-                    .accessibilityHidden(true)
-                Text(arming.armed ? armedTitle : title)
-                    .islandFont(.body)
-                    .foregroundStyle(arming.armed ? Theme.danger : .white)
-                Spacer(minLength: 8)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 26)
-            .contentShape(Rectangle())
+            Text(arming.armed ? armedTitle : title)
         }
-        .buttonStyle(PanelButtonStyle())
+        .buttonStyle(ToolbarPushButtonStyle(kind: arming.armed ? .danger : .normal))
         .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
         .accessibilityLabel(arming.armed ? armedTitle : title)
         .accessibilityHint(arming.armed ? "" : localized("Asks for confirmation before acting."))
         .animation(Theme.contentAnimation, value: arming.armed)

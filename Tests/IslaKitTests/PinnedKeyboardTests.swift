@@ -94,4 +94,30 @@ final class PinnedKeyboardTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         return NotchViewModel(geometry: geometry, stores: NotchStores(localLyricsDirectory: root))
     }
+
+    /// While one of this app's menus is open — the island's own, popped from
+    /// a pinned panel's header — Escape is the menu's. A Carbon hot key is
+    /// dispatched ahead of the menu's tracking, so a claim left standing
+    /// folded the panel behind a menu that stayed open (R8 review F4).
+    func testAnOpenMenuKeepsItsEscape() {
+        XCTAssertFalse(NotchViewModel.claimsEscape(
+            pinned: true, panelHasKeyboard: false, appIsActive: false, locked: false, menuOpen: true
+        ))
+        XCTAssertTrue(NotchViewModel.claimsEscape(
+            pinned: true, panelHasKeyboard: false, appIsActive: false, locked: false, menuOpen: false
+        ))
+    }
+
+    /// The claim is re-read as a menu opens and as the last one closes.
+    func testMenuTrackingSaysWhenMenusOpenAndClose() {
+        let tracking = MenuTracking()
+        var heard: [Bool] = []
+        tracking.onOpenChange = { heard.append(tracking.hasOpenMenus) }
+        let first = NSMenu(), second = NSMenu()
+        tracking.began(ObjectIdentifier(first))
+        tracking.began(ObjectIdentifier(second))
+        tracking.ended(ObjectIdentifier(second))
+        tracking.ended(ObjectIdentifier(first))
+        XCTAssertEqual(heard, [true, false], "only the first opening and the last closing change the answer")
+    }
 }

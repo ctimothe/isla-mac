@@ -10,6 +10,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The rehearsal overrides build a bundle as a version that does not exist. A
+# shell that still has them set must not put such a build in /Applications.
+if [ -n "${ISLA_VERSION_OVERRIDE:-}" ] || [ -n "${ISLA_BUILD_OVERRIDE:-}" ]; then
+    echo "!!! ISLA_VERSION_OVERRIDE / ISLA_BUILD_OVERRIDE are set: they are for Scripts/rehearse-update.sh only. Unset them." >&2
+    exit 1
+fi
 APP="$ROOT/build/app.noindex/Isla.app"
 DEST="/Applications/Isla.app"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister

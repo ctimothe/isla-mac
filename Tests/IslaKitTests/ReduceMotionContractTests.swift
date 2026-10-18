@@ -1,4 +1,6 @@
+import SwiftUI
 import XCTest
+@testable import IslaKit
 
 /// Reduce Motion asks for travel to stop, not for change to stop being shown.
 ///
@@ -26,24 +28,13 @@ final class ReduceMotionContractTests: XCTestCase {
     private static let allowed: [Allowed] = [
         Allowed(
             file: "LockScreenCard.swift",
-            line: ".animation(reduceMotion ? nil : Theme.contentAnimation, value: pane)",
-            count: 2,
-            reason: "the header and the cover beside it: the cover changes size with the pane "
-                + "(76 to 44 pt), and the title slides with it. Geometry."
-        ),
-        Allowed(
-            file: "LockScreenCard.swift",
-            line: ".animation(reduceMotion ? nil : Theme.paneAnimation, value: pane)",
-            count: 1,
-            reason: "the card's middle: its frame follows the header's cover, which cuts, so an "
-                + "animation here slides the seek bar. Its panes fade on a transition of their own."
-        ),
-        Allowed(
-            file: "LockScreenCard.swift",
             line: ".animation(jump || reduceMotion ? nil : Theme.lyricScroll, value: centre)",
             count: 1,
             reason: "the lock card's lyric window: with the travel refused the leaving line only "
-                + "faded while the rest still slid a row, so two lines shared one slot."
+                + "faded while the rest still slid a row, so two lines shared one slot. (Redesign "
+                + "2026-10-15, spec §7: the header's travel and the pane swap no longer cut under "
+                + "Reduce Motion — the banner/card morph gives each form an identity and crossfades, "
+                + "`LockScreenCard.stage` — so only the window's glide is left here.)"
         ),
         Allowed(
             file: "Theme.swift",
@@ -51,6 +42,24 @@ final class ReduceMotionContractTests: XCTestCase {
             count: 1,
             reason: "the panel switch's knob, which crosses the track. The change stays; the "
                 + "knob is simply on the other side."
+        ),
+        Allowed(
+            file: "UpdateCard.swift",
+            line: ".animation(reduceMotion ? nil : .linear(duration: 0.15), value: fraction)",
+            count: 1,
+            reason: "the update card's download bar, whose fill grows with the bytes received "
+                + "(Settings > About, Update Now). That is geometry that travels, so with Reduce "
+                + "Motion the fill steps to each new length instead of gliding; the card's own "
+                + "change of state is the 0.24 s crossfade."
+        ),
+        Allowed(
+            file: "Theme.swift",
+            line: "reduceMotion ? nil : hudLevel",
+            count: 1,
+            reason: "the volume pop-up's level bar, whose fill changes length with each press "
+                + "(redesign 2026-10-15, spec §2.4: \"appears and folds by crossfade; the bar "
+                + "steps\"). A glide is travel, and the presses are what a person counts; the "
+                + "pop-up itself still crossfades in and out."
         ),
     ]
 
@@ -86,5 +95,22 @@ final class ReduceMotionContractTests: XCTestCase {
         for (site, count) in expected where found[site] == nil {
             XCTFail("\(site) is allowed \(count) cut(s) but no longer cuts; take it off the list")
         }
+    }
+
+    /// The island's arrivals under Reduce Motion are a 0.24 crossfade: no blur
+    /// and no scale, on the reduced curve rather than the outline's spring
+    /// (spec §19.3).
+    func testTheIslandsArrivalsOnlyFadeUnderReduceMotion() {
+        for (name, look) in [
+            ("expanded", IslandArrival.expanded(reduceMotion: true)),
+            ("compact", IslandArrival.compact(reduceMotion: true)),
+        ] {
+            XCTAssertEqual(look.opacity, 0, name)
+            XCTAssertEqual(look.blur, 0, "\(name): no blur")
+            XCTAssertEqual(look.scale, CGSize(width: 1, height: 1), "\(name): no scale")
+        }
+        XCTAssertEqual(Theme.island(reduceMotion: true), Theme.reducedMotion)
+        XCTAssertEqual(Theme.reducedMotionDuration, 0.24)
+        XCTAssertEqual(PillPresence.appearance(shown: false, reduceMotion: true), .compact(reduceMotion: true))
     }
 }

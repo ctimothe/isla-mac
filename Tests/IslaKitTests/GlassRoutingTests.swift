@@ -115,8 +115,11 @@ final class GlassRoutingTests: XCTestCase {
                     surface.usesSystemGlass,
                     "\(cardStyle) with\(hasArtwork ? "" : "out") a cover must not take glassEffect"
                 )
-                XCTAssertEqual(routing.solid, cardStyle == .solid, "Solid stays the opaque panel")
-                XCTAssertEqual(surface.isOpaque, cardStyle == .solid, "and only Solid is opaque")
+                // Spec §7.2 (2026-10-15): Solid is `#1C1C1E` and Transparent is black
+                // at 0.30, each with a hairline — both are panels, not the recipe.
+                let panel = cardStyle == .solid || cardStyle == .clear
+                XCTAssertEqual(routing.solid, panel, "Solid and Transparent are panels")
+                XCTAssertEqual(surface.isOpaque, panel, "and the cover-lit styles are not")
             }
         }
     }

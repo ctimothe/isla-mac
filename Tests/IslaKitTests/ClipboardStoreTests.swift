@@ -99,6 +99,16 @@ final class ClipboardStoreTests: XCTestCase {
         board.clearContents()
         board.setData(Data([1, 2, 3]), forType: .init("public.mpeg-4"))
         store.pollNow()
+        // The bytes are read off the main actor and arrive a beat after the
+        // poll (spec §19.12).
+        let arrived = expectation(description: "the recording is delivered")
+        func check() {
+            if received != nil { arrived.fulfill() } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { check() }
+            }
+        }
+        check()
+        wait(for: [arrived], timeout: 5)
 
         XCTAssertEqual(received?.data, Data([1, 2, 3]))
         XCTAssertEqual(received?.ext, "mp4")

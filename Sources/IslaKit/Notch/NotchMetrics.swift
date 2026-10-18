@@ -28,9 +28,22 @@ enum NotchMetrics {
     /// stretch. Shrinking it is a geometry change, not a cleanup.
     static let tallestBody = CGSize(width: 620, height: 400)
     static let maximumWindow = CGSize(width: 700, height: 444)
-    /// Extra room split equally between the two sides of a collapsed notch:
-    /// artwork on the left, playback state on the right.
-    static let compactMediaExtension: CGFloat = 104
+    /// Each compact activity is the notch plus its own delta, split equally
+    /// between the wings: the camera's span never grows, its wings do (spec
+    /// §19.2, §19.4). The deltas are the reference's, measured.
+    ///
+    /// Music: the cover in the left wing, the equalizer in the right. 104 until
+    /// 2026-10-15, 80 (two 40 pt wings round a 24 pt cover) until 2026-10-17;
+    /// 70 since §19.4, two 35 pt wings round a 22 pt cover.
+    static let compactMediaExtension: CGFloat = 70
+    /// The Shelf holding files, as the island's live activity when nothing
+    /// plays: `tray.full.fill` in the left wing, the count in the right.
+    static let compactShelfExtension: CGFloat = 75
+    /// The charger: "Charging" in the left wing, the level and a drawn battery
+    /// in the right — words, where Music has a picture, so wider.
+    static let compactChargingExtension: CGFloat = 180
+    /// One wing of the Music island: half of `compactMediaExtension`.
+    static let compactWing: CGFloat = compactMediaExtension / 2
     static let openDelay: TimeInterval = 0.05
     static let closeDelay: TimeInterval = 0.32
     static let fastPointerInterval: TimeInterval = 1.0 / 60.0
@@ -38,10 +51,15 @@ enum NotchMetrics {
     static let restThreshold: TimeInterval = 3.0
     static let warmZoneHeight: CGFloat = 260
     static let coolMargin: CGFloat = 80
+    /// How far below the warm band a resting pointer still has the movement
+    /// monitor standing (`PointerWatcher.updateMovementWatch`): close enough
+    /// that a flick to the island crosses it, far enough down that a pointer
+    /// at work in the lower half of the screen wakes nothing as it moves.
+    static let approachMargin: CGFloat = 300
     /// Delay before shrinking the panel's interactive rect back down after a
-    /// close. Must outlast `Theme.openAnimation`'s close, or the rect shrinks
-    /// out from under a panel that is still visibly on screen, opening a
-    /// window in which clicks land on whatever is behind it instead.
+    /// close. Must outlast the close (`Theme.close`) crossing its end, or the
+    /// rect shrinks out from under a panel that is still visibly on screen,
+    /// opening a window in which clicks land on whatever is behind it instead.
     static let collapseRectShrinkDelay: TimeInterval = 0.45
     /// Delay before `scheduleCollapseIfPointerAway` decides the pointer
     /// really left, after losing the keyboard or a drag exiting. Long enough
@@ -67,9 +85,8 @@ enum NotchMetrics {
     /// read a title at a glance, short enough that it is over before it can
     /// become an interruption.
     static let sneakPeekDuration: TimeInterval = 2.2
-    /// The charger or headphones: long enough to read a percentage or a
-    /// name, the same beat as a new track's peek.
-    static let ambientDuration: TimeInterval = 2.2
+    // The charger's and the headphones' holds are their own since spec §19.1:
+    // `AmbientActivity.holdDuration`.
 
     /// How long a paused track keeps its pill before folding into the notch.
     ///
@@ -98,8 +115,14 @@ enum NotchMetrics {
     /// How much wider the pill goes while peeking, over the compact width.
     /// Enough for a title beside the artwork without reaching the full body.
     static let sneakPeekExtension: CGFloat = 300
-    /// The headphones moment: a glyph in the left wing and a device name in
-    /// the right, 110 pt each, enough for "AirPods Pro Max" before it
-    /// truncates.
-    static let ambientNameExtension: CGFloat = 220
+    /// How tall the island grows for a new track's peek (spec §3.5, owner
+    /// decision 3). Two lines — a title and an artist — do not fit the notch's
+    /// own 38 pt without being squeezed against the camera, so the island grows
+    /// 12 pt down into the wallpaper, the way a Live Activity's alert does,
+    /// rather than the text being made smaller. The window is never resized
+    /// (it is cut for 444 pt), so this is only a drawn height and an active
+    /// rect.
+    static let sneakPeekHeight: CGFloat = 50
+    // The headphones and the volume pop-up are expanded alerts since spec
+    // §19.5 c and d, sized by `ExpandedAlertShape`, not by wings.
 }

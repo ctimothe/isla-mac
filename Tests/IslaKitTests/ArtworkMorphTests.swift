@@ -51,12 +51,22 @@ final class ArtworkMorphTests: XCTestCase {
     /// — visibly a chip rather than a picture. The rule the card and the panel
     /// actually share is the shape (`.continuous`) and the direction, not the
     /// number.
+    ///
+    /// Since R8 the open end is the player's 60 pt cover at radius 10 (spec
+    /// §19.6), not a 118 or 132 pt one, so the bounds that held the radius
+    /// between 12 and 16 described a cover the player no longer draws. The
+    /// morph's open end is pinned to the board's numbers instead, and to the
+    /// cover the player actually lays out.
     func testTheOpenCoverIsNotAsRoundAsTheLockCardsThumbnail() {
         let open = Theme.artworkMetrics(isOpen: true)
         XCTAssertLessThan(open.cornerRadius, open.side / 5.5,
                           "the largest cover in the app is a picture, not a chip")
-        XCTAssertGreaterThanOrEqual(open.cornerRadius, 12)
-        XCTAssertLessThanOrEqual(open.cornerRadius, 16)
+        XCTAssertEqual(open.side, 60, "spec §19.6")
+        XCTAssertEqual(open.cornerRadius, 10, "spec §19.6")
+        let cover = PlayerLayout(bodyWidth: 560).cover
+        XCTAssertEqual(cover.width, open.side, "the morph ends on the cover the player draws")
+        XCTAssertEqual(cover.height, open.side)
+        XCTAssertEqual(PlayerLayout.coverRadius, open.cornerRadius)
     }
 
     /// Reduce Motion must not leave the cover mid-flight: with travel switched
@@ -78,7 +88,7 @@ final class ArtworkMorphTests: XCTestCase {
     /// The pane still renders without a namespace, so the existing render
     /// tests and the lock card keep working.
     func testTheMediaPaneRendersWithoutANamespace() {
-        let pane = MediaPane(media: playingController(), lyrics: LyricsStore(), morph: nil)
+        let pane = MediaPane(media: playingController(), lyrics: LyricsStore(), morph: nil, icons: SettingsFixture.macWithApps([:]))
         let image = ImageRenderer(content: pane.frame(width: 560, height: 157)).nsImage
         XCTAssertNotNil(image, "MediaPane must render with morph: nil")
     }
@@ -117,7 +127,7 @@ final class ArtworkMorphTests: XCTestCase {
         let cover = try XCTUnwrap(media.artwork, "the cover has to decode for this to test anything")
         XCTAssertGreaterThan(cover.size.width, cover.size.height, "a wide cover is the whole point")
 
-        let pane = MediaPane(media: media, lyrics: LyricsStore(), morph: nil)
+        let pane = MediaPane(media: media, lyrics: LyricsStore(), morph: nil, icons: SettingsFixture.macWithApps([:]))
             .frame(width: 560, height: 157)
             .background(Color.black)
         let renderer = ImageRenderer(content: pane)
@@ -126,11 +136,14 @@ final class ArtworkMorphTests: XCTestCase {
         let tiff = try XCTUnwrap(rendered.tiffRepresentation)
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
 
-        let side = Theme.artworkMetrics(isOpen: true).side
+        // The tile is where the player lays its cover (spec §19.6: 60 pt at
+        // x 20 since R8). This sampled from the pane's left edge once, when the
+        // cover sat there; read from the layout, the strip moves with the tile.
+        let tile = PlayerLayout(bodyWidth: 560).cover
         var strays = 0
         // From a little past the tile's edge to well past where a 16:9 cover
         // would reach if nothing clipped it.
-        for x in stride(from: Int(side) + 6, to: min(bitmap.pixelsWide, Int(side) + 60), by: 2) {
+        for x in stride(from: Int(tile.maxX) + 6, to: min(bitmap.pixelsWide, Int(tile.maxX) + 60), by: 2) {
             for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
                 guard let colour = bitmap.colorAt(x: x, y: y) else { continue }
                 if colour.redComponent > 0.5, colour.blueComponent > 0.5, colour.greenComponent < 0.25 {

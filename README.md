@@ -23,7 +23,9 @@ Isla is an independent project and is not affiliated with Apple.
 4. Open Isla from Applications.
 
 Isla has no Dock icon, menu bar item or window: it lives in the notch. Click the
-notch to open it. **Settings** in the panel has Launch at Login, About and Quit.
+notch to open it on the player; swipe sideways, or click the dots at the foot,
+for the Shelf, Clipboard and Translate. The gear opens **Settings**, which has
+Launch at Login, About and Quit.
 
 To update, repeat the steps with the new release. **Settings → Application → Check for Updates**
 says whether there is one.
@@ -52,8 +54,8 @@ says whether there is one.
 - **Translate.** Sixteen languages, translated on the Mac by Apple's
   Translation framework or Apple Intelligence (macOS 26 or later). Languages
   your Mac can't translate itself, such as Uzbek and Kazakh, need Translate Online.
-- **Shortcuts.** ⌃⌥⌘I opens Isla, ⌃⌥⌘L opens the lyrics, ⌃⌥⌘T translates the
-  clipboard. Each can be changed or cleared in Settings. Shortcuts, Spotlight and
+- **Shortcuts.** ⌃⌥⌘I opens Isla, ⌃⌥⌘L opens the lyrics, ⌃⌥⌘V opens the
+  Clipboard, ⌃⌥⌘T translates the clipboard. Each can be changed or cleared in Settings. Shortcuts, Spotlight and
   Siri can read the current track and lyric. Escape closes a panel opened
   from the keyboard.
 
@@ -79,7 +81,7 @@ fallback used when Now Playing is unavailable.
 
 ## When something is wrong
 
-- **The Music tab says only Music and Spotify can be seen.** macOS refused Isla's
+- **The player says only Music and Spotify can be seen.** macOS refused Isla's
   Now Playing reader, usually because the download quarantine is still on the
   app. Run the `xattr` command from Install, then **Settings → Music → Try Again**.
 - **A shortcut does nothing.** Another app may own it. Settings → Keyboard

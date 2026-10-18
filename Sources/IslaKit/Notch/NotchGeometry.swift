@@ -11,19 +11,13 @@ struct NotchGeometry {
     /// True when the display actually has a notch cut into it.
     let isPhysical: Bool
 
-    /// Metrics of the tab rail that do not depend on the notch. `railIconHeight`
-    /// is not among them — see below.
-    static let railSpacing: CGFloat = 4
-    /// Gap between the rail and the bottom edge of the body.
-    static let bodyBottomPadding: CGFloat = 14
-
     /// Size of the fully expanded panel body. Held constant across every Mac:
     /// letting it follow the header made two people on the very same model
     /// see two different heights, just from different display-scaling
     /// settings — 38 pt against 32 for the same physical notch, an 11 pt
-    /// spread from one slider (#27). What differs between Macs lives in
-    /// `railIconHeight` instead, which is the one thing in the body actually
-    /// free to give.
+    /// spread from one slider (#27). The surfaces' heights move with the notch
+    /// instead (`SurfaceLayout.y`), so their content keeps its distance from
+    /// the header row.
     /// Read once, when the geometry is built. Settings rebuilds the panel rather
     /// than nudging it, which is the same path a display change takes and the
     /// only one known to leave every rect consistent.
@@ -40,33 +34,6 @@ struct NotchGeometry {
     /// never resized: it is transparent outside the visible panel, and what is
     /// clickable is decided separately by the active rect.
     var maxBodyHeight: CGFloat { max(expandedSize.height, Self.tallBodyHeight) }
-
-    /// What the body has left for content on an ordinary tab, once the header
-    /// and the padding beneath are taken out.
-    ///
-    /// The rails are held to this even on the tab that is taller, so the icons
-    /// stay at the same height on every tab. Centred in the body instead, they
-    /// slid down by half the difference — 96 pt — the moment the teleprompter
-    /// opened, which put the icon just clicked well below the pointer that had
-    /// clicked it.
-    var standardContentHeight: CGFloat {
-        expandedSize.height - notchSize.height - Self.bodyBottomPadding
-    }
-
-    /// Height each rail icon gets. A ceiling, not a constant: six icons at
-    /// the full 24 pt plus the five 4 pt gaps between them is 164 pt, and
-    /// the body only has `expandedSize.height − notchSize.height −
-    /// bodyBottomPadding` left to give the rail once the header — the notch
-    /// itself — and the padding beneath are taken out of the fixed 208.
-    /// Rounded down rather than to the nearest point: a rail that asks for
-    /// more than it is given should visibly yield, not overflow by a
-    /// fraction that clips it.
-    var railIconHeight: CGFloat {
-        let icons = CGFloat(NotchViewModel.Tab.leftRail.count)
-        let available = expandedSize.height - notchSize.height - Self.bodyBottomPadding
-        let ceiling = (available - (icons - 1) * Self.railSpacing) / icons
-        return min(24, ceiling).rounded(.down)
-    }
 
     /// Slack around the panel so the concave shoulders and shadow are not clipped.
     let windowPadding = NSEdgeInsets(top: 0, left: 40, bottom: 44, right: 40)
@@ -180,10 +147,25 @@ struct NotchGeometry {
         let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
         return NotchGeometry(
             screen: screen,
-            notchSize: CGSize(width: 180, height: max(menuBarHeight, NSStatusBar.system.thickness, 24)),
+            notchSize: Self.syntheticNotchSize(
+                menuBarHeight: menuBarHeight, statusBarThickness: NSStatusBar.system.thickness
+            ),
             notchCenterX: screen.frame.midX,
             isPhysical: false
         )
+    }
+
+    /// How wide the island drawn on a display with no cutout rests (spec §3.8).
+    /// 180 until 2026-10-15; 200 sits the compact island's two 40 pt wings on a
+    /// pill that reads as a deliberate shape on a menu bar rather than a tab, and
+    /// is still narrower than the 14-inch notch it stands in for.
+    static let syntheticNotchWidth: CGFloat = 200
+
+    /// The size of the island on a display with no notch: 200 wide, and the
+    /// menu bar's own height — never under 24 — so the black reads as a cutout
+    /// of the bar. Pure, so the width and the height rule are tests.
+    static func syntheticNotchSize(menuBarHeight: CGFloat, statusBarThickness: CGFloat) -> CGSize {
+        CGSize(width: syntheticNotchWidth, height: max(menuBarHeight, statusBarThickness, 24))
     }
 
     /// True when nothing that affects the panel has moved. Screen-parameter
@@ -281,6 +263,35 @@ struct NotchGeometry {
         return CGRect(x: rect.minX, y: 0, width: rect.width, height: bodySize.height)
     }
 
+    /// The Shelf's bubble beside a compact island `islandWidth` wide (spec
+    /// §19.7), its whole shape, in AppKit window coordinates — the space
+    /// `NotchRootView.bubbleRect` is in.
+    func bubbleRect(islandWidth: CGFloat, height: CGFloat, count: Int) -> CGRect {
+        let width = IslandBubbleLayout.width(count: count)
+        return CGRect(
+            x: windowSize.width / 2 + IslandBubbleLayout.centreOffset(islandWidth: islandWidth, count: count)
+                - width / 2,
+            y: windowSize.height - height,
+            width: width,
+            height: height
+        )
+    }
+
+    /// The same, in the coordinates a SwiftUI gesture reports (top-left
+    /// origin), as `compactGestureRect` is the island's.
+    func bubbleGestureRect(islandWidth: CGFloat, height: CGFloat, count: Int) -> CGRect {
+        let rect = bubbleRect(islandWidth: islandWidth, height: height, count: count)
+        return CGRect(x: rect.minX, y: 0, width: rect.width, height: height)
+    }
+
+    /// The same on screen, for the pointer sampler.
+    func bubbleScreenRect(islandWidth: CGFloat, height: CGFloat, count: Int) -> CGRect {
+        includingTopEdge(
+            bubbleRect(islandWidth: islandWidth, height: height, count: count)
+                .offsetBy(dx: windowFrame.minX, dy: windowFrame.minY)
+        )
+    }
+
     func contentRect(for size: CGSize) -> CGRect {
         CGRect(
             x: (windowSize.width - size.width) / 2,
@@ -313,12 +324,18 @@ struct NotchGeometry {
     /// look interactive while only the camera cutout actually responded.
     /// The island exactly as it is drawn, for anything about appearance rather
     /// than about opening. No padding: see `PointerWatcher.hoverRect`.
-    func collapsedIslandRect(for width: CGFloat) -> CGRect {
-        CGRect(
+    ///
+    /// `height` is the island's drawn height where it is not the notch's: a
+    /// new track's peek is 50 pt tall (spec §3.5), and a rect cut for 38 would
+    /// leave the 12 pt that grew below the menu bar visible and deaf. Never less
+    /// than `collapsedDepth`.
+    func collapsedIslandRect(for width: CGFloat, height: CGFloat? = nil) -> CGRect {
+        let depth = max(collapsedDepth, height ?? collapsedDepth)
+        return CGRect(
             x: notchCenterX - width / 2,
-            y: screen.frame.maxY - collapsedDepth,
+            y: screen.frame.maxY - depth,
             width: width,
-            height: collapsedDepth
+            height: depth
         )
     }
 
@@ -328,16 +345,28 @@ struct NotchGeometry {
     /// the notch and the island never noticed it; the nudge came only a few
     /// points lower. The owner, 2026-09-21: "it's not noticing when the
     /// cursor is in the edges".
-    func collapsedIslandHoverRect(for width: CGFloat) -> CGRect {
-        includingTopEdge(collapsedIslandRect(for: width))
+    func collapsedIslandHoverRect(for width: CGFloat, height: CGFloat? = nil) -> CGRect {
+        includingTopEdge(collapsedIslandRect(for: width, height: height))
     }
 
-    func collapsedHoverRect(for width: CGFloat) -> CGRect {
-        includingTopEdge(CGRect(
+    /// Where an alert will be drawn once it has grown, for the pointer test
+    /// made before it grows: its full depth and its shoulders, as
+    /// `IslandShapeRadii` draws them, with `collapsedHoverRect`'s slop. An
+    /// expanded alert reaches far below the notch and its shoulders are 20 pt,
+    /// so a notch-deep strip let one grow under a pointer standing on the app
+    /// below and take its click (R7 review).
+    func grownAlertRect(for activity: IslandActivity, body: CGSize) -> CGRect {
+        let shoulder = IslandShapeRadii.closed(for: activity).top
+        return collapsedHoverRect(for: body.width + 2 * max(0, shoulder - 6), height: body.height)
+    }
+
+    func collapsedHoverRect(for width: CGFloat, height: CGFloat? = nil) -> CGRect {
+        let depth = max(collapsedDepth, height ?? collapsedDepth)
+        return includingTopEdge(CGRect(
             x: notchCenterX - width / 2 - 6,
-            y: screen.frame.maxY - collapsedDepth - (isPhysical ? 4 : 0),
+            y: screen.frame.maxY - depth - (isPhysical ? 4 : 0),
             width: width + 12,
-            height: collapsedDepth + (isPhysical ? 4 : 0)
+            height: depth + (isPhysical ? 4 : 0)
         ))
     }
 
@@ -368,6 +397,19 @@ struct NotchGeometry {
             y: zone.minY - NotchMetrics.coolMargin,
             width: zone.width,
             height: zone.height + NotchMetrics.coolMargin
+        )
+    }
+
+    /// The warm band grown down by `approachMargin`: where a resting pointer
+    /// is close enough to the notch that its next move is worth hearing at
+    /// once (`PointerWatcher.approachZone`).
+    var approachZone: CGRect {
+        let zone = warmZone
+        return CGRect(
+            x: zone.minX,
+            y: zone.minY - NotchMetrics.approachMargin,
+            width: zone.width,
+            height: zone.height + NotchMetrics.approachMargin
         )
     }
 

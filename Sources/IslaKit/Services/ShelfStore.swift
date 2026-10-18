@@ -26,7 +26,28 @@ struct ShelfItem: Identifiable, Equatable {
     /// The card stays, dimmed, and comes back to life when the disk does.
     /// Not saved: whether a disk is mounted is asked again on every open.
     var isOffline = false
+    /// `icon` is a Quick Look thumbnail of the file's contents and not its
+    /// type's icon. Drawn with Finder's white border and shadow (spec §8.1);
+    /// a type icon is drawn bare. Only images ever get one — see
+    /// `ShelfStore.wantsPreview`.
+    var isPreview = false
+    /// Who put the card there, which decides whether it keeps the Shelf on
+    /// the island (spec §19.1, amended 2026-10-17). Saved with the card.
+    var origin: Origin = .placed
     var name: String { url.lastPathComponent }
+
+    enum Origin: Equatable {
+        /// A person put it there: a drop on the notch, a promised file from
+        /// one, a card kept from the AirDrop well. Keeps the Shelf live.
+        case placed
+        /// Isla collected it by itself: a copied screenshot or recording the
+        /// vault saved, a recording picked up from the capture folder. Shows
+        /// the Shelf for a moment and keeps nothing. Show Screen Captures is
+        /// on by default, and when every card kept the Shelf live the owner's
+        /// Shelf filled to 60 screenshots and the island never went back into
+        /// the notch.
+        case collected
+    }
 
     static func == (lhs: ShelfItem, rhs: ShelfItem) -> Bool { lhs.url == rhs.url }
 
@@ -50,81 +71,52 @@ struct ShelfItem: Identifiable, Equatable {
         return formatter
     }()
 
-    // MARK: The name a card draws
-
-    /// A card's width and the inset its text keeps from either edge. Kept
-    /// here, beside the name that has to fit between them, so the column the
-    /// name is fitted to and the card that draws it cannot drift apart.
-    static let cardWidth: CGFloat = 86
-    static let cardInset: CGFloat = 6
-    /// The column the name line has: 74 pt.
-    static let cardNameWidth: CGFloat = cardWidth - 2 * cardInset
-
-    /// The name cut to `budget` characters, keeping what tells it apart.
+    /// When the card was added, as its tile says it (owner's review,
+    /// 2026-10-18: "show the exact date and the minutes it was added"): the
+    /// day — "Today", "Yesterday", or the date, with the year only when it is
+    /// not this one — over the time to the minute. A shelf of screenshots
+    /// named "Screenshot 2026-10-…" told them apart by nothing a tile could
+    /// fit; the moment is what tells them apart.
     ///
-    /// SwiftUI's middle truncation split an 86 pt card's name in half, which
-    /// kept about five characters each side: "Screenshot 2026-10-11 at
-    /// 15.04.44.png" read "Scree….44.png", and so did every other capture on
-    /// the shelf (H-025). Names in a shelf's families — captures, recordings,
-    /// "Meeting notes", "Invoice 0042" — share their start and differ at their
-    /// last word, so the last word and the extension are kept whole and the
-    /// start gets whatever room is left, none if need be: "…15.04.44.png".
-    /// The thumbnail and the help tag say the rest. A name with no last word
-    /// short enough to keep is cut with its tail weighted two to one, since a
-    /// camera's IMG_… and a download's hash also differ at the end.
-    static func compactName(_ name: String, budget: Int) -> String {
-        guard name.count > budget else { return name }
-        guard budget > 1 else { return String(name.prefix(budget)) }
-        let ellipsis = "…"
-        var stem = name
-        var ext = ""
-        let pathExtension = (name as NSString).pathExtension
-        // An extension the budget can carry with room to spare, and a real
-        // one: "Version 1.5 final" has a dot, not an extension.
-        if !pathExtension.isEmpty, !pathExtension.contains(where: \.isWhitespace),
-           pathExtension.count + 1 <= budget - 3 {
-            ext = "." + pathExtension
-            stem = String(name.dropLast(ext.count))
+    /// The words are in the app's language, as everything else on the card
+    /// is; the time follows the Mac's own 12- or 24-hour setting, which only
+    /// the current locale carries.
+    static func added(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> (day: String, time: String) {
+        let day: String
+        if calendar.isDate(date, inSameDayAs: now) {
+            day = localized("Today")
+        } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+                  calendar.isDate(date, inSameDayAs: yesterday) {
+            day = localized("Yesterday")
+        } else if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
+            day = dayFormatter.string(from: date)
+        } else {
+            day = datedYearFormatter.string(from: date)
         }
-        func head(_ count: Int) -> String {
-            String(stem.prefix(max(0, count))).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
-        }
-        if let space = stem.lastIndex(where: \.isWhitespace) {
-            let tail = String(stem[stem.index(after: space)...]) + ext
-            if !tail.isEmpty, tail.count + 1 <= budget {
-                return head(budget - tail.count - 1) + ellipsis + tail
-            }
-        }
-        let room = budget - ext.count - 1
-        let kept = room / 3
-        return head(kept) + ellipsis + String(stem.suffix(room - kept)) + ext
+        return (day, timeFormatter.string(from: date))
     }
 
-    /// The longest `compactName` that `measure` says fits in `width`.
-    static func compactName(_ name: String, fitting width: CGFloat, measure: (String) -> CGFloat) -> String {
-        guard measure(name) > width else { return name }
-        var budget = name.count - 1
-        var candidate = compactName(name, budget: budget)
-        while budget > 2, measure(candidate) > width {
-            budget -= 1
-            candidate = compactName(name, budget: budget)
-        }
-        return candidate
-    }
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: appLanguage)
+        formatter.setLocalizedDateFormatFromTemplate("dMMM")
+        return formatter
+    }()
 
-    /// The card's name line as it is drawn: the caption role, regular, with
-    /// the role's tracking. A count of characters is no measure of a 10 pt
-    /// line — "Scr…15.04.44.png" is 16 of them and 86 pt, where "Invoice
-    /// 0042.pdf" is 16 and 82 pt — and a name cut to a guess was cut again by
-    /// SwiftUI, in the middle, which is the bug this exists to fix.
-    static func measureCardName(_ text: String) -> CGFloat {
-        let size = Theme.TypeRole.caption.size
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: size, weight: .regular),
-            .kern: Theme.tracking(forSize: size),
-        ]
-        return ceil(NSAttributedString(string: text, attributes: attributes).size().width)
-    }
+    private static let datedYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: appLanguage)
+        formatter.setLocalizedDateFormatFromTemplate("dMMMy")
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     // MARK: The card menu's header
 
@@ -190,6 +182,24 @@ final class ShelfStore: ObservableObject {
 
     /// How long a notice stays. A seam so tests do not wait four seconds.
     var noticeLifetime: Duration = .seconds(4)
+
+    /// How long "Already on the Shelf" and the tile it lights stay (spec §2.4:
+    /// the Shelf's "Copied" beat, 1.2 s). The other notices are sentences a
+    /// person has to read, and keep `noticeLifetime`; this one is a nod, and
+    /// four seconds of it made a second drop of the same file look like a
+    /// second notice. Never longer than `noticeLifetime`, so the one seam still
+    /// shortens every notice in a test.
+    static let alreadyKeptLifetime: Duration = .milliseconds(1200)
+
+    /// The tiles a drop matched without adding (spec §8.4, `Shelf-Already`): a
+    /// drop of a file the shelf already holds used to change nothing on screen
+    /// but a line in the bar, which is easy to read as "nothing happened". The
+    /// tile it matched lights its selection well for `alreadyKeptLifetime`, so
+    /// the eye is sent to the card that already holds the file. Drawing only —
+    /// it never touches `selection`, so it cannot be dragged, removed or
+    /// counted by accident.
+    @Published private(set) var alreadyKept: Set<UUID> = []
+    private var alreadyKeptLapse: Task<Void, Never>?
     /// The pending lapse of the current notice. A newer notice cancels it, or
     /// the older one's timer would cut the newer short.
     private var noticeLapse: Task<Void, Never>?
@@ -372,6 +382,16 @@ final class ShelfStore: ObservableObject {
             uniquingKeysWith: { first, _ in first }
         )
         let stamps = defaults.array(forKey: defaultsKey + ".dates") as? [Double]
+        // Who put each card there, kept as the paths of the cards a person
+        // put there — by path, not by position, because a build from before
+        // this rewrites the list and leaves this key alone, and a list of
+        // flags would then land on whichever cards now stand in those places.
+        // A Shelf saved before this was kept has no list, and every card on it
+        // reads as collected: one file a person dropped left out of the island
+        // costs nothing, while sixty screenshots kept on it was the bug the
+        // list exists to fix.
+        let placed = Set(defaults.stringArray(forKey: defaultsKey + ".placed") ?? [])
+        let storedPaths = defaults.stringArray(forKey: defaultsKey) ?? []
         items = urls.enumerated().compactMap { index, url in
             // A path check, not a disk read: a card whose file went to the
             // Trash is a deleted card. The shelf used to follow a trashed
@@ -381,6 +401,9 @@ final class ShelfStore: ObservableObject {
             if let stamps, stamps.count == urls.count, stamps[index] > 0 {
                 item.date = Date(timeIntervalSince1970: stamps[index])
             }
+            // The stored path, or the place a bookmark followed the file to.
+            let path = storedPaths.indices.contains(index) ? storedPaths[index] : url.path
+            item.origin = placed.contains(path) || placed.contains(url.path) ? .placed : .collected
             return item
         }
     }
@@ -545,7 +568,8 @@ final class ShelfStore: ObservableObject {
         var arrived: [URL] = []
         if let found = pass.recordings {
             settle(found.seen, missing: found.missing)
-            arrived = merge(found.urls, dates: found.dates, into: &cards)
+            // Picked up from the capture folder: Isla's doing, not a person's.
+            arrived = merge(found.urls, dates: found.dates, origin: .collected, into: &cards)
         }
         if changed || !arrived.isEmpty {
             cards = Self.newestFirst(cards)
@@ -577,7 +601,7 @@ final class ShelfStore: ObservableObject {
         let result = RecordingPickup.fresh(in: pickup.folders, since: pickup.since, seen: pickup.seen)
         settle(result.seen, missing: result.missing)
         guard !result.urls.isEmpty else { return }
-        add(result.urls, dates: result.dates)
+        add(result.urls, dates: result.dates, origin: .collected)
     }
 
     /// What a recordings scan needs from defaults, read on the main thread
@@ -664,6 +688,10 @@ final class ShelfStore: ObservableObject {
     /// - Parameter dates: when each capture was taken, where known. A file
     ///   without one — a drop, a picture saved from the clipboard — is dated
     ///   now, which is when it happened.
+    /// - Parameter origin: who put the files there. A person, unless the
+    ///   caller is one of Isla's own capture paths. A file already on the
+    ///   Shelf that a person puts there again becomes theirs; a capture never
+    ///   takes a card back from a person.
     ///
     /// Returns what became of the drop, and says it in the footer too: a URL
     /// already on the shelf, or a card past the cap, used to leave without a
@@ -672,9 +700,15 @@ final class ShelfStore: ObservableObject {
     /// shelf that refused would stop new screenshots arriving, which is worse
     /// — but it says so now.
     @discardableResult
-    func add(_ urls: [URL], dates: [URL: Date] = [:]) -> AddResult {
+    func add(_ urls: [URL], dates: [URL: Date] = [:], origin: ShelfItem.Origin = .placed) -> AddResult {
         var cards = items
-        let arrived = merge(urls, dates: dates, into: &cards)
+        let known = cards
+        if origin == .placed {
+            for index in cards.indices where cards[index].origin != .placed && urls.contains(cards[index].url) {
+                cards[index].origin = .placed
+            }
+        }
+        let arrived = merge(urls, dates: dates, origin: origin, into: &cards)
         cards = Self.newestFirst(cards)
         let evicted = trimToLimit(&cards)
         items = cards
@@ -688,6 +722,12 @@ final class ShelfStore: ObservableObject {
         } else if result.duplicates > 0 {
             show(.alreadyOnShelf)
         }
+        // The tiles the drop matched, lit whether or not an eviction took the
+        // bar's line: the nod is for the file, the sentence is for the cap.
+        if result.duplicates > 0 {
+            let matched = Set(urls.filter { url in !arrived.contains(url) })
+            flashAlreadyKept(known.filter { matched.contains($0.url) }.map(\.id))
+        }
         return result
     }
 
@@ -696,7 +736,7 @@ final class ShelfStore: ObservableObject {
     func show(_ notice: Notice) {
         noticeLapse?.cancel()
         self.notice = notice
-        let lifetime = noticeLifetime
+        let lifetime = notice == .alreadyOnShelf ? min(noticeLifetime, Self.alreadyKeptLifetime) : noticeLifetime
         noticeLapse = Task { [weak self] in
             try? await Task.sleep(for: lifetime)
             guard !Task.isCancelled else { return }
@@ -704,9 +744,25 @@ final class ShelfStore: ObservableObject {
         }
     }
 
+    /// Lights `ids` for `alreadyKeptLifetime`, replacing a flash still going —
+    /// a second drop restarts the beat for its own tiles instead of cutting
+    /// them short on the first one's clock.
+    private func flashAlreadyKept(_ ids: [UUID]) {
+        alreadyKeptLapse?.cancel()
+        alreadyKept = Set(ids)
+        let lifetime = min(noticeLifetime, Self.alreadyKeptLifetime)
+        alreadyKeptLapse = Task { [weak self] in
+            try? await Task.sleep(for: lifetime)
+            guard !Task.isCancelled else { return }
+            self?.alreadyKept = []
+        }
+    }
+
     /// New cards at the front, in the order they came; a URL already on the
     /// shelf is left where it is. Returns the URLs that were new.
-    private func merge(_ urls: [URL], dates: [URL: Date], into cards: inout [ShelfItem]) -> [URL] {
+    private func merge(
+        _ urls: [URL], dates: [URL: Date], origin: ShelfItem.Origin, into cards: inout [ShelfItem]
+    ) -> [URL] {
         let now = Date()
         var arrived: [URL] = []
         // Reversed, so that inserting each at the front leaves the drop in the
@@ -714,6 +770,7 @@ final class ShelfStore: ObservableObject {
         for url in urls.reversed() where !cards.contains(where: { $0.url == url }) {
             var item = ShelfItem(url: url, icon: NSWorkspace.shared.icon(forFile: url.path))
             item.date = dates[url] ?? now
+            item.origin = origin
             cards.insert(item, at: 0)
             // A card back on the shelf after leaving it starts from the
             // generic icon again, so its preview is owed again.
@@ -730,11 +787,21 @@ final class ShelfStore: ObservableObject {
     /// stay selected with no card to show it: the footer read "3 selected"
     /// over two marked cards, and "Remove 3" would have promised one more
     /// than it could remove (J-022).
+    ///
+    /// Collected cards go first, oldest first, and a person's only once none
+    /// is left (spec §19.1, amended 2026-10-17): screenshots arrive by
+    /// themselves, often with the panel shut, and sixty of them used to push
+    /// out the one file somebody kept, the notice saying so in a footer nobody
+    /// was looking at.
     @discardableResult
     private func trimToLimit(_ cards: inout [ShelfItem]) -> Int {
         guard cards.count > Self.limit else { return 0 }
-        let trimmed = Set(cards[Self.limit...].map(\.id))
-        cards.removeLast(cards.count - Self.limit)
+        let excess = cards.count - Self.limit
+        // Newest first, so the oldest are walked from the end.
+        let collected = cards.reversed().filter { $0.origin == .collected }.prefix(excess).map(\.id)
+        let placed = cards.reversed().filter { $0.origin == .placed }.prefix(excess - collected.count).map(\.id)
+        let trimmed = Set(collected + placed)
+        cards.removeAll { trimmed.contains($0.id) }
         selection.subtract(trimmed)
         if let anchor, trimmed.contains(anchor) { self.anchor = nil }
         return trimmed.count
@@ -764,12 +831,24 @@ final class ShelfStore: ObservableObject {
     /// Asks for one card's preview, unless it has been asked for already
     /// since the shelf was loaded.
     private func loadThumbnail(_ url: URL) {
+        guard Self.wantsPreview(url) else { return }
         guard thumbnailed.insert(url).inserted else { return }
         requestThumbnail(url) { [weak self] image in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.thumbnailArrived(image, for: url) }
             }
         }
+    }
+
+    /// Whether a file earns a Quick Look thumbnail in place of its type's icon
+    /// (spec §8.1): images, which is what a shelf of screenshots needs to tell
+    /// apart. A PDF's first page or a video's frame is not what Finder's icon
+    /// view draws, and the boards draw the real file icon for them; asking
+    /// Quick Look for sixty of those on every open was cost with no tile to
+    /// show for it.
+    nonisolated static func wantsPreview(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return type.conforms(to: .image)
     }
 
     private var flushScheduled = false
@@ -802,6 +881,7 @@ final class ShelfStore: ObservableObject {
         for index in cards.indices {
             guard let icon = pendingIcons[cards[index].url] else { continue }
             cards[index].icon = icon
+            cards[index].isPreview = true
             drawn = true
         }
         pendingIcons.removeAll()
@@ -811,12 +891,14 @@ final class ShelfStore: ObservableObject {
     func remove(_ item: ShelfItem) {
         items.removeAll { $0.id == item.id }
         selection.remove(item.id)
+        alreadyKept.remove(item.id)
         persist()
     }
 
     func clear() {
         items.removeAll()
         selection.removeAll()
+        alreadyKept = []
         persist()
     }
 
@@ -1024,7 +1106,7 @@ final class ShelfStore: ObservableObject {
     /// Puts the card back on the pasteboard. Images go as image data as well as
     /// a file reference, so pasting works both in Finder and in an editor.
     func copy(_ item: ShelfItem) {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = PasteboardRead.general
         pasteboard.clearContents()
         // The file goes on first and everything below is added to the item it
         // creates. Order is the whole of it: `setData` always writes to the
@@ -1053,7 +1135,7 @@ final class ShelfStore: ObservableObject {
                         // consumers that trust the declared type would save a
                         // "TIFF" with JPEG inside (#9). The UTI is already the
                         // pasteboard type identifier.
-                        let pasteboard = NSPasteboard.general
+                        let pasteboard = PasteboardRead.general
                         guard pasteboard.changeCount == expected else { return }
                         pasteboard.setData(data, forType: pasteboardType)
                     }
@@ -1089,5 +1171,6 @@ final class ShelfStore: ObservableObject {
         bookmarks = kept
         defaults.set(stored, forKey: defaultsKey + ".bookmarks")
         defaults.set(items.map { $0.date?.timeIntervalSince1970 ?? 0 }, forKey: defaultsKey + ".dates")
+        defaults.set(items.filter { $0.origin == .placed }.map(\.url.path), forKey: defaultsKey + ".placed")
     }
 }

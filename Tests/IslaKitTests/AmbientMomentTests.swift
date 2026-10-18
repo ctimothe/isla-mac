@@ -113,24 +113,21 @@ final class AmbientMomentTests: XCTestCase {
         }
     }
 
-    /// Every refusal the moment makes, one at a time.
+    /// Every refusal the moment makes, one at a time. The open panel, a drag
+    /// and the lock are not among them since spec §19.1: they make it wait a
+    /// second (`NotchController.alertsBlocked`, `IslandActivityTests`).
     func testTheMomentKeepsTheTrackPeeksRestraint() {
         func allowed(
-            switchOn: Bool = true, isOpen: Bool = false, isDropTargeted: Bool = false, isLocked: Bool = false,
-            pointerInside: Bool = false, pointerUnderGrownPill: Bool = false, screensAsleep: Bool = false,
-            quiet: Bool = false
+            switchOn: Bool = true, pointerInside: Bool = false, pointerUnderGrownPill: Bool = false,
+            screensAsleep: Bool = false, quiet: Bool = false
         ) -> Bool {
             NotchController.ambientAllowed(
-                switchOn: switchOn, isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked,
-                pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill,
+                switchOn: switchOn, pointerInside: pointerInside, pointerUnderGrownPill: pointerUnderGrownPill,
                 screensAsleep: screensAsleep, quiet: quiet
             )
         }
         XCTAssertTrue(allowed())
         XCTAssertFalse(allowed(switchOn: false), "switched off in Settings")
-        XCTAssertFalse(allowed(isOpen: true), "the panel is open")
-        XCTAssertFalse(allowed(isDropTargeted: true), "a drag is over the island")
-        XCTAssertFalse(allowed(isLocked: true), "the lock card owns the rects")
         XCTAssertFalse(allowed(pointerInside: true), "the pointer is on the island")
         XCTAssertFalse(allowed(pointerUnderGrownPill: true), "the pill would grow under a still cursor")
         XCTAssertFalse(allowed(screensAsleep: true), "nobody can see it")
@@ -166,34 +163,71 @@ final class AmbientMomentTests: XCTestCase {
         XCTAssertFalse(NotchController.isSoleExternalDisplay(displaysAreBuiltIn: [], hasInternalBattery: true), "no displays reported")
     }
 
-    func testThePillGrowsOnlyAsFarAsTheMomentNeeds() {
-        let notch = CGSize(width: 200, height: 32)
-        let folded = notch
-        let charging = NotchViewModel.ambientBodySize(.charging(level: 80, isCharging: true), media: folded, notchSize: notch, bodyWidth: 560)
-        XCTAssertEqual(charging.width, 200 + NotchMetrics.compactMediaExtension)
-        let pods = NotchViewModel.ambientBodySize(
-            .headphones(name: "AirPods Pro", symbol: "airpodspro"), media: folded, notchSize: notch, bodyWidth: 560
+    /// The pointer test before an alert grows covers the shape it will grow
+    /// into — its full depth and its shoulders — not the notch-deep strip a
+    /// compact pill took. The headphones alert reaches 57 pt below a 38 pt
+    /// notch with 20 pt shoulders; tested against the strip, a pointer parked
+    /// on a browser's tab bar under the notch let it grow beneath the cursor,
+    /// take the click meant for the tab, and hold as long as the pointer did
+    /// (R7 review).
+    func testThePointerTestCoversTheWholeShapeTheAlertGrowsInto() throws {
+        let onscreen = try XCTUnwrap(NotchGeometry.current(), "a test host always has a screen")
+        let geometry = NotchGeometry(
+            screen: onscreen.screen, notchSize: CGSize(width: 185, height: 38),
+            notchCenterX: onscreen.screen.frame.midX, isPhysical: true
         )
-        XCTAssertEqual(pods.width, 200 + NotchMetrics.ambientNameExtension)
-        let narrow = NotchViewModel.ambientBodySize(
-            .headphones(name: "AirPods Pro", symbol: "airpodspro"), media: folded, notchSize: notch, bodyWidth: 380
+        let pods = AmbientActivity.headphones(name: "AirPods Pro", symbol: "airpods.pro")
+        let body = NotchViewModel.ambientBodySize(pods, notchSize: geometry.notchSize, bodyWidth: 560)
+        let rect = geometry.grownAlertRect(for: .ambient(pods), body: body)
+        let top = onscreen.screen.frame.maxY
+        XCTAssertTrue(rect.contains(CGPoint(x: geometry.notchCenterX, y: top - 80)), "80 pt down is on the alert")
+        XCTAssertTrue(
+            rect.contains(CGPoint(x: geometry.notchCenterX + body.width / 2 + 18, y: top - 4)),
+            "the shoulder, 18 pt past the body"
         )
-        XCTAssertEqual(narrow.width, 380, "never wider than the panel it would open into")
-        let overMusic = NotchViewModel.ambientBodySize(
-            .charging(level: 80, isCharging: true), media: CGSize(width: 460, height: 32), notchSize: notch, bodyWidth: 560
+        XCTAssertFalse(rect.contains(CGPoint(x: geometry.notchCenterX, y: top - body.height - 20)), "below it is not")
+
+        let charger = AmbientActivity.charging(level: 67, isCharging: true)
+        let compact = NotchViewModel.ambientBodySize(charger, notchSize: geometry.notchSize, bodyWidth: 560)
+        let chargerRect = geometry.grownAlertRect(for: .ambient(charger), body: compact)
+        XCTAssertTrue(
+            chargerRect.contains(CGPoint(x: geometry.notchCenterX + compact.width / 2 + 8, y: top - 4)),
+            "a compact activity's 8.67 pt shoulder too"
         )
-        XCTAssertEqual(overMusic.width, 460, "never narrower than the music pill it stands in for")
     }
 
+    /// The charger is a compact activity, the notch plus 180; headphones an
+    /// expanded alert in the reference's shape. Neither widens to the music
+    /// it replaces — that pill is gone, not under it (spec §19.1) — and
+    /// neither outgrows the panel.
+    func testThePillGrowsOnlyAsFarAsTheMomentNeeds() {
+        let notch = CGSize(width: 200, height: 32)
+        let charging = NotchViewModel.ambientBodySize(.charging(level: 80, isCharging: true), notchSize: notch, bodyWidth: 560)
+        XCTAssertEqual(charging, CGSize(width: 200 + NotchMetrics.compactChargingExtension, height: 32), "spec §19.4: the notch plus 180")
+        let pods = NotchViewModel.ambientBodySize(
+            .headphones(name: "AirPods Pro", symbol: "airpodspro"), notchSize: notch, bodyWidth: 560
+        )
+        XCTAssertEqual(pods, ExpandedAlertShape.headphones.bodySize(notchSize: notch, bodyWidth: 560))
+        let narrow = NotchViewModel.ambientBodySize(
+            .headphones(name: "AirPods Pro", symbol: "airpodspro"), notchSize: notch, bodyWidth: 300
+        )
+        XCTAssertEqual(narrow.width, 300, "never wider than the panel it would open into")
+    }
+
+    /// All three of "The island shows" (Charging, Headphones Connecting, New
+    /// Tracks) are on until turned off. Read from a private suite since the
+    /// redesign gave each a new key (spec §10): the test used to remove the
+    /// owner's own keys from the standard domain and put them back.
     func testBothMomentsAreOnUntilTurnedOff() {
-        let defaults = UserDefaults.standard
-        for key in [NotchViewModel.showChargingKey, NotchViewModel.showHeadphonesKey] {
-            let had = defaults.object(forKey: key)
-            defaults.removeObject(forKey: key)
-            XCTAssertTrue(key == NotchViewModel.showChargingKey
-                ? NotchViewModel.showChargingEnabled : NotchViewModel.showHeadphonesEnabled)
-            if let had { defaults.set(had, forKey: key) }
-        }
+        let name = "com.ctimothe.isla.ambient.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: name)!
+        defer { suite.removePersistentDomain(forName: name) }
+        XCTAssertTrue(NotchViewModel.chargingEnabled(in: suite))
+        XCTAssertTrue(NotchViewModel.headphonesEnabled(in: suite))
+        XCTAssertTrue(NotchViewModel.newTracksEnabled(in: suite))
+        suite.set(false, forKey: NotchViewModel.chargingKey)
+        XCTAssertFalse(NotchViewModel.chargingEnabled(in: suite))
+        XCTAssertTrue(NotchViewModel.headphonesEnabled(in: suite), "one switch does not move the other")
     }
 
     /// Renders both moments over a grey backdrop. With SHOT_OUT set it writes

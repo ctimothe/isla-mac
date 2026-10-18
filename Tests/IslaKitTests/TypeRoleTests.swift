@@ -13,7 +13,20 @@ final class TypeRoleTests: XCTestCase {
         let roles = Theme.TypeRole.allCases.map(\.size)
         XCTAssertEqual(roles, roles.sorted(), "roles ascend")
         XCTAssertEqual(Set(roles).count, roles.count, "no two roles share a size")
-        XCTAssertLessThanOrEqual(roles.count, 7, "six roles, seven at the outside")
+        // Redesign 2026-10-15, spec §2.2: the boards' reading text (12.5) and the
+        // tall lyric page (17) are the two roles added, so eight where it was six.
+        XCTAssertLessThanOrEqual(roles.count, 8, "six roles and the redesign's two")
+    }
+
+    /// The two roles the redesign adds (spec §2.2): reading text between `body`
+    /// and `subhead`, and the lyric page between `title` and `display`.
+    func testTheRedesignAddsReadingAndLyric() {
+        XCTAssertEqual(Theme.TypeRole.reading.size, 12.5)
+        XCTAssertEqual(Theme.TypeRole.lyric.size, 17)
+        XCTAssertGreaterThan(Theme.TypeRole.reading.size, Theme.TypeRole.body.size)
+        XCTAssertLessThan(Theme.TypeRole.reading.size, Theme.TypeRole.subhead.size)
+        XCTAssertGreaterThan(Theme.TypeRole.lyric.size, Theme.TypeRole.title.size)
+        XCTAssertLessThan(Theme.TypeRole.lyric.size, Theme.TypeRole.display.size)
     }
 
     /// The smallest role is the one carrying most of the panel's labels, and

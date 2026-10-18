@@ -47,11 +47,11 @@ final class LockCardPaneTests: XCTestCase {
     func testALongSungLineWrapsAndTheWindowNarrows() {
         let long = Self.longSungLine
         XCTAssertEqual(
-            LockScreenCard.lyricLayout(currentText: long, width: 412, cardSize: .standard),
+            LockScreenCard.lyricLayout(currentText: long, width: 420, cardSize: .standard),
             LockScreenCard.LyricLayout(window: 3, currentLineLimit: 2)
         )
         XCTAssertEqual(
-            LockScreenCard.lyricLayout(currentText: "Short again", width: 412, cardSize: .standard),
+            LockScreenCard.lyricLayout(currentText: "Short again", width: 420, cardSize: .standard),
             LockScreenCard.LyricLayout(window: 5, currentLineLimit: 1)
         )
         XCTAssertEqual(
@@ -64,15 +64,17 @@ final class LockCardPaneTests: XCTestCase {
         )
         // Through a solo the centre row is the interlude marker, one row tall.
         XCTAssertEqual(
-            LockScreenCard.lyricLayout(currentText: nil, width: 412, cardSize: .standard),
+            LockScreenCard.lyricLayout(currentText: nil, width: 420, cardSize: .standard),
             LockScreenCard.LyricLayout(window: 5, currentLineLimit: 1)
         )
     }
 
     /// The card's own text width is what the line is measured against: the
-    /// card less its side padding on each edge.
+    /// card less its side padding on each edge. 20 on both cards since the
+    /// redesign (it was 24 on the standard one, so 412): the board starts every
+    /// row 20 in from the edge (spec §7.1).
     func testTheLyricTextWidthIsTheCardLessItsPadding() {
-        XCTAssertEqual(LockScreenCard.lyricTextWidth(for: .standard), 412)
+        XCTAssertEqual(LockScreenCard.lyricTextWidth(for: .standard), 420)
         XCTAssertEqual(LockScreenCard.lyricTextWidth(for: .compact), 380)
     }
 
@@ -187,8 +189,12 @@ final class LockCardPaneTests: XCTestCase {
 
     /// The selected row used to be a white glyph in a well of the system accent
     /// and nothing else: on a Yellow accent that glyph was about 1.4:1, and the
-    /// selection was carried by colour alone (F-053). It is now a checkmark and
-    /// a weight, and the well is the same neutral shape on every row.
+    /// selection was carried by colour alone (F-053). It is a checkmark and a
+    /// weight as well as a colour. The colour is the owner's fixed red now, as
+    /// the Sound module of the redesign has it (spec §7.3: "accent on the
+    /// current one, white 0.16 otherwise"), which the white glyph clears — but
+    /// the shape and the stroke stay, because they read under any wallpaper and
+    /// any colour vision.
     func testSelectionIsNotColourAlone() {
         let on = LockScreenCard.outputRowMarks(selected: true)
         let off = LockScreenCard.outputRowMarks(selected: false)
@@ -197,37 +203,45 @@ final class LockCardPaneTests: XCTestCase {
         XCTAssertFalse(off.checkmark)
         XCTAssertTrue(on.semibold)
         XCTAssertFalse(off.semibold)
-        // The well never changes colour: whatever separates the rows is a
-        // shape and a weight, which survive any accent and any colour vision.
-        XCTAssertEqual(on.well, .cardFill)
+        // The selected circle is the accent, the others the card's fill — and
+        // what separates them is also a shape and a weight.
+        XCTAssertEqual(on.well, .accent)
         XCTAssertEqual(off.well, .cardFill)
         XCTAssertEqual(on.glyph, .primary)
         XCTAssertEqual(off.glyph, .cardTertiary)
     }
 
-    /// The list scrolls inside the card rather than growing past it. Five rows
-    /// on the compact card already ran off its top edge; the cap is what fits
-    /// above the footer, and a list that overflows shows half a row so there
-    /// is something to say it scrolls.
-    func testTheOutputListFitsAboveTheFooterAtBothSizes() {
+    /// The list scrolls inside the card rather than growing past it (spec §7.3):
+    /// devices stand 36 pt apart with nothing between them, the first circle at
+    /// y 98, so five fit on the standard card — the board's five — and three on
+    /// the compact one. A list that overflows shows half a row so there is
+    /// something to say it scrolls.
+    func testTheOutputListFitsTheCardAtBothSizesOnA36PointPitch() {
+        XCTAssertEqual(LockScreenCard.outputRowHeight, 36, "devices are 36 pt apart")
+        XCTAssertEqual(LockScreenCard.outputRowSpacing, 0)
+        XCTAssertEqual(LockScreenCard.outputRowsThatFit(.standard), 5)
+        XCTAssertEqual(LockScreenCard.outputRowsThatFit(.compact), 3)
+
         for size in NotchViewModel.LockCardSize.allCases {
             let card = LockScreenCard.size(for: size)
-            let room = card.height - LockScreenCard.footerClearance - LockScreenCard.outputPopoverChrome
+            let room = card.height - LockCardLayout.outputListTop - LockCardLayout.outputListBottomMargin
             let fit = LockScreenCard.outputRowsThatFit(size)
-            XCTAssertGreaterThanOrEqual(fit, 3, "\(size)")
 
-            // Every list, however long, fits the room above the footer.
+            // Every list, however long, fits the room under the heading.
             for count in 1...12 {
                 XCTAssertLessThanOrEqual(LockScreenCard.outputListHeight(count: count, size: size), room, "\(size) \(count)")
             }
             // Up to the cap: exactly as tall as its rows, nothing to scroll.
-            let pitch = LockScreenCard.outputRowHeight + LockScreenCard.outputRowSpacing
-            XCTAssertEqual(LockScreenCard.outputListHeight(count: fit, size: size), CGFloat(fit) * pitch - LockScreenCard.outputRowSpacing)
+            XCTAssertEqual(LockScreenCard.outputListHeight(count: fit, size: size), CGFloat(fit) * 36)
+            XCTAssertEqual(LockScreenCard.outputListHeight(count: 1, size: size), 36)
             // Past it: the last visible row is cut in half.
             XCTAssertEqual(
                 LockScreenCard.outputListHeight(count: fit + 1, size: size),
-                CGFloat(fit - 1) * pitch + LockScreenCard.outputRowHeight / 2
+                CGFloat(fit - 1) * 36 + 18
             )
+            // The first circle sits at the board's y 98: the list's top, plus the
+            // five points above the 26 pt circle in its 36 pt row.
+            XCTAssertEqual(LockCardLayout.outputListTop + (36 - LockCardLayout.outputCircle) / 2, 98)
         }
         XCTAssertEqual(LockScreenCard.outputListHeight(count: 0, size: .standard), 0)
     }

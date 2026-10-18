@@ -107,10 +107,12 @@ enum Diagnostics {
     /// - Parameter clipboardAccess: what the system answers now, not what
     ///   the clipboard store last acted on. A seam, because a test cannot
     ///   set the switch, and reading the access behaviour reads no content.
+    ///   Asked of the settled pasteboard, which is why the default is nil
+    ///   rather than an argument: a default is evaluated off the main actor.
     @MainActor
     static func current(
         media: MediaController, hotKeys: HotKeyCenter? = nil,
-        clipboardAccess: ClipboardAccess = ClipboardStore.systemAccess(of: .general),
+        clipboardAccess: ClipboardAccess? = nil,
         includeLog: Bool = true
     ) -> Snapshot {
         let hotKeys = hotKeys ?? .shared
@@ -127,8 +129,9 @@ enum Diagnostics {
             ("Show on Lock Screen", onOff(NotchViewModel.showOnLockScreenEnabled)),
             ("Hide from Screen Recording", onOff(NotchViewModel.hideFromCaptureEnabled)),
             ("Clipboard History", onOff(NotchViewModel.clipboardHistoryEnabled)),
-            ("Show Charging", onOff(NotchViewModel.showChargingEnabled)),
-            ("Show Headphones Connecting", onOff(NotchViewModel.showHeadphonesEnabled)),
+            ("Charging", onOff(NotchViewModel.chargingEnabled)),
+            ("Headphones Connecting", onOff(NotchViewModel.headphonesEnabled)),
+            ("New Tracks", onOff(NotchViewModel.newTracksEnabled)),
             ("Check for Updates Automatically", onOff(UpdateCheck.automaticEnabled)),
             ("Launch at Login", SMAppService.mainApp.status == .enabled ? "on" : "off"),
             ("Panel Width", "\(Int(NotchViewModel.bodyWidth)) pt"),
@@ -163,7 +166,7 @@ enum Diagnostics {
             signature: signature(of: Bundle.main.bundleURL),
             helperSignature: NowPlayingFeed.helperSignature,
             lockScreenSPI: SkyLight.shared != nil,
-            pasteFromOtherApps: clipboardAccess,
+            pasteFromOtherApps: clipboardAccess ?? ClipboardStore.systemAccess(of: PasteboardRead.general),
             settings: settings,
             shortcuts: shortcuts,
             log: includeLog ? recentLog() : []
@@ -182,7 +185,7 @@ enum Diagnostics {
     static func copyToPasteboard(media: MediaController) async {
         var snapshot = current(media: media, includeLog: false)
         snapshot.log = await Task.detached(priority: .userInitiated) { recentLog() }.value
-        let pasteboard = NSPasteboard.general
+        let pasteboard = PasteboardRead.general
         pasteboard.clearContents()
         pasteboard.setString(render(snapshot), forType: .string)
         pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))

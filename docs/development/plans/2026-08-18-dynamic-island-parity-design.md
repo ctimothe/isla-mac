@@ -208,6 +208,83 @@ transitions.
 > the same division the island itself made on 2026-08-26 — a click is a
 > decision, a hover is traffic.
 
+> **Amended 2026-10-15 — the tall body returns, by a button.** The redesign
+> (`docs/plans/2026-10-15-redesign-spec.md`, binding) gives the body two
+> heights again: the standard `208 pt` and an expanded `400 pt`, the height the
+> window was always cut for and never stopped being cut for. Nothing resizes
+> the window; the body's height becomes a per-tab value and the active rect
+> follows it. The lyric column, Shelf, Clipboard and Translate grow by an
+> **Expand / Collapse** button at the header's trailing edge, on a critically
+> damped `0.40` spring; there is no bottom-edge drag and no grabber, because
+> macOS has no such control. Settings always opens at `400 pt`, as a sidebar
+> of sections beside a grouped form. Expansion is remembered per tab for the
+> session and forgotten at relaunch. The 2026-08-22 amendment above ("every
+> tab now uses the standard body") is superseded for these tabs only; Music's
+> player stays at `208 pt` and reaches the tall page through its lyric column.
+>
+> The compact island narrows from `notch + 104` to `notch + 80` — two 40 pt
+> wings with even 8 pt margins (owner decision, 2026-10-15) — and the new-track
+> peek grows the island to `50 pt` tall rather than squeezing two lines into
+> the notch's height. On a dark wallpaper the island and the panel draw a
+> 1 pt *key line* tinted to their content, decided from the wallpaper file
+> (no screen capture, no permission); under Increase Contrast it is always
+> drawn. While the lock banner or card shows, the island has no wings.
+
+> **Amended 2026-10-17 — the tabs move into the notch's wings.** The rail is
+> withdrawn. The owner judged a vertical column of tabs on the body's left
+> edge an app sidebar hung under a camera, and chose to put the tabs where the
+> notch already divides the header row: Music and Shelf left of the camera,
+> Clipboard and Translate right of it, Settings at the far right edge. The
+> five tabs and their order are unchanged, and a click still changes the tab
+> (the 2026-09-21 rule); a two-finger horizontal swipe on the body moves
+> between the four content tabs, and ⌘1…⌘4 and ⌘, do so while the pointer
+> is on the open panel. The header's title is gone — the lit tab names the pane — and the
+> per-tab tools (Search, History, the lyric tools, the Shelf's count) move
+> down into their panes; Expand / Collapse moves to the header's top-left
+> corner. Only the notch's own span of the header closes the panel now; the
+> rest of the row is tabs. The row lies on the menu bar, where utilities such
+> as Ice see every click; keeping it free of controls for them is given up
+> here and owed a hardware check. Content gains 44 pt of width on every tab. The
+> 2026-08-22 amendment's "one rail carries Music, Shelf, Clipboard and
+> Translate, with Settings held at its foot" and the 2026-10-11 welcome
+> amendment's "one line level with each rail icon" are superseded: the
+> welcome lists one line per tab, each led by its tab's glyph. Binding detail:
+> `docs/plans/2026-10-15-redesign-spec.md` §18 (release R6).
+
+> **Amended 2026-10-17 — activities first; the wings are withdrawn.** The
+> amendment above is withdrawn before it was built: the owner chose a second
+> direction. The island shows the one thing that is happening and opens on it,
+> and the tools are summoned, not tabbed. There is no rail and no tab bar. A
+> click on the music opens the player; files dragged to the notch open the
+> Shelf; ⌃⌥⌘V opens Clipboard (a fourth global hot key, rebindable like the
+> others); ⌃⌥⌘T translates the clipboard into a short alert and copies the
+> result; a right-click on the island lists Clipboard, Translate Clipboard,
+> Shelf, Lyrics, Settings… and Quit Isla; with nothing live, a click opens a
+> small Tools surface. The island and its alerts — charging, low and full
+> battery, headphones, volume, a finished translation, an update — take the
+> iPhone's compact and expanded forms, measured from DynamicNotch's published
+> screenshots and redrawn from scratch with SF Symbols and Isla's own words
+> (DynamicNotch is GPL-3.0: ideas and measurements only, never its code,
+> images or text). The island's outline springs with a slight overshoot, the
+> one place Isla's motion does. The five-tab contract of 2026-08-22 gives way
+> to a surface contract that still keeps the removed features removed. The
+> panel width setting (480…620, default 560) now sizes the summoned surfaces;
+> the compact island's width follows the notch. Clipboard takes the keyboard
+> when summoned, as Translate does. On the lock screen a full-screen layout —
+> the cover, the lyrics and a glass player, with the unlock controls left
+> clear — becomes the default, and the 2026-10-15 card stays as a choice.
+
+> **Amended 2026-10-18 — pages and dots.** The Shelf, Clipboard and Translate
+> were too hard to find from the player. The open panel now holds four pages
+> in a fixed order — Music, Shelf, Clipboard, Translate — turned by a
+> two-finger swipe or a click on a row of dots under each page. Settings is a
+> gear at the top right of every page. The small Tools surface is withdrawn.
+> The island still opens on what it shows, and the menu and the shortcuts still
+> open their pages directly; the removed features stay removed. Binding
+> detail: `docs/plans/2026-10-15-redesign-spec.md` §19.16 (release R8b).
+> Binding detail: `docs/plans/2026-10-15-redesign-spec.md` §19 (releases
+> R7–R10).
+
 ## Feature parity contract
 
 > **Amended 2026-08-20.** The Snippets and Calendar sections below are
@@ -589,6 +666,21 @@ may prompt through normal macOS filesystem access only when the Shelf needs them
 No accessibility, screen-recording, network account, or background data-upload
 permission is introduced for parity.
 
+> **Amended 2026-10-15 — one opt-in Accessibility use, and one pinned file.**
+> The volume and brightness pop-up (redesign spec §12, release R5) replaces
+> the Mac's own pop-up in the island. It needs Accessibility, because seeing
+> the volume and brightness keys before the system does requires a session
+> event tap. It is **off by default**, asks for the permission only when the
+> person turns it on, consumes no key until the permission is granted, and
+> gives the keys back the moment it is turned off. Brightness goes through
+> private DisplayServices and CoreBrightness entry points resolved with
+> `dlsym`; when a symbol is missing those keys are left to the system. No
+> entitlement is added. Separately, Clipboard's **Keep Pinned Items** (off by
+> default) writes pinned text and file entries — never images — to
+> `~/Library/Application Support/Isla/pinned-clipboard.plist` (mode 0600) and
+> deletes the file when turned off; the rest of the history stays transient
+> and empties at quit, as above.
+
 ## Failure handling
 
 Failures stay scoped to the affected feature:
@@ -679,6 +771,10 @@ in the repository:
 ## Explicit non-goals for the parity phase
 
 - Adding cloud sync, accounts, analytics, network services, or new permissions.
+
+  > **Amended 2026-10-15.** One permission is now requested, and only on
+  > request: Accessibility, for the opt-in volume and brightness pop-up (see
+  > *Data and permission boundaries*). Nothing asks for it unprompted.
 - Importing the user's Cyclop data without a separately approved migration design.
 - Reusing Cyclop's icon, website, screenshots, or marketing copy.
 - Large architectural rewrites before parity and performance are demonstrated.

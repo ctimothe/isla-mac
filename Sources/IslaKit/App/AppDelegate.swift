@@ -41,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `PrivateNetwork.session` now, which writes nothing, but the rows
         // already written stay until they are removed — so they are, once.
         PrivateNetwork.purgeLegacyStorage()
+        // Before anything reads a setting: the three renamed switches (Charging,
+        // Headphones Connecting, New Tracks) have new keys, and a choice made
+        // under the old ones is carried across once (redesign 2026-10-15, spec
+        // §10). A copy that handed over to an older one above never gets here, so
+        // it cannot move a value the running copy has not yet read.
+        NotchViewModel.migrateRenamedKeys()
         controller = NotchController()
         controller?.install()
         // Built here rather than wherever a view first mentions it.
@@ -71,18 +77,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // change while the app runs.
         HotKeyCenter.shared.install([
             .openPanel: { [weak self] in self?.togglePanel() },
+            .showClipboard: { [weak self] in self?.controller?.toggleClipboard() },
             // No text is passed on as `nil`, not dropped here: with an image
             // on the clipboard the shortcut used to do nothing at all, which
             // looked like a shortcut that was never registered (F-040). The
             // pane says so now.
             .translateClipboard: { [weak self] in
-                self?.controller?.translateCommanded(NSPasteboard.general.string(forType: .string))
+                self?.controller?.translateCommanded(PasteboardRead.general.string(forType: .string))
             },
             .showLyrics: { [weak self] in self?.controller?.toggleLyrics() },
         ])
         NSApp.servicesProvider = self
         // Nothing, unless the user turned the daily check on in Settings.
         UpdateCheck.shared.startAutomaticIfEnabled()
+        if let folder = DebugTrail.updateRehearsal {
+            // Loud on purpose: in this mode Update Now takes its release from a
+            // folder, not from GitHub, and nobody should forget it is on.
+            Log.updates.notice("UPDATE REHEARSAL MODE IS ON: releases come from \(folder.path, privacy: .public), not from GitHub")
+        }
+        // A failed or refused install belongs to the release it tried: a check
+        // that finds Isla current, or a different release, ends it.
+        UpdateInstaller.shared.observe(UpdateCheck.shared)
+        // A crashed install can leave its staging folder beside the app.
+        UpdateInstaller.sweepAtLaunch()
 
         // One visible moment on a fresh account, and only one. Everything about
         // this app is invisible by design — `.accessory`, no Dock icon, no
@@ -181,6 +198,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         DistributedNotificationCenter.default().removeObserver(self)
         controller?.teardown()
+        // The clipboard history is memory-only, so the files behind its pictures
+        // end with the session.
+        ClipImageSpool.session.removeAll()
         // Explicitly, because a hot key cannot release itself: the Carbon
         // callback needs a lookup table to find the instance, that table holds
         // the only strong reference, and so `deinit` never runs.

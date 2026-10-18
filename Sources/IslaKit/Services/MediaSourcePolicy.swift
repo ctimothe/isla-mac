@@ -31,6 +31,13 @@ import Foundation
 ///    that say nothing about what they are playing.
 enum MediaSourcePolicy {
     /// Players whose whole purpose is music or spoken audio.
+    ///
+    /// The identifiers added on 2026-10-15 (Qobuz, YouTube Music, Audirvana,
+    /// both Pocket Casts builds) are the ones Homebrew's casks list in their
+    /// `zap` and `quit` stanzas, which are the vendors' own. A player missing
+    /// from here is still admitted whenever it labels what it plays as audio
+    /// (rule 2); the list only decides which apps are *always* shown, and which
+    /// ones Settings and the empty player name.
     static let musicApps: Set<String> = [
         "com.apple.Music",
         "com.apple.podcasts",
@@ -48,9 +55,41 @@ enum MediaSourcePolicy {
         "com.swinsian.Swinsian",
         "com.audirvana.Audirvana-Origin",
         "com.audirvana.Audirvana-Studio",
-        "com.shiftyjelly.pocketcasts",
+        "com.audirvana.Audirvana",       // Audirvana (the original, pre-Studio build)
+        "com.qobuz.QobuzDesktop",        // Qobuz
+        "com.github.th-ch.youtube-music", // YouTube Music desktop (Pear)
+        "com.shiftyjelly.pocketcasts",   // Pocket Casts (older identifier, not verified; harmless)
+        "com.electron.pocket-casts",     // Pocket Casts (desktop wrapper)
+        "au.com.shiftyjelly.PocketCasts", // Pocket Casts (Mac app)
         "fm.overcast.overcast",
     ]
+
+    /// The members of `musicApps` that play spoken audio, not songs. They are
+    /// shown like any music app, but the empty Music tab does not offer to open
+    /// them as "a player to start a song in".
+    static let podcastApps: Set<String> = [
+        "com.apple.podcasts",
+        "com.shiftyjelly.pocketcasts",
+        "com.electron.pocket-casts",
+        "au.com.shiftyjelly.PocketCasts",
+        "fm.overcast.overcast",
+    ]
+
+    /// The players a person starts a song in: `musicApps` less the podcast apps.
+    ///
+    /// A stored constant, not a computed set: the empty player asks on every
+    /// layout pass, and a set rebuilt per pass is work for an answer that
+    /// cannot change.
+    static let songApps: Set<String> = musicApps.subtracting(podcastApps)
+
+    /// Every app Settings › Music › Players on This Mac lists: the dedicated
+    /// players and the ones that play songs and films. Stored for the same
+    /// reason as `songApps`.
+    static let listedPlayers: Set<String> = musicApps.union(mixedApps)
+
+    /// Listed first wherever Isla names players: Apple Music, then Spotify —
+    /// the two it can control, not just read.
+    static let leadingApps = ["com.apple.Music", "com.spotify.client"]
 
     /// Apps that play songs *and* films, where the item decides.
     static let mixedApps: Set<String> = [

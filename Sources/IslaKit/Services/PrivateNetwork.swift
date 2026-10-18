@@ -23,7 +23,29 @@ import Foundation
 /// Each caller still sets its own headers (LRCLIB's User-Agent, the update
 /// check's Accept); the session adds none of its own.
 enum PrivateNetwork {
-    static let session: URLSession = {
+    static let session = URLSession(configuration: makeConfiguration())
+
+    /// A session of the same private configuration for a caller that needs
+    /// delegate callbacks (a download with progress and a redirect rule), which
+    /// only a session of its own can have. This is the one place besides
+    /// `session` that builds a `URLSession`; nothing else may, or a `.default`
+    /// configuration would bring the cache back (`PrivateNetworkTests`).
+    /// `protocolClasses` is the seam a test answers the wire through.
+    static func makeSession(
+        delegate: URLSessionDelegate, requestTimeout: TimeInterval? = nil, resourceTimeout: TimeInterval? = nil,
+        protocolClasses: [AnyClass]? = nil
+    ) -> URLSession {
+        let configuration = makeConfiguration()
+        if let requestTimeout { configuration.timeoutIntervalForRequest = requestTimeout }
+        if let resourceTimeout { configuration.timeoutIntervalForResource = resourceTimeout }
+        if let protocolClasses { configuration.protocolClasses = protocolClasses }
+        return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+    }
+
+    /// The configuration `session` is made from, fresh each time. A download
+    /// that wants progress needs a delegate, which only a session of its own
+    /// can have; it takes this so it keeps every one of these rules.
+    static func makeConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -31,8 +53,8 @@ enum PrivateNetwork {
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         configuration.urlCredentialStorage = nil
-        return URLSession(configuration: configuration)
-    }()
+        return configuration
+    }
 
     /// Set once the shared cache and cookie jar that earlier builds filled
     /// have been emptied. Versioned, so a later change that needs another

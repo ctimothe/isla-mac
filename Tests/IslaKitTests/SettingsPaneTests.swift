@@ -71,14 +71,7 @@ final class SettingsPaneTests: XCTestCase {
     func testPrivacyCardShowsBothNotes() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        let stores = isolated.stores
-        let pane = SettingsPane(
-            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
-            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
-            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) })
-        )
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 700))
+        let root = await SettingsFixture.tree(isolated, section: .privacy)
         for text in [SettingsPane.privacyCoversNote, SettingsPane.hideFromCaptureNote] {
             XCTAssertFalse(root.all { $0.label == text || $0.value == text || $0.title == text }.isEmpty,
                            "no note reading \(text)\n\(root.dump)")
@@ -95,50 +88,59 @@ final class SettingsPaneTests: XCTestCase {
     /// finds it, and it has to be one checkbox named by its row, carrying an
     /// on/off value, as wide as the row.
     ///
-    /// Only the privacy covers are pressed. Every other row writes to
-    /// `UserDefaults.standard` — the test runner's own domain, which has leaked
-    /// settings into later runs before — and Launch at Login would register
-    /// the test binary with `SMAppService`. The covers live in the isolated
-    /// suite, so they can be flipped without touching anything of the owner's;
-    /// the press itself is the style's one code path, which
+    /// Redesign 2026-10-15 (spec §10): the pane shows one section at a time and the
+    /// row is the form's 354 pt, not the old list's 480 — the widths below are the
+    /// form's. Only the privacy covers are pressed: they live in the isolated
+    /// suite, and the press itself is the style's one code path, which
     /// `testPressingAnywhereOnTheRowFlipsTheSwitch` holds for any binding.
+    /// Launch at Login is never pressed — it would register the test binary with
+    /// `SMAppService`.
     func testEveryToggleRowIsOneSwitchTheWidthOfItsRow() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let stores = isolated.stores
-        let pane = SettingsPane(
-            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
-            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
-            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) })
-        )
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 700))
 
+        // Every switch the table draws, by section, with the defaults the
+        // isolated suite reads. "Charger Connected" is drawn only on a Mac with a battery to
+        // report on (`AmbientWatch.hasBattery`), and a CI virtual machine has none:
+        // the row is not there to count, which is correct and not a missing switch.
+        let expected: [SettingsSection: [String]] = [
+            .general: ["Launch at Login", "Open on Hover"] + (AmbientWatch.hasBattery ? ["Charger Connected"] : [])
+                // Volume and Brightness joined in R5 (spec §12), off by default.
+                + ["Headphones Connecting", "New Tracks", "Volume and Brightness"],
+            .privacy: ["Clipboard History", "Include Images", "Keep Pinned Items",
+                       PrivacyMode.Section.clipboard.settingsTitle, PrivacyMode.Section.translate.settingsTitle,
+                       "Hide from Screen Recording"],
+            .music: ["Music Only", "Output Button", "Lyric Band"],
+            .lyrics: ["Show Lyrics", "Word Karaoke", "Translate Lyrics", "Look Up Lyrics Online"],
+            .lockScreen: ["Show on Lock Screen", "Rest as Banner"],
+            .translate: ["Translate Online", "Keep History", "Speak Button"],
+            .screenshots: ["Save Clipboard Screenshots", "Show Screen Captures"],
+            .about: ["Check for Updates Automatically"],
+        ]
+        var total = 0
+        for (section, titles) in expected {
+            let root = await SettingsFixture.tree(isolated, section: section)
+            let switches = root.all(role: "AXCheckBox")
+            XCTAssertEqual(Set(switches.map(\.label)), Set(titles.map { localized($0) }),
+                           "\(section) draws exactly these switches\n\(root.dump)")
+            for title in titles {
+                XCTAssertEqual(switches.filter { $0.label == localized(title) }.count, 1,
+                               "exactly one switch named \(title)\n\(root.dump)")
+            }
+            for node in switches {
+                XCTAssertFalse(node.label.isEmpty, "a switch with no name\n\(root.dump)")
+                XCTAssertTrue(["0", "1"].contains(node.value), "\(node.label) has no on/off value: \(node.value)")
+                let frame = node.frame ?? .zero
+                XCTAssertGreaterThanOrEqual(frame.width, 340, "\(node.label) is \(frame.size), not the row")
+                XCTAssertGreaterThanOrEqual(frame.height, 24, "\(node.label) is \(frame.size), not the row")
+            }
+            total += switches.count
+        }
+        XCTAssertGreaterThanOrEqual(total, 20, "the sections hold the pane's switches")
+
+        let root = await SettingsFixture.tree(isolated, section: .privacy)
         let switches = root.all(role: "AXCheckBox")
-        // Sixteen rows can be on screen with the defaults the runner reads;
-        // the count is a floor so a section that hides a row behind another
-        // setting cannot make this flaky, and an empty list cannot pass.
-        XCTAssertGreaterThanOrEqual(switches.count, 12, root.dump)
-        // "Show Charging" is drawn only on a Mac with a battery to report on
-        // (`AmbientWatch.hasBattery`), and a CI virtual machine has none: the
-        // row is not there to count, which is correct and not a missing switch.
-        let titles = ["Launch at Login", "Open on Hover"]
-            + (AmbientWatch.hasBattery ? ["Show Charging"] : [])
-            + ["Clipboard History",
-               PrivacyMode.Section.clipboard.settingsTitle, PrivacyMode.Section.translate.settingsTitle,
-               "Hide from Screen Recording"]
-        for title in titles {
-            XCTAssertEqual(switches.filter { $0.label == localized(title) }.count, 1,
-                           "exactly one switch named \(title)\n\(root.dump)")
-        }
-        for node in switches {
-            XCTAssertFalse(node.label.isEmpty, "a switch with no name\n\(root.dump)")
-            XCTAssertTrue(["0", "1"].contains(node.value), "\(node.label) has no on/off value: \(node.value)")
-            let frame = node.frame ?? .zero
-            XCTAssertGreaterThanOrEqual(frame.width, 400, "\(node.label) is \(frame.size), not the row")
-            XCTAssertGreaterThanOrEqual(frame.height, 24, "\(node.label) is \(frame.size), not the row")
-        }
-
         for section in PrivacyMode.Section.allCases {
             let before = stores.privacy.covers(section)
             guard let node = switches.first(where: { $0.label == section.settingsTitle }) else {
@@ -181,7 +183,7 @@ final class SettingsPaneTests: XCTestCase {
     /// On and off say so by the track, not only by which side the knob is on.
     ///
     /// The panel never becomes key outside Translate, so AppKit drew every
-    /// switch in its inactive style: Show Charging on and Launch at Login off
+    /// switch in its inactive style: Charging on and Launch at Login off
     /// differed by knob side and a slightly lighter track (H-002). The look is
     /// a function of the state and of Increase Contrast only — no key status
     /// goes in, so none can take the colour away.
@@ -211,7 +213,7 @@ final class SettingsPaneTests: XCTestCase {
     func testARefusedPlayerPointsToAutomationSettings() {
         let rows = SettingsPane.automationRows([.spotify: .denied])
         XCTAssertEqual(rows, [
-            .status(player: "Spotify", state: localized("Not allowed")),
+            .status(player: "Spotify", bundleID: "com.spotify.client", state: localized("Not allowed")),
             .note(localized("Isla cannot read a player it is not allowed to control. Allow Isla under Privacy & Security › Automation.")),
             .openAutomationSettings,
         ])
@@ -228,7 +230,7 @@ final class SettingsPaneTests: XCTestCase {
         XCTAssertEqual(SettingsPane.automationRows([:]), [])
         XCTAssertEqual(SettingsPane.automationRows([.music: .unknown, .spotify: .unknown]), [])
         XCTAssertEqual(SettingsPane.automationRows([.music: .allowed, .spotify: .unknown]), [
-            .status(player: PlayerApp.music.displayName, state: localized("Allowed")),
+            .status(player: PlayerApp.music.displayName, bundleID: "com.apple.Music", state: localized("Allowed")),
         ])
     }
 
@@ -237,33 +239,27 @@ final class SettingsPaneTests: XCTestCase {
     /// no recovery, because the first panel open on Music asks.
     func testEveryReadableStateHasARowAndOnlyARefusalHasTheAction() {
         XCTAssertEqual(SettingsPane.automationRows([.spotify: .notAsked, .music: .allowed]), [
-            .status(player: PlayerApp.music.displayName, state: localized("Allowed")),
-            .status(player: "Spotify", state: localized("Not asked yet")),
+            .status(player: PlayerApp.music.displayName, bundleID: "com.apple.Music", state: localized("Allowed")),
+            .status(player: "Spotify", bundleID: "com.spotify.client", state: localized("Not asked yet")),
         ])
         let bothRefused = SettingsPane.automationRows([.spotify: .denied, .music: .denied])
         XCTAssertEqual(bothRefused.filter { $0 == .openAutomationSettings }.count, 1)
         XCTAssertEqual(bothRefused.prefix(2), [
-            .status(player: PlayerApp.music.displayName, state: localized("Not allowed")),
-            .status(player: "Spotify", state: localized("Not allowed")),
+            .status(player: PlayerApp.music.displayName, bundleID: "com.apple.Music", state: localized("Not allowed")),
+            .status(player: "Spotify", bundleID: "com.spotify.client", state: localized("Not allowed")),
         ])
     }
 
     /// The rows are drawn, not only computed: a refused Spotify reads as one
-    /// element with its state, and the action is a button by its title.
+    /// element with its state, and the action is a button by its title — in the
+    /// Music section's Automation group, the one place in Settings that says it
+    /// (spec §10).
     func testTheMusicSectionDrawsARefusal() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        let stores = isolated.stores
         let access = AutomationAccess()
         access.learn(.spotify, outcome: AutomationAccess.refused)
-        let pane = SettingsPane(
-            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: stores.lyrics,
-            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
-            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) }),
-            automation: access
-        )
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 900))
+        let root = await SettingsFixture.tree(isolated, section: .music, height: 900, automation: access)
         let refused = localized("Not allowed")
         // One element carrying both, so VoiceOver never reads the state as a
         // stray line after the name.
@@ -272,6 +268,7 @@ final class SettingsPaneTests: XCTestCase {
                        "no row reading Spotify, \(refused)\n\(root.dump)")
         XCTAssertEqual(root.all(role: "AXButton").filter { $0.label == localized("Open Automation Settings…") }.count, 1,
                        root.dump)
+        XCTAssertTrue(root.all(role: "AXHeading").contains { $0.label == localized("Automation") }, root.dump)
     }
 
     /// ly/READ-02: "Show next line early" is one radio group of four options
@@ -282,18 +279,10 @@ final class SettingsPaneTests: XCTestCase {
     func testShowNextLineEarlyOffersFourOptionsWithAutoSelected() async throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        let stores = isolated.stores
         let lyrics = LyricsStore(
             offsetsDirectory: isolated.temp.appendingPathComponent("offsets"), defaults: isolated.suite
         )
-        let pane = SettingsPane(
-            shelf: stores.shelf, screenshotVault: stores.screenshotVault, lyrics: lyrics,
-            media: stores.media, localLyrics: stores.localLyricsLibrary, privacy: stores.privacy,
-            hotKeys: HotKeyCenter(defaults: isolated.suite, registrar: { _, _ in nil }),
-            updates: UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) }),
-            automation: AutomationAccess()
-        )
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: 488, height: 900))
+        let root = await SettingsFixture.tree(isolated, section: .lyrics, height: 900, lyrics: lyrics)
         let group = try XCTUnwrap(
             root.all(role: "AXRadioGroup").first { $0.label == localized("Show next line early") },
             root.dump

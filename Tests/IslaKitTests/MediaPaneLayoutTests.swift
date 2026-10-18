@@ -7,6 +7,61 @@ import XCTest
 @MainActor
 final class MediaPaneLayoutTests: XCTestCase {
 
+    // MARK: - Built once, not per body pass
+
+    @MainActor final class Counter: ObservableObject {
+        var built = 0
+        var inits = 0
+        @Published var tick = 0
+    }
+
+    /// The menu buttons used to build a presenter (and for Output a controller
+    /// behind it) in `State(initialValue:)` on every body pass, about ten a
+    /// second while a song plays. `BuiltOnce` runs its builder once per view
+    /// however often the parent redraws (review 2026-10-15).
+    func testBuiltOnceBuildsOnceHoweverOftenTheParentRedraws() async throws {
+        struct Child: View {
+            @StateObject private var holder: BuiltOnce<Int>
+            init(counter: Counter) {
+                counter.inits += 1
+                _holder = StateObject(wrappedValue: BuiltOnce { counter.built += 1; return counter.built })
+            }
+            var body: some View { Text("\(holder.value)") }
+        }
+        struct Parent: View {
+            @ObservedObject var counter: Counter
+            var body: some View {
+                Child(counter: counter).id("same").overlay(Text("\(counter.tick)"))
+            }
+        }
+        let counter = Counter()
+        let host = NSHostingView(rootView: Parent(counter: counter))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 40), styleMask: [], backing: .buffered, defer: true)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        for _ in 0..<5 {
+            counter.tick += 1
+            try await Task.sleep(for: .milliseconds(30))
+            host.layoutSubtreeIfNeeded()
+        }
+        XCTAssertGreaterThan(counter.inits, 1, "the parent did redraw, and the child was made again each time")
+        XCTAssertEqual(counter.built, 1, "the value behind it was built exactly once")
+    }
+
+    // MARK: - Bilingual lines in the band
+
+    /// A bilingual LRC line holds its translation after a newline; the player's
+    /// subtitle draws the sung row only, as the stage draws the pair
+    /// (review 2026-10-15).
+    func testTheBandDrawsTheFirstRowOfABilingualLine() {
+        let bilingual = LyricsStore.Line(at: 4, text: "in the dark by the camera\nв темноте у камеры")
+        XCTAssertEqual(MediaPane.bandText(of: bilingual), "in the dark by the camera")
+        XCTAssertFalse(MediaPane.bandText(of: bilingual).contains("\n"))
+        XCTAssertEqual(MediaPane.bandText(of: .init(at: 8, text: "humming everything you need")),
+                       "humming everything you need", "a plain line is itself")
+        XCTAssertEqual(MediaPane.bandText(of: .init(at: 8, text: "")), "")
+    }
+
     // MARK: - Which line to show
 
     /// A paused track sitting before its first timestamp used to show nothing at
@@ -94,127 +149,61 @@ final class MediaPaneLayoutTests: XCTestCase {
             MediaPane.EmptyStateMessage.readerDown.caption,
             localized("Only Music and Spotify can be seen right now.")
         )
-        XCTAssertNil(MediaPane.EmptyStateMessage.hiddenByMusicOnly.caption)
-        XCTAssertNil(MediaPane.EmptyStateMessage.nothingPlaying.caption)
     }
 
-    /// Open Settings has to land on the switch, not on the top of a pane that
-    /// scrolls: the Music section sits below General, Keyboard Shortcuts and
-    /// Screenshots. The target is a one-shot — leaving Settings drops an
-    /// unspent one so a later visit does not jump.
+    /// Redesign 2026-10-15, spec §4.8: every empty state has its body line now —
+    /// it used to be only the reader-down one — and the reader-down state alone
+    /// carries the pointer to Settings › Music, which is where the reason and Try
+    /// Again live (one failure surface).
+    func testEveryEmptyStateHasItsOwnBodyLine() {
+        XCTAssertEqual(
+            MediaPane.EmptyStateMessage.nothingPlaying.caption,
+            localized("Start a song in Music or Spotify, or open one here.")
+        )
+        XCTAssertEqual(
+            MediaPane.EmptyStateMessage.hiddenByMusicOnly.caption,
+            localized("Videos and films stay off the island.")
+        )
+        XCTAssertEqual(
+            MediaPane.EmptyStateMessage.readerDown.footnote,
+            localized("Settings › Music says why, with Try Again.")
+        )
+        XCTAssertNil(MediaPane.EmptyStateMessage.nothingPlaying.footnote)
+        XCTAssertNil(MediaPane.EmptyStateMessage.hiddenByMusicOnly.footnote)
+        // The remedy: a player to open, or — when the filter hides it — Settings.
+        XCTAssertTrue(MediaPane.EmptyStateMessage.hiddenByMusicOnly.offersSettings)
+        XCTAssertFalse(MediaPane.EmptyStateMessage.nothingPlaying.offersSettings)
+        XCTAssertFalse(MediaPane.EmptyStateMessage.readerDown.offersSettings)
+    }
+
+    /// Open Settings has to land on the Music section, where Music Only is. With
+    /// the single scrolling list that was a scroll target a visit set and
+    /// spent; with the sidebar (redesign 2026-10-15, spec §10) it is simply the
+    /// section selected, and — unlike the target — it stays selected, because it
+    /// is also what the next open restores.
     func testOpenSettingsLandsOnTheMusicSection() throws {
         // The lab's stand-in: nothing here reads the screen, and a sandboxed
         // run has none to give.
         let geometry = try LabGeometry.make()
         // Stores rooted in a temporary directory, so building a view model
-        // never reads or migrates the lyric files in Application Support.
+        // never reads or migrates the lyric files in Application Support, and a
+        // suite of its own, so the section it remembers is not the owner's.
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MediaPaneLayoutTests-\(UUID().uuidString)", isDirectory: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
-        let vm = NotchViewModel(geometry: geometry, stores: NotchStores(localLyricsDirectory: root))
-        vm.tab = .media
+        let suiteName = "com.ctimothe.isla.mediapane.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+            suite.removePersistentDomain(forName: suiteName)
+        }
+        let vm = NotchViewModel(geometry: geometry, stores: NotchStores(localLyricsDirectory: root), defaults: suite)
+        vm.surface = .player
 
         vm.openMusicOnlySetting()
-        XCTAssertEqual(vm.tab, .settings)
-        XCTAssertEqual(vm.settingsScrollTarget, SettingsPane.musicSectionID)
+        XCTAssertEqual(vm.surface, .settings)
+        XCTAssertEqual(vm.settingsSection, .music)
 
-        vm.select(.media)
-        XCTAssertNil(vm.settingsScrollTarget, "an unspent target must not outlive the visit it was for")
-    }
-
-    // MARK: - Where the transport sits
-
-    /// The transport must not move because a song has no words. A control that
-    /// sits somewhere else depending on the track is a control you have to look
-    /// for, and looking for a pause button is the whole cost of getting it wrong.
-    ///
-    /// Measured off the render rather than the view tree: SwiftUI has no public
-    /// hierarchy to walk, but the pane is white-on-black, so the row where the
-    /// lower half of the pane first has ink is the top of the scrubber, and that
-    /// is exactly the thing that used to slide.
-    func testTheTransportSitsAtTheSameHeightWithAndWithoutLyrics() async throws {
-        let withWords = try await inkProfile(withLyrics: true)
-        let without = try await inkProfile(withLyrics: false)
-
-        let topOfTransport = { (rows: [Int]) -> Int in
-            let half = rows.count / 2
-            return (half..<rows.count).first { rows[$0] > 0 } ?? -1
-        }
-
-        let a = topOfTransport(withWords)
-        let b = topOfTransport(without)
-        XCTAssertGreaterThan(a, 0, "the scrubber must render for this test to mean anything")
-        XCTAssertEqual(
-            a, b,
-            "the transport moved by \(abs(a - b)) px when the lyrics went away"
-        )
-    }
-
-    // MARK: - Harness
-
-    /// Rows of the rendered pane, each holding the number of lit pixels in it.
-    private func inkProfile(withLyrics: Bool) async throws -> [Int] {
-        // Rendering the pane reads the local-only Show Lyrics preference.
-        let defaults = UserDefaults.standard
-        let hadLyrics = defaults.object(forKey: NotchViewModel.showLyricsKey)
-        defaults.set(true, forKey: NotchViewModel.showLyricsKey)
-        defer {
-            if let hadLyrics {
-                defaults.set(hadLyrics, forKey: NotchViewModel.showLyricsKey)
-            } else {
-                defaults.removeObject(forKey: NotchViewModel.showLyricsKey)
-            }
-        }
-
-        let lyrics = LyricsStore()
-        if withLyrics {
-            lyrics.present(.ready(LyricTimeline(
-                lines: [
-                    .init(at: 1, text: "First line"), .init(at: 4, text: "Second line"),
-                    .init(at: 8, text: "Third line"), .init(at: 12, text: "Fourth line"),
-                ],
-                granularity: .line
-            )))
-        }
-        // Left `.idle` otherwise, which is the same gate a track with no words at
-        // all fails: the caption produces no view.
-
-        let media = MediaController()
-        var snapshot = NowPlayingFeed.Snapshot()
-        snapshot.title = "Test Song"
-        snapshot.artist = "Test Artist"
-        snapshot.album = ""
-        snapshot.duration = 180
-        snapshot.elapsed = 9.2
-        snapshot.rate = 1
-        snapshot.isPlaying = true
-        snapshot.takenAt = Date()
-        snapshot.playerPID = 999
-        media.apply(snapshot)
-
-        let pane = MediaPane(media: media, lyrics: lyrics, morph: nil)
-            .frame(width: NotchMetrics.standardBody.width, height: 162)
-            .background(Color.black)
-        let renderer = ImageRenderer(content: pane)
-        renderer.scale = 1
-        let image = try XCTUnwrap(renderer.nsImage, "the pane must render")
-        let tiff = try XCTUnwrap(image.tiffRepresentation)
-        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
-
-        var rows: [Int] = []
-        for y in 0..<bitmap.pixelsHigh {
-            var lit = 0
-            // The text column only. The artwork is a 122 pt square of bright
-            // pixels down the left edge, and it inks every row it spans — scan
-            // across it and every row looks occupied, which is how the first
-            // version of this test passed with the bug still in place.
-            for x in stride(from: bitmap.pixelsWide / 3, to: bitmap.pixelsWide, by: 2) {
-                guard let colour = bitmap.colorAt(x: x, y: y) else { continue }
-                // Anything meaningfully brighter than the black ground counts as ink.
-                if colour.brightnessComponent > 0.25 { lit += 1 }
-            }
-            rows.append(lit)
-        }
-        return rows
+        vm.open(.player)
+        XCTAssertEqual(vm.settingsSection, .music, "the section is remembered, not spent: it is what the next open restores")
     }
 }

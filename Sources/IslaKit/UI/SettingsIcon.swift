@@ -26,6 +26,7 @@ enum SettingsIcon {
     /// The panel, at the top of the screen, which is what the shortcut opens.
     static let shortcutOpenPanel = "rectangle.topthird.inset.filled"
     /// The lyrics page's own glyph, not the Music section's switch.
+    static let shortcutClipboard = "list.clipboard"
     static let shortcutLyrics = "text.quote"
     static let shortcutTranslate = "translate"
     static let restoreShortcuts = "arrow.uturn.backward"
@@ -67,8 +68,20 @@ enum SettingsIcon {
     static let resetTiming = "arrow.counterclockwise"
     /// A brief look at the track that just started.
     static let peek = "eye"
+    /// The player's Output button: the speaker. The button itself draws the
+    /// glyph of whichever device is playing, which a settings row — that has no
+    /// device — cannot, so the row wears the generic output speaker.
+    static let outputButton = "speaker.wave.2"
+    /// The sung line and the next one under the title: lines of text, left-set.
+    static let lyricBand = "text.alignleft"
+    /// A translated line under each lyric line: speech with text in it.
+    static let translateLyrics = "text.bubble"
+    /// Into which language: the direction, and nothing more.
+    static let translateTarget = "arrow.right"
     static let lockScreen = "lock.display"
     static let cardSize = "rectangle.compress.vertical"
+    /// A slim bar across the top of a screen: the banner the card rests as.
+    static let restAsBanner = "menubar.rectangle"
     /// Glass or solid is an appearance choice, and this is the system's
     /// appearance glyph.
     static let cardStyle = "circle.lefthalf.filled"
@@ -90,6 +103,10 @@ enum SettingsIcon {
     /// Keeping a list of copies, as opposed to covering it.
     static let clipboardHistory = "list.bullet.clipboard"
     static let translate = "character.bubble"
+    /// Pictures in the history: the photo glyph the Images filter wears.
+    static let includeImages = "photo"
+    /// Keeping the pins: the pin the rows wear.
+    static let keepPinned = "pin"
     /// About recording, not about whether a person can see the panel.
     static let hideFromRecording = "video.slash"
 
@@ -105,12 +122,12 @@ enum SettingsIcon {
 
     static let all: [String] = [
         launchAtLogin, openOnHover, hoverDelay, panelWidth, showCharging, showHeadphones,
-        shortcutOpenPanel, shortcutLyrics, shortcutTranslate, restoreShortcuts,
+        shortcutOpenPanel, shortcutClipboard, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
-        online, lyricTiming, resetTiming, peek, lockScreen, cardStyle, automationAccess, openSystemSettings,
+        online, lyricTiming, resetTiming, peek, outputButton, lyricBand, translateLyrics, translateTarget, lockScreen, restAsBanner, cardStyle, automationAccess, openSystemSettings,
         connectAccount, disconnectAccount, importFromKeychain,
-        clipboard, clipboardHistory, translate, hideFromRecording,
+        clipboard, clipboardHistory, includeImages, keepPinned, translate, hideFromRecording,
         about, copyDiagnostics, reportProblem, checkForUpdates, downloadUpdate, quit,
     ]
 }

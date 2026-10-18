@@ -9,17 +9,18 @@ import SwiftUI
 /// for something that exists for one launch. So this is the body, for one
 /// launch, and then never again.
 ///
-/// Two columns. On the left, one line beside each rail icon saying what that
-/// tab is — the rail is right there, so the mapping is shown rather than
-/// described. On the right, what somebody who just launched an invisible app
-/// needs: that it is running, how to get back to it once this closes, and that
-/// nothing leaves the Mac until they say so. The way back is not a courtesy —
-/// an `LSUIElement` app does not appear in Force Quit, so a user who cannot find
-/// the panel again cannot find Quit either.
+/// Two columns. On the left, four lines that say how the island is used, each
+/// led by a glyph (spec §19.8): a click opens what is playing, a right-click
+/// everything else, files dragged to the notch are kept, and the shortcuts as
+/// they are bound. On the right, what somebody who just launched an invisible
+/// app needs: that it is running, how to get back to it once this closes, and
+/// that nothing leaves the Mac until they say so. The way back is not a
+/// courtesy — an `LSUIElement` app does not appear in Force Quit, so a user who
+/// cannot find the panel again cannot find Quit either.
 ///
-/// It used to be one column that said "It lives at the notch. Click it to
-/// open." — on a panel that had opened itself, so the instruction read as
-/// already done — and named none of the tabs, and left ⌃⌥⌘T out (H-020).
+/// The left column once named each rail icon beside it (H-020); §19 took the
+/// rail away, so it says what to do with the island instead, which is the one
+/// thing there is to find.
 struct WelcomePane: View {
     /// What Get Started does. A closure rather than the whole `NotchViewModel`,
     /// because the one thing this pane asks of the app is "the welcome has been
@@ -41,33 +42,33 @@ struct WelcomePane: View {
     /// which is where a layout laid out in English overflows.
     var copy: Copy = .fromTables
 
-    /// The rail's own icon height, which differs between Macs
-    /// (`NotchGeometry.railIconHeight`). Each legend row is cut to it so that
-    /// the line sits level with the icon it names; at any other height the
-    /// fourth row would be a whole icon out by the bottom of the run.
-    var railIconHeight: CGFloat
-
     /// The keys as they are bound right now, not as they shipped. A welcome
     /// that printed the defaults would be wrong for anyone who had moved one
     /// before resetting the first run, and it was wrong for everybody once
     /// the defaults themselves changed. Empty for a shortcut cleared in
     /// Settings, and the line that would have named it says it without one.
     var openKeys = HotKeyCenter.shared.bindings[.openPanel]?.displayString ?? ""
-    var lyricsKeys = HotKeyCenter.shared.bindings[.showLyrics]?.displayString ?? ""
-    var translateKeys = HotKeyCenter.shared.bindings[.translateClipboard]?.displayString ?? ""
+    /// The fourth line's shortcuts, in its order, as `HotKeyCenter` holds
+    /// them; a cleared one drops out of the line rather than leaving a gap.
+    var shortcuts: [Shortcut] = WelcomePane.liveShortcuts()
+
+    /// One shortcut on the fourth line: its keys, and the surface it opens.
+    struct Shortcut: Equatable {
+        var keys: String
+        var name: String
+    }
 
     struct Copy {
         var running: String
         var comeBack: String
         var comeBackUnbound: String
         var staysOnMac: String
-        var music: String
-        var musicUnbound: String
-        var shelf: String
+        var click: String
+        var swipe: String
+        var drag: String
         var clipboard: String
         var translate: String
-        var translateUnbound: String
-        var settings: String
+        var lyrics: String
         var action: String
 
         /// English — and therefore also the keys, since in this project the keys
@@ -82,13 +83,12 @@ struct WelcomePane: View {
             comeBack: "No Dock or menu-bar icon. Click the notch or press %@ to come back.",
             comeBackUnbound: "No Dock or menu-bar icon. Click the notch to come back.",
             staysOnMac: "Nothing leaves your Mac unless you turn it on.",
-            music: "What's playing, with lyrics (%@)",
-            musicUnbound: "What's playing, with lyrics",
-            shelf: "Files you drop on the notch",
-            clipboard: "What you copied, kept in memory",
-            translate: "%@ translates what you copied",
-            translateUnbound: "Translates what you copied",
-            settings: "Privacy, shortcuts and Quit",
+            click: "Click the island to open what’s playing.",
+            swipe: "Swipe sideways for the Shelf, Clipboard and Translate.",
+            drag: "Drag files to the notch to keep them.",
+            clipboard: "Clipboard",
+            translate: "Translate",
+            lyrics: "Lyrics",
             action: "Get Started"
         )
 
@@ -104,13 +104,12 @@ struct WelcomePane: View {
                 comeBack: try look(comeBack),
                 comeBackUnbound: try look(comeBackUnbound),
                 staysOnMac: try look(staysOnMac),
-                music: try look(music),
-                musicUnbound: try look(musicUnbound),
-                shelf: try look(shelf),
+                click: try look(click),
+                swipe: try look(swipe),
+                drag: try look(drag),
                 clipboard: try look(clipboard),
                 translate: try look(translate),
-                translateUnbound: try look(translateUnbound),
-                settings: try look(settings),
+                lyrics: try look(lyrics),
                 action: try look(action)
             )
         }
@@ -118,8 +117,7 @@ struct WelcomePane: View {
         var all: [String] {
             [
                 running, comeBack, comeBackUnbound, staysOnMac,
-                music, musicUnbound, shelf, clipboard,
-                translate, translateUnbound, settings, action,
+                click, swipe, drag, clipboard, translate, lyrics, action,
             ]
         }
     }
@@ -127,29 +125,66 @@ struct WelcomePane: View {
     /// Every key this pane shows, so a test can prove both tables carry them.
     static let localizedKeys = Copy.english.all
 
-    /// Between the legends and the message.
-    static let columnGap: CGFloat = 16
-
-    /// The least the message column may be left with once the legends have
-    /// taken their width. Below this the title and the button are squeezed to a
-    /// word a line and the pane outgrows the body; `FirstRunTests` measures the
-    /// Russian legends against it at the narrowest panel.
-    static let messageMinWidth: CGFloat = 150
-
-    /// What the line beside `tab`'s icon says.
-    func legend(for tab: NotchViewModel.Tab) -> String {
-        switch tab {
-        case .media:
-            return lyricsKeys.isEmpty ? copy.musicUnbound : String(format: copy.music, lyricsKeys)
-        case .shelf:
-            return copy.shelf
-        case .clipboard:
-            return copy.clipboard
-        case .translate:
-            return translateKeys.isEmpty ? copy.translateUnbound : String(format: copy.translate, translateKeys)
-        case .settings:
-            return copy.settings
+    /// The fourth line's shortcuts as bound now: Clipboard, Translate, then
+    /// Lyrics — the order Settings › Shortcuts lists them in.
+    @MainActor static func liveShortcuts(
+        bindings: [HotKeyAction: HotKeyBinding]? = nil, copy: Copy = .fromTables
+    ) -> [Shortcut] {
+        let bindings = bindings ?? HotKeyCenter.shared.bindings
+        let order: [(HotKeyAction, String)] = [
+            (.showClipboard, copy.clipboard),
+            (.translateClipboard, copy.translate),
+            (.showLyrics, copy.lyrics),
+        ]
+        return order.compactMap { action, name in
+            guard let keys = bindings[action]?.displayString, !keys.isEmpty else { return nil }
+            return Shortcut(keys: keys, name: name)
         }
+    }
+
+    /// The body's margins: the header title's 20 at the sides, 8 under the
+    /// header row (the reference's 46), and 14 at the foot.
+    static let margins = EdgeInsets(top: 8, leading: 20, bottom: 14, trailing: 20)
+    /// Between the legend and the message.
+    static let columnGap: CGFloat = 16
+    /// The legend's share of the width the two columns divide; the message
+    /// takes the rest. The legend's lines wrap inside it rather than pushing
+    /// the message off the body, which Russian at 480 would.
+    static let legendShare: CGFloat = 0.55
+    /// Between the legend's lines, and a glyph's well beside its line.
+    static let legendSpacing: CGFloat = 8
+    static let glyphWidth: CGFloat = 18
+
+    /// The two columns' widths at a body width.
+    static func columns(bodyWidth: CGFloat) -> (legend: CGFloat, message: CGFloat) {
+        let room = bodyWidth - margins.leading - margins.trailing - columnGap
+        let legend = (room * legendShare).rounded(.down)
+        return (legend, room - legend)
+    }
+
+    /// One line of the legend: its glyph and its words.
+    struct LegendLine: Equatable {
+        var symbol: String
+        var text: String
+    }
+
+    /// The four lines, the last only while a shortcut is bound.
+    var legend: [LegendLine] {
+        var lines = [
+            LegendLine(symbol: "cursorarrow.click", text: copy.click),
+            // The pages are the one thing on the open panel a person has to be
+            // told about: nothing on a page says another lies beside it until
+            // the dots are noticed (§19.16).
+            LegendLine(symbol: "arrow.left.and.right", text: copy.swipe),
+            LegendLine(symbol: "tray.and.arrow.down", text: copy.drag),
+        ]
+        if !shortcuts.isEmpty { lines.append(LegendLine(symbol: "keyboard", text: keysLine)) }
+        return lines
+    }
+
+    /// "⌃⌥⌘T Translate · ⌃⌥⌘L Lyrics".
+    var keysLine: String {
+        shortcuts.map { "\($0.keys) \($0.name)" }.joined(separator: " · ")
     }
 
     /// The way back, with the open shortcut in it while there is one.
@@ -158,58 +193,38 @@ struct WelcomePane: View {
     }
 
     var body: some View {
-        // The vertical budget, measured rather than guessed, because the body is
-        // a fixed 208 pt that never resizes and there is nothing to scroll: the
-        // shallowest body any supported Mac can give this pane is 154 pt (208,
-        // less a notch as deep as 40, less the 14 below the rail). The single
-        // column this replaced used 150 of it with two feature lines; four more
-        // would not fit under it, which is why the features went beside the
-        // rail, where the height is already spent on the icons. The legend
-        // column asks for 150 (five icons, their gaps and the rail's 10 pt
-        // footer gap) and the message column for less. `FirstRunTests` holds
-        // the number in both languages at the narrowest panel.
-        HStack(alignment: .top, spacing: Self.columnGap) {
-            legendColumn
-                // The legends are one line each and take the width they need;
-                // the message wraps in what is left. Truncated instead, a
-                // Russian legend lost its tail and the icon it named lost its
-                // meaning.
-                .fixedSize(horizontal: true, vertical: false)
-            message
-                .frame(minWidth: Self.messageMinWidth, maxWidth: .infinity, alignment: .topLeading)
+        GeometryReader { proxy in
+            let columns = Self.columns(bodyWidth: proxy.size.width)
+            HStack(alignment: .top, spacing: Self.columnGap) {
+                legendColumn
+                    .frame(width: columns.legend, alignment: .topLeading)
+                message
+                    .frame(width: columns.message, alignment: .topLeading)
+            }
+            .padding(Self.margins)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        // Aligned with every other pane rather than inset on its own: the rail
-        // is beside it and the body already pads its content by 14.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.trailing, 4)
     }
 
-    /// One line per rail icon, in the rail's own rhythm: the same row height,
-    /// the same gap, and Settings held to the bottom by the same footer gap, so
-    /// each line sits level with the icon it names. The pane's top is the
-    /// rail's top — both start where the header ends — which is why there is
-    /// no top padding here.
     var legendColumn: some View {
-        VStack(alignment: .leading, spacing: NotchGeometry.railSpacing) {
-            ForEach(NotchViewModel.Tab.contentTabs) { legendRow($0) }
-            Spacer(minLength: Rail.footerGap)
-            ForEach(NotchViewModel.Tab.utilityTabs) { legendRow($0) }
+        VStack(alignment: .leading, spacing: Self.legendSpacing) {
+            ForEach(legend, id: \.symbol) { line in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: line.symbol)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Theme.tertiary)
+                        .frame(width: Self.glyphWidth)
+                        .accessibilityHidden(true)
+                    Text(line.text)
+                        .islandFont(.body, weight: .regular)
+                        .foregroundStyle(Theme.secondary)
+                        // Wrapped, never cut: a legend that loses its tail
+                        // loses the half that says what to do.
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+            }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    private func legendRow(_ tab: NotchViewModel.Tab) -> some View {
-        Text(legend(for: tab))
-            .islandFont(.body, weight: .regular)
-            .foregroundStyle(Theme.secondary)
-            .lineLimit(1)
-            .frame(height: railIconHeight, alignment: .leading)
-            // Heard on its own the line says what a tab does but not which tab;
-            // the icon it sits beside is a separate element in another group.
-            // So it carries the tab's name, the way a sighted reader gets it
-            // from the icon.
-            .accessibilityLabel(tab.title)
-            .accessibilityValue(legend(for: tab))
     }
 
     private var message: some View {

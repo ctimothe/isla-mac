@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import UniformTypeIdentifiers
 
 struct ClipItem: Identifiable, Equatable {
@@ -9,20 +10,63 @@ struct ClipItem: Identifiable, Equatable {
         /// as its first file alone, so pasting the entry back silently replaced
         /// the user's selection of twelve with one.
         case files([URL])
+        /// A picture, kept for the session only (redesign spec §9.1, §9.4):
+        /// its bytes in a temporary file, its thumbnail in memory. Before
+        /// this a copied picture went to the Shelf's screenshot vault or
+        /// nowhere; it is now an entry like any other, under Include Images.
+        case image(ClipImage)
     }
 
-    let id = UUID()
+    let id: UUID
     let payload: Payload
     let date: Date
     /// Computed once at capture. `preview` used to trim the whole string on
     /// every render, for every row — twice, since the pane trimmed newlines out
     /// of the result — and a row is only ever a line high.
     let preview: String
+    /// What the row draws it as, decided once at capture for the same reason
+    /// (spec §9.1): the detectors are regular expressions, and a row that ran
+    /// them would run them on every pass of a list of forty.
+    let kind: ClipKind
+    /// The host and path of a link, split for the row.
+    let link: ClipLink?
+    /// A single file's size in bytes, read once at capture. Nil for anything
+    /// that is not a file on disk right now.
+    let fileSize: Int64?
+    /// Pinned entries sort first, do not count against the 40-entry cap and
+    /// survive Clear History (spec §9.2, §9.4).
+    var isPinned: Bool
 
-    init(payload: Payload, date: Date) {
+    init(payload: Payload, date: Date, id: UUID = UUID(), isPinned: Bool = false) {
+        self.id = id
         self.payload = payload
         self.date = date
+        self.isPinned = isPinned
         self.preview = Self.preview(for: payload)
+        switch payload {
+        case .text(let string):
+            let kind = ClipboardDetection.kind(ofText: string)
+            self.kind = kind
+            self.link = kind == .link ? ClipboardDetection.link(string) : nil
+            self.fileSize = nil
+        case .file(let url):
+            self.kind = .file
+            self.link = nil
+            // Re-review 2026-10-15: a pin on a mount is restored without the
+            // filesystem being asked (a gone network volume can hang this read
+            // on the main thread), so its size is simply unknown.
+            self.fileSize = PinnedClipboardFile.isNonLocal(url.path)
+                ? nil
+                : (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
+        case .files:
+            self.kind = .files
+            self.link = nil
+            self.fileSize = nil
+        case .image:
+            self.kind = .image
+            self.link = nil
+            self.fileSize = nil
+        }
     }
 
     private static func preview(for payload: Payload) -> String {
@@ -37,22 +81,46 @@ struct ClipItem: Identifiable, Equatable {
             guard let first = urls.first else { return "" }
             guard urls.count > 1 else { return first.lastPathComponent }
             return "\(first.lastPathComponent) + \(urls.count - 1)"
+        case .image:
+            return localized("Image")
         }
     }
 
     /// A row shows one line; anything past this could never be read.
     static let previewLimit = 512
 
+    /// The kind's own glyph — the leading mark for text-like kinds, and the
+    /// glyph a covered row wears for the kinds whose real mark would show the
+    /// content (spec §9.1, §9.4).
     var symbol: String {
-        switch payload {
-        case .text(let string):
-            if string.hasPrefix("http://") || string.hasPrefix("https://") { return "link" }
-            return "text.alignleft"
-        case .file:
-            return "doc"
-        case .files:
-            return "doc.on.doc"
+        switch kind {
+        case .text: return "text.alignleft"
+        case .colour: return "square.fill"
+        case .code: return "curlybraces"
+        case .link: return "link"
+        case .image: return "photo"
+        case .file: return "doc"
+        case .files: return "doc.on.doc"
         }
+    }
+
+    /// The text the search field matches (spec §9.3): the whole string for the
+    /// text kinds — a match past the 512 characters a row can show still finds
+    /// the entry — the names for files, and the word "Image" with where it
+    /// came from for a picture.
+    var searchText: String {
+        switch payload {
+        case .text(let string): return string
+        case .file(let url): return url.lastPathComponent
+        case .files(let urls): return urls.map(\.lastPathComponent).joined(separator: " ")
+        case .image(let image): return [preview, image.sourceApp].compactMap { $0 }.joined(separator: " ")
+        }
+    }
+
+    /// The string a text kind holds, or nil for pictures and files.
+    var text: String? {
+        if case .text(let string) = payload { return string }
+        return nil
     }
 
     static func == (lhs: ClipItem, rhs: ClipItem) -> Bool { lhs.payload == rhs.payload }
@@ -72,7 +140,16 @@ enum ClipboardAccess { case unknown, ask, allowed, denied }
 /// alert the user has to answer.
 @MainActor
 final class ClipboardStore: ObservableObject {
-    @Published private(set) var items: [ClipItem] = []
+    /// The history, newest first. Pinned entries are *listed* first (`listed`)
+    /// but are not stored apart: where an entry sits in this array is when it
+    /// was last used, which is what the 40-entry cap and "freshly used entries
+    /// bubble to the top" are about.
+    @Published private(set) var items: [ClipItem] = [] {
+        didSet {
+            discardPictureFiles(leaving: oldValue)
+            persistPinsIfWanted()
+        }
+    }
 
     /// Raised for image data on the pasteboard — a screenshot taken straight to
     /// the clipboard, which would otherwise vanish after one paste.
@@ -96,12 +173,83 @@ final class ClipboardStore: ObservableObject {
     /// disk, so the shelf references them without writing anything.
     var wantsImages: () -> Bool = { true }
 
+    /// Whether a copied picture becomes a history entry (Include Images, spec
+    /// §9.4). Independent of `wantsImages`, which is Save Clipboard
+    /// Screenshots and keeps working exactly as before: either switch makes the
+    /// store read the picture, once, and each takes what it asked for. A seam
+    /// whose default is off, so a store built by a test never reads a picture
+    /// into memory unasked; the session's `NotchStores` wires the real switch,
+    /// which is on unless the person turned it off.
+    var keepsImages: () -> Bool = { false }
+
+    /// The app in front when a picture was copied, for "Image 1200 × 1200 ·
+    /// Photos". The poll runs within half a second of the copy, so the front
+    /// app is nearly always the one that made it; Isla itself never counts
+    /// (copying a picture back out of the history is not "from Isla"). A seam,
+    /// because a test's front app is whatever the runner is.
+    var sourceApp: () -> String? = {
+        let app = NSWorkspace.shared.frontmostApplication
+        guard app?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+        return app?.localizedName
+    }
+
+    /// Where Keep Pinned Items saves the pins, and whether it is on. Both
+    /// unset by default: a store built by a test never touches Application
+    /// Support, and the session wires the real file and the real switch.
+    var pinnedFile: PinnedClipboardFile?
+    var keepsPinned: () -> Bool = { false }
+    /// Whether a saved file pin still exists, asked at load for paths that could
+    /// be local (`PinnedClipboardFile.load`). Nil asks `FileManager`; a test
+    /// injects its own so no path outside a temporary folder is ever touched.
+    var pinnedFileExists: ((String) -> Bool)?
+    /// What the file held when it was last written or read, so a copy that
+    /// changes no pin writes nothing.
+    private var persistedPins: [PinnedClipboardFile.Record]?
+
+    /// The pictures' limits, injectable so a test crosses the 25 MB line with a
+    /// few kilobytes.
+    var imageByteLimit = ClipImage.byteLimit
+    var imageMaximumPixels = ClipImage.maximumPixels
+    /// How much of the pictures stays in memory: per picture, and all of them
+    /// together (`ClipImage.residentBudget`). Injectable for the same reason.
+    var imageResidentLimit = ClipImage.residentPictureLimit
+    var imageResidentBudget = ClipImage.residentBudget
+
+    /// Where the pictures' bytes are written. Unset by default, like
+    /// `pinnedFile`: a store built by a test writes nothing to the temporary
+    /// directory unasked, and keeps its pictures in memory under the budget.
+    /// The session wires `ClipImageSpool.session`.
+    var imageSpool: ClipImageSpool?
+
+    /// The digest of the picture the Shelf's vault was last handed. A picture
+    /// copied twice in a row used to be written twice — two vault files of
+    /// 10,201,729 bytes each, byte for byte the same. Only the last is kept:
+    /// the check is for the double copy, not a second index of the vault.
+    private var lastVaultDigest: SHA256.Digest?
+
+    /// A switch changed: whatever picture comes next is a new capture, even
+    /// the one the vault was just handed. See `lastVaultDigest`.
+    func forgetVaultCapture() {
+        lastVaultDigest = nil
+    }
+
+    /// Bytes the history's pictures hold in memory right now: the thing
+    /// `imageResidentBudget` bounds.
+    var residentPictureBytes: Int {
+        items.reduce(0) { total, item in
+            guard case .image(let image) = item.payload else { return total }
+            return total + image.bytes.residentByteCount
+        }
+    }
+
     private let pasteboard: NSPasteboard
     private var timer: Timer?
     private var lastChangeCount: Int
     /// Set by a lock's stop, spent by the next start. See
     /// `stop(rebaseliningOnResume:)`.
     private var rebaselineOnStart = false
+    /// Entries kept besides the pinned ones (spec §9.4: "pins do not count
+    /// against it").
     private let limit = 40
     /// Types an app sets to keep a copy out of history tools. Presence is what
     /// counts, not content: a type can be declared with data that is still on
@@ -149,6 +297,11 @@ final class ClipboardStore: ObservableObject {
     /// once and keeps its nil, so a provider cannot see a retry.
     private(set) var contentReadCount = 0
 
+    /// How one flavour's bytes are asked for. A seam, like `accessBehavior`,
+    /// because the read runs on `PasteboardRead`'s queue and a test has to see
+    /// which thread it ran on, and hold it open while the pasteboard moves on.
+    var readPasteboardData: @Sendable (NSPasteboard, NSPasteboard.PasteboardType) -> Data? = { $0.data(forType: $1) }
+
     init(pasteboard: NSPasteboard = .general) {
         self.pasteboard = pasteboard
         self.lastChangeCount = pasteboard.changeCount
@@ -179,6 +332,7 @@ final class ClipboardStore: ObservableObject {
         // Don't Allow leaves the poll nothing it may read. A display waking
         // calls this too, and a poll restarted under it would only stop itself
         // again at the next copy; it stays down until the answer changes.
+        PasteboardRead.settle(pasteboard)
         let now = accessBehavior()
         publish(now)
         guard now != .denied else { return }
@@ -235,6 +389,7 @@ final class ClipboardStore: ObservableObject {
     /// tab appears, the moment a user back from System Settings looks.
     func recheckAccess() {
         let wasDenied = access == .denied
+        PasteboardRead.settle(pasteboard)
         let now = accessBehavior()
         publish(now)
         guard wasDenied, now != .denied, recordsHistory() || wantsImages() else { return }
@@ -253,7 +408,15 @@ final class ClipboardStore: ObservableObject {
         publish(.denied)
     }
 
+    /// Clear History: everything but the pins (spec §9.4). A pinned entry is
+    /// removed only by Unpin then Remove, or by Remove on the pinned row.
     func clear() {
+        items.removeAll { !$0.isPinned }
+    }
+
+    /// Everything, pins included — for history being switched off, where the
+    /// promise is that nothing is kept.
+    func clearAll() {
         items.removeAll()
     }
 
@@ -261,8 +424,49 @@ final class ClipboardStore: ObservableObject {
         items.removeAll { $0.id == item.id }
     }
 
-    /// Puts an entry back on the pasteboard without re-recording it.
-    func copy(_ item: ClipItem) {
+    /// Drops the pictures and keeps the rest: Include Images turned off means
+    /// pictures are not kept (spec §9.4).
+    func removeImages() {
+        items.removeAll { $0.kind == .image }
+    }
+
+    func setPinned(_ item: ClipItem, _ pinned: Bool) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }), items[index].isPinned != pinned else { return }
+        items[index].isPinned = pinned
+    }
+
+    func togglePin(_ item: ClipItem) {
+        setPinned(item, !item.isPinned)
+    }
+
+    /// The list as the pane draws it: pinned entries first, each group newest
+    /// first (spec §9.2).
+    var listed: [ClipItem] { Self.listed(items) }
+
+    static func listed(_ items: [ClipItem]) -> [ClipItem] {
+        items.filter(\.isPinned) + items.filter { !$0.isPinned }
+    }
+
+    /// Puts an entry back on the pasteboard without re-recording it. False
+    /// when it could not: a picture whose file is gone.
+    ///
+    /// The picture is fetched before the pasteboard is cleared: a file that
+    /// has gone missing must leave what the person copied where it is. Such an
+    /// entry can never be copied again, so it leaves the history, and the
+    /// caller says nothing was copied — every caller used to confirm "Copied"
+    /// over a pasteboard it had left alone, and the next paste gave whatever
+    /// was there before (R8c review, M3).
+    @discardableResult
+    func copy(_ item: ClipItem) -> Bool {
+        var pictureData: Data?
+        if case .image(let image) = item.payload {
+            pictureData = image.pasteboardData
+            guard pictureData != nil else {
+                remove(item)
+                return false
+            }
+        }
+        PasteboardRead.settle(pasteboard)
         pasteboard.clearContents()
         switch item.payload {
         case .text(let string):
@@ -271,13 +475,59 @@ final class ClipboardStore: ObservableObject {
             pasteboard.writeObjects([url as NSURL])
         case .files(let urls):
             pasteboard.writeObjects(urls.map { $0 as NSURL })
+        case .image(let image):
+            if let pictureData { pasteboard.setData(pictureData, forType: image.type) }
         }
         lastChangeCount = pasteboard.changeCount
-        // Freshly used entries bubble to the top.
+        bubble(item)
+        return true
+    }
+
+    /// Copy as Plain Text (spec §9.2, renamed from Paste as Plain Text in review 2026-10-15): the entry's string alone, with the
+    /// whitespace a selection drags along trimmed off. Isla has no Accessibility
+    /// permission and so cannot press ⌘V in the front app; what it can do is
+    /// leave exactly the plain string on the pasteboard, which is what a
+    /// pasted-as-plain-text result is made of. Returns false for an entry that
+    /// holds no string.
+    @discardableResult
+    func copyPlainText(_ item: ClipItem) -> Bool {
+        guard let string = item.text else { return false }
+        PasteboardRead.settle(pasteboard)
+        pasteboard.clearContents()
+        pasteboard.setString(string.trimmingCharacters(in: .whitespacesAndNewlines), forType: .string)
+        lastChangeCount = pasteboard.changeCount
+        bubble(item)
+        return true
+    }
+
+    /// Freshly used entries bubble to the top.
+    private func bubble(_ item: ClipItem) {
+        // One assignment: removing and re-inserting were two changes of
+        // `items`, and the first would have deleted the picture's file.
         if let index = items.firstIndex(where: { $0.id == item.id }), index != 0 {
-            items.remove(at: index)
-            items.insert(item, at: 0)
+            var reordered = items
+            reordered.insert(reordered.remove(at: index), at: 0)
+            items = reordered
         }
+    }
+
+    /// The still-picture flavours a copy may carry, in the order one is read:
+    /// the declared formats first, TIFF last. The pasteboard lists a converted
+    /// TIFF beside a declared PNG, JPEG or HEIC — uncompressed, tens of
+    /// megabytes — so a TIFF is read only when it is all there is. A copy that
+    /// lists a PNG beside a JPEG keeps the PNG.
+    /// A JPEG alone is what Preview's "Copy" of a photo, a browser's image
+    /// copy of a JPEG and several camera apps put on the pasteboard, and the
+    /// plan used to see only PNG and TIFF — those copies were silently
+    /// `.nothing` (review 2026-10-15). HEIC is the same story from a phone.
+    /// `ClipImage` hands the bytes to ImageIO, which decodes all four.
+    static let jpegType = NSPasteboard.PasteboardType("public.jpeg")
+    static let heicType = NSPasteboard.PasteboardType("public.heic")
+    static let imageFlavours: [NSPasteboard.PasteboardType] = [.png, jpegType, heicType, .tiff]
+
+    /// The flavour to read for a copy that lists `types`, or nil for no picture.
+    static func imageFlavour(in types: [NSPasteboard.PasteboardType]) -> NSPasteboard.PasteboardType? {
+        imageFlavours.first(where: types.contains)
     }
 
     /// What one copy is read for, decided from its type list alone.
@@ -297,14 +547,21 @@ final class ClipboardStore: ObservableObject {
     ///   screenshot card while the text the user copied never reached
     ///   history. With history off the picture is all a switch wants.
     /// - History off: text is not even read.
+    ///
+    /// - Parameter keepImages: Include Images (spec §9.4). A picture is read
+    ///   when either it or Save Clipboard Screenshots wants one, and a single
+    ///   read serves both: under Ask each content read is an alert, so a second
+    ///   switch must never mean a second read of the same copy. Recordings
+    ///   answer to Save Clipboard Screenshots alone — Include Images keeps
+    ///   pictures, not films.
     static func readPlan(
-        types: [NSPasteboard.PasteboardType], history: Bool, images: Bool
+        types: [NSPasteboard.PasteboardType], history: Bool, images: Bool, keepImages: Bool = false
     ) -> ReadPlan {
         let hasText = types.contains(.string)
         if types.contains(.fileURL), history || images { return .files }
-        if images {
-            if types.contains(where: isMovieType) { return .movieData }
-            if types.contains(.png) || types.contains(.tiff), !(history && hasText) { return .image }
+        if images, types.contains(where: isMovieType) { return .movieData }
+        if images || (history && keepImages) {
+            if imageFlavour(in: types) != nil, !(history && hasText) { return .image }
         }
         if history, hasText { return .text }
         return .nothing
@@ -313,6 +570,11 @@ final class ClipboardStore: ObservableObject {
     func pollNow() {
         let changeCount = pasteboard.changeCount
         guard changeCount != lastChangeCount else { return }
+        // A read of the last copy is still running, and the pasteboard may be
+        // asked for its change counter and nothing else until it ends
+        // (`PasteboardRead`). The new copy is not spent: the next tick takes
+        // it, and the running read drops its result as stale.
+        guard !PasteboardRead.isReading(pasteboard) else { return }
 
         // Don't Allow: nothing here may be read, and polling on would only
         // ask again at every copy.
@@ -334,7 +596,14 @@ final class ClipboardStore: ObservableObject {
             return
         }
 
-        let plan = Self.readPlan(types: types, history: recordsHistory(), images: wantsImages())
+        let plan = Self.readPlan(
+            types: types, history: recordsHistory(), images: wantsImages(), keepImages: keepsImages()
+        )
+        // The vault's double-copy check is for one picture copied twice in a
+        // row. Anything else copied between, or a copy made with the vault
+        // off, ends the run: the same picture copied later is a new capture,
+        // and skipping it dropped it from the vault (R8c review, Codex).
+        if plan != .image || !wantsImages() { lastVaultDigest = nil }
         if plan == .image {
             // The image path owns this generation from here: a Continuity
             // picture is still on its way, and its wait checks the counter
@@ -342,6 +611,14 @@ final class ClipboardStore: ObservableObject {
             // the next tick.
             lastChangeCount = changeCount
             encodeImage(at: changeCount)
+            return
+        }
+
+        if plan == .movieData {
+            // Spent for the same reason as the picture's: the read is on its
+            // way, and its empty answer is handled where it lands.
+            lastChangeCount = changeCount
+            readMovie(at: changeCount)
             return
         }
 
@@ -390,39 +667,75 @@ final class ClipboardStore: ObservableObject {
             // capture switch: nothing is written, only referenced.
             for url in urls where Self.isMovieFile(url) { onMovieFile?(url) }
             return true
-        case .movieData:
-            guard let (data, ext) = movieData() else { return false }
-            onMovieData?(data, ext)
-            return true
         case .text:
             contentReadCount += 1
             guard let string = pasteboard.string(forType: .string) else { return false }
             guard !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
             record(ClipItem(payload: .text(Self.capped(string)), date: Date()))
             return true
-        case .image, .nothing:
+        case .image, .movieData, .nothing:
+            // The two that carry bytes are read off the main actor, from
+            // `pollNow` itself: `encodeImage` and `readMovie`.
             return true
         }
     }
 
-    /// Movie bytes and the container they were copied as, when the pasteboard
-    /// carries a recording. Matched by conformance rather than by a fixed type
-    /// list: copies arrive as `public.mpeg-4`, `com.apple.m4v-video` or plain
-    /// `public.movie` depending on where they were copied from, and a list
-    /// would recognise exactly the sources it was written against. `.movie`
-    /// rather than the wider `.audiovisualContent`, which also claims pure
-    /// audio — a copied song is not a captured recording.
+    /// Reads the recording the pasteboard carries and hands it on with the
+    /// container it was copied as, off the main actor: a recording is tens to
+    /// hundreds of megabytes, and asking for it on the main actor stalled the
+    /// panel for as long as the pasteboard server took. Matched by
+    /// conformance rather than by a fixed type list: copies arrive as
+    /// `public.mpeg-4`, `com.apple.m4v-video` or plain `public.movie` depending
+    /// on where they were copied from, and a list would recognise exactly the
+    /// sources it was written against. `.movie` rather than the wider
+    /// `.audiovisualContent`, which also claims pure audio — a copied song is
+    /// not a captured recording.
     ///
-    /// Single-shot, unlike the image path: pictures arrive over Continuity in
-    /// two parts — the type first, the bytes over the air — while a recording
-    /// is either on the pasteboard whole or not at all.
-    private func movieData() -> (data: Data, ext: String)? {
-        guard let types = pasteboard.types else { return nil }
-        for type in types where Self.isMovieType(type) {
-            guard let data = readData(type) else { continue }
-            return (data, UTType(type.rawValue)?.preferredFilenameExtension ?? "mov")
+    /// Unlike the image path it does not wait: pictures arrive over Continuity
+    /// in two parts — the type first, the bytes over the air — while a
+    /// recording is either on the pasteboard whole or not at all. An empty
+    /// answer is asked about once, as it always was: Allow chosen while the read
+    /// was waiting on the alert is not a refusal, and a second empty answer is.
+    private func readMovie(at changeCount: Int, retried: Bool = false) {
+        let types = (pasteboard.types ?? []).filter(Self.isMovieType)
+        readMovie(from: types[...], at: changeCount) { [weak self] found in
+            guard let self else { return }
+            if let (data, ext) = found {
+                // Image saving can be switched off while the read is in
+                // flight, and an off switch gets nothing.
+                if self.wantsImages() { self.onMovieData?(data, ext) }
+                return
+            }
+            let after = self.accessBehavior()
+            self.publish(after)
+            switch after {
+            case .denied:
+                self.enterDenied()
+            case .allowed:
+                if !retried { self.readMovie(at: changeCount, retried: true) }
+            case .ask, .unknown:
+                break
+            }
         }
-        return nil
+    }
+
+    /// The first of `types` that answers with bytes. One read each, in order,
+    /// as before: a type that answers nil is the next one's turn, not the end.
+    private func readMovie(
+        from types: ArraySlice<NSPasteboard.PasteboardType>, at changeCount: Int,
+        completion: @escaping ((data: Data, ext: String)?) -> Void
+    ) {
+        guard let type = types.first else {
+            completion(nil)
+            return
+        }
+        readData(type, at: changeCount) { [weak self] data in
+            if let data {
+                completion((data, UTType(type.rawValue)?.preferredFilenameExtension ?? "mov"))
+            } else {
+                self?.readMovie(from: types.dropFirst(), at: changeCount, completion: completion)
+            }
+        }
     }
 
     private static func isMovieType(_ type: NSPasteboard.PasteboardType) -> Bool {
@@ -444,9 +757,9 @@ final class ClipboardStore: ObservableObject {
     /// pinned forty whole log files in memory for the rest of the session.
     /// Anything past this cannot be read in a one-line row or pasted back
     /// usefully from a scratch panel.
-    static let maximumTextBytes = 256 * 1024
+    nonisolated static let maximumTextBytes = 256 * 1024
 
-    private static func capped(_ string: String) -> String {
+    nonisolated static func capped(_ string: String) -> String {
         guard string.utf8.count > maximumTextBytes else { return string }
         return String(decoding: Array(string.utf8.prefix(maximumTextBytes)), as: UTF8.self)
     }
@@ -472,32 +785,24 @@ final class ClipboardStore: ObservableObject {
         // asking for the second after the first came back empty was a second
         // read of nothing — and a second alert under Ask.
         let types = pasteboard.types ?? []
-        let hasPNG = types.contains(.png)
-        if hasPNG {
-            if let png = readData(.png) {
-                deliverImage(png, at: changeCount)
-                return
-            }
-        } else if types.contains(.tiff), let tiff = readData(.tiff) {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard let png else {
-                            // Undecodable image data. The copy may still have
-                            // carried text, and dropping it outright lost that
-                            // too — the change counter is already marked seen,
-                            // so nothing would re-poll it.
-                            self.recordTextFallback(at: changeCount)
-                            return
-                        }
-                        self.deliverImage(png, at: changeCount)
-                    }
-                }
-            }
+        guard let flavour = Self.imageFlavour(in: types) else {
+            pictureUnreadable(flavour: nil, at: changeCount, attempt: attempt)
             return
         }
+        // The read is off the main actor (see `readData`); what it found is
+        // dealt with here, back on it.
+        readData(flavour, at: changeCount) { [weak self] data in
+            guard let self else { return }
+            if let data {
+                self.process(original: data, type: flavour, at: changeCount)
+            } else {
+                self.pictureUnreadable(flavour: flavour, at: changeCount, attempt: attempt)
+            }
+        }
+    }
 
+    /// The read came back empty, or the copy offers no picture at all.
+    private func pictureUnreadable(flavour: NSPasteboard.PasteboardType?, at changeCount: Int, attempt: Int) {
         // Nothing readable. Whether that is a picture still in flight or a
         // refusal is the system's answer, so ask it.
         let now = accessBehavior()
@@ -516,7 +821,7 @@ final class ClipboardStore: ObservableObject {
 
         // Give up after a few seconds, or once the copy no longer offers a
         // picture at all, and fall back to whatever else it carried.
-        guard attempt < 12, hasPNG || types.contains(.tiff) else {
+        guard attempt < 12, flavour != nil else {
             recordTextFallback(at: changeCount)
             return
         }
@@ -528,7 +833,7 @@ final class ClipboardStore: ObservableObject {
                 // flight. The copy is still worth recording — dropping it
                 // outright lost the text it came with too, and the change
                 // counter was already marked seen so nothing would re-poll it.
-                guard self.wantsImages() else {
+                guard self.wantsImages() || (self.recordsHistory() && self.keepsImages()) else {
                     self.recordTextFallback(at: changeCount)
                     return
                 }
@@ -537,22 +842,150 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
-    private func deliverImage(_ png: Data, at changeCount: Int) {
+    /// Turns the one read of the picture into what the switches asked for, off
+    /// the main thread.
+    ///
+    /// Save Clipboard Screenshots wants a PNG for the vault — which, for a TIFF,
+    /// is the tens-of-megabytes decode and re-encode that once froze the panel,
+    /// and is still skipped when only history wants the picture. Include Images
+    /// wants the entry: the original bytes up to 25 MB (else a 2048 px PNG) in
+    /// a session file, and a thumbnail (`ClipImage.make`). Both come from the
+    /// same bytes, read once.
+    ///
+    /// Three steps. The bytes are hashed first, once, on a background queue.
+    /// Back on the main actor that digest decides what is not needed: a picture
+    /// the history already holds is moved to the top without decoding it again
+    /// (as the same words copied twice are one entry), and one the vault was
+    /// just handed is not handed over twice. Only then the decode and encode
+    /// run, each in an autorelease pool and each for the switches that still
+    /// want something — a PNG original is both the vault's file and the
+    /// entry's, the same `Data` written once.
+    private func process(original: Data, type: NSPasteboard.PasteboardType, at changeCount: Int) {
+        let needsPNG = wantsImages()
+        let needsEntry = recordsHistory() && keepsImages()
+        let source = needsEntry ? sourceApp() : nil
+        let byteLimit = imageByteLimit
+        let maximumPixels = imageMaximumPixels
+        let residentLimit = imageResidentLimit
+        let spool = imageSpool
+        DispatchQueue.global(qos: .userInitiated).async {
+            let digest = autoreleasepool { ClipImage.digest(of: original) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    // A newer copy is the newer intention.
+                    guard self.pasteboard.changeCount == changeCount else { return }
+                    let known = needsEntry ? self.pictureItem(withDigest: digest) : nil
+                    let vaultHasIt = needsPNG && self.lastVaultDigest == digest
+                    let buildEntry = needsEntry && known == nil
+                    let buildPNG = needsPNG && !vaultHasIt
+                    guard buildEntry || buildPNG else {
+                        self.deliverImage(
+                            png: nil, entry: nil, known: known, vaultHasIt: vaultHasIt, digest: digest, at: changeCount
+                        )
+                        return
+                    }
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let (png, image) = autoreleasepool { () -> (Data?, ClipImage?) in
+                            var png: Data?
+                            if buildPNG {
+                                png = type == .png
+                                    ? original
+                                    : NSBitmapImageRep(data: original)?.representation(using: .png, properties: [:])
+                            }
+                            let image = buildEntry
+                                ? ClipImage.make(
+                                    data: original, type: type, sourceApp: source,
+                                    byteLimit: byteLimit, maximumPixels: maximumPixels,
+                                    spool: spool, residentLimit: residentLimit, digest: digest
+                                )
+                                : nil
+                            return (png, image)
+                        }
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                self.deliverImage(
+                                    png: png, entry: image, known: known, vaultHasIt: vaultHasIt,
+                                    digest: digest, at: changeCount
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The picture entry already in the history for these bytes, if any.
+    ///
+    /// By the digest alone, which is of the pasteboard's own bytes: the
+    /// entry's `type` is what it *kept*, and a picture over `byteLimit` keeps a
+    /// PNG whatever it was copied as, so asking for the copied type too missed
+    /// every large TIFF copied a second time — it was decoded and spooled again
+    /// and replaced the entry instead of moving it up (R8c review, Codex).
+    private func pictureItem(withDigest digest: SHA256.Digest) -> ClipItem? {
+        items.first { item in
+            guard case .image(let image) = item.payload else { return false }
+            return image.digest == digest
+        }
+    }
+
+    private func deliverImage(
+        png: Data?, entry: ClipImage?, known: ClipItem?, vaultHasIt: Bool, digest: SHA256.Digest, at changeCount: Int
+    ) {
         // The pasteboard may have moved on while the encode was running, and a
         // newer copy is the newer intention.
         guard pasteboard.changeCount == changeCount else { return }
-        guard wantsImages() else {
-            recordTextFallback(at: changeCount)
-            return
+        // Both switches are asked again here, not trusted from when the read
+        // began: either can be turned off while a picture is in flight, and an
+        // off switch gets nothing.
+        var delivered = false
+        if wantsImages() {
+            if vaultHasIt {
+                delivered = true
+            } else if let png {
+                onImage?(png)
+                lastVaultDigest = digest
+                delivered = true
+            }
         }
-        onImage?(png)
+        if recordsHistory(), keepsImages() {
+            if let known, let current = items.first(where: { $0.id == known.id }) {
+                bubble(current)
+                delivered = true
+            } else if let entry {
+                record(ClipItem(payload: .image(entry), date: Date()))
+                delivered = true
+            }
+        }
+        // Nothing took the picture — undecodable data, or the switches went off
+        // mid-flight. The copy may still have carried text, and dropping it
+        // outright lost that too: the change counter is already marked seen, so
+        // nothing would re-poll it.
+        if !delivered { recordTextFallback(at: changeCount) }
     }
 
     /// Every byte read goes through here, so `contentReadCount` cannot miss
     /// one.
-    private func readData(_ type: NSPasteboard.PasteboardType) -> Data? {
+    ///
+    /// The read runs off the main actor (`PasteboardRead`), and what it found
+    /// comes back to it — unless the pasteboard moved on while it ran, in which
+    /// case it is dropped and the caller is never told: a newer copy is the
+    /// newer intention, and the next poll reads it. A Retina screenshot is
+    /// 10–21 MB, and its first read cost 26–29 ms on the main actor when the
+    /// copying app renders the picture on request (spec §19.12), enough to drop
+    /// frames in the middle of a paste.
+    ///
+    /// The count is taken here, on the main actor, before the read starts: a
+    /// read that is dropped as stale was still a read, and under Ask it was
+    /// still an alert.
+    private func readData(
+        _ type: NSPasteboard.PasteboardType, at changeCount: Int, then completion: @escaping (Data?) -> Void
+    ) {
         contentReadCount += 1
-        return pasteboard.data(forType: type)
+        PasteboardRead.data(of: type, from: pasteboard, using: readPasteboardData) { [weak self] data in
+            guard let self, self.pasteboard.changeCount == changeCount else { return }
+            completion(data)
+        }
     }
 
     private func recordTextFallback(at changeCount: Int) {
@@ -573,9 +1006,140 @@ final class ClipboardStore: ObservableObject {
     /// Internal rather than private as a seam for the headless visual lab,
     /// which fills the history without reading any pasteboard. The app
     /// itself only ever reaches it through `pollNow`.
+    ///
+    /// The 40-entry cap counts the entries that are not pinned, and the picture
+    /// cap counts pictures: a thirteenth drops the oldest (spec §9.4), a pinned
+    /// one last, since a pin is a promise and a picture the person has not
+    /// pinned is the cheaper thing to lose.
     func record(_ item: ClipItem) {
-        items.removeAll { $0 == item }
-        items.insert(item, at: 0)
-        if items.count > limit { items.removeLast(items.count - limit) }
+        var item = item
+        // The same thing copied again is one entry, moved to the top. If the
+        // one it replaces was pinned, the pin stays: copying a pinned note a
+        // second time is not a request to unpin it.
+        if let same = items.first(where: { $0 == item }), same.isPinned { item.isPinned = true }
+        // One assignment, for the same reason as in `bubble`.
+        var updated = items
+        updated.removeAll { $0 == item }
+        updated.insert(item, at: 0)
+        items = updated
+        trim()
+        enforceResidentBudget()
+    }
+
+    /// Keeps the pictures' resident bytes within `imageResidentBudget`, oldest
+    /// first. A picture that has a file gives up its copy in memory and is read
+    /// from the file when pasted; one that has none (no spool, or the disk
+    /// refused the write) has nothing to fall back on, so it is the entry that
+    /// goes — unpinned ones first, as for the picture cap.
+    private func enforceResidentBudget() {
+        var total = residentPictureBytes
+        guard total > imageResidentBudget else { return }
+        let pictures = items.reversed().compactMap { item -> (ClipItem, ClipImageBytes)? in
+            guard case .image(let image) = item.payload else { return nil }
+            return (item, image.bytes)
+        }
+        for (_, bytes) in pictures where total > imageResidentBudget {
+            let held = bytes.residentByteCount
+            if held > 0, bytes.dropResident() { total -= held }
+        }
+        guard total > imageResidentBudget else { return }
+        // Never the entry just recorded: a copy that vanishes as it lands is
+        // worse than a history one picture over budget (a 25 MB limit under a
+        // 32 MB budget cannot reach it outside a test).
+        let newest = items.first?.id
+        let memoryOnly = pictures.filter { $0.1.residentByteCount > 0 && $0.0.id != newest }
+        var drop = Set<UUID>()
+        for (item, bytes) in memoryOnly.filter({ !$0.0.isPinned }) + memoryOnly.filter({ $0.0.isPinned })
+        where total > imageResidentBudget {
+            drop.insert(item.id)
+            total -= bytes.residentByteCount
+        }
+        if !drop.isEmpty { items = items.filter { !drop.contains($0.id) } }
+    }
+
+    /// Deletes the file of every picture that is no longer in the history.
+    /// Every way out of the history ends in an assignment to `items` — the
+    /// 12-picture and 40-entry caps, Remove, Clear History, Include Images
+    /// turned off, history turned off, a duplicate copy replacing its twin — so
+    /// this is the one place that has to know, and Privacy Mode, which only
+    /// covers rows, never has to. A file shared with an entry that stays (the
+    /// same `ClipImage` recorded twice) is left alone.
+    private func discardPictureFiles(leaving oldItems: [ClipItem]) {
+        var staying = Set<ObjectIdentifier>()
+        var candidates: [ClipImageBytes] = []
+        for item in oldItems {
+            if case .image(let image) = item.payload { candidates.append(image.bytes) }
+        }
+        guard !candidates.isEmpty else { return }
+        for item in items {
+            if case .image(let image) = item.payload { staying.insert(ObjectIdentifier(image.bytes)) }
+        }
+        for bytes in candidates where !staying.contains(ObjectIdentifier(bytes)) { bytes.discard() }
+    }
+
+    private func trim() {
+        var kept = items
+        let unpinned = kept.filter { !$0.isPinned }
+        if unpinned.count > limit {
+            let drop = Set(unpinned.suffix(unpinned.count - limit).map(\.id))
+            kept.removeAll { drop.contains($0.id) }
+        }
+        let pictures = kept.filter { $0.kind == .image }
+        if pictures.count > ClipImage.maximumEntries {
+            let excess = pictures.count - ClipImage.maximumEntries
+            // Oldest first among the unpinned, then the oldest pinned ones.
+            let ordered = pictures.reversed().filter { !$0.isPinned } + pictures.reversed().filter(\.isPinned)
+            let drop = Set(ordered.prefix(excess).map(\.id))
+            kept.removeAll { drop.contains($0.id) }
+        }
+        if kept.count != items.count { items = kept }
+    }
+
+    // MARK: Keep Pinned Items (spec §9.4)
+
+    /// At launch: with the switch on, the saved pins join the history as pinned
+    /// entries; with it off, a leftover file is removed — the switch is the
+    /// whole of the consent, and a file on disk the setting no longer asks for
+    /// is not something to leave lying about.
+    func loadPinned() {
+        guard let pinnedFile else { return }
+        guard keepsPinned() else {
+            pinnedFile.delete()
+            persistedPins = nil
+            return
+        }
+        let records = pinnedFile.load(exists: pinnedFileExists)
+        persistedPins = records
+        // Under whatever the history already holds, oldest last, in the order
+        // the file kept them.
+        let restored = records.map { ClipItem(payload: $0.payload, date: $0.date, isPinned: true) }
+        let known = items
+        items = restored.filter { entry in !known.contains { $0 == entry } } + known
+    }
+
+    /// The Settings switch moved: on writes the pins held now, off deletes the
+    /// file (spec §9.4: "Turning it off deletes the file").
+    func keepPinnedChanged() {
+        guard let pinnedFile else { return }
+        if keepsPinned() {
+            persistedPins = nil
+            persistPinsIfWanted()
+        } else {
+            pinnedFile.delete()
+            persistedPins = nil
+        }
+    }
+
+    private func persistPinsIfWanted() {
+        guard let pinnedFile, keepsPinned() else { return }
+        let records = PinnedClipboardFile.records(from: items)
+        guard records != persistedPins else { return }
+        do {
+            try pinnedFile.save(records)
+            persistedPins = records
+        } catch {
+            // The pins are still pinned in memory; the next change tries again.
+            Log.storage.error("cannot save pinned clipboard items: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)")
+        }
     }
 }

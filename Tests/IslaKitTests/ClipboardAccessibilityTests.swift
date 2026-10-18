@@ -73,8 +73,10 @@ final class ClipboardAccessibilityTests: XCTestCase {
         for row in rows {
             XCTAssertTrue(row.actionNames.contains("AXPress"), root.dump)
             // Copy is the press; Show and Hide are offered only where there
-            // is a cover to lift.
-            XCTAssertEqual(row.customActions, ["Remove Entry"], root.dump)
+            // is a cover to lift. Pin and Translate joined Remove with the
+            // redesign (spec §9.2): the menu's verbs, in the menu's order,
+            // with the destructive one last.
+            XCTAssertEqual(row.customActions, ["Pin", "Translate", "Remove Entry"], root.dump)
             // One element per row: the preview is not read a second time as
             // loose text beside it.
             XCTAssertTrue(row.children.isEmpty, root.dump)
@@ -102,7 +104,7 @@ final class ClipboardAccessibilityTests: XCTestCase {
                       root.dump)
         for row in rows {
             // In the menu's order: the cover, then the destructive Remove last.
-            XCTAssertEqual(row.customActions, ["Show", "Remove Entry"], root.dump)
+            XCTAssertEqual(row.customActions, ["Show", "Pin", "Translate", "Remove Entry"], root.dump)
         }
 
         guard rows.count == 3 else { return }
@@ -110,7 +112,7 @@ final class ClipboardAccessibilityTests: XCTestCase {
         let after = await root.reread()
         let labels = after.all(role: "AXButton").filter { $0.label == "third" || $0.label == "Hidden" }
         XCTAssertEqual(labels.map(\.label), ["third", "Hidden", "Hidden"], after.dump)
-        XCTAssertEqual(labels.first?.customActions, ["Hide", "Remove Entry"], after.dump)
+        XCTAssertEqual(labels.first?.customActions, ["Hide", "Pin", "Translate", "Remove Entry"], after.dump)
     }
 
     /// The empty tab says what goes in and what never does, and the glyph
@@ -122,7 +124,9 @@ final class ClipboardAccessibilityTests: XCTestCase {
 
         let root = await AXProbe.tree(of: pane(isolated), size: size)
         XCTAssertTrue(words(root).contains("Nothing copied yet"), root.dump)
-        XCTAssertTrue(words(root).contains("Text and files you copy appear here. Copies from password managers are skipped."),
+        // Redesign 2026-10-15 (spec §9.4): the line names every kind the tab
+        // now keeps.
+        XCTAssertTrue(words(root).contains("Text, links, images and files you copy appear here. Copies from password managers are skipped."),
                       root.dump)
         XCTAssertTrue(root.all { $0.label == "Paste" }.isEmpty, root.dump)
         XCTAssertTrue(root.all(role: "AXImage").isEmpty, root.dump)

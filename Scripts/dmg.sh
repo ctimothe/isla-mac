@@ -14,6 +14,15 @@ if [ -z "$VERSION" ]; then
     echo "!!! в Scripts/version нет строки VERSION=" >&2
     exit 1
 fi
+# ISLA_VERSION_OVERRIDE is Scripts/rehearse-update.sh's, as in bundle.sh: the
+# rehearsal image is packed here, exactly as a release image is, but named for
+# the rehearsal version. Nothing else sets it.
+if [ -n "${ISLA_VERSION_OVERRIDE:-}" ]; then
+    case "$ISLA_VERSION_OVERRIDE" in
+        *[!0-9.]*|.*|*.|*..*) echo "!!! ISLA_VERSION_OVERRIDE must be dotted numbers" >&2; exit 1 ;;
+    esac
+    VERSION="$ISLA_VERSION_OVERRIDE"
+fi
 DMG="$ROOT/build/Isla-$VERSION.dmg"
 
 # Всегда, а не только когда приложения нет. Иначе образ уносит то, что лежало в
@@ -64,7 +73,8 @@ echo "==> версия внутри совпадает: $INSIDE"
 if ! spctl -a "$APP" >/dev/null 2>&1; then
     cat <<'NOTE'
 
-    Внимание: сборка подписана ad-hoc, без Developer ID, и не нотаризована.
+    Внимание: сборка подписана без Developer ID (ad-hoc или локальным
+    сертификатом "Isla Code Signing") и не нотаризована.
     На твоей машине она запускается, на любой другой Gatekeeper ее не пустит.
     Тому, кому отдаешь образ, придется один раз зайти в Системные настройки →
     Конфиденциальность и безопасность → "Все равно открыть". В macOS 15

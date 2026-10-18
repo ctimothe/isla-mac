@@ -433,6 +433,11 @@ final class TranslatorTests: XCTestCase {
     /// while Music's "Open Spotify" and the lyrics page's "Look Up Online" were
     /// capsules (H-007). Three hand-copied capsules existed; there is now one
     /// style, and the hairline stroke that draws it lives in exactly one place.
+    ///
+    /// Redesign 2026-10-15, spec §11: the result card's buttons are the toolbar
+    /// push buttons the Shelf, the Clipboard and Settings wear, so the pane now
+    /// asserts that shared style (`ToolbarPushButtonStyle`) instead of the
+    /// capsule's; the capsule's single home is unchanged.
     func testRemediesWearTheSharedCapsule() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -442,7 +447,7 @@ final class TranslatorTests: XCTestCase {
         let translatePane = try String(
             contentsOf: sources.appendingPathComponent("IslaKit/UI/TranslatePane.swift"), encoding: .utf8
         )
-        XCTAssertTrue(translatePane.contains(".buttonStyle(OfferButtonStyle())"))
+        XCTAssertTrue(translatePane.contains(".buttonStyle(ToolbarPushButtonStyle())"))
 
         var strokes: [String] = []
         let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)

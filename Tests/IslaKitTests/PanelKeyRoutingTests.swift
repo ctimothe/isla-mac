@@ -200,16 +200,16 @@ final class PanelKeyRoutingTests: XCTestCase {
         translator.pasteboard = probe.pasteboard
         probe.pasteboard.clearContents()
 
-        vm.select(.translate)
+        vm.open(.translate)
         XCTAssertFalse(vm.copyTranslationIfShowing(), "no answer yet")
 
         translator.input = "Good morning"
         translator.received("Доброе утро", for: "Good morning", by: .intelligence)
-        vm.select(.clipboard)
+        vm.open(.clipboard)
         XCTAssertFalse(vm.copyTranslationIfShowing(), "the translation is not what is on screen")
         XCTAssertNil(probe.pasteboard.string(forType: .string))
 
-        vm.select(.translate)
+        vm.open(.translate)
         XCTAssertTrue(vm.copyTranslationIfShowing())
         XCTAssertEqual(probe.pasteboard.string(forType: .string), "Доброе утро")
         XCTAssertEqual(spoken.last, "Copied")
@@ -223,6 +223,53 @@ final class PanelKeyRoutingTests: XCTestCase {
         XCTAssertTrue(vm.copyTranslationIfShowing())
         XCTAssertNil(probe.pasteboard.string(forType: .string))
         XCTAssertEqual(translator.outputCopies, 1)
+    }
+
+    // MARK: ⌃Tab and ⌃⇧Tab (spec §19.16)
+
+    /// Tab is key code 48 on every layout, so only the modifiers decide: ⌃
+    /// alone is the next page, ⌃⇧ the previous one, Caps Lock aside.
+    func testControlTabIsThePageKey() {
+        XCTAssertEqual(NotchPanel.pageStep(keyCode: 48, flags: .control), 1)
+        XCTAssertEqual(NotchPanel.pageStep(keyCode: 48, flags: [.control, .shift]), -1)
+        XCTAssertEqual(NotchPanel.pageStep(keyCode: 48, flags: [.control, .capsLock]), 1)
+        for flags: NSEvent.ModifierFlags in [[], .shift, .command, .option, [.control, .option], [.control, .command]] {
+            XCTAssertNil(NotchPanel.pageStep(keyCode: 48, flags: flags), "\(flags)")
+        }
+        XCTAssertNil(NotchPanel.pageStep(keyCode: 0, flags: .control), "⌃A goes to the field's line start")
+    }
+
+    /// A real ⌃Tab and ⌃⇧Tab reach the pages' seam ahead of the field, which
+    /// would take ⌃Tab as a move to the next key view.
+    func testARealControlTabReachesTheSeamAndNotTheField() throws {
+        let panel = NotchPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100))
+        defer { panel.close() }
+        var steps: [Int] = []
+        panel.pageKeyHandled = { steps.append($0); return true }
+        for flags: NSEvent.ModifierFlags in [.control, [.control, .shift]] {
+            panel.sendEvent(try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                windowNumber: panel.windowNumber, context: nil,
+                characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48
+            )))
+        }
+        XCTAssertEqual(steps, [1, -1])
+    }
+
+    /// A real mouse-down reaches `onPress` with where it landed in the
+    /// window, the point the controller reads into the body (R8b review F10).
+    func testARealPressReachesThePressSeam() throws {
+        let panel = NotchPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100))
+        defer { panel.close() }
+        var pressed: [NSPoint] = []
+        panel.onPress = { pressed.append($0) }
+        for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+            panel.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(
+                with: type, location: NSPoint(x: 40, y: 70), modifierFlags: [], timestamp: 0,
+                windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            )))
+        }
+        XCTAssertEqual(pressed, [NSPoint(x: 40, y: 70)], "the press, once, and not its release")
     }
 }
 

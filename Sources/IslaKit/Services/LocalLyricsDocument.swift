@@ -94,9 +94,28 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
     /// lyric. Only a bracket that is plainly meant as a stamp and is not one
     /// still refuses the file, and it says which line.
     static func parse(_ raw: String) throws -> Self {
+        try parse(raw, repairing: false)
+    }
+
+    /// The same read for the editor to open a file the strict one refused
+    /// (review 2026-10-15): every line that parses is a row as it would have been,
+    /// the tags are kept, and a line with a time Isla cannot read — or a bad
+    /// `[length:]` or `[offset:]`, which is dropped — becomes a row at 0:00 whose
+    /// text is the line exactly as written, so the person sees what is wrong
+    /// and fixes it in place. Nil only where there is nothing at all to show.
+    /// Never used to *show* lyrics: a song's page and the library's index keep
+    /// refusing the file until it is saved whole.
+    static func parseRepairing(_ raw: String) -> Self? {
+        try? parse(raw, repairing: true)
+    }
+
+    private static func parse(_ raw: String, repairing: Bool) throws -> Self {
         var metadata = LocalLyricsMetadata()
         var offset: TimeInterval = 0
         var collected: [Entry] = []
+        // Lines the strict read would have refused, kept apart from the timeline
+        // so they cannot merge into a neighbour at 0:00 as a bilingual pair.
+        var repairs: [LyricsStore.Line] = []
 
         // Empty lines are kept so `number` counts the way an editor does. A
         // CRLF pair is a single `Character`, so it ends one line, not two.
@@ -114,6 +133,7 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
                 case "ve": metadata.version = tag.value
                 case "length":
                     guard let duration = parseTimestamp(tag.value) else {
+                        if repairing { break }
                         throw Error.invalidTimestamp(line: number)
                     }
                     metadata.duration = duration
@@ -121,6 +141,7 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
                     // `TimeInterval(String)` reads "nan", "inf" and 1e300.
                     guard let milliseconds = TimeInterval(tag.value), milliseconds.isFinite,
                           abs(milliseconds) <= maximumOffsetMilliseconds else {
+                        if repairing { break }
                         throw Error.invalidTimestamp(line: number)
                     }
                     offset = milliseconds / 1_000
@@ -133,7 +154,14 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
                 continue
             }
 
-            guard let timed = try parseTimedLine(line, number: number) else { continue }
+            let parsed: TimedLine?
+            do {
+                parsed = try parseTimedLine(line, number: number)
+            } catch where repairing {
+                repairs.append(LyricsStore.Line(at: 0, text: line))
+                continue
+            }
+            guard let timed = parsed else { continue }
             for timestamp in timed.timestamps {
                 collected.append(Entry(at: timestamp, order: collected.count, text: timed.text, words: timed.words))
             }
@@ -185,6 +213,9 @@ struct LocalLyricsDocument: Codable, Equatable, Sendable {
                 lines.append(LyricsStore.Line(at: at, text: entry.text, words: words))
             }
         }
+        // At the top, in file order: 0:00 is where a row with no readable time
+        // sits, and the editor sorts by time when it saves.
+        lines.insert(contentsOf: repairs, at: 0)
         guard !lines.isEmpty else { throw Error.emptyTimeline }
         return Self(metadata: metadata, lines: lines, offset: offset)
     }

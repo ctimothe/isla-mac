@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// The stores that belong to the session rather than to the panel.
@@ -25,17 +26,39 @@ final class NotchStores {
     let lyrics: LyricsStore
     let localLyricsLibrary: LocalLyricsLibrary
     let lyricsCoordinator: LyricsCoordinator
+    /// A translated line under each lyric line (spec §5.3). Session-owned like the
+    /// lyrics it follows: the lock card (R2) reads it with the panel closed, and
+    /// a panel rebuilt for a new display must not lose what it has translated.
+    let lyricTranslation: LyricTranslation
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
     /// The charger and headphones, for the island's moments without music.
     let ambient = AmbientWatch()
+    /// The volume and brightness pop-up's keys (spec §12). Session-owned: a
+    /// panel rebuilt for a new display must not end the tap and begin it again
+    /// — a person pressing volume while a monitor is plugged in would hear the
+    /// system's own pop-up for the gap. Built inert: nothing is tapped until
+    /// the setting and the permission are both true and `refresh()` has run.
+    let hud: MediaKeyHUD
 
     /// Raised when a screenshot arrives on its own — copied elsewhere, or
     /// synced from a phone. The panel's view model wires itself to this;
     /// the store that produces it outlives any single panel.
     var onScreenshot: ((URL) -> Void)?
 
+    /// The one door a capture Isla collected by itself comes through — a
+    /// copied screenshot or recording the vault saved, a recording copied as
+    /// a file. Marked collected, so it shows the Shelf for a moment rather
+    /// than keeping it on the island (spec §19.1, amended 2026-10-17), and
+    /// announced, so the island can show that moment.
+    func collect(_ url: URL) {
+        shelf.add([url], origin: .collected)
+        onScreenshot?(url)
+    }
+
     private var started = false
+    private var cancellables = Set<AnyCancellable>()
+    private var followsLyrics = false
 
     /// The store parameters are a seam for the headless visual lab
     /// (`Tests/IslaKitTests/VisualLab*`), which builds whole panels without
@@ -51,8 +74,14 @@ final class NotchStores {
         clipboard: ClipboardStore? = nil,
         screenshotVault: ScreenshotVault? = nil,
         translator: Translator? = nil,
-        privacy: PrivacyMode? = nil
+        privacy: PrivacyMode? = nil,
+        lyricTranslation: LyricTranslation? = nil,
+        hud: MediaKeyHUD? = nil
     ) {
+        // A test process never taps the keys: the suite runs on the owner's Mac,
+        // often with the setting on, and `EventMediaKeyTap.live` and the real
+        // trust check both refuse there too. The tests inject their own.
+        self.hud = hud ?? MediaKeyHUD(isEnabled: { !PlayerBridge.isRunningTests && NotchViewModel.volumeAndBrightnessEnabled })
         let shelfStore = shelf ?? ShelfStore()
         self.shelf = shelfStore
         promises = PromisedDropInbox(shelf: shelfStore)
@@ -60,6 +89,7 @@ final class NotchStores {
         self.screenshotVault = screenshotVault ?? ScreenshotVault()
         self.translator = translator ?? Translator()
         self.privacy = privacy ?? PrivacyMode()
+        self.lyricTranslation = lyricTranslation ?? LyricTranslation()
         // Import a listener's old local override and timing correction before
         // the retired cache helper gets a chance to prune its cache files.
         // The local library is now the coordinator's only lyric authority.
@@ -100,6 +130,7 @@ final class NotchStores {
         }
         media.start()
         lyricsCoordinator.start()
+        followLyricsForTranslation()
         localLyricsLibrary.startWatchingFolders()
         shelf.load()
         // Drop folders from previous sessions, once, off the main thread —
@@ -120,12 +151,30 @@ final class NotchStores {
         // exactly the machines whose owners turned the feature off.
         clipboard.wantsImages = { NotchViewModel.saveClipboardImagesEnabled }
         clipboard.recordsHistory = { NotchViewModel.clipboardHistoryEnabled }
+        clipboard.keepsImages = { NotchViewModel.clipboardIncludeImagesEnabled }
+        // Keep Pinned Items (spec §9.4): the file and the switch, wired only
+        // here, and never under test — a test that reached this would be
+        // reading, and with the switch on writing, the owner's Application
+        // Support. The tests inject a temporary file of their own.
+        if !PlayerBridge.isRunningTests {
+            clipboard.pinnedFile = PinnedClipboardFile.live
+            clipboard.keepsPinned = { NotchViewModel.clipboardKeepPinnedEnabled }
+            clipboard.loadPinned()
+        }
+        // The pictures' bytes go to files of this launch, deleted as the entries
+        // leave and with the directory at quit; whatever a crashed launch left
+        // behind is swept now, off the main thread. Never under test, for the
+        // reason above: a test injects a spool in a temporary folder of its own.
+        if !PlayerBridge.isRunningTests {
+            clipboard.imageSpool = .session
+            let own = ClipImageSpool.session.directory
+            DispatchQueue.global(qos: .utility).async { ClipImageSpool.sweepStale(keeping: own) }
+        }
         clipboard.onImage = { [weak self] png in
             guard let self else { return }
             self.screenshotVault.save(png) { [weak self] url in
-                guard let self, let url else { return }
-                self.shelf.add([url])
-                self.onScreenshot?(url)
+                guard let url else { return }
+                self?.collect(url)
             }
         }
         // A captured recording lands on the shelf the way a screenshot does.
@@ -137,18 +186,39 @@ final class NotchStores {
         clipboard.onMovieData = { [weak self] data, ext in
             guard let self else { return }
             self.screenshotVault.saveMovie(data, fileExtension: ext) { [weak self] url in
-                guard let self, let url else { return }
-                self.shelf.add([url])
-                self.onScreenshot?(url)
+                guard let url else { return }
+                self?.collect(url)
             }
         }
         clipboard.onMovieFile = { [weak self] url in
-            guard let self else { return }
-            self.shelf.add([url])
-            self.onScreenshot?(url)
+            self?.collect(url)
         }
         refreshClipboardPolling()
         ambient.start()
+    }
+
+    /// The song's lines go to the translation whenever the lyrics change state,
+    /// but handing them over starts nothing: a batch runs only while a surface
+    /// that draws translations has registered demand (`LyricTranslation.setDemand`)
+    /// and Show Translation is on. With the panel closed no batch runs; the lock
+    /// card in R2 registers its own demand when it is up (review 2026-10-15 —
+    /// this comment used to promise a batch for every song, which was the bug).
+    /// `$state` hands over the value being set,
+    /// and a recheck of the same song hands over the same lines, which the
+    /// service treats as nothing new. Its own function, so a test can wire the
+    /// two without starting a player feed.
+    func followLyricsForTranslation() {
+        guard !followsLyrics else { return }
+        followsLyrics = true
+        lyrics.$state
+            .sink { [weak self] state in
+                if case .synced(let lines) = state {
+                    self?.lyricTranslation.present(lines: lines)
+                } else {
+                    self?.lyricTranslation.present(lines: nil)
+                }
+            }
+            .store(in: &cancellables)
     }
 
     /// The pasteboard is read only while something wants what is on it:
@@ -163,6 +233,9 @@ final class NotchStores {
     ///   because whatever was copied while it was off was copied while the
     ///   user had said not to look.
     func refreshClipboardPolling(settingChanged: Bool = false) {
+        // Save Clipboard Screenshots turned off and on again: the next picture
+        // is saved even if it is the one saved last.
+        if settingChanged { clipboard.forgetVaultCapture() }
         guard Self.clipboardShouldPoll(
             history: NotchViewModel.clipboardHistoryEnabled,
             images: NotchViewModel.saveClipboardImagesEnabled
@@ -183,11 +256,14 @@ final class NotchStores {
     func stop() {
         guard started else { return }
         started = false
+        cancellables.removeAll()
+        followsLyrics = false
         lyricsCoordinator.stop()
         localLyricsLibrary.stopWatchingFolders()
         media.stop()
         clipboard.stop()
         ambient.stop()
+        hud.stop()
     }
 
     /// Paused while nobody can see or reach the panel — the display asleep, or
@@ -210,9 +286,13 @@ final class NotchStores {
     func suspendForIdleScreen(keepingMediaRunning: Bool = false, forLock: Bool = false) {
         clipboard.stop(rebaseliningOnResume: forLock)
         if !keepingMediaRunning { media.setActive(false) }
+        // The Accessibility poll too: nobody can grant a permission to a dark
+        // or locked screen, and it ran every two seconds through the night.
+        hud.suspend()
     }
 
     func resumeFromIdleScreen() {
+        hud.resume()
         refreshClipboardPolling()
         // A wake is the likeliest moment for a failed route to work again. The
         // helper can lose a race with a waking MediaRemote, and a user who

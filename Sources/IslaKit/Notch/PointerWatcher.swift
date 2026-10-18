@@ -13,10 +13,178 @@ final class PointerWatcher {
     /// Entering this opens the panel, in screen coordinates.
     var openRect: CGRect = .zero
     /// Leaving this closes the panel, in screen coordinates.
-    var closeRect: CGRect = .zero
+    var closeRect: CGRect = .zero {
+        didSet {
+            guard closeRect != oldValue else { return }
+            noteShrink(from: oldValue)
+        }
+    }
     /// Where the panel takes clicks. Everywhere else the window must let them
     /// through, so this doubles as the `ignoresMouseEvents` trigger.
     var interactiveRect: CGRect = .zero
+    /// The Shelf's bubble, which takes clicks too while it shows (spec §19.7),
+    /// and only it: the gap between it and the island stays click-through.
+    var bubbleRect: CGRect = .zero
+
+    /// The collapsed island the panel was opened from, counted as part of
+    /// `closeRect` — while the panel is open — until the pointer has once
+    /// stood on the open body.
+    ///
+    /// Since R8 each surface has its own width, and two things that open one
+    /// are wider than it: the new-track peek, notch + 300 (spec §3.5), opens
+    /// the 357.4 pt player, and the far end of the Shelf's bubble sits past the
+    /// tray's edge under a 200 pt notch. A pointer that opened the panel from
+    /// there stood outside the body it had opened, so the panel folded
+    /// `closeDelay` later — and with Open on Hover on, the island under the
+    /// same pointer opened it again, round and round (R8 review F1).
+    ///
+    /// Captured whenever the pointer is counted inside a closed panel — a
+    /// click, an arrival — but honoured only while the panel is open: with
+    /// Open on Hover off an arrival opens nothing, and a landing honoured on
+    /// a closed panel kept a pointer resting on bare menu bar "inside" after
+    /// the peek it arrived on had folded, refusing every later peek and
+    /// moment (R8 re-review R-1). Reaching the body, leaving, or a forced
+    /// "outside" lets it go.
+    private(set) var landingRect: CGRect = .zero
+
+    /// The open body the panel shrank out of, while the pointer that was on it
+    /// stays in it and has not gone anywhere: counted as part of `closeRect`
+    /// until the pointer reaches the new body, leaves this one, heads away
+    /// from the new body or presses off the panel (`shrinkHolds`).
+    ///
+    /// The open panel changes size under a pointer that has not moved — a dot
+    /// to a shorter page above all. On Clipboard the dots sit 306 pt down;
+    /// pressing Music's left the pointer below Music's 214 pt body, and the
+    /// panel folded `closeDelay` after the press, as if the person had walked
+    /// away (owner, 2026-10-18). Folding is for leaving, never for the content
+    /// changing size. Held like `landingRect`: only while the panel is open,
+    /// and a forced state lets it go.
+    ///
+    /// `.zero` means nothing is held, and is never a union's starting point:
+    /// `CGRect.union` skips only `.null`, so the first hold once reached from
+    /// the old body to the screen's origin — on the built-in display, every
+    /// point left of and below it (review 5, S1).
+    private(set) var shrunkFromRect: CGRect = .zero {
+        didSet { updatePressWatch() }
+    }
+
+    /// Starts watching presses and scrolls in other apps, returning a token
+    /// for `stopWatchingPresses`. Inert here: only the controller's `build`
+    /// gives it a real global monitor, so no test process registers one.
+    var watchPressesElsewhere: (@escaping @Sendable () -> Void) -> Any? = { _ in nil }
+    var stopWatchingPresses: (Any) -> Void = { _ in }
+    private var pressWatch: Any?
+
+    /// Starts watching the pointer move over other apps, returning a token
+    /// for `stopWatchingMovement`. Inert here, like `watchPressesElsewhere`:
+    /// only the controller's `build` gives it a real global monitor.
+    var watchMovement: (@escaping @Sendable () -> Void) -> Any? = { _ in nil }
+    var stopWatchingMovement: (Any) -> Void = { _ in }
+    private var movementWatch: Any?
+
+    /// The monitor stands exactly while a hold does. The sampler alone saw a
+    /// press only if a tick caught the button down: resting, it ticks every
+    /// 125 ms, and a tap to click is over sooner, so a person clicking in the
+    /// browser under where Settings was half the time left Music standing
+    /// open over them (re-review 6, F1).
+    private func updatePressWatch() {
+        if shrunkFromRect.isEmpty {
+            guard let pressWatch else { return }
+            stopWatchingPresses(pressWatch)
+            self.pressWatch = nil
+        } else if pressWatch == nil {
+            pressWatch = watchPressesElsewhere { [weak self] in
+                // AppKit hands a global monitor its events on the main thread
+                // in practice, but does not say so; a hop is cheap, and
+                // `assumeIsolated` off the main thread is a trap.
+                let end: @Sendable () -> Void = {
+                    MainActor.assumeIsolated { self?.shrunkFromRect = .zero }
+                }
+                if Thread.isMainThread { end() } else { DispatchQueue.main.async(execute: end) }
+            }
+        }
+    }
+
+    /// Whether a scroll event is one the person started where it landed — a
+    /// mouse wheel, or fingers going down — rather than the momentum of a
+    /// page swipe made on the panel, which can still be arriving as the body
+    /// shrinks out from under the pointer. Only the first ends a hold.
+    nonisolated static func startsAScroll(phase: NSEvent.Phase, momentum: NSEvent.Phase) -> Bool {
+        momentum.isEmpty && (phase.isEmpty || phase.contains(.began))
+    }
+
+    /// The nearest the held pointer has come to the new body since the hold
+    /// began. Coming no farther than this, give or take `shrinkSlack`, is
+    /// standing still or heading for the content; more is going away.
+    private var shrinkNearest: CGFloat = 0
+
+    /// What a hand that is resting or reaching still trembles by.
+    static let shrinkSlack: CGFloat = 6
+
+    /// A new `closeRect` that no longer holds a pointer the old one held, on
+    /// an open panel the pointer is in: the old one keeps holding it. A shrink
+    /// on top of a shrink keeps everything still held, measured afresh against
+    /// the newest body.
+    private func noteShrink(from old: CGRect) {
+        guard isInside, isPanelOpen() else { return }
+        let point = location()
+        if closeRect.contains(point) {
+            shrunkFromRect = .zero
+        } else if !old.isEmpty, old.contains(point) || shrunkFromRect.contains(point) {
+            shrunkFromRect = shrunkFromRect.isEmpty ? old : shrunkFromRect.union(old)
+            shrinkNearest = Self.distance(from: point, to: closeRect)
+        }
+    }
+
+    /// Whether the body the panel shrank from still holds a pointer at
+    /// `point`. Not a pointer that has gone anywhere: that area is
+    /// click-through now, and an unpinned panel watches no clicks of its own,
+    /// so from Settings back to Music a person could work in the browser
+    /// under where Settings was while Music stood open over them (review 5,
+    /// S3). A pointer heading away from the new body ends it, and so does a
+    /// press or a scroll off the panel — in whatever app is under it — which
+    /// `watchPressesElsewhere` reports and a held button read here backs up.
+    private func shrinkHolds(_ point: CGPoint) -> Bool {
+        guard !shrunkFromRect.isEmpty, shrunkFromRect.contains(point) else { return false }
+        if buttonsHeld(), !interactiveRect.contains(point), !isDragging() { return false }
+        return Self.distance(from: point, to: closeRect) <= shrinkNearest + Self.shrinkSlack
+    }
+
+    /// Whether the open panel counts a pointer at `point` as on it beyond its
+    /// body: the island it opened from, until the pointer first reaches the
+    /// body, and the body it shrank from, while `shrinkHolds`. The controller's
+    /// own check asks this rather than keeping a copy of the rule — it had
+    /// none of the shrink, and a dot that dropped the keyboard folded the
+    /// island 0.6 s later through it (review 5, S2).
+    func holdsBeyondBody(at point: CGPoint) -> Bool {
+        guard isPanelOpen() else { return false }
+        return landingRect.contains(point) || shrinkHolds(point)
+    }
+
+    /// How far `point` is from the nearest edge of `rect`, zero inside it.
+    nonisolated static func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
+        let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
+        return hypot(dx, dy)
+    }
+
+    /// The closed island as the controller draws it now, in screen
+    /// coordinates: every point that takes a click, shoulders and bubble
+    /// included. Built from the geometry rather than read from `openRect`,
+    /// which stays cut for the open body for a moment after a fold (R-2) and
+    /// pads 6 pt where the shoulders reach `closedTopRadius` (R-3).
+    var collapsedIsland: (() -> CGRect)?
+
+    /// The closed island a pointer can open the panel from: the controller's
+    /// drawing when it has one, else the padded strip and the Shelf's bubble.
+    var islandRect: CGRect {
+        if let collapsedIsland { return collapsedIsland() }
+        return bubbleRect.isEmpty ? openRect : openRect.union(bubbleRect)
+    }
+
+    /// Where the pointer is, in screen coordinates. A seam so a test can
+    /// place it.
+    var location: () -> CGPoint = { NSEvent.mouseLocation }
 
     /// Exactly the island as it is drawn, with none of `openRect`'s padding.
     ///
@@ -55,12 +223,42 @@ final class PointerWatcher {
     /// Bounded on every side, so warmth cannot survive a move to another
     /// display that merely sits at a similar height.
     var coolZone: CGRect = .zero
+    /// Where a resting pointer keeps the movement monitor standing: the warm
+    /// band and `NotchMetrics.approachMargin` under it. Empty means the warm
+    /// band alone.
+    var approachZone: CGRect = .zero
     /// How long the pointer may stand still before sampling drops to the idle
     /// rate wherever it stands. Movement re-warms on the next idle tick.
     var restThreshold = NotchMetrics.restThreshold
 
     private let fastInterval = NotchMetrics.fastPointerInterval
     private let idleInterval = NotchMetrics.idlePointerInterval
+
+    /// The Shelf pane, in screen coordinates; empty whenever the Shelf is not
+    /// what the open panel shows. Cutting it empty reports "off the Shelf" at
+    /// once, without waiting for a tick: the Delete key that hangs off this
+    /// signal must go the moment the Shelf does (`ShelfDeleteKeyHolder`).
+    var shelfRect: CGRect = .zero {
+        didSet {
+            guard shelfRect != oldValue else { return }
+            // Re-read with the pointer where it stands, so a rect cut under a
+            // pointer already on it counts without a tick's delay.
+            sampleShelf(at: shelfRect.isEmpty ? nil : location())
+        }
+    }
+    /// The pointer entered or left `shelfRect`.
+    var onShelfChange: ((Bool) -> Void)?
+    private var wasOnShelf = false
+
+    /// Reports the Shelf transition for a pointer at `point`; nil is "nowhere",
+    /// which is what an empty rect and a stopped sampler both mean. Internal so
+    /// a test can drive the transition without a mouse.
+    func sampleShelf(at point: CGPoint?) {
+        let onShelf = point.map { shelfRect.contains($0) } ?? false
+        guard onShelf != wasOnShelf else { return }
+        wasOnShelf = onShelf
+        onShelfChange?(onShelf)
+    }
 
     var onChange: ((Bool) -> Void)?
     var onInteractiveChange: ((Bool) -> Void)?
@@ -93,6 +291,7 @@ final class PointerWatcher {
     func stop() {
         timer?.invalidate()
         timer = nil
+        updateMovementWatch()
         awaitingSince = nil
         graceUntil = nil
         // The last sent interactivity dies with the panel it was sent to. The
@@ -105,9 +304,15 @@ final class PointerWatcher {
         // left lit for the whole of a lock or a sleep.
         if wasHovering == true { onHoverChange?(false) }
         wasHovering = nil
+        // And nothing is on the Shelf once nobody is watching the pointer: the
+        // sampler stopping — a lock, a sleep, a rebuild — is a reason to give
+        // Delete back.
+        sampleShelf(at: nil)
         // The rects are re-cut by whatever starts the watcher again, so a
         // departure owed against the old ones is not owed against the new.
         awaitsDeparture = false
+        landingRect = .zero
+        shrunkFromRect = .zero
     }
 
     private func schedule(warm: Bool) {
@@ -124,6 +329,56 @@ final class PointerWatcher {
         timer.tolerance = warm ? interval / 4 : interval / 2
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        updateMovementWatch()
+    }
+
+    /// The movement monitor stands exactly while the sampler idles.
+    ///
+    /// Resting, the sampler ticks every 125 ms and may drift half that again,
+    /// and only a tick lets the panel take the mouse (`onInteractiveChange`).
+    /// A pointer flicked from rest to the island and clicked inside that
+    /// window clicked the menu bar behind it, and the hover lit up to 190 ms
+    /// after the pointer arrived — the island read as slow to answer under
+    /// exactly the load where the main thread is busiest (review 2026-10-18).
+    /// A move into the band now ticks at once, which also warms the sampler;
+    /// warm, the 60 Hz timer is quicker than anything a monitor adds, so the
+    /// monitor goes and costs nothing while the pointer is near.
+    ///
+    /// And only near the notch: standing wherever the sampler idled, it woke
+    /// the main thread for every move of the mouse anywhere on the screen,
+    /// sixty to a hundred and twenty times a second against the idle beat's
+    /// eight (R8c review, M2). It stands while the last sample was in
+    /// `approachZone` — the top of the screen — or counted inside; a pointer
+    /// further down is put back on the idle beat, which reaches the band in
+    /// time for anything but a flick from the bottom of the screen.
+    private func updateMovementWatch() {
+        let zone = approachZone.isEmpty ? warmZone : approachZone
+        let near = isInside || zone.contains(lastPoint)
+        if timer == nil || isWarm || !near {
+            guard let movementWatch else { return }
+            stopWatchingMovement(movementWatch)
+            self.movementWatch = nil
+        } else if movementWatch == nil {
+            movementWatch = watchMovement { [weak self] in
+                // Main thread in practice, as with the press monitor; the hop
+                // is for the day it is not.
+                let moved: @Sendable () -> Void = {
+                    MainActor.assumeIsolated { self?.pointerMoved() }
+                }
+                if Thread.isMainThread { moved() } else { DispatchQueue.main.async(execute: moved) }
+            }
+        }
+    }
+
+    /// One move reported by the monitor while the sampler idles. Only a move
+    /// into the band, or one made with the pointer counted inside, is worth a
+    /// tick now: anywhere else the idle beat is as good as it ever was, and
+    /// the rest of the screen's movement costs one rect test each. Internal
+    /// so a test can deliver a move without a mouse.
+    func pointerMoved() {
+        guard timer != nil, !isWarm else { return }
+        guard isInside || warmZone.contains(location()) else { return }
+        tick()
     }
 
     /// Full rate only for a pointer that is actually going somewhere near the
@@ -135,9 +390,9 @@ final class PointerWatcher {
     /// its way anywhere, however close to the notch it is parked. The menu
     /// bar, where cursors spend half their lives, lies entirely inside the
     /// band — place alone used to mean full rate for as long as one rested
-    /// there. Movement is noticed on the next idle tick, 125 ms at worst,
-    /// which is less than the dwell a hover has to survive anyway — so
-    /// warming up is never the thing anybody is waiting on.
+    /// there. A move into the band is reported at once by the movement
+    /// monitor (`updateMovementWatch`); the next idle tick, 125 ms at worst,
+    /// is only the fallback for a build without one.
     private func updateRate(for point: CGPoint) {
         if point != lastPoint {
             lastPoint = point
@@ -153,7 +408,12 @@ final class PointerWatcher {
             near = warmZone.contains(point)
         }
         let warm = near && moving
-        guard warm != isWarm else { return }
+        guard warm != isWarm else {
+            // Same beat, but the pointer may have come within reach of the
+            // notch, or left it.
+            updateMovementWatch()
+            return
+        }
         schedule(warm: warm)
     }
 
@@ -168,6 +428,12 @@ final class PointerWatcher {
     /// be used.
     func setInside(_ value: Bool, grace: TimeInterval = 0) {
         awaitingSince = nil
+        // Asked before the caller opens the panel: the island the open is
+        // leaving from. Forced inside on a panel already open — the collapse
+        // check's resync, a command — the island it was opened from still
+        // stands: that check has just counted the pointer on it (R-4).
+        landingRect = value ? (isPanelOpen() ? landingRect : islandRect) : .zero
+        shrunkFromRect = value && isPanelOpen() ? shrunkFromRect : .zero
         isInside = value
         graceUntil = grace > 0 ? Date().addingTimeInterval(grace) : nil
         // Whatever forces the state is the newer word on it, so a departure the
@@ -207,10 +473,10 @@ final class PointerWatcher {
     }
 
     private func tick() {
-        let point = NSEvent.mouseLocation
+        let point = location()
         updateRate(for: point)
 
-        let interactive = isDragging() || interactiveRect.contains(point)
+        let interactive = isDragging() || interactiveRect.contains(point) || bubbleRect.contains(point)
         if wasInteractive != interactive {
             wasInteractive = interactive
             onInteractiveChange?(interactive)
@@ -223,13 +489,34 @@ final class PointerWatcher {
         // no entered event is sent at all. The sampler has the pointer either
         // way, and this is the only reading that does not depend on the window
         // already having agreed to listen.
+        sampleShelf(at: point)
+
         let hovering = hoverRect.contains(point)
         if wasHovering != hovering {
             wasHovering = hovering
             onHoverChange?(hovering)
         }
 
-        let inside = (isInside ? closeRect : openRect).contains(point)
+        // Open, the body holds the panel, and so does the island it opened
+        // from until the pointer first reaches the body (`landingRect`), and
+        // the body it shrank out of until the pointer reaches the new one or
+        // leaves the old (`shrunkFromRect`).
+        let onBody = closeRect.contains(point)
+        if isInside, onBody {
+            landingRect = .zero
+            shrunkFromRect = .zero
+        }
+        let onShrunkFrom = isPanelOpen() && shrinkHolds(point)
+        if isInside {
+            // Once ended, a hold stays ended: a pointer that went away and
+            // came back is on the panel by the body or not at all.
+            if onShrunkFrom {
+                shrinkNearest = min(shrinkNearest, Self.distance(from: point, to: closeRect))
+            } else {
+                shrunkFromRect = .zero
+            }
+        }
+        let inside = isInside ? onBody || holdsBeyondBody(at: point) : openRect.contains(point)
 
         // Whether the panel is open and where the pointer is are two separate
         // facts, and only one of them is tracked here. They are supposed to
@@ -311,6 +598,10 @@ final class PointerWatcher {
         }
         guard Date().timeIntervalSince(start) >= (inside ? openDelay : closeDelay) else { return }
         awaitingSince = nil
+        // An arrival at the closed island carries that island into the open
+        // panel's close rule; a departure ends it.
+        landingRect = inside && !isPanelOpen() ? islandRect : .zero
+        shrunkFromRect = .zero
         isInside = inside
         onChange?(inside)
     }

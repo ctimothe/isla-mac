@@ -15,6 +15,9 @@ removed from the tree to keep it readable; they are still in the git history.
 | --- | --- |
 | [plans/2026-08-18-dynamic-island-parity-design.md](plans/2026-08-18-dynamic-island-parity-design.md) | The design Isla is built to. Changes are added as dated amendments, never rewritten. |
 | [checklist.md](checklist.md) | What each release finished, what Isla deliberately does differently from Cyclop, and the checks still owed on real hardware. |
+| [plans/2026-10-15-redesign-spec.md](plans/2026-10-15-redesign-spec.md) | The redesign: the island, its activities, and the pages and dots that replaced the tabs (§19 binds). Amended in place, dated. |
+| [plans/2026-10-17-activities-build-plan.md](plans/2026-10-17-activities-build-plan.md) | How the redesign was built, release by release (R7 onward). |
+| [design/](design/) | Design sources kept for reference, such as the app icon's directions. |
 | [plans/](plans/) | Plans for each piece of work, before it was built. |
 | [specs/](specs/) | Feature designs. `shell-music-mvp.md` describes an earlier prototype, not this app. |
 | [audits/](audits/) | Reviews of the whole app and the bugs they found. |

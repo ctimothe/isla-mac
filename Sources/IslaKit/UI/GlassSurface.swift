@@ -213,7 +213,10 @@ extension View {
         // An opaque panel by choice rather than by the accessibility setting:
         // the same surface Reduce Transparency draws, asked for on purpose.
         // The lock card's Solid style is the one caller.
-        solid: Bool = false
+        solid: Bool = false,
+        // The colour of that panel, for the one caller whose spec names it. Nil
+        // is the neutral grey Reduce Transparency has always drawn.
+        solidFill: Color? = nil
     ) -> some View {
         modifier(GlassSurfaceStyle(
             cornerRadius: cornerRadius,
@@ -222,7 +225,8 @@ extension View {
             light: light,
             samplesBackdrop: samplesBackdrop,
             preferDrawn: preferDrawn,
-            solid: solid
+            solid: solid,
+            solidFill: solidFill
         ))
     }
 }
@@ -237,6 +241,7 @@ struct GlassSurfaceStyle: ViewModifier {
     let samplesBackdrop: Bool
     let preferDrawn: Bool
     var solid: Bool = false
+    var solidFill: Color?
 
     /// Whether Apple's material is both available and able to do its job.
     ///
@@ -276,7 +281,7 @@ struct GlassSurfaceStyle: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return content
             .background {
-                shape.fill(Color(white: 0.11))
+                shape.fill(solidFill ?? Color(white: 0.11))
             }
             .clipShape(shape)
             .overlay {

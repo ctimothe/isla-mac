@@ -73,7 +73,9 @@ enum EqualizerMotion {
     static let restingHeights: [CGFloat] = [4, 7, 5]
 }
 
-/// Three bars used in both the open header and compact activity.
+/// Three bars on the open header's right end. The compact island has its own,
+/// four bars in the cover's tint (`CompactEqualizer`, spec §3.1); this view was
+/// shared by both until the redesign.
 ///
 /// Pausing holds the beat exactly where it stood rather than snapping the bars
 /// back to their resting heights: the music stopping mid-bar is the thing being

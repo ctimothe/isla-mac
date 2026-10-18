@@ -2,79 +2,200 @@ import AppKit
 import XCTest
 @testable import IslaKit
 
-/// The Translate pane's type ladder, as arithmetic: which rung a pair of texts
-/// gets in a measured column. No view is built; the rung is a pure function of
-/// the two texts and the column, which is what lets it be checked here.
+/// The Translate surface's frames, as arithmetic (spec §19.8, board
+/// `R2-Translate`). No view is built: every frame is a pure function of the
+/// body's width, in the content's coordinates under the header row (the board's
+/// y less 38), which is what lets it be held at 480, 560 and 620.
+///
+/// This file used to hold the type ladder — four rungs from 27 down to 11 chosen
+/// from the length of the text and the widest word in it (H-006), and then two
+/// sizes, 15 and 13.5 on the tall body. The tall body went with Expand / Collapse
+/// (§19.11), so there is one text size and one height.
 @MainActor
 final class TranslatePaneLayoutTests: XCTestCase {
-    /// The text column at the default 560-point panel: the pane is 488 wide,
-    /// so (488 − 10) / 2 − 20. And at the narrowest panel, 480 points.
-    private let column560 = CGSize(width: 219, height: 110)
-    private let column480 = CGSize(width: 179, height: 110)
+    private let widths: [CGFloat] = [480, 560, 620]
 
-    private func width(_ word: String, at size: CGFloat) -> CGFloat {
-        (word as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: size)]).width
+    // MARK: - The pair row
+
+    /// The board at its own width (§19.8): the From pop-up from x 16 to
+    /// `bw / 2 − 24`, Swap 28 wide at `bw / 2 − 14`, the To pop-up from
+    /// `bw / 2 + 30` to `bw − 16`, all 26 tall at y 46 (8 in the content).
+    func testThePairRowIsTheSpecsAtTheDefaultWidth() {
+        let bar = TranslateLayout.pairBar(bodyWidth: 560)
+        XCTAssertEqual(bar.from, CGRect(x: 16, y: 8, width: 240, height: 26))
+        XCTAssertEqual(bar.swap, CGRect(x: 266, y: 8, width: 28, height: 26))
+        XCTAssertEqual(bar.to, CGRect(x: 310, y: 8, width: 234, height: 26))
+        XCTAssertEqual(bar.swap.midX, 280, "centred on the body")
     }
 
-    /// H-006: "железнодорожная" was set at 27 points, the top rung, because
-    /// the sentence is short; at 27 the word alone is wider than the column,
-    /// so it arrived as "железнодорожна / я станция?". The rung is now chosen
-    /// by the widest word as well as by the length.
-    func testNoRungBreaksAWord() {
-        for column in [column560, column480] {
-            let size = TranslatePane.fontSize(
-                source: "Где находится железнодорожная станция?",
-                output: "Where is the railway station?",
-                column: column
-            )
-            XCTAssertLessThanOrEqual(width("железнодорожная", at: size), column.width,
-                                     "at a \(column.width)-point column the word breaks at \(size) points")
+    /// The pop-ups and the swap stay inside the margins, clear of each other by
+    /// at least 8 pt, and the swap is centred, at every width.
+    func testThePairRowStaysInsideTheMarginsAndClearOfItselfAtEveryWidth() {
+        for width in widths + [500, 540, 580] {
+            let bar = TranslateLayout.pairBar(bodyWidth: width)
+            for (name, frame) in [("from", bar.from), ("swap", bar.swap), ("to", bar.to)] {
+                XCTAssertGreaterThanOrEqual(frame.minX, 16, "\(name) at \(width)")
+                XCTAssertLessThanOrEqual(frame.maxX, width - 16, "\(name) at \(width)")
+                XCTAssertEqual(frame.height, 26, "\(name) at \(width)")
+            }
+            XCTAssertGreaterThanOrEqual(bar.swap.minX - bar.from.maxX, 8, "from and swap at \(width)")
+            XCTAssertGreaterThanOrEqual(bar.to.minX - bar.swap.maxX, 8, "swap and to at \(width)")
+            XCTAssertFalse(bar.from.intersects(bar.to), "the pop-ups at \(width)")
+            XCTAssertEqual(bar.swap.midX, width / 2, accuracy: 0.5)
+            XCTAssertEqual(bar.from.minX, 16, "the source pop-up rides the leading margin at \(width)")
+            XCTAssertEqual(bar.to.maxX, width - 16, "the target pop-up rides the trailing margin at \(width)")
+            XCTAssertEqual(bar.from.maxX, width / 2 - 24, accuracy: 0.001)
+            XCTAssertEqual(bar.to.minX, width / 2 + 30, accuracy: 0.001)
         }
     }
 
-    /// The acceptance in numbers: at the default width this sentence drops one
-    /// rung, from 27 to 20, and no further.
-    func testTheLongWordDropsOneRungAtTheDefaultWidth() {
-        let size = TranslatePane.fontSize(
-            source: "Где находится железнодорожная станция?",
-            output: "Where is the railway station?",
-            column: column560
+    // MARK: - The cards
+
+    func testTheCardsAreTheSpecsAtTheDefaultWidth() {
+        let source = TranslateLayout.sourceCard(bodyWidth: 560)
+        let result = TranslateLayout.resultCard(bodyWidth: 560)
+        XCTAssertEqual(source, CGRect(x: 16, y: 46, width: 256, height: 192), "(16, 84) less the header row, bw / 2 − 24 wide")
+        XCTAssertEqual(result.minX, 290, "bw / 2 + 10")
+        XCTAssertEqual(result.maxX, 544, "bw − 16")
+        XCTAssertEqual(result.minY, 46)
+        XCTAssertEqual(result.height, 192)
+        XCTAssertEqual(TranslateLayout.cardRadius, 14)
+        // The source's text is inset 12 / 14 and leaves room for the Clear ⓧ;
+        // the result, which has no plate, insets its text 12 and 4.
+        XCTAssertEqual(TranslateLayout.sourceText(card: source).minX, 30)
+        XCTAssertEqual(TranslateLayout.sourceText(card: source).minY, 58)
+        XCTAssertEqual(TranslateLayout.sourceText(card: source).width, 256 - 14 - 28)
+        XCTAssertEqual(TranslateLayout.resultText(card: result).minX, 294)
+        XCTAssertEqual(TranslateLayout.resultText(card: result).minY, 58)
+        XCTAssertEqual(TranslateLayout.resultText(card: result).width, 254 - 8)
+    }
+
+    /// The source on the leading margin, the result on the trailing one, the
+    /// gap between them 18 and the source a little the wider, at every width.
+    func testTheCardsShareTheBodyAtEveryWidth() {
+        for width in widths {
+            let source = TranslateLayout.sourceCard(bodyWidth: width)
+            let result = TranslateLayout.resultCard(bodyWidth: width)
+            XCTAssertEqual(source.minX, 16, "at \(width)")
+            XCTAssertEqual(source.width, width / 2 - 24, accuracy: 0.001, "at \(width)")
+            XCTAssertEqual(result.minX - source.maxX, 18, accuracy: 0.001, "at \(width)")
+            XCTAssertEqual(result.maxX, width - 16, "at \(width)")
+            XCTAssertGreaterThan(source.width, result.width, "the source plate is the wider, at \(width)")
+            XCTAssertEqual(source.height, 192, "160 on the board's 268, grown with the shared page")
+            XCTAssertEqual(result.height, 192)
+        }
+    }
+
+    /// One size (§19.11 withdrew Expand): the cards end 24 above the foot of
+    /// the three tools' shared 300 pt body (§19.16, amended 2026-10-18), and
+    /// the text is 15.
+    func testTheCardsEndAboveTheFootAndTheTextIs15() {
+        XCTAssertEqual(TranslateLayout.contentHeight, 300 - 38)
+        for width in widths {
+            XCTAssertEqual(TranslateLayout.resultCard(bodyWidth: width).maxY, 238)
+            XCTAssertLessThanOrEqual(TranslateLayout.resultCard(bodyWidth: width).maxY, TranslateLayout.contentHeight - 24)
+        }
+        XCTAssertEqual(TranslateLayout.textSize, 15)
+    }
+
+    // MARK: - Controls
+
+    /// Every control the surface draws in its pair row and its cards is inside
+    /// the margins and the body, and clear of every other, at three widths, with
+    /// Speak and without.
+    func testNoControlLeavesTheBodyOrCoversAnother() {
+        for width in widths {
+            for speak in [true, false] {
+                let frames = TranslateLayout.controlFrames(bodyWidth: width, showsSpeak: speak)
+                XCTAssertEqual(frames.count, speak ? 6 : 5)
+                for (name, frame) in frames {
+                    XCTAssertGreaterThanOrEqual(frame.minX, 16, "\(name) at \(width)")
+                    XCTAssertLessThanOrEqual(frame.maxX, width - 16, "\(name) at \(width)")
+                    XCTAssertGreaterThanOrEqual(frame.minY, 0, "\(name) is below the header at \(width)")
+                    XCTAssertLessThanOrEqual(frame.maxY, TranslateLayout.contentHeight - 14, "\(name) inside the body at \(width)")
+                }
+                for (index, a) in frames.enumerated() {
+                    for b in frames[(index + 1)...] {
+                        XCTAssertFalse(a.frame.intersects(b.frame), "\(a.name) \(a.frame) meets \(b.name) \(b.frame) at \(width)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The footer: Speak at the result's leading edge, Copy after it, 26 × 24
+    /// each (§19.8), on the row of the source's count; Copy takes Speak's
+    /// place when Speak is off.
+    func testTheFooterLeadsWithSpeakAndCopy() {
+        let card = TranslateLayout.resultCard(bodyWidth: 560)
+        XCTAssertEqual(TranslateLayout.speakButton(card: card), CGRect(x: 290, y: 210, width: 26, height: 24))
+        XCTAssertEqual(TranslateLayout.copyButton(card: card, showsSpeak: true), CGRect(x: 320, y: 210, width: 26, height: 24))
+        XCTAssertEqual(TranslateLayout.copyButton(card: card, showsSpeak: false).minX, 290)
+        let source = TranslateLayout.sourceCard(bodyWidth: 560)
+        XCTAssertEqual(
+            TranslateLayout.speakButton(card: card).midY, TranslateLayout.counter(card: source).midY,
+            "the two feet line up across the gap"
         )
-        XCTAssertEqual(size, 20)
     }
 
-    /// Both columns share the rung, so a long word on either side decides it.
-    func testTheWordCanBeOnEitherSide() {
-        let fromRussian = TranslatePane.fontSize(source: "Где железнодорожная станция?", output: "Station?", column: column560)
-        let intoRussian = TranslatePane.fontSize(source: "Station?", output: "Где железнодорожная станция?", column: column560)
-        XCTAssertEqual(fromRussian, intoRussian)
-        XCTAssertLessThan(fromRussian, 27)
+    func testPasteAndTheCounterSitAtTheSourceFoot() {
+        let card = TranslateLayout.sourceCard(bodyWidth: 560)
+        XCTAssertEqual(TranslateLayout.counter(card: card), CGRect(x: 30, y: 216, width: 228, height: 12), "10 from the card's bottom")
+        XCTAssertEqual(TranslateLayout.paste(card: card), CGRect(x: 30, y: 211, width: 228, height: 22))
     }
 
-    /// A word is the headline it always was.
-    func testAShortTextKeepsTheTopRung() {
-        XCTAssertEqual(TranslatePane.fontSize(source: "Hello", output: "Привет", column: column560), 27)
-        XCTAssertEqual(TranslatePane.fontSize(source: "", output: "", column: column560), 27)
+    /// Paste is never cut: the room it is placed in holds the glyph, the gap
+    /// and the word in either language with the plate's padding, so the
+    /// button's own width — which it takes, from the left — is all of it
+    /// (owner's review, 2026-10-18: "it should show the paste word fully").
+    func testPasteHasRoomForItsWholeLabel() {
+        let room = TranslateLayout.paste(card: TranslateLayout.sourceCard(bodyWidth: NotchMetrics.minimumBodyWidth)).width
+        for word in ["Paste", "Вставить"] {
+            let text = (word as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 15)]).width
+            let needed = 11 + 5 + text + 2 * ToolbarPushButtonStyle.horizontalPadding
+            XCTAssertLessThan(needed, room, word)
+        }
+        let source = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("Sources/IslaKit/UI/TranslatePane.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source?.contains("pasteButton\n                .fixedSize()") == true, "Paste takes its own width")
     }
 
-    /// Japanese has no spaces, and a line may break between any two of its
-    /// characters. Splitting on whitespace would have measured the whole
-    /// sentence as one word and dropped it a rung for nothing.
-    func testTextWithoutSpacesIsNotOneWord() {
-        XCTAssertEqual(TranslatePane.fontSize(source: "東京駅はどこですか。", output: "Where is Tokyo Station?", column: column560), 27)
+    /// While the pages travel the editor is not what draws the text, and its
+    /// frame is not reported: the swipe moves no AppKit view and writes the
+    /// view model only as it starts and ends.
+    func testTheEditorStandsDownWhileThePagesTravel() {
+        XCTAssertTrue(TranslatePane.drawsStandIn(isTravelling: true, covered: false, input: "hello"))
+        XCTAssertFalse(TranslatePane.drawsStandIn(isTravelling: false, covered: false, input: "hello"))
+        XCTAssertFalse(TranslatePane.drawsStandIn(isTravelling: true, covered: true, input: "hello"), "covered stays dust")
+        XCTAssertFalse(TranslatePane.drawsStandIn(isTravelling: true, covered: false, input: ""))
+        let frame = CGRect(x: 10, y: 20, width: 200, height: 100)
+        XCTAssertEqual(TranslatePane.reportedInputRect(frame, isTravelling: false), frame)
+        XCTAssertEqual(TranslatePane.reportedInputRect(frame, isTravelling: true), .zero)
     }
 
-    /// A token too wide even for the bottom rung, a name with no break in it,
-    /// still gets the bottom rung and wraps by character, as text must.
-    func testAWordTooWideForEveryRungFallsToTheBottom() {
-        let word = "Pneumonoultramicroscopicsilicovolcanoconiosis"
-        XCTAssertEqual(TranslatePane.fontSize(source: word, output: word, column: column560), 11)
+    // MARK: - The counter and the limit
+
+    func testTheCounterCountsAgainstTheLimitTheHotKeyAlreadyHas() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(Translator.commandInputLimit, 20_000, "the existing limit is 20,000, not the board's 5,000, and is the one shown")
+        XCTAssertEqual(TranslatePane.counterText(count: 35, locale: en), "35 / 20,000")
+        XCTAssertEqual(TranslatePane.counterText(count: 0, locale: en), "0 / 20,000")
+        XCTAssertEqual(TranslatePane.counterText(count: 261, locale: Locale(identifier: "ru")).hasPrefix("261 / "), true)
     }
 
-    /// The length rule still holds on its own: short words, but too many of
-    /// them for any rung above the last.
-    func testALongTextOfShortWordsStillSteps() {
-        let text = String(repeating: "word ", count: 30)
-        XCTAssertEqual(TranslatePane.fontSize(source: text, output: text, column: column560), 11)
+    func testTypingPastTheLimitIsCutAndSaysSo() {
+        let rig = TranslateRig()
+        defer { rig.release() }
+        let limit = Translator.commandInputLimit
+        TranslatePane.typed(String(repeating: "a", count: limit + 50), privacy: rig.privacy, translator: rig.translator)
+        XCTAssertEqual(rig.translator.input.count, limit)
+        XCTAssertNotNil(rig.translator.notice, "the cut is said, as the hot key says its own")
+        XCTAssertEqual(TranslatePane.limited("short").text, "short")
+        XCTAssertNil(TranslatePane.limited("short").notice)
+        XCTAssertNil(TranslatePane.limited(String(repeating: "b", count: limit)).notice, "exactly the limit is not a cut")
     }
 }

@@ -3,21 +3,28 @@ import SwiftUI
 import XCTest
 @testable import IslaKit
 
-/// The Shelf as an assistive client finds it.
+/// The tray as an assistive client finds it.
 ///
 /// Before this, a card was not an element at all: its name and its age
 /// floated loose in the pane and interleaved across cards ("Just now" read
 /// beside the wrong file), the selection mark was a separate 13x13 image, and
 /// select, open and drag lived in an AppKit overlay with no accessibility.
 /// A VoiceOver user could not use the Shelf. The empty Shelf was one glyph,
-/// spoken "Download Multiple".
+/// spoken "Download Multiple". The tray (spec §19.7) keeps every one of those
+/// rules on its tiles; the selection bar it once held is gone (§19.11).
 ///
 /// Nothing here opens a file, shows Quick Look, starts AirDrop or writes the
 /// general pasteboard: only Select and Remove are performed, on an isolated
 /// store over files in a temporary folder.
 @MainActor
 final class ShelfAccessibilityTests: XCTestCase {
-    private let paneSize = CGSize(width: 560, height: 150)
+    /// The tray's content at the panel's default width: 560 wide and 262 under
+    /// the 38 pt header row (`ShelfLayout.viewport`), the pane's own default.
+    private let paneSize = ShelfLayout.viewport(bodyWidth: 560).size
+
+    private func tray(_ shelf: ShelfStore, clear: ShelfClearConfirmation = ShelfClearConfirmation()) -> ShelfPane {
+        ShelfPane(shelf: shelf, clear: clear)
+    }
 
     private struct Fixture {
         let suiteName: String
@@ -61,7 +68,7 @@ final class ShelfAccessibilityTests: XCTestCase {
         let shelf = fixture.shelf
         XCTAssertEqual(shelf.items.count, 2)
 
-        let root = await AXProbe.tree(of: ShelfPane(shelf: shelf, isTargeted: false), size: paneSize)
+        let root = await AXProbe.tree(of: tray(shelf), size: paneSize)
         let names = Set(["alpha.txt", "beta.txt"])
         let cards = root.all(role: "AXButton").filter { names.contains($0.label) }
         XCTAssertEqual(cards.count, 2, root.dump)
@@ -101,75 +108,78 @@ final class ShelfAccessibilityTests: XCTestCase {
         XCTAssertEqual(last.all(role: "AXButton").filter { names.contains($0.label) }.count, 1, last.dump)
     }
 
-    /// The empty Shelf says what it is for and how much it holds, and the
-    /// glyph above that is decoration.
+    /// The empty tray says what the Shelf is for in one line, and there is
+    /// no glyph or limit to read: the line is the whole state (§19.7).
     func testTheEmptyShelfSaysWhatToDo() async {
         let fixture = Fixture(files: [])
         defer { fixture.release() }
 
-        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize)
+        let root = await AXProbe.tree(of: tray(fixture.shelf), size: paneSize)
         let texts = root.all(role: "AXStaticText")
         let words = texts.map { $0.label.isEmpty ? $0.value : $0.label }
-        XCTAssertTrue(words.contains("Drop files here to keep them"), root.dump)
-        XCTAssertTrue(words.contains { $0.contains("Holds \(ShelfStore.limit).") }, root.dump)
+        XCTAssertEqual(words, ["Drag files to the notch to keep them here."], root.dump)
         XCTAssertTrue(root.all { $0.label == "Download Multiple" }.isEmpty, root.dump)
         XCTAssertTrue(root.all(role: "AXImage").isEmpty, root.dump)
+        XCTAssertTrue(root.all(role: "AXButton").isEmpty, "nothing to press on an empty tray\n\(root.dump)")
     }
 
     private func words(_ root: AXNode) -> [String] {
         root.all(role: "AXStaticText").map { $0.label.isEmpty ? $0.value : $0.label }
     }
 
-    /// A drag over the empty Shelf changes the headline from what the Shelf
-    /// is for to what letting go will do (M-22). The second line, where
-    /// files come from and how many it holds, stays.
-    func testADragOverTheEmptyShelfSaysRelease() async {
-        let fixture = Fixture(files: [])
-        defer { fixture.release() }
-
-        let resting = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize)
-        XCTAssertFalse(words(resting).contains("Release to add to the Shelf"), resting.dump)
-
-        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: true), size: paneSize)
-        XCTAssertTrue(words(root).contains("Release to add to the Shelf"), root.dump)
-        XCTAssertFalse(words(root).contains("Drop files here to keep them"), root.dump)
-        XCTAssertTrue(words(root).contains { $0.contains("Holds \(ShelfStore.limit).") }, root.dump)
+    /// A drag over the island presents the drop surface (spec §19.7) instead of
+    /// the tray: two targets name what letting go does — the same words empty or
+    /// populated, since they are a surface of their own, not a state of the
+    /// tray — and the one under the pointer is lit, which is colour and no
+    /// words. They are drawing, not controls.
+    func testTheDropSurfaceNamesBothTargets() async {
+        let bodyWidth = 560.0
+        let size = CGSize(width: bodyWidth, height: SurfaceLayout.dropHeight - 38)
+        for target in [ShelfDropTarget.keep, .airDrop] {
+            let root = await AXProbe.tree(of: ShelfDropSurface(bodyWidth: bodyWidth, dropTarget: target), size: size)
+            XCTAssertEqual(
+                Set(words(root)),
+                ["Keep on Shelf", "Release to add to the Shelf", "AirDrop", "Send to a nearby device"],
+                "lit \(target)\n\(root.dump)"
+            )
+            // Glyphs are drawing, as the empty tray's line is.
+            XCTAssertTrue(root.all(role: "AXImage").isEmpty, root.dump)
+            XCTAssertTrue(root.all(role: "AXButton").isEmpty, "the surface takes no clicks: the drop is the window's\n\(root.dump)")
+        }
     }
 
-    /// Once the Shelf holds cards, the dashed well is gone and the window is
-    /// click-through everywhere but the panel, so a file dragged over the
-    /// strip had nothing that said it would land (M-22). The drag now raises
-    /// a pill that says so, and it is gone again the moment the drag is.
-    func testADragOverAPopulatedShelfSaysWhereTheFileGoes() async {
+    /// Remove All asks first, in place of the row (spec §19.7): the sentence says
+    /// how many, Cancel keeps everything, and Remove All is the one that acts.
+    /// Both answers are the panel's push buttons, at least its minimum hit size.
+    func testRemoveAllAsksInPlaceWithTwoNamedAnswers() async {
         let fixture = Fixture(files: ["alpha.txt", "beta.txt"])
         defer { fixture.release() }
+        let ask = ShelfClearConfirmation()
+        ask.ask(count: 2)
+        defer { ask.cancel() }
 
-        let resting = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize)
-        XCTAssertFalse(words(resting).contains("Drop to keep on the Shelf"), resting.dump)
-
-        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: true), size: paneSize)
-        XCTAssertTrue(words(root).contains("Drop to keep on the Shelf"), root.dump)
-        // The pill is drawn over the strip, not in place of it: both cards
-        // are still there underneath.
-        let names = Set(["alpha.txt", "beta.txt"])
-        XCTAssertEqual(root.all(role: "AXButton").filter { names.contains($0.label) }.count, 2, root.dump)
-        // Its glyph is drawing, as the empty well's is.
-        XCTAssertTrue(root.all(role: "AXImage").isEmpty, root.dump)
-    }
-
-    /// Deselect sits beside the destructive Clear, so it must not be a 13 pt
-    /// sliver: the target is at least the panel's minimum hit size.
-    func testDeselectIsBigEnough() async {
-        let fixture = Fixture(files: ["alpha.txt"])
-        defer { fixture.release() }
-        fixture.shelf.select(fixture.shelf.items[0], modifiers: [])
-
-        let root = await AXProbe.tree(of: ShelfPane(shelf: fixture.shelf, isTargeted: false), size: paneSize)
-        guard let deselect = root.all(role: "AXButton").first(where: { $0.label == "Deselect" || $0.title == "Deselect" }),
-              let frame = deselect.frame else {
-            return XCTFail(root.dump)
+        let root = await AXProbe.tree(of: tray(fixture.shelf, clear: ask), size: paneSize)
+        XCTAssertTrue(words(root).contains("Remove all 2 items? Files are untouched."), root.dump)
+        let cancel = root.all(role: "AXButton").first { $0.label == "Cancel" || $0.title == "Cancel" }
+        let remove = root.all(role: "AXButton").first { $0.label == "Remove All" || $0.title == "Remove All" }
+        XCTAssertNotNil(cancel, root.dump)
+        XCTAssertNotNil(remove, root.dump)
+        XCTAssertTrue(root.all(role: "AXButton").filter { ["alpha.txt", "beta.txt"].contains($0.label) }.isEmpty,
+                      "the question stands in place of the row\n\(root.dump)")
+        for button in [cancel, remove].compactMap({ $0 }) {
+            let frame = button.frame ?? .zero
+            XCTAssertGreaterThanOrEqual(frame.height, 20, "\(frame)\n\(root.dump)")
         }
-        XCTAssertGreaterThanOrEqual(frame.width, 24, root.dump)
-        XCTAssertGreaterThanOrEqual(frame.height, 20, "\(frame)\n\(root.dump)")
+
+        XCTAssertTrue(cancel?.press() ?? false, root.dump)
+        XCTAssertEqual(fixture.shelf.items.count, 2, "Cancel keeps everything")
+        XCTAssertFalse(ask.isAsking)
+
+        ask.ask(count: 2)
+        let again = await AXProbe.tree(of: tray(fixture.shelf, clear: ask), size: paneSize)
+        let yes = again.all(role: "AXButton").first { $0.label == "Remove All" || $0.title == "Remove All" }
+        XCTAssertTrue(yes?.press() ?? false, again.dump)
+        XCTAssertTrue(fixture.shelf.items.isEmpty)
+        XCTAssertFalse(ask.isAsking)
     }
 }

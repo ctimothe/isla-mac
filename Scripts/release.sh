@@ -3,14 +3,26 @@
 #
 # ISLA_ADHOC=1 publishes the same gated build without Developer ID signing or
 # notarization, for as long as there is no Developer ID to sign with: every
-# gate still runs, the app keeps its ad-hoc signature, and the release notes
-# carry the one command a downloaded unnotarized app needs.
+# gate still runs, the app is signed with the pinned "Isla Code Signing"
+# certificate (Scripts/signing-identity.sha1; the name is older than that
+# certificate and stays for the scripts that set it), and the release notes
+# carry the one command a downloaded unnotarized app needs. A release that came
+# out ad-hoc or under another certificate is refused: macOS would treat it as a
+# different app and every user would lose Isla's Accessibility permission.
 #
 # ISLA_RELEASE_REMOTE names the git remote the tag goes to (default origin).
 # On a machine where origin is a local mirror, point it at the GitHub remote.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The rehearsal overrides build a bundle as a version that does not exist.
+# Scripts/rehearse-update.sh sets them for its own children; a shell that still
+# has them would publish a fake version, so a release refuses to start.
+if [ -n "${ISLA_VERSION_OVERRIDE:-}" ] || [ -n "${ISLA_BUILD_OVERRIDE:-}" ]; then
+    echo "!!! ISLA_VERSION_OVERRIDE / ISLA_BUILD_OVERRIDE are set: they are for Scripts/rehearse-update.sh only. Unset them." >&2
+    exit 1
+fi
 ADHOC="${ISLA_ADHOC:-0}"
 REMOTE="${ISLA_RELEASE_REMOTE:-origin}"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" || true)"
@@ -31,6 +43,14 @@ require_env() { [ -n "${!1:-}" ] || fail "$1 is required"; }
 command -v gh >/dev/null || fail "GitHub CLI is required: brew install gh"
 gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated: gh auth login"
 command -v xcrun >/dev/null || fail "Xcode command-line tools are required"
+
+# Every release carries a signature that in-app updates check. Refused before
+# anything is built or tagged, because a release without one cannot be
+# installed by Update Now in any copy of Isla that knows the key.
+UPDATE_KEY_FILE="$ROOT/Resources/update-public-key.txt"
+[ -s "$UPDATE_KEY_FILE" ] || fail "Resources/update-public-key.txt is missing; run Scripts/make-update-key.sh"
+security find-generic-password -s "Isla Update Signing" -a ed25519 >/dev/null 2>&1 \
+    || fail "the update signing key is not in the login keychain; run Scripts/make-update-key.sh or restore it from your backup"
 
 if [ "$ADHOC" != "1" ]; then
     require_env DEVELOPER_ID_APPLICATION
@@ -97,7 +117,18 @@ APP="$ROOT/build/app.noindex/Isla.app"
 [ -d "$APP" ] || fail "bundle was not built: $APP"
 
 if [ "$ADHOC" = "1" ]; then
-    echo "==> ad-hoc release: no Developer ID signature, no notarization"
+    echo "==> release without Developer ID: no notarization"
+    # Read from the bundle itself rather than trusted from bundle.sh's choice,
+    # which falls back to ad-hoc on a Mac without the identity.
+    PINNED="$(tr -d '[:space:]' < "$ROOT/Scripts/signing-identity.sha1" 2>/dev/null \
+        | tr '[:lower:]' '[:upper:]' || true)"
+    [ -n "$PINNED" ] || fail "Scripts/signing-identity.sha1 is missing; run Scripts/make-signing-identity.sh"
+    # `|| true`: an unsigned bundle makes codesign fail, and pipefail would end
+    # the script here without saying why; the comparison below says it.
+    LEAF="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/.*certificate leaf = H"\([0-9a-fA-F]*\)".*/\1/p' \
+        | tr '[:lower:]' '[:upper:]' || true)"
+    [ "$LEAF" = "$PINNED" ] || fail "the bundle is not signed with the pinned certificate (leaf ${LEAF:-none}, pinned $PINNED); restore \"Isla Code Signing\" from its backup and rebuild"
+    echo "==> signed with the pinned certificate $PINNED"
     SKIP_BUNDLE=1 bash Scripts/dmg.sh
     [ -f "$DMG" ] || fail "disk image was not built: $DMG"
 else
@@ -135,6 +166,15 @@ else
     xcrun stapler staple "$DMG"
     xcrun stapler validate "$DMG"
 fi
+
+# Signed last, over the exact bytes that are uploaded: stapling rewrites the
+# image, so a signature made before it would match nothing users download.
+SIG="$DMG.sig"
+echo "==> update signature"
+swift "$ROOT/Scripts/update-signing.swift" sign "$DMG" > "$SIG" \
+    || fail "could not sign $DMG with the update key"
+swift "$ROOT/Scripts/update-signing.swift" verify "$UPDATE_KEY_FILE" "$DMG" "$SIG" >/dev/null \
+    || fail "the update signature does not match Resources/update-public-key.txt"
 
 echo "==> tag $TAG"
 # Tagged here rather than before notarization. The tag used to be pushed first,
@@ -184,7 +224,7 @@ printf '\n\n**SHA-256** `%s`\n\nVerify with `shasum -a 256 Isla-%s.dmg`.\n' \
     "$SUM" "$VERSION" >> "$BODY"
 [ -n "$GENERATED" ] && printf '\n\n---\n\n%s\n' "$GENERATED" >> "$BODY"
 
-gh release create "$TAG" "$DMG" \
+gh release create "$TAG" "$DMG" "$SIG" \
     --repo "$REPO" \
     --title "Isla $VERSION" \
     --notes-file "$BODY" \

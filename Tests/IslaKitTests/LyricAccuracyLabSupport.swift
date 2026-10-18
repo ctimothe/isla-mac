@@ -159,6 +159,9 @@ enum LyricLab {
             parse = IslaParse(lines: nil, granularity: nil, outcome: "failed", error: refusal)
         case .unreadable:
             parse = IslaParse(lines: nil, granularity: nil, outcome: "unreadable", error: refusal)
+        case .limited:
+            // Only a live 429 makes one; a dump parsed with status 200 cannot.
+            parse = IslaParse(lines: nil, granularity: nil, outcome: "limited", error: refusal)
         }
         parseCache[track.id] = parse
         return parse

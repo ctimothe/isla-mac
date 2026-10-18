@@ -1,39 +1,71 @@
+import AppKit
+import Combine
+import CoreAudio
 import SwiftUI
 
+/// The player (spec §19.6, board `R2-Music-Open`): what a click on the island
+/// opens while a song is the live activity.
+///
+/// The cover, the title and the artist, the equalizer the island's own bars
+/// travel to, the times either side of the progress, and one row of five
+/// controls — Favourite, Previous, Play / Pause, Next, Output — every one a
+/// 42 pt target. Shuffle and Repeat left for the stage's More menu, and the
+/// lyric column and the tall page went with the tabs; the stage is a surface
+/// of its own (`LyricsStageSurface`), opened from the cover and the sung line.
+///
+/// Every frame comes from `PlayerLayout`, in the content's coordinates, so a
+/// test holds the board's numbers without rendering anything.
 struct MediaPane: View {
     @ObservedObject var media: MediaController
     @ObservedObject var lyrics: LyricsStore
-    var localLookup: LocalLyricsLookup? = nil
-    var retryLyrics: () -> Void = {}
-    var turnOnLyrics: () -> Void = {}
-    var turnOnOnlineLyrics: () -> Void = {}
-    var importLocalFile: () -> Void = {}
-    /// Why the last import from the lyrics page failed, for the page to say
-    /// under its header. See `NotchViewModel.LyricsNotice`.
-    var lyricsNotice: String? = nil
-    var selectLocalCandidate: (LocalLyricsCandidate) -> Void = { _ in }
-    var removeLocalBinding: () -> Void = {}
-    var localLibrary: LocalLyricsLibrary?
-    var currentLocalTrackIdentity: () -> LocalTrackIdentity? = { nil }
-    /// Settings, scrolled to the Music section, for the empty tab's one remedy
-    /// when Music Only is what keeps a playing source off the island.
+    /// Opens the stage: the cover of a song with lyrics, and the sung line.
+    var openStage: () -> Void = {}
+    /// Brings the song's player forward: the cover of a song with no lyrics.
+    var bringPlayerForward: () -> Void = {}
+    /// Settings, scrolled to the Music section, for the empty player's one
+    /// remedy when Music Only is what keeps a playing source off the island.
     var openMusicOnlySetting: () -> Void = {}
-    /// The namespace the cover travels in, when this pane is inside the panel.
+    /// The namespace the cover and the equalizer travel in, when this pane is
+    /// inside the panel.
     ///
     /// Optional because the pane is also rendered on its own — by the layout
     /// tests, with no pill above it and nothing to travel from. `nil` means
-    /// "draw the cover where it lands and nothing else", which is what a pane
-    /// with no island around it should do.
+    /// "draw the cover where it lands and nothing else".
     var morph: Namespace.ID?
-    /// Whether the pane is showing the lyrics page.
-    ///
-    /// A binding rather than this pane's own `@State`, because the page is a
-    /// place the app can be *sent* and not just a toggle the pane owns: ⌃⌥⌘L
-    /// opens the panel straight onto it. It defaults to a constant so the pane
-    /// still renders standalone in the layout tests, where there is no panel
-    /// to route anything and nowhere for the request to go.
-    var showingLyrics: Binding<Bool> = .constant(false)
+    /// The machine's audio state, for the Output button and its menu. The
+    /// default reads nothing and installs nothing: a pane built anywhere but the
+    /// panel — a test, a render — must not reach the owner's output devices, even
+    /// to read them. The panel hands in `NotchViewModel.playerAudio`.
+    @ObservedObject var audio: AudioWatch = MediaPane.quietAudio()
+    /// The Spotify account, for the Favourite star on a Spotify song. Nil
+    /// outside the panel: the live account's first read is the owner's own
+    /// keychain, which nothing but the panel may touch.
+    var spotify: SpotifyAccount? = nil
+    /// The cover's tint, for the equalizer's bars.
+    var coverTint: NSColor = CoverTint.fallback.nsColor
+    /// Whether this is the page on screen, or Music drawn beside it for a
+    /// swipe's length (§19.16). Only the page on screen asks the player for
+    /// its modes and watches the outputs: a partial swipe from the Shelf
+    /// toward Music and back scripted Spotify and started CoreAudio
+    /// listeners for nothing (R8b review F8).
+    var isLive = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var appearance = SystemAppearance.shared
+
+    /// Output Button, and Lyric Band: Settings › Music (spec §14). Read
+    /// through `@AppStorage` so the switch in Settings redraws the player while
+    /// it is on screen. Absent means the spec's default — **on** for both, and
+    /// the Output button is the owner-waived exception to the default-off rule
+    /// for system-wide settings (`NotchViewModel.volumeAndOutputEnabled`; the
+    /// stored key keeps its old name, "Volume and Output", so the owner's
+    /// choice survives the 2026-10-16 relabel).
+    @AppStorage(NotchViewModel.volumeAndOutputKey) private var outputButtonOn = true
+    @AppStorage(NotchViewModel.lyricBandKey) private var lyricBandOn = true
+
+    /// A watch that reads an empty machine and installs nothing.
+    static func quietAudio() -> AudioWatch {
+        AudioWatch(read: { ([], nil, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {})
+    }
 
     @State private var scrubHover = false
     /// Set once the pointer has rested on the bar for a moment.
@@ -46,10 +78,18 @@ struct MediaPane: View {
     @State private var previewArmTask: Task<Void, Never>?
     /// Set while dragging, so the bar follows the finger instead of the clock.
     @State private var scrubbing: Double?
-    /// Cursor x inside the bar while hovering, and the bar's own width, so the
-    /// elapsed label can read the time under the pointer.
+    /// Cursor x inside the bar while hovering, so the elapsed label can read
+    /// the time under the pointer.
     @State private var hoverX: CGFloat?
-    @State private var scrubWidth: CGFloat = 0
+    /// Set once the current track has waited long enough for artwork that it
+    /// is evidently not coming. Some sources never publish a cover, and a
+    /// shimmer that promises one forever reads as stuck, not loading.
+    @State private var artworkWaitExpired = false
+    /// Observed so the empty player's "Open …" buttons follow an app being
+    /// installed or removed (`AppIcons.refresh`).
+    @ObservedObject var icons: AppIcons = .shared
+
+    private var layout: PlayerLayout { PlayerLayout(hasOutputButton: outputButtonOn) }
 
     /// Where the pointer (or the finger mid-drag) sits along the bar, 0...1.
     /// Nil when neither is on it, which is when the label goes back to saying
@@ -57,240 +97,357 @@ struct MediaPane: View {
     private var previewFraction: Double? {
         if let scrubbing { return scrubbing }
         guard scrubHover, previewArmed, let hoverX else { return nil }
-        return ScrubPreview.fraction(x: hoverX, width: scrubWidth, duration: media.duration)
+        return ScrubPreview.fraction(x: hoverX, width: layout.progress.width, duration: media.duration)
     }
-    /// Set once the current track has waited long enough for artwork that it
-    /// is evidently not coming. Some sources never publish a cover, and a
-    /// shimmer that promises one forever reads as stuck, not loading.
-    @State private var artworkWaitExpired = false
-    /// What Edit was pressed on and for which song, captured at the press.
-    /// The sheet used to read `currentLocalTrackIdentity()` in its content
-    /// closure, which runs again on every pass of this body, so a track
-    /// change while the editor was up re-aimed Save Copy at the new song
-    /// (J-009).
-    @State private var editingSession: LocalLyricsEditor.EditingSession?
-    /// Hover on the caption, which surfaces its chevron.
-    @State private var captionHover = false
-
-    /// Artwork and the text column share this height, so their top and bottom
-    /// edges line up instead of the column floating past them.
-    private let blockHeight: CGFloat = 122
-
-    /// The caption's slot, kept whether or not there is a word to put in it.
-    ///
-    /// The line used to be a conditional view, so a track with no lyrics — or one
-    /// whose words had not arrived yet — laid its scrubber out somewhere else
-    /// entirely, and every arrival and departure of a lyric moved the controls
-    /// under a pointer already travelling towards them. An empty slot costs 17 pt
-    /// of nothing; a moving target costs the click.
-    static let captionHeight: CGFloat = 17
 
     var body: some View {
         if let track = media.track {
-            ZStack {
-                if showingLyrics.wrappedValue {
-                    // The Liquid Glass entrance: blur, scale and opacity settle
-                    // together, so the stage materializes rather than pops.
-                    LyricsStage(
-                        media: media,
-                        lyrics: lyrics,
-                        localLookup: localLookup,
-                        retry: retryLyrics,
-                        turnOnLyrics: turnOnLyrics,
-                        turnOnOnlineLyrics: turnOnOnlineLyrics,
-                        importLocalFile: importLocalFile,
-                        notice: lyricsNotice,
-                        selectLocalCandidate: selectLocalCandidate,
-                        removeLocalBinding: removeLocalBinding,
-                        editLocalLyrics: { candidate in
-                            guard localLibrary != nil else { return }
-                            editingSession = LocalLyricsEditor.EditingSession(
-                                candidate: candidate, identity: currentLocalTrackIdentity()
-                            )
-                        }
-                    ) {
-                        showingLyrics.wrappedValue = false
-                    }
-                    .transition(reduceMotion ? AnyTransition.opacity : .materialize)
-                } else {
-                    player(for: track)
-                        .transition(reduceMotion ? AnyTransition.opacity : .materialize)
+            player(for: track)
+                .onAppear { if isLive { startWatching() } }
+                .onChange(of: isLive) { _, live in if live { startWatching() } }
+                // The watch follows the machine only while there is a button to
+                // show it in, and only while the pane is on screen: it reads, and
+                // installs CoreAudio listeners, and writes nothing.
+                .onChange(of: outputButtonOn) { _, on in
+                    if on { audio.start() } else { audio.stop() }
                 }
-            }
-            .animation(Theme.paneAnimation, value: showingLyrics.wrappedValue)
-            // Leaving the track folds the stage: the next song starts on the
-            // player, and a stage left open for a track without lyrics would
-            // open onto its own empty state.
-            .onChange(of: track.key) { _, _ in showingLyrics.wrappedValue = false }
-            .onAppear {
-                media.refreshPlaybackModes()
-                if DebugTrail.openLyrics {
-                    DebugTrail.note("MediaPane track=\(track.title) showingLyrics=\(showingLyrics.wrappedValue)")
-                }
-            }
-            .sheet(item: $editingSession) { session in
-                if let localLibrary {
-                    LocalLyricsEditorView(
-                        session: session,
-                        editor: LocalLyricsEditor(library: localLibrary),
-                        onSaved: { _ in editingSession = nil },
-                        onDismiss: { editingSession = nil }
-                    )
-                }
-            }
+                .onDisappear { audio.stop() }
         } else {
             emptyState
-                .onAppear {
-                    if DebugTrail.openLyrics {
-                        DebugTrail.note("MediaPane EMPTY (no track)")
-                    }
-                }
         }
     }
+
+    private func startWatching() {
+        media.refreshPlaybackModes()
+        if outputButtonOn { audio.start() }
+    }
+
+    // MARK: - The player (spec §19.6)
 
     private func player(for track: MediaController.Track) -> some View {
-        HStack(spacing: 18) {
-                artwork(for: track)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(track.title)
-                        .islandFont(.title)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Text(subtitle(for: track))
-                        .islandFont(.body, weight: .regular)
-                        .foregroundStyle(Theme.secondary)
-                        .lineLimit(1)
-                        .padding(.top, 3)
+        let layout = layout
+        let band = sungLine
+        return ZStack(alignment: .topLeading) {
+            // The content's own size, so the children are placed from its
+            // top-left corner whatever they measure.
+            Color.clear
 
-                    // The same order the lock card reads in: who is playing,
-                    // what is being sung, where the song is, and the transport
-                    // last. Two surfaces showing the same track in a different
-                    // sequence is the kind of difference nobody can name and
-                    // everybody feels.
-                    // `Color.clear` underneath, not a frame on the caption
-                    // alone. A `@ViewBuilder` whose `if` fails produces no view
-                    // at all, and a fixed frame on nothing reserves nothing —
-                    // measured: the scrubber still moved 10 px. Something has
-                    // to be in the slot for the slot to exist.
-                    ZStack(alignment: .leading) {
-                        Color.clear
-                        lyricsLine
-                            // One caption per song. A new song's first line
-                            // arrives with its title, in the column's
-                            // crossfade — not on the line-turn spring, which
-                            // carried the last song's line out under the new
-                            // title for up to a fifth of a second (filmed on
-                            // 2026-09-21). Lines within a song still turn.
-                            .id(track.key)
-                            .transition(.opacity)
-                    }
-                    .frame(height: Self.captionHeight)
-                    // The line turn travels inside the slot and nowhere else:
-                    // a line lifting out must not cross the artist above it.
-                    .clipped()
-                    .padding(.top, 4)
-                    Spacer(minLength: 6)
-                    // A live stream has no duration, and a scrubber with no
-                    // length is a control that reads 0:00 / 0:00, refuses to
-                    // be dragged, and looks broken rather than absent.
-                    if media.duration > 0 {
-                        scrubber
-                    }
-                    Spacer(minLength: 4)
-                    controls
-                }
-                .frame(height: blockHeight)
+            coverButton(for: track)
+                .placedAt(layout.cover)
+
+            titleRow(for: track, withArtist: band.isOn)
+                .placedAt(Self.textBox(
+                    x: layout.textLeading, baseline: layout.titleBaseline, width: layout.titleWidth,
+                    size: PlayerLayout.titleSize, weight: .medium
+                ))
+
+            subtitle(for: track, band: band)
+                .placedAt(Self.textBox(
+                    x: layout.textLeading, baseline: layout.subtitleBaseline, width: layout.subtitleWidth,
+                    size: PlayerLayout.subtitleSize, weight: .semibold
+                ))
+
+            CompactEqualizer(
+                isAnimating: media.isPlaying,
+                colors: CompactEqualizerMotion.colors(
+                    isPlaying: media.isPlaying, tint: coverTint,
+                    increaseContrast: appearance.increaseContrast
+                )
+            )
+            // The far end of the equalizer's travel: the same bars that were in
+            // the island's right wing a moment ago, not a second set.
+            .morph(NotchContentView.MorphID.equalizer, in: morph)
+            .placedAt(layout.equalizer, alignment: .center)
+            .accessibilityHidden(true)
+
+            progressRow
+            controls
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Title and artist arrive together, so the whole column can cross-
-        // fade as one unit when the track changes.
+        // Title and artist arrive together, so the column crossfades as one
+        // unit when the track changes.
         .animation(Theme.artworkAnimation, value: track.key)
+        // The band trades the artist line for the sung one and moves nothing,
+        // so it fades under Reduce Motion too: a fade is not motion.
+        .animation(Theme.contentAnimation, value: band.isOn)
     }
 
-    /// The system often repeats the title as the album name; showing
-    /// "Artist — Title" twice reads like a bug.
-    private func subtitle(for track: MediaController.Track) -> String {
-        var parts = [track.artist]
-        if !track.album.isEmpty, track.album != track.title { parts.append(track.album) }
-        return parts.filter { !$0.isEmpty }.joined(separator: " — ")
+    /// The box a line of text is laid in so that its baseline lands at
+    /// `baseline`: SF's ascender above it and its descender below, as
+    /// `NSFont` measures them at that size. A single-line `Text` is laid out
+    /// exactly that tall, so placing the box places the baseline.
+    static func textBox(
+        x: CGFloat, baseline: CGFloat, width: CGFloat, size: CGFloat, weight: NSFont.Weight,
+        rounded: Bool = false
+    ) -> CGRect {
+        let font = NSFont.systemFont(ofSize: size, weight: weight)
+        let ascent = ceil(font.ascender)
+        let descent = ceil(-font.descender)
+        return CGRect(x: x, y: baseline - ascent, width: width, height: ascent + descent)
     }
 
-    // MARK: - Artwork
+    // MARK: Cover
 
-    /// The far end of the cover's travel from the pill.
+    /// The cover is a button (§19.6): it opens the stage when the song has
+    /// lyrics, and otherwise brings the player forward.
+    private func coverButton(for track: MediaController.Track) -> some View {
+        let opensStage = Self.coverOpensStage(availability: lyrics.availability)
+        return Button {
+            if opensStage { openStage() } else { bringPlayerForward() }
+        } label: {
+            artwork(for: track)
+        }
+        .buttonStyle(PanelButtonStyle())
+        .help(opensStage ? localized("Lyrics") : (media.sourceName ?? ""))
+        .accessibilityLabel(opensStage ? localized("Lyrics") : localized("Cover"))
+        .accessibilityHint(opensStage ? localized("Opens the full lyrics") : "")
+    }
+
+    /// Whether the cover opens the stage: only when there are lyrics to show
+    /// in it. A stage opened on "No lyrics found." is a dead end one click
+    /// deep; the player is one click away instead.
+    static func coverOpensStage(availability: LyricsAvailability) -> Bool {
+        if case .ready = availability { return true }
+        return false
+    }
+
+    /// The far end of the cover's travel from the island.
     ///
-    /// Both the size and the corner come from `Theme.artworkMetrics` rather than
-    /// from numbers written here: this end hardcoded 118 pt at radius 14 while
-    /// the pill hardcoded 22 pt at radius 6, in another file, and one object
-    /// described twice is how it came to be drawn twice.
-    ///
-    /// Modifier order matters more than usual, and the base of the stack is
-    /// `Color.clear` for a reason. The cover has to *accept* whatever size it is
-    /// offered — the morph offers it the pill's size on the way in — and a view
-    /// that states its own size is a view the effect cannot resize, which leaves
-    /// a cover that slides into place without ever growing. `Color.clear` takes
-    /// the proposal exactly; the picture rides above it in an overlay, where it
-    /// is free to overflow and be clipped. `.frame(maxWidth: .infinity)` looks
-    /// like it would do the same job and does not: it grows to whatever the
-    /// child reports, so a 16:9 cover took the clip out to 164 pt with it.
+    /// `Color.clear` is the base for a reason: the cover has to *accept*
+    /// whatever size it is offered — the morph offers it the island's size on
+    /// the way in — and a view that states its own size is one the effect
+    /// cannot resize. The picture rides above it in an overlay, free to
+    /// overflow and be clipped.
     private func artwork(for track: MediaController.Track) -> some View {
-        let metrics = Theme.artworkMetrics(isOpen: true)
+        let radius = PlayerLayout.coverRadius
         return Color.clear
             .overlay {
                 if let image = media.artwork {
-                    // No `.transition(.opacity)` here any more. This view is one
-                    // end of a travelling object, and a travelling object that
-                    // fades while it travels is the crossfade the morph was
-                    // added to replace. The album-to-album crossfade it used to
-                    // spell out is the default transition anyway, under the same
-                    // `Theme.artworkAnimation` below.
+                    // No opacity transition: a travelling object that fades
+                    // while it travels is the crossfade the morph replaced.
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else if artworkWaitExpired {
-                    // Quiet placeholder, not a shimmer: the wait is over and the
-                    // cover is not coming for this track.
-                    RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
-                        .fill(Theme.surface)
-                        .overlay(
-                            Image(systemName: "music.note")
-                                .islandFont(.hero, weight: .light)
-                                .foregroundStyle(Theme.tertiary)
-                        )
+                    // The wait is over and the cover is not coming for this
+                    // track (spec §4.7): the well, never a stretched app icon.
+                    MissingCoverWell(cornerRadius: radius, noteSize: 22)
                         .transition(.opacity)
                 } else {
-                    SkeletonBox(cornerRadius: metrics.cornerRadius)
+                    SkeletonBox(cornerRadius: radius)
                 }
             }
-        .task(id: track.key) {
-            artworkWaitExpired = false
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled else { return }
-            artworkWaitExpired = true
-        }
-        .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
-        // The same shape again, this time for the pointer. `clipShape` hides
-        // the overflow but does not stop it being touched, and `.fill` on a
-        // cover that is not square overflows a long way: a 16:9 thumbnail —
-        // what a video in a browser tab publishes — comes out 211 pt wide in
-        // this 118 pt box, so 46 pt of invisible picture hangs over each side.
-        // The left side is the tab rail, and the four icons behind that
-        // overhang stopped answering the pointer (#22).
-        .contentShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
-                .strokeBorder(Theme.hairline, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.5), radius: 12, y: 5)
-        .morph(NotchContentView.MorphID.artwork, in: morph)
-        // Outside the morph, so the pane's layout keeps reserving 118 pt no
-        // matter where the cover is on its way to. Inside it, the frame would
-        // be the thing refusing the pill's size.
-        .frame(width: metrics.side, height: metrics.side)
-        .animation(Theme.artworkAnimation, value: media.artwork)
+            .task(id: track.key) {
+                artworkWaitExpired = false
+                try? await Task.sleep(for: .seconds(2.5))
+                guard !Task.isCancelled else { return }
+                artworkWaitExpired = true
+            }
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            // Paused, the cover is 0.8 of itself (spec §4.2). A colour multiply,
+            // not `.brightness`, which is additive and lifts the black of a dark
+            // cover towards grey.
+            .colorMultiply(media.isPlaying ? .white : Color(white: Theme.playerPausedCoverBrightness))
+            .animation(Theme.contentAnimation, value: media.isPlaying)
+            // The same shape again for the pointer: `.fill` on a cover that is
+            // not square overflows, and the overflow must not take clicks meant
+            // for the title beside it (#22).
+            .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(Theme.coverEdge, lineWidth: 0.5)
+            )
+            .morph(NotchContentView.MorphID.artwork, in: morph)
+            .animation(Theme.artworkAnimation, value: media.artwork)
     }
 
-    // MARK: - Scrubber
+    // MARK: Title and the sung line
+
+    /// "Title", or — while the sung line has the subtitle — "Title – Artist",
+    /// the artist at white 0.50 (§19.6). A line longer than its room scrolls
+    /// to show the rest (`MarqueeLine`); where it may not move, the artist is
+    /// the first to give way, as it always was.
+    private func titleRow(for track: MediaController.Track, withArtist: Bool) -> some View {
+        let artist = withArtist && !track.artist.isEmpty ? track.artist : nil
+        let line = Self.titleLine(title: track.title, artist: artist)
+        return MarqueeLine(room: layout.titleWidth, isActive: isLive && !reduceMotion, text: line) {
+            HStack(spacing: 0) {
+                Text(track.title)
+                    .foregroundStyle(.white.opacity(Theme.playerTitleOpacity))
+                    .layoutPriority(1)
+                if let artist {
+                    Text(Self.artistSeparator + artist)
+                        .foregroundStyle(.white.opacity(Theme.playerArtistOpacity))
+                }
+            }
+        }
+        .font(.system(size: PlayerLayout.titleSize, weight: .medium))
+        .tracking(Theme.tracking(forSize: PlayerLayout.titleSize))
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .help(line)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(line)
+    }
+
+    /// Between the title and the artist: a dash, which reads as "by" at a
+    /// glance where the middle dot read as a list (owner, 2026-10-18). An en
+    /// dash, the separator's own glyph, which reads as the plain hyphen asked
+    /// for without the hyphen's join-a-word look.
+    static let artistSeparator = " – "
+
+    /// The title row's words, which are also its tooltip and its label.
+    static func titleLine(title: String, artist: String?) -> String {
+        guard let artist, !artist.isEmpty else { return title }
+        return title + artistSeparator + artist
+    }
+
+    /// What the subtitle carries while the song has synced lyrics and Lyric
+    /// Band is on: the line being sung, and between lines, before the first
+    /// and after the last, the line the voice reaches next, unswept — the
+    /// island caption's rule (`LyricMoment.centre`). The artist only when the
+    /// band is off.
+    ///
+    /// Between lines it used to be the artist, which the title row already
+    /// shows while the band is on: every pause of a second or two read the
+    /// artist twice, and the line then snapped in when the voice came back
+    /// (owner, 2026-10-18). Holding the coming line, its row is the same one
+    /// when the voice reaches it, so a pause turns nothing and the sweep
+    /// simply starts.
+    struct SungLine {
+        /// Whether the band is on for this song at all, which is what turns
+        /// the title into "Title · Artist".
+        var isOn: Bool
+        var lines: [LyricsStore.Line] = []
+        var resolution: LyricResolution?
+
+        /// The row the subtitle shows: the sung line, or the one coming.
+        var index: Int? { resolution.map { $0.current ?? $0.centre } }
+        /// Whether the voice is in that row, which is what sweeps it.
+        var isSung: Bool { resolution?.current != nil }
+        /// How far the sweep has lit that row: none of a line still coming.
+        /// The view draws this, not the resolution's own, so what the tests
+        /// pin is what is drawn (review 5, S4).
+        var fraction: Double { isSung ? resolution?.fraction ?? 0 : 0 }
+    }
+
+    private var sungLine: SungLine {
+        guard Self.drawsLyricBand(setting: lyricBandOn, availability: lyrics.availability, state: lyrics.state),
+              case .synced(let lines) = lyrics.state else { return SungLine(isOn: false) }
+        let resolution = Self.captionResolution(lines: lines, inputs: LyricInputs(
+            position: media.position,
+            precisionSync: media.precisionSync,
+            userOffset: lyrics.userOffset,
+            trackOffset: lyrics.trackOffset,
+            wordTiming: wordTimingEnabled
+        ), readAhead: lyrics.readAhead)
+        return SungLine(isOn: true, lines: lines, resolution: resolution)
+    }
+
+    private var wordTimingEnabled: Bool {
+        LyricsPresentation.usesWordTiming(
+            lyrics.timingGranularity, precisionMeasured: media.precisionSync,
+            wordKaraokeEnabled: lyrics.wordKaraokeEnabled
+        )
+    }
+
+    @ViewBuilder
+    private func subtitle(for track: MediaController.Track, band: SungLine) -> some View {
+        ZStack(alignment: .leading) {
+            Color.clear
+            if band.isOn, let index = band.index, let resolution = band.resolution {
+                let line = band.lines[index]
+                Button(action: openStage) {
+                    KaraokeText(
+                        text: Self.bandText(of: line),
+                        fraction: band.fraction,
+                        clock: resolution.current.flatMap { current in
+                            LyricSweep.liveFraction(
+                                line: line, end: LyricSweep.end(of: current, in: band.lines),
+                                wordTiming: wordTimingEnabled,
+                                clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                                    precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
+                                    trackOffset: lyrics.trackOffset
+                                ))
+                            )
+                        },
+                        reduceMotion: reduceMotion,
+                        accent: .white.opacity(Theme.playerSungOpacity),
+                        font: .system(size: PlayerLayout.subtitleSize, weight: .semibold),
+                        tracking: Theme.tracking(forSize: PlayerLayout.subtitleSize),
+                        base: .white.opacity(Theme.playerUnsungOpacity)
+                    )
+                    .italic(line.isCredit)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PanelButtonStyle())
+                .accessibilityLabel(localized("Lyrics"))
+                .accessibilityValue(Self.bandText(of: line))
+                .accessibilityHint(localized("Opens the full lyrics"))
+                // A line change is a turn, not a crossfade (§2.4's
+                // `captionTurnOut` / `captionTurnIn`, through `lyricLine`). By
+                // row, so two lines stamped at one moment still turn, and the
+                // voice reaching the line already shown turns nothing.
+                .id(index)
+                .transition(.lyricLine(reduceMotion: reduceMotion))
+            } else {
+                // The artist on its own line scrolls like the title when it
+                // is longer than its room.
+                MarqueeLine(room: layout.subtitleWidth, isActive: isLive && !reduceMotion, text: track.artist) {
+                    Text(track.artist)
+                }
+                    .font(.system(size: PlayerLayout.subtitleSize, weight: .regular))
+                    .tracking(Theme.tracking(forSize: PlayerLayout.subtitleSize))
+                    .foregroundStyle(.white.opacity(Theme.playerArtistOpacity))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(track.artist)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(track.artist)
+                    .id(-1)
+                    .transition(.lyricLine(reduceMotion: reduceMotion))
+            }
+        }
+        // Clipped, so a line turning out never crosses the title above it.
+        .clipped()
+        .opacity(media.isPlaying || !band.isOn ? 1 : Theme.playerPausedLyricOpacity)
+        .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: band.index)
+        .animation(Theme.contentAnimation, value: media.isPlaying)
+    }
+
+    /// The band is drawn when the Lyric Band setting is on *and* the song has
+    /// synced lines to show (spec §4.3). Show Lyrics off is `availability ==
+    /// .disabled`, so the band is never drawn then; a song whose words are
+    /// still being looked for, missing, or unreadable has no band either — the
+    /// status lives on the stage, one place for it (spec §5.4).
+    static func drawsLyricBand(setting: Bool, availability: LyricsAvailability, state: LyricsStore.State) -> Bool {
+        guard setting, case .ready = availability, case .synced(let lines) = state else { return false }
+        return !lines.isEmpty
+    }
+
+    /// What the subtitle draws for a line: its first row. A bilingual LRC line
+    /// carries its translation after a newline (`LocalLyricsDocument.parse`),
+    /// and one 14 pt line drew it raw — the second row running into the first.
+    static func bandText(of line: LyricsStore.Line) -> String {
+        LyricTranslation.rows(of: line.text).primary
+    }
+
+    /// What the sung line draws for one reading of the clock, or nil when there
+    /// are no lines to show. Its row is the line being sung, through the same
+    /// `LyricSweep.resolve` as the stage and the lock card; the lyric lab calls
+    /// this function rather than a copy of its arithmetic.
+    ///
+    /// `readAhead` is "Show next line early" (`LyricSweep.readingMoment`): the
+    /// player's line is the one surface besides the island's caption that holds
+    /// a single sung line, so it turns to the next a beat before the voice.
+    static func captionResolution(
+        lines: [LyricsStore.Line], inputs: LyricInputs, readAhead: LyricReadAhead = .off
+    ) -> LyricResolution? {
+        guard !lines.isEmpty else { return nil }
+        return LyricSweep.resolve(lines: lines, inputs: inputs, readAhead: readAhead)
+    }
+
+    // MARK: - Times and progress
 
     private var progress: Double {
         if let scrubbing { return scrubbing }
@@ -298,352 +455,250 @@ struct MediaPane: View {
         return min(max(media.position / media.duration, 0), 1)
     }
 
-    private var scrubber: some View {
-        HStack(spacing: 10) {
-            // While the pointer is on the bar this reads the time *under the
-            // pointer*, not the time playing — the same trick every scrubber
-            // worth using does, and it replaces the floating bubble that used
-            // to cover the lyric line above the bar.
-            // The time playing reads `labelPosition`, which never steps back a
-            // second for a small correction; the preview reads the pointer.
-            Text(formatTime(previewFraction.map { $0 * media.duration }
-                            ?? min(media.labelPosition, media.duration)))
-                .foregroundStyle(previewFraction == nil ? Theme.tertiary : Color.white.opacity(0.9))
-                .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .leading)
+    /// The elapsed and remaining labels' font: SF Pro Rounded 11 medium,
+    /// tabular, white 0.40 (§19.6).
+    static let timeFont = Font.system(size: 11, weight: .medium, design: .rounded).monospacedDigit()
 
-            GeometryReader { geo in
-                let width = geo.size.width
-                let filled = width * progress
-                let height: CGFloat = scrubHover ? 6 : 4
-
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.surface).frame(height: height)
-                    // Deliberately unanimated: a seek has to land under the
-                    // cursor at once. Smoothness comes from the tick rate
-                    // instead, which keeps each step well under a pixel.
-                    Capsule()
-                        .fill(Color.white.opacity(0.9))
-                        .frame(width: filled, height: height)
-                    if scrubHover {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 11, height: 11)
-                            .offset(x: min(max(filled - 5.5, 0), width - 11))
-                            .shadow(color: .black.opacity(0.4), radius: 3)
-                    }
-                }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onHover { inside in
-                    scrubHover = inside
-                    previewArmTask?.cancel()
-                    guard inside else {
-                        previewArmed = false
-                        return
-                    }
-                    previewArmTask = Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(ScrubPreview.dwell))
-                        guard !Task.isCancelled else { return }
-                        previewArmed = true
-                    }
-                }
-                .onContinuousHover { phase in
-                    scrubWidth = width
-                    switch phase {
-                    case .active(let location): hoverX = location.x
-                    case .ended: hoverX = nil
-                    }
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            guard width > 0 else { return }
-                            scrubbing = min(max(value.location.x / width, 0), 1)
-                        }
-                        .onEnded { value in
-                            guard width > 0 else { return }
-                            let target = min(max(value.location.x / width, 0), 1)
-                            // Seek first: clearing `scrubbing` beforehand would
-                            // drop the bar back to the old position for a frame
-                            // before the new one lands.
-                            if DebugTrail.openLyrics {
-                                DebugTrail.note(String(format: "SCRUB to=%.2f", media.duration * target))
-                            }
-                            media.seek(to: media.duration * target)
-                            scrubbing = nil
-                        }
-                )
-                .animation(Theme.contentAnimation, value: scrubHover)
-            }
-            // 22 pt to grab, 14 pt to lay out (F-014). The strip sits at the
-            // top edge of the screen, and 14 pt there was a target a seek had
-            // to be aimed at; a near miss landed on nothing. The drawn bar is
-            // centred in the strip either way, and the negative padding gives
-            // the extra 8 pt back to the column, so the caption above and the
-            // transport below stay exactly where the type rhythm put them.
-            .frame(height: 22)
-            // A capsule with a drag gesture is nothing at all to assistive
-            // tech; see `playbackPositionAccessibility` for why it is a slider.
-            .playbackPositionAccessibility(
-                shown: progress * media.duration,
-                duration: media.duration,
-                position: { media.position },
-                seek: { media.seek(to: $0) }
-            )
-            .padding(.vertical, -4)
-
-            Text(formatTime(media.duration))
-                .frame(width: media.duration >= 3600 ? 52 : 32, alignment: .trailing)
+    /// The times either side of the bar (spec §19.6), or — for a stream with no
+    /// length — LIVE where the times go and a static track (§4.6). A scrubber
+    /// with no length reads 0:00 / 0:00 and refuses to be dragged.
+    @ViewBuilder
+    private var progressRow: some View {
+        let layout = layout
+        let timesBox = Self.textBox(
+            x: layout.elapsedLeading, baseline: layout.timesTop + 11, width: 60, size: 11, weight: .medium
+        )
+        if media.duration > 0 {
+            let shown = previewFraction.map { $0 * media.duration } ?? min(media.labelPosition, media.duration)
+            Text(formatTime(shown))
+                .font(Self.timeFont)
+                .foregroundStyle(previewFraction == nil
+                                 ? Color.white.opacity(Theme.playerTimeOpacity) : Color.white.opacity(0.9))
+                .frame(width: timesBox.width, height: timesBox.height, alignment: .leading)
+                .offset(x: layout.elapsedLeading, y: layout.timesTop)
+                .accessibilityHidden(true)
+            Text("-" + formatTime(max(0, media.duration - shown)))
+                .font(Self.timeFont)
+                .foregroundStyle(.white.opacity(Theme.playerTimeOpacity))
+                .frame(width: timesBox.width, height: timesBox.height, alignment: .trailing)
+                .offset(x: layout.timesTrailing - timesBox.width, y: layout.timesTop)
+                .accessibilityHidden(true)
+            scrubber
+                .placedAt(layout.progress.insetBy(dx: 0, dy: -8))
+        } else {
+            Text("LIVE")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.4)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 4)
+                .frame(height: 12)
+                .background(Theme.accent, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .offset(x: layout.elapsedLeading, y: layout.progress.midY - 6)
+            Capsule()
+                .fill(.white.opacity(Theme.playerTrackOpacity))
+                .placedAt(layout.progress)
+                .accessibilityHidden(true)
         }
-        .font(Theme.TypeRole.caption.font().monospacedDigit())
-        .foregroundStyle(Theme.tertiary)
     }
 
-    /// The transport row: shuffle, previous, play/pause, next, repeat.
+    private var scrubber: some View {
+        let layout = layout
+        let width = layout.progress.width
+        let filled = width * progress
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: PlayerLayout.progressRadius, style: .continuous)
+                .fill(.white.opacity(Theme.playerTrackOpacity))
+                .frame(height: layout.progress.height)
+            // Deliberately unanimated: a seek has to land under the cursor at
+            // once. Smoothness comes from the tick rate instead.
+            RoundedRectangle(cornerRadius: PlayerLayout.progressRadius, style: .continuous)
+                .fill(.white.opacity(Theme.playerFillOpacity))
+                .frame(width: max(filled, layout.progress.height), height: layout.progress.height)
+                .opacity(filled > 0 ? 1 : 0)
+            if scrubHover {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 11, height: 11)
+                    .offset(x: min(max(filled - 5.5, 0), width - 11))
+                    .shadow(color: .black.opacity(0.4), radius: 3)
+            }
+        }
+        .frame(maxHeight: .infinity)
+        // 23 pt to grab and 7 to draw (F-014): the strip sits near the top of
+        // the screen, and a 7 pt target had to be aimed at.
+        .contentShape(Rectangle())
+        .onHover { inside in
+            scrubHover = inside
+            previewArmTask?.cancel()
+            guard inside else {
+                previewArmed = false
+                return
+            }
+            previewArmTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(ScrubPreview.dwell))
+                guard !Task.isCancelled else { return }
+                previewArmed = true
+            }
+        }
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location): hoverX = location.x
+            case .ended: hoverX = nil
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    guard width > 0 else { return }
+                    scrubbing = min(max(value.location.x / width, 0), 1)
+                }
+                .onEnded { value in
+                    guard width > 0 else { return }
+                    let target = min(max(value.location.x / width, 0), 1)
+                    // Seek first: clearing `scrubbing` beforehand would drop the
+                    // bar back to the old position for a frame.
+                    media.seek(to: media.duration * target)
+                    scrubbing = nil
+                }
+        )
+        .animation(Theme.contentAnimation, value: scrubHover)
+        // A capsule with a drag gesture is nothing to assistive tech; see
+        // `playbackPositionAccessibility` for why it is a slider.
+        .playbackPositionAccessibility(
+            shown: progress * media.duration,
+            duration: media.duration,
+            position: { media.position },
+            seek: { media.seek(to: $0) }
+        )
+    }
+
+    /// Kept for the lock card and the tests that measure an hour-long song's
+    /// times: 26 and 30 for a song, wider for one whose times carry another
+    /// digit.
+    static func timeWidths(duration: TimeInterval) -> (elapsed: CGFloat, remaining: CGFloat) {
+        duration >= 3600 ? (52, 52) : (26, 30)
+    }
+
+    // MARK: - Controls
+
+    /// What the Favourite star can do for this song (§19.6): Music's, through
+    /// the scripting bridge; Spotify's, through the connected account's
+    /// library; or nothing, and then there is no star and the other four keep
+    /// their places.
+    enum Favourite: Equatable {
+        case music(isOn: Bool)
+        /// `isOn` is nil while the library has not answered.
+        case spotify(trackID: String, isOn: Bool?)
+
+        var isOn: Bool {
+            switch self {
+            case .music(let isOn): return isOn
+            case .spotify(_, let isOn): return isOn ?? false
+            }
+        }
+
+        static func resolve(
+            musicFavorite: Bool?, spotifyTrackID: String?, spotifyCanSave: Bool, saved: [String: Bool]
+        ) -> Favourite? {
+            if let musicFavorite { return .music(isOn: musicFavorite) }
+            if spotifyCanSave, let id = spotifyTrackID { return .spotify(trackID: id, isOn: saved[id]) }
+            return nil
+        }
+    }
+
+    private var favourite: Favourite? {
+        let canSave = spotify.map { $0.isConnected && !$0.apiBlocked && !$0.tokenUnavailable } ?? false
+        return Favourite.resolve(
+            musicFavorite: media.musicFavorite, spotifyTrackID: media.spotifyTrackID,
+            spotifyCanSave: canSave, saved: spotify?.saved ?? [:]
+        )
+    }
+
     @ViewBuilder
     private var controls: some View {
-        // Spread edge to edge, the same five-slot grammar the lock card uses:
-        // the modes anchor the ends, the transport takes the middle, and the
-        // row keeps its shape whatever the player can be asked. A track with
-        // no shuffle to offer holds the space rather than letting everything
-        // else slide sideways when the next one does.
-        HStack(spacing: 0) {
-            Group {
-                if let shuffle = media.shuffleEnabled {
-                    ModeToggle(symbol: "shuffle", isOn: shuffle) { media.toggleShuffle() }
-                        .help(localized("Shuffle"))
-                        .accessibilityLabel(localized("Shuffle"))
-                        .accessibilityValue(shuffle ? localized("On") : localized("Off"))
-                }
-            }
-            .frame(width: 26)
-            Spacer(minLength: 0)
-            Button { media.previous() } label: {
-                Image(systemName: "backward.fill").islandFont(.title, weight: .medium)
-            }
-            .buttonStyle(TransportGlyphStyle(size: 30))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Previous Track"))
-            .accessibilityLabel(localized("Previous Track"))
-            Spacer(minLength: 0)
-            Button { media.togglePlayPause() } label: {
-                Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .islandFont(.display)
-                    // The glyph is replaced, not swapped. A hard cut on the one
-                    // control the eye is already resting on is the most visible
-                    // non-native moment in the app; `.replace` is what every
-                    // Apple transport control does. The play state changes
-                    // outside any animation, so the swap brings its own.
-                    .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
-            }
-            .buttonStyle(TransportGlyphStyle(size: 34))
-            .help(media.isPlaying ? localized("Pause") : localized("Play"))
-            .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
-            Spacer(minLength: 0)
-            Button { media.next() } label: {
-                Image(systemName: "forward.fill").islandFont(.title, weight: .medium)
-            }
-            .buttonStyle(TransportGlyphStyle(size: 30))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Next Track"))
-            .accessibilityLabel(localized("Next Track"))
-            Spacer(minLength: 0)
-            Group {
-                if let mode = media.repeatMode {
-                    ModeToggle(
-                        symbol: mode == .one ? "repeat.1" : "repeat",
-                        isOn: mode != .off,
-                        reduceMotion: reduceMotion
-                    ) { media.cycleRepeat() }
-                        .help(localized("Repeat"))
-                        .accessibilityLabel(localized("Repeat"))
-                        .accessibilityValue(repeatValueLabel(mode))
-                }
-            }
-            .frame(width: 26)
+        let layout = layout
+        if let favourite {
+            favouriteButton(favourite)
+                .placedAt(layout.target(.favourite), alignment: .center)
         }
-        .frame(maxWidth: .infinity)
-        .animation(Theme.contentAnimation, value: media.canSkip)
-        .animation(Theme.contentAnimation, value: media.shuffleEnabled == nil)
-        .animation(Theme.contentAnimation, value: media.repeatMode == nil)
-    }
-
-    private func repeatValueLabel(_ mode: PlayerBridge.RepeatMode) -> String {
-        switch mode {
-        case .off: return localized("Off")
-        case .all: return localized("All Tracks")
-        case .one: return localized("This Track")
+        transportButton(.previous, symbol: "backward.fill", label: localized("Previous Track"), enabled: media.canSkip) {
+            media.previous()
         }
-    }
-
-    /// One line, sung now, where the eye already is — with the sung part of it
-    /// brightening as the voice moves through. No scrolling wall of text: the
-    /// pane is 122pt of album art and transport, and the lyric is a caption to
-    /// the music, not a document.
-    @ViewBuilder
-    private var lyricsLine: some View {
-        if case .ready = lyrics.availability,
-           case .synced(let lines) = lyrics.state {
-            let wordTimingEnabled = LyricsPresentation.usesWordTiming(
-                lyrics.timingGranularity,
-                precisionMeasured: media.precisionSync,
-                wordKaraokeEnabled: lyrics.wordKaraokeEnabled
+        .placedAt(layout.target(.previous), alignment: .center)
+        transportButton(
+            .playPause, symbol: media.isPlaying ? "pause.fill" : "play.fill",
+            label: media.isPlaying ? localized("Pause") : localized("Play"), enabled: true
+        ) {
+            media.togglePlayPause()
+        }
+        .placedAt(layout.target(.playPause), alignment: .center)
+        transportButton(.next, symbol: "forward.fill", label: localized("Next Track"), enabled: media.canSkip) {
+            media.next()
+        }
+        .placedAt(layout.target(.next), alignment: .center)
+        if let output = layout.output {
+            PlayerOutputButton(
+                audio: audio, target: PlayerLayout.hitTarget,
+                glyph: PlayerLayout.Control.output.glyph, color: .white.opacity(Theme.playerSecondaryControlOpacity)
             )
-            if let shown = Self.captionResolution(lines: lines, inputs: LyricInputs(
-                position: media.position,
-                precisionSync: media.precisionSync,
-                userOffset: lyrics.userOffset,
-                trackOffset: lyrics.trackOffset,
-                wordTiming: wordTimingEnabled
-            ), readAhead: lyrics.readAhead) {
-                // The row shown: the line being sung, or the opening line
-                // waiting through the intro.
-                let index = shown.centre
-                let line = lines[index]
-                // The caption is the door to the stage: click it and the pane
-                // becomes the full scrolling lyrics. A chevron surfaces on
-                // hover so the door reads as one — a bare line of text gives
-                // no hint that it goes anywhere.
-                Button { showingLyrics.wrappedValue = true } label: {
-                    HStack(spacing: 5) {
-                        KaraokeText(
-                            text: line.text,
-                            // Where the voice stands inside this line, 0...1,
-                            // and 0 for a credit or a line the voice has not
-                            // reached: a filled sweep across "Produced by", or
-                            // across the opening line during the intro, says
-                            // the voice is there, which it is not.
-                            fraction: shown.fraction,
-                            // And the same sweep read on every frame from the
-                            // running clock while the voice is in a word-timed
-                            // line, so the edge is not a tick behind it. Never
-                            // for the opening line waiting through an intro.
-                            clock: shown.current.flatMap { current in
-                                LyricSweep.liveFraction(
-                                    line: line, end: LyricSweep.end(of: current, in: lines),
-                                    wordTiming: wordTimingEnabled,
-                                    clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
-                                        precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
-                                        trackOffset: lyrics.trackOffset
-                                    ))
-                                )
-                            },
-                            reduceMotion: reduceMotion,
-                            // The caption sits at the body size, where SF opens tracking
-                            // up slightly rather than tightening it.
-                            tracking: Theme.tracking(forSize: Theme.TypeRole.body.size)
-                        )
-                        .italic(line.isCredit)
-                        // Keyed so a line change is a change of line — not a
-                        // morph glyph-by-glyph in place — and the change is a
-                        // turn, not a crossfade: see `AnyTransition.lyricLine`.
-                        // By row, not by timestamp: two lines stamped at one
-                        // moment (a bilingual LRC) shared a key, so the second
-                        // replaced the first in place with no turn at all.
-                        .id(index)
-                        .transition(.lyricLine(reduceMotion: reduceMotion))
-                        Image(systemName: "chevron.right")
-                            // A glyph fitted to its row, not type: it sizes
-                            // the chevron against the caption's cap height,
-                            // and the caption floor has nothing to say about it.
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(Theme.tertiary)
-                            // Always in the row, faded rather than inserted. A
-                            // chevron that arrived on hover took its width from
-                            // the lyric beside it, so the line re-truncated
-                            // under the pointer that had just reached it.
-                            .opacity(captionHover ? 1 : 0)
-                            .accessibilityHidden(true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PanelButtonStyle())
-                .onHover { captionHover = $0 }
-                // On the lyric spring, like the page and the row: the song
-                // carries this motion, so it is allowed the momentum the
-                // 0.16 s content ease was refusing it. The line turn itself
-                // does not ride it: `AnyTransition.lyricLine` attaches its
-                // own out-fast, in-behind pair (`Theme.captionTurnOut`/`In`),
-                // because on this one spring the old and new lines crossed
-                // at once and smeared over each other (H-014). What is left
-                // here is the reduced crossfade and anything else in the row
-                // that changes with the line.
-                .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: index)
-                .animation(Theme.contentAnimation, value: captionHover)
-                .accessibilityLabel(localized("Lyrics"))
-                .accessibilityValue(line.text)
-                .accessibilityHint(localized("Opens the full lyrics"))
-            } else {
-                compactLyricsStatus
-            }
-        } else {
-            compactLyricsStatus
+            .placedAt(output, alignment: .center)
         }
     }
 
-    /// What the caption draws for one reading of the clock, or nil when there
-    /// are no lines to show. Its row is the line being sung, or the line the
-    /// voice reaches next while it has not reached any — the opening line,
-    /// unswept — through the same `LyricSweep.resolve` as the stage and the
-    /// lock card. The lyric lab calls this function rather than a copy of the
-    /// caption's arithmetic.
-    ///
-    /// `readAhead` is "Show next line early" (`LyricSweep.readingMoment`): the
-    /// caption is the one surface that holds a single line, so it is the one
-    /// that turns to the next line a beat before the voice reaches it. The
-    /// default is no lead, which the Lyric Delay preview relies on.
-    static func captionResolution(
-        lines: [LyricsStore.Line], inputs: LyricInputs, readAhead: LyricReadAhead = .off
-    ) -> LyricResolution? {
-        // With no lines there is nothing to caption. Otherwise it is the
-        // moment's centre — the row the stage and the card centre on — which
-        // is why the view draws `centre`. That includes the outro after the
-        // last line's end, where nothing is sung and nothing is coming: the
-        // guard used to ask for a current or an upcoming line, which until
-        // line ends existed was only ever false for an empty lyric, and in
-        // the outro it would have swapped the last line for "Finding lyrics…".
-        guard !lines.isEmpty else { return nil }
-        return LyricSweep.resolve(lines: lines, inputs: inputs, readAhead: readAhead)
-    }
-
-    private var compactLyricsStatus: some View {
-        Button { showingLyrics.wrappedValue = true } label: {
-            HStack(spacing: 5) {
-                if case .findingLocalLyrics = lyrics.availability {
-                    ProgressView().controlSize(.mini).tint(Theme.tertiary)
-                }
-                Text(LyricsPresentation.compactCaption(
-                    for: lyrics.availability, currentLine: nil, localLookup: localLookup,
-                    onlineEnabled: NotchViewModel.onlineLyricsEnabled
-                ))
-                    .islandFont(.body, weight: .regular)
-                    .foregroundStyle(Theme.secondary)
-                    .lineLimit(1)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(Theme.tertiary)
-                    .opacity(captionHover ? 1 : 0)
-                    .accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+    private func transportButton(
+        _ control: PlayerLayout.Control, symbol: String, label: String, enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: control.glyph.width, height: control.glyph.height)
+                .foregroundStyle(.white.opacity(Theme.playerTransportOpacity))
+                // Replaced, not swapped: a hard cut on the control the eye is
+                // resting on is the most visible non-native moment there is.
+                .symbolSwap(value: symbol, reduceMotion: reduceMotion)
         }
-        .buttonStyle(PanelButtonStyle())
-        .onHover { captionHover = $0 }
-        .animation(Theme.contentAnimation, value: captionHover)
-        .accessibilityLabel(localized("Lyrics"))
-        .accessibilityValue(LyricsPresentation.compactCaption(
-            for: lyrics.availability, currentLine: nil, localLookup: localLookup,
-            onlineEnabled: NotchViewModel.onlineLyricsEnabled
-        ))
-        .accessibilityHint(localized("Opens the full lyrics"))
+        .buttonStyle(TransportGlyphStyle(size: PlayerLayout.hitTarget))
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .animation(Theme.contentAnimation, value: enabled)
+        .help(label)
+        .accessibilityLabel(label)
     }
 
-    /// What the empty tab says, apart from any drawing, so which status wins
-    /// is something a test can read.
+    private func favouriteButton(_ favourite: Favourite) -> some View {
+        let label = favourite.isOn ? localized("Remove from Favorites") : localized("Favorite")
+        let known: Bool = {
+            if case .spotify(_, nil) = favourite { return false }
+            return true
+        }()
+        return Button {
+            switch favourite {
+            case .music: media.toggleMusicFavorite()
+            case .spotify(let id, _): _ = spotify?.toggleSaved(trackID: id)
+            }
+        } label: {
+            Image(systemName: favourite.isOn ? "star.fill" : "star")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: PlayerLayout.Control.favourite.glyph.width, height: PlayerLayout.Control.favourite.glyph.height)
+                .foregroundStyle(.white.opacity(Theme.playerSecondaryControlOpacity))
+                .symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)
+                // Until the library has answered, the star says it is asking
+                // rather than claiming the song is not saved.
+                .opacity(known ? 1 : 0.45)
+        }
+        .buttonStyle(TransportGlyphStyle(size: PlayerLayout.hitTarget))
+        .disabled(!known)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    // MARK: - Nothing playing (spec §4.8, in §19.6's frame)
+
+    /// What the empty player says, apart from any drawing, so which status
+    /// wins is something a test can read.
     enum EmptyStateMessage: Equatable {
         /// Nothing the island could show is playing.
         case nothingPlaying
@@ -661,22 +716,42 @@ struct MediaPane: View {
             }
         }
 
-        var caption: String? {
+        /// The line under the headline (spec §4.8): what to do, what is wrong,
+        /// or what the island chose not to show.
+        var caption: String {
             switch self {
+            case .nothingPlaying: return localized("Start a song in Music or Spotify, or open one here.")
             case .readerDown: return localized("Only Music and Spotify can be seen right now.")
+            case .hiddenByMusicOnly: return localized("Videos and films stay off the island.")
+            }
+        }
+
+        /// The reader-down state's pointer to where it is explained and fixed —
+        /// Settings › Music — drawn under the buttons. The reason and Try Again
+        /// live there and nowhere else: one failure surface (spec §4.8).
+        var footnote: String? {
+            switch self {
+            case .readerDown: return localized("Settings › Music says why, with Try Again.")
             case .nothingPlaying, .hiddenByMusicOnly: return nil
+            }
+        }
+
+        /// Which buttons the state offers: a player to open, or the one switch
+        /// that decides what the island may show.
+        var offersSettings: Bool { self == .hiddenByMusicOnly }
+
+        /// Whether the state may offer to open this app. With the reader down
+        /// only `PlayerBridge` works, and it speaks to Music and Spotify alone.
+        func offersToOpen(_ bundleID: String) -> Bool {
+            switch self {
+            case .readerDown: return PlayerApp.allCases.contains { $0.bundleID == bundleID }
+            case .nothingPlaying, .hiddenByMusicOnly: return true
             }
         }
     }
 
-    /// The empty tab used to say "Nothing is playing." over a YouTube video
-    /// that was audibly playing (J-007): Music Only filtered it, which is the
-    /// recorded design, and `MediaController` already knew — it publishes
-    /// `otherMediaIsPlaying` to fold the pill — but the pane never asked. The
-    /// reader being down wins over the filter because it explains more: with
-    /// the helper gone, the filter is not what hides a browser. And the
-    /// filter's own switch is checked, not just the controller's flag, which
-    /// is recomputed only on the next report and so trails the switch.
+    /// The reader being down wins over the filter because it explains more:
+    /// with the helper gone, the filter is not what hides a browser (J-007).
     static func emptyStateMessage(
         fallback: NowPlayingRouteFailure?, otherMediaPlaying: Bool, musicOnly: Bool
     ) -> EmptyStateMessage {
@@ -685,69 +760,258 @@ struct MediaPane: View {
         return .nothingPlaying
     }
 
+    /// With nothing playing a click on the island opens Tools (§19.6), so the
+    /// player is empty only when somebody asked for it by name, or the song
+    /// ended while it was open. It keeps the player's frame: the well where the
+    /// cover goes, the status and one line of why beside it, and the remedy on
+    /// the controls row.
     private var emptyState: some View {
         let message = Self.emptyStateMessage(
             fallback: media.fallbackReason,
             otherMediaPlaying: media.otherMediaIsPlaying,
             musicOnly: media.musicOnly()
         )
-        return VStack(spacing: 10) {
-            Image(systemName: "music.note.list")
-                .islandFont(.display, weight: .light)
-                .foregroundStyle(Theme.tertiary)
-            // Status, not instruction: an empty pane on its own would not say
-            // whether nothing is playing, nothing could be read, or something
-            // is playing that the island chose not to show.
-            Text(message.headline)
-                .islandFont(.subhead)
-                .foregroundStyle(Theme.secondary)
-                // The filtered-source line is a sentence, not a phrase: in
-                // Russian it outgrows a 480 pt panel's pane on one line.
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 16)
-            // Unless something is and the reader cannot see it. Without this
-            // line a browser could play under a pane that said nothing was;
-            // Settings → Music says why and offers Try Again.
-            if let caption = message.caption {
-                Text(caption)
-                    .islandFont(.caption, weight: .regular)
-                    .foregroundStyle(Theme.tertiary)
+        let layout = layout
+        let frames = PlayerLayout.emptyFrames(for: message)
+        let offers = Self.openOffers(from: icons.installedMusicApps(), bodyWidth: layout.bodyWidth, message: message)
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+            MissingCoverWell(cornerRadius: PlayerLayout.coverRadius, noteSize: 22)
+                .placedAt(layout.emptyWell)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(message.headline)
+                    .islandFont(frames.headlineSize, weight: .semibold)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                Text(message.caption)
+                    .islandFont(.reading, weight: .regular)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(3)
             }
-            // And an affordance, because a dead end teaches people not to
-            // open the tab. Status first, then one remedy: when the filter is
-            // what hides a playing source, the remedy is the switch, not a
-            // player to open — a person watching YouTube does not need
-            // Spotify launched. It opens Settings at the switch rather than
-            // flipping it from here, because a status line has no room to say
-            // what else Music Only decides.
-            HStack(spacing: 8) {
-                if message == .hiddenByMusicOnly {
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: frames.text.width, alignment: .topLeading)
+            .offset(x: frames.text.minX, y: frames.text.minY)
+
+            HStack(spacing: PlayerLayout.EmptyFrames.buttonSpacing) {
+                if message.offersSettings {
                     Button(action: openMusicOnlySetting) {
                         Text(localized("Open Settings"))
                     }
-                    .buttonStyle(OfferButtonStyle(horizontalPadding: 10))
+                    .buttonStyle(OfferButtonStyle(horizontalPadding: 10, fixedHeight: PlayerLayout.EmptyFrames.buttonHeight))
                 } else {
-                    // One button per player that is actually installed.
-                    ForEach(PlayerApp.allCases.filter(Self.isInstalled), id: \.rawValue) { app in
+                    ForEach(offers.apps, id: \.bundleID) { app in
                         Button {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: Self.applicationPath(for: app) ?? ""))
+                            NSWorkspace.shared.open(app.url)
                         } label: {
-                            Text(localized("Open %@", app.displayName))
+                            HStack(spacing: PlayerLayout.openButtonIconGap) {
+                                if offers.form.showsIcon {
+                                    AppIconImage(image: app.icon, side: PlayerLayout.openButtonIconSide)
+                                }
+                                Text(localized("Open %@", app.name))
+                            }
                         }
-                        .buttonStyle(OfferButtonStyle(horizontalPadding: 10))
+                        .buttonStyle(OfferButtonStyle(
+                            horizontalPadding: offers.form.horizontalPadding,
+                            fixedHeight: PlayerLayout.EmptyFrames.buttonHeight
+                        ))
                     }
                 }
             }
+            .frame(width: frames.buttons.width, height: frames.buttons.height, alignment: .leading)
+            .offset(x: frames.buttons.minX, y: frames.buttons.minY)
+
+            if let footnote = message.footnote, let footer = frames.footer {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                    Text(footnote).lineLimit(1)
+                }
+                .islandFont(.body, weight: .regular)
+                .foregroundStyle(Theme.tertiary)
+                .frame(width: footer.width, alignment: .leading)
+                .offset(x: footer.minX, y: footer.minY)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private static func isInstalled(_ app: PlayerApp) -> Bool {
-        applicationPath(for: app) != nil
+    /// The music apps that get an "Open …" button and the form they are drawn
+    /// in (`PlayerLayout.openButtonRow`): the installed ones the state may
+    /// offer, in `AppIcons.order`, Apple Music and Spotify always.
+    static func openOffers(
+        from apps: [AppIcons.Installed], bodyWidth: CGFloat = PlayerLayout.referenceBodyWidth,
+        message: EmptyStateMessage = .nothingPlaying
+    ) -> PlayerLayout.OpenButtonRow {
+        PlayerLayout.openButtonRow(
+            apps.filter { message.offersToOpen($0.bundleID) },
+            room: PlayerLayout.openButtonsRoom(bodyWidth: bodyWidth)
+        ) {
+            PlayerLayout.measuredLabelWidth(localized("Open %@", $0.name))
+        }
+    }
+}
+
+// MARK: - A cover that is not coming
+
+/// The well that stands where a missing cover goes (spec §4.7): white 0.08 with a
+/// `music.note` in the quaternary white. Its own view so a test can draw it
+/// without waiting out the 2.5 s the pane gives a cover to arrive.
+struct MissingCoverWell: View {
+    let cornerRadius: CGFloat
+    var noteSize: CGFloat = Theme.playerCoverNoteSize
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Theme.coverMissingWell)
+            .overlay(
+                Image(systemName: "music.note")
+                    .font(.system(size: noteSize))
+                    .foregroundStyle(Theme.quaternary)
+            )
+    }
+}
+
+// MARK: - Placement
+
+extension View {
+    /// Puts the view in `rect`, in its container's coordinates: sized to it,
+    /// aligned inside it, and offset to its corner. The surfaces place their
+    /// elements by the frames their layouts give rather than by stacking, so
+    /// the frame a test holds is the frame drawn.
+    func placedAt(_ rect: CGRect, alignment: Alignment = .leading) -> some View {
+        frame(width: rect.width, height: rect.height, alignment: alignment)
+            .offset(x: rect.minX, y: rect.minY)
+    }
+}
+
+// MARK: - Output
+
+/// The Output button: the glyph of the device the sound goes to now — in the
+/// player's 42 pt target at 28 × 27 (§19.6), or the stage foot's 28 pt well —
+/// opening the NSMenu of devices under it. Nothing is chosen, and
+/// nothing changes on the Mac, until a row is picked.
+///
+/// It was `airplay.audio`, which the owner read as AirDrop (2026-10-16). The
+/// glyph is now the current device's own — AirPods, the laptop, a display — the
+/// way the Now Playing route button on iOS shows the AirPods it is routed to,
+/// so the button says "output" by showing *which* output. It follows the watch:
+/// `audio` is observed, so a device picked here, plugged in or unplugged
+/// redraws it without anything asking.
+struct PlayerOutputButton: View {
+    let audio: AudioWatch
+    /// The square the button answers in.
+    var target: CGFloat = StageToolFrames.side
+    /// The glyph's drawn size, fitted; nil draws it at the stage foot's 13 pt.
+    var glyph: CGSize? = nil
+    var color: Color = Theme.secondary
+    /// What the button draws, derived from the watch and published only when it
+    /// changes. The button used to observe the whole watch, which also
+    /// publishes the volume, and redrew on every step of the volume keys.
+    @StateObject private var state: OutputButtonState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var holder: BuiltOnce<OutputMenuPresenter>
+    private var presenter: OutputMenuPresenter { holder.value }
+
+    init(audio: AudioWatch, target: CGFloat = StageToolFrames.side, glyph: CGSize? = nil, color: Color? = nil) {
+        self.audio = audio
+        self.target = target
+        self.glyph = glyph
+        self.color = color ?? Theme.secondary
+        _state = StateObject(wrappedValue: OutputButtonState(audio: audio))
+        // Built once (`BuiltOnce`): this runs on every body pass of the pane.
+        _holder = StateObject(wrappedValue: BuiltOnce {
+            OutputMenuPresenter(controller: OutputMenuController(audio: audio))
+        })
     }
 
-    private static func applicationPath(for app: PlayerApp) -> String? {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleID)?.path
+    /// The glyph for the device now playing; a plain speaker until the watch
+    /// has read the machine, or for a device the list does not hold.
+    static func symbol(outputs: [AudioOutputs.Output], current: AudioDeviceID?) -> String {
+        AudioOutputs.symbol(outputs: outputs, current: current, fallback: AudioOutputs.outputFallbackSymbol)
+    }
+
+    var body: some View {
+        let symbol = state.value.symbol
+        let device = state.value.name
+        Button { presenter.present() } label: {
+            Group {
+                if let glyph {
+                    Image(systemName: symbol)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: glyph.width, height: glyph.height)
+                } else {
+                    Image(systemName: symbol)
+                        .font(.system(size: 13, weight: .medium))
+                }
+            }
+            .foregroundStyle(color)
+            // A route changes when a device is picked or unplugged; the glyph
+            // swaps the way the lock card's does (Reduce Motion: a plain change).
+            .symbolSwap(value: symbol, reduceMotion: reduceMotion)
+            .frame(width: target, height: target)
+            .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))
+        }
+        .buttonStyle(PanelButtonStyle())
+        .background(OutputMenuAnchor(presenter: presenter))
+        .help(device ?? localized("Sound Output"))
+        // The lock card's name for the same control.
+        .accessibilityLabel(localized("Sound Output"))
+        // Where the sound goes now, which the glyph alone cannot say.
+        .accessibilityValue(device ?? "")
+    }
+}
+
+/// The Output button's face — the current device's glyph and name — as the
+/// watch's `outputs` and `current` give it, republished only when it differs.
+/// A volume or mute change moves neither, so the button does not redraw for it.
+@MainActor
+final class OutputButtonState: ObservableObject {
+    struct Value: Equatable {
+        var symbol: String
+        var name: String?
+    }
+
+    @Published private(set) var value: Value
+    private var subscription: AnyCancellable?
+
+    init(audio: AudioWatch) {
+        value = Self.value(outputs: audio.outputs, current: audio.current)
+        // `@Published` emits the new value as it is about to be stored, so the
+        // pair is taken from the emission, not read back from the watch.
+        subscription = audio.$outputs.combineLatest(audio.$current)
+            .map { Self.value(outputs: $0, current: $1) }
+            .removeDuplicates()
+            .sink { [weak self] in self?.value = $0 }
+    }
+
+    static func value(outputs: [AudioOutputs.Output], current: AudioDeviceID?) -> Value {
+        Value(
+            symbol: PlayerOutputButton.symbol(outputs: outputs, current: current),
+            name: LockScreenCard.outputName(outputs: outputs, current: current)
+        )
+    }
+}
+
+/// Equal when everything it draws from is: the same objects, the same values,
+/// and the bindings holding the same value. The closures are left out on
+/// purpose — they are rebuilt on every pass of the root view and so are never
+/// equal, which made SwiftUI re-run this whole pane on every frame of a page
+/// swipe, once per frame for each of the two pages on screen (measured
+/// 2026-10-18: 30 bodies each over a 30-frame swipe). Each one only calls into
+/// the view model, or reads Reduce Motion through `SystemAppearance` when it
+/// is called, so a kept copy does exactly what a fresh one would. Its own
+/// state and observed objects still redraw it as ever; this only stops a
+/// parent's pass from doing it for nothing (`NotchContentView.pane(for:)`).
+extension MediaPane: @MainActor Equatable {
+    static func == (lhs: MediaPane, rhs: MediaPane) -> Bool {
+        lhs.media === rhs.media
+            && lhs.lyrics === rhs.lyrics
+            && lhs.audio === rhs.audio
+            && lhs.spotify === rhs.spotify
+            && lhs.icons === rhs.icons
+            && lhs.morph == rhs.morph
+            && lhs.coverTint.isEqual(rhs.coverTint)
+            && lhs.isLive == rhs.isLive
     }
 }

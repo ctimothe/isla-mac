@@ -151,15 +151,13 @@ final class VisualLabAnimationTests: VisualLabCase {
         }
         let body = Double(NotchMetrics.standardBodyHeight - LabGeometry.physicalNotch.height)
         var curves: [LabCurve] = [
-            try curve(Theme.openAnimation, "open-close", "panel open (shape, header, cover morph); the close is \"close\"", "Theme.swift openAnimation", travel: body),
-            try curve(Theme.close(reduceMotion: false), "close", "panel close (shape, header, cover morph), the open's spring after closeShapeDelay", "Theme.swift close(reduceMotion:)", travel: body),
+            try curve(Theme.open(reduceMotion: false), "open-close", "panel open (shape, header, cover morph) on the outline's spring; the close is \"close\"", "Theme.swift islandSpring", travel: body),
+            try curve(Theme.close(reduceMotion: false), "close", "panel close (shape, header, cover morph), the outline's spring after closeShapeDelay", "Theme.swift close(reduceMotion:)", travel: body),
             try curve(Theme.open(reduceMotion: true), "open-close-reduce-motion", "panel open/close under Reduce Motion", "Theme.swift open(reduceMotion:)"),
+            try curve(Theme.openAnimation, "player-layout", "player changing between two layouts of one height", "Theme.swift openAnimation", travel: body),
             try curve(Theme.compactAnimation, "compact", "pill resizing around a new track", "Theme.swift compactAnimation", travel: Double(NotchMetrics.compactMediaExtension)),
-            try curve(Theme.pillUnfold, "pill-unfold", "pill growing out of the notch, and the peek widening", "Theme.swift pillUnfold", travel: Double(NotchMetrics.compactMediaExtension) / 2),
-            try curve(Theme.pillFold, "pill-fold", "pill folding back into the notch", "Theme.swift pillFold", travel: Double(NotchMetrics.compactMediaExtension) / 2),
-            try curve(Theme.pill(appearing: true, reduceMotion: true), "pill-reduce-motion", "pill fold/unfold under Reduce Motion", "Theme.swift pill(appearing:reduceMotion:)"),
-            try curve(Theme.pillContentIn, "pill-content-in", "cover and equalizer arriving in the pill (blur 5→0, scale 0.72→1, opacity)", "Theme.swift pillContentIn"),
-            try curve(Theme.pillContentOut, "pill-content-out", "cover and equalizer leaving the pill", "Theme.swift pillContentOut"),
+            try curve(Theme.pill(reduceMotion: false), "pill-unfold", "pill growing out of the notch and folding back, the peek widening, and the pill's content arriving and leaving with it (blur 15→0, scale x 0.8→1, opacity)", "Theme.swift pill(reduceMotion:)", travel: Double(NotchMetrics.compactMediaExtension) / 2),
+            try curve(Theme.pill(reduceMotion: true), "pill-reduce-motion", "pill fold/unfold under Reduce Motion", "Theme.swift pill(reduceMotion:)"),
             try curve(Theme.lyricScroll, "lyric-scroll", "stage page step, lock-card lyric window, row brightening", "Theme.swift lyricScroll",
                       travel: Double(LyricsStage.slotHeight + LyricsStage.slotSpacing)),
             try curve(Theme.captionTurnOut, "caption-turn-out", "caption line leaving its slot (opacity, blur 2→0, 7 pt up)", "Theme.swift captionTurnOut",
@@ -487,11 +485,12 @@ final class VisualLabAnimationTests: VisualLabCase {
             }
         }
 
-        // The pill out of the notch and back in.
+        // The pill out of the notch and back in. The shape and its content
+        // ride one curve since spec §19.3, both ways.
         for folding in [false, true] {
             for ms in Self.keyframeTimes {
-                let shape = folding ? 1 - value("pill-fold", ms) : value("pill-unfold", ms)
-                let content = folding ? 1 - value("pill-content-out", ms) : value("pill-content-in", ms)
+                let shape = folding ? 1 - value("pill-unfold", ms) : value("pill-unfold", ms)
+                let content = shape
                 try await frame(folding ? "pill-fold" : "pill-unfold", ms, size: Self.pillSize,
                                 notes: note + String(format: " shape %.3f, content presence %.3f.", shape, content)) {
                     AnyView(PillKeyframe(shape: shape, content: content, cover: cover, notch: notch))
@@ -590,8 +589,8 @@ private struct OpenKeyframe: View {
     let canvas: CGSize
 
     var body: some View {
-        let topRadius = lerp(Theme.collapsedTopRadius, Theme.openTopRadius, p)
-        let bottomRadius = lerp(Theme.collapsedBottomRadius, Theme.openBottomRadius, p)
+        let topRadius = lerp(Theme.collapsedTopRadius, NotchViewModel.Surface.player.topRadius, p)
+        let bottomRadius = lerp(Theme.collapsedBottomRadius, NotchViewModel.Surface.player.bottomRadius, p)
         let width = lerp(pillBody.width, openBody.width, p)
         let height = lerp(pillBody.height, openBody.height, p)
         let clip = CGRect(x: (canvas.width - width) / 2, y: 0, width: width, height: height)
@@ -669,7 +668,9 @@ private struct CaptionTurnKeyframe: View {
                             tracking: Theme.tracking(forSize: Theme.TypeRole.body.size))
                     .modifier(LyricLineTurn(progress: 1 - incoming, direction: 1))
             }
-            .frame(height: MediaPane.captionHeight)
+            .frame(height: MediaPane.textBox(
+                x: 0, baseline: 0, width: 0, size: PlayerLayout.subtitleSize, weight: .semibold
+            ).height)
             .clipped()
             .padding(.top, 4)
         }
@@ -719,7 +720,7 @@ private struct StagePageKeyframe: View {
 
 /// The pill unfolding or folding: the shape at the sampled width and radii,
 /// and the cover and equalizer centred in wings that follow it, dissolving on
-/// their own curve with `PillPresence`'s blur, scale and opacity.
+/// the same curve with `PillPresence`'s blur, scale and opacity.
 private struct PillKeyframe: View {
     let shape: Double
     let content: Double
@@ -735,7 +736,7 @@ private struct PillKeyframe: View {
         let wing = max(0, (bodyWidth - notch.width) / 2)
         let hidden = PillPresence.appearance(shown: false, reduceMotion: false)
         let blur = lerp(hidden.blur, 0, content)
-        let scale = lerp(hidden.scale, 1, content)
+        let scaleX = lerp(hidden.scale.width, 1, content)
         return ZStack(alignment: .top) {
             LabDesktop(light: false, menuBarHeight: notch.height, hardwareNotch: notch)
             NotchShape(topRadius: top, bottomRadius: bottom)
@@ -751,7 +752,7 @@ private struct PillKeyframe: View {
                     .frame(width: wing)
             }
             .frame(width: bodyWidth, height: notch.height)
-            .blur(radius: blur).scaleEffect(scale).opacity(max(0, min(1, content)))
+            .blur(radius: max(0, blur)).scaleEffect(x: scaleX, y: 1).opacity(max(0, min(1, content)))
             .environment(\._accessibilityReduceMotion, true)
         }
     }

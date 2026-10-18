@@ -10,9 +10,9 @@ import XCTest
 /// alpha — and the close only pretended to. The body left on an ease-in 0.12 s,
 /// a curve that starts at zero speed, while the shape started its 0.34 s spring
 /// in the same frame. The shape eats the 14 pt bottom padding in about 25 ms
-/// and then the clip is into the rail and the time label, which at that moment
-/// were still 0.93 opaque: the visual lab's keyframes-close t033–t050 show both
-/// cut while bright. A close read as a blind dropping, not as the open run
+/// and then the clip is into the content's last row, which at that moment was
+/// still 0.93 opaque: the visual lab's keyframes-close t033–t050 show it cut
+/// while bright. A close read as a blind dropping, not as the open run
 /// backwards.
 ///
 /// The model here is read from the shipped `Animation` values rather than
@@ -21,8 +21,9 @@ import XCTest
 @MainActor
 final class PanelCloseTests: XCTestCase {
 
-    /// The shape's travel on a close: the standard body folding into the
-    /// physical notch it grew out of.
+    /// The shape's travel on a close: the standard body — the welcome's, the one
+    /// surface that keeps `NotchMetrics.standardBodyHeight` (§19.8) — folding
+    /// into the physical notch it grew out of.
     private var shapeTravel: Double {
         Double(NotchMetrics.standardBodyHeight - LabGeometry.physicalNotch.height)
     }
@@ -32,7 +33,7 @@ final class PanelCloseTests: XCTestCase {
                       "cannot read \(name): \(animation)")
     }
 
-    /// When the clip has travelled the bottom padding — the first point at
+    /// When the clip has travelled the bottom margin — the first point at
     /// which it touches anything drawn — the body is under a third opaque.
     /// Today's ease-in with no shape delay leaves it at 0.93 there.
     func testTheBodyIsMostlyGoneBeforeTheClipReachesIt() throws {
@@ -41,8 +42,8 @@ final class PanelCloseTests: XCTestCase {
 
         // The curves that ship are the ones the constants name.
         XCTAssertEqual(shape.kind, .spring)
-        XCTAssertEqual(shape.response, Theme.openResponse, accuracy: 1e-9)
-        XCTAssertEqual(shape.damping, 1, accuracy: 1e-9, "a close is not thrown either")
+        XCTAssertEqual(shape.response, Theme.islandResponse, accuracy: 1e-9, "the outline's spring (spec §19.3)")
+        XCTAssertEqual(shape.damping, Theme.islandDamping, accuracy: 1e-9)
         XCTAssertEqual(shape.delay, Theme.closeShapeDelay, accuracy: 1e-9)
         XCTAssertEqual(body.kind, .bezier)
         XCTAssertEqual(body.duration, Theme.paneOutDuration, accuracy: 1e-9)
@@ -51,12 +52,35 @@ final class PanelCloseTests: XCTestCase {
         // The first instant the clip reaches drawn content, from the spring's
         // own closed form, after the shape's delay.
         let reach = Theme.closeShapeDelay + Theme.springRiseTime(
-            response: Theme.openResponse, damping: 1,
-            level: Double(NotchGeometry.bodyBottomPadding) / shapeTravel
+            response: Theme.islandResponse, damping: Theme.islandDamping,
+            level: Double(WelcomePane.margins.bottom) / shapeTravel
         )
         let opacity = 1 - body.sample(reach).value
         XCTAssertLessThanOrEqual(opacity, 0.30, String(
             format: "body still %.2f opaque when the clip reaches it at %.0f ms", opacity, reach * 1000))
+    }
+
+    /// The same rule on the surface whose content runs closest to its foot:
+    /// the stage, 400 tall, whose progress line ends 13 pt above the bottom
+    /// (§19.6) — a shallower margin over a longer travel than the welcome's,
+    /// so the clip reaches drawn content sooner. The welcome alone was
+    /// measured once, and the shallowest case was not (R8 review).
+    func testTheBodyIsMostlyGoneBeforeTheClipReachesTheStagesFoot() throws {
+        let body = try parsed(Theme.paneOut, "pane-out")
+        let notch = LabGeometry.physicalNotch
+        let height = SurfaceLayout.bodySize(for: .stage, bodyWidth: 560, notch: notch).height
+        // In content coordinates the body runs from the header row down.
+        let contentHeight = height - notch.height
+        let margin = contentHeight - StageLayout(bodyWidth: 560).progress.maxY
+        XCTAssertEqual(margin, 13, accuracy: 0.5, "the foot as §19.6 draws it")
+        let travel = Double(height - notch.height)
+        let reach = Theme.closeShapeDelay + Theme.springRiseTime(
+            response: Theme.islandResponse, damping: Theme.islandDamping,
+            level: Double(margin) / travel
+        )
+        let opacity = 1 - body.sample(reach).value
+        XCTAssertLessThanOrEqual(opacity, 0.30, String(
+            format: "the stage is still %.2f opaque when the clip reaches its foot at %.0f ms", opacity, reach * 1000))
     }
 
     /// An exit that ends at peak speed yanks the text out rather than letting
@@ -88,8 +112,9 @@ final class PanelCloseTests: XCTestCase {
 
     /// The open is the same spring the close is, so the two still mirror.
     func testTheOpenIsTheNamedResponse() throws {
-        let open = try parsed(Theme.openAnimation, "open")
-        XCTAssertEqual(open.response, Theme.openResponse, accuracy: 1e-9)
+        let open = try parsed(Theme.open(reduceMotion: false), "open")
+        XCTAssertEqual(open.response, Theme.islandResponse, accuracy: 1e-9)
+        XCTAssertEqual(open.damping, Theme.islandDamping, accuracy: 1e-9)
         XCTAssertEqual(open.delay, 0, "an open must never wait")
     }
 
@@ -97,9 +122,14 @@ final class PanelCloseTests: XCTestCase {
     /// The delay moved the shape's settle later by `closeShapeDelay`, and a
     /// rect that shrank before the panel was gone would let clicks through a
     /// panel still on screen.
+    ///
+    /// The outline's spring overshoots, and on a close it overshoots *inward*:
+    /// once it has crossed its end the shape is smaller than what it is going
+    /// to, so inside the rect cut for that, and its swing back out is under a
+    /// tenth of a percent. Its first crossing is the moment that matters.
     func testTheHitAreaOutlastsTheDelayedClose() {
         let settle = Theme.closeShapeDelay
-            + Theme.springRiseTime(response: Theme.openResponse, damping: 1, level: 0.99)
+            + Theme.springRiseTime(response: Theme.islandResponse, damping: Theme.islandDamping, level: 1)
         XCTAssertGreaterThanOrEqual(NotchMetrics.collapseRectShrinkDelay, settle)
     }
 

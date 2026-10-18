@@ -286,4 +286,93 @@ final class OnlineLyricsTests: XCTestCase {
         XCTAssertFalse(relaunched.needsRefresh(second))
         XCTAssertEqual(relaunched.cached(track)??.lines.first?.text, "Old")
     }
+
+    // MARK: - Too many requests
+
+    private func response(_ headers: [String: String], status: Int = 429) -> HTTPURLResponse {
+        HTTPURLResponse(
+            url: URL(string: "https://lrclib.net/api/get")!, statusCode: status,
+            httpVersion: nil, headerFields: headers
+        )!
+    }
+
+    /// Retry-After is delay-seconds or an HTTP-date (RFC 9110 section 10.2.3),
+    /// and the gateway in front of LRCLIB is free to send either. A date is
+    /// measured against the response's own Date header, not this Mac's clock,
+    /// which may be minutes off; only without one does the local clock stand
+    /// in. A nonsense header is clamped to a day, so it cannot silence lyrics
+    /// for a week.
+    func testRetryAfterReadsSecondsAndAnHTTPDate() {
+        let now = Date(timeIntervalSince1970: 0)
+        func parsed(_ headers: [String: String]) -> TimeInterval? {
+            OnlineLyrics.retryAfter(from: response(headers), now: now)
+        }
+        XCTAssertEqual(parsed(["Retry-After": "120"]), 120)
+        XCTAssertEqual(parsed(["Retry-After": "0"]), 0)
+        XCTAssertEqual(parsed([
+            "Date": "Sun, 06 Nov 1994 08:49:37 GMT",
+            "Retry-After": "Sun, 06 Nov 1994 08:51:07 GMT",
+        ]), 90, "a date is measured against the response's own Date")
+        XCTAssertEqual(parsed([
+            "Date": "Sun, 06 Nov 1994 08:49:37 GMT",
+            "Retry-After": "Sun, 06 Nov 1994 08:40:00 GMT",
+        ]), 0, "a date already past is no wait at all")
+        XCTAssertNil(parsed(["Retry-After": "soon"]))
+        XCTAssertNil(parsed([:]))
+        XCTAssertEqual(parsed(["Retry-After": "999999999"]), OnlineLyrics.longestRetryAfter)
+        XCTAssertEqual(OnlineLyrics.longestRetryAfter, 86_400)
+
+        // Delay-seconds is digits only: a sign or a fraction is no delay.
+        XCTAssertNil(parsed(["Retry-After": "-5"]))
+        XCTAssertNil(parsed(["Retry-After": "+5"]))
+        XCTAssertNil(parsed(["Retry-After": "1.5"]))
+        XCTAssertEqual(parsed(["retry-after": "45"]), 45, "header names are case-insensitive")
+
+        // The two obsolete HTTP-date forms a recipient must still accept
+        // (RFC 9110 section 5.6.7), the same 90 s after the same Date.
+        XCTAssertEqual(parsed([
+            "Date": "Sun, 06 Nov 1994 08:49:37 GMT",
+            "Retry-After": "Sunday, 06-Nov-94 08:51:07 GMT",
+        ]), 90, "rfc850")
+        XCTAssertEqual(parsed([
+            "Date": "Sun, 06 Nov 1994 08:49:37 GMT",
+            "Retry-After": "Sun Nov  6 08:51:07 1994",
+        ]), 90, "asctime, with its padded one-digit day")
+        XCTAssertEqual(parsed([
+            "Date": "Sunday, 06-Nov-94 08:49:37 GMT",
+            "Retry-After": "Sun Nov 6 08:51:07 1994",
+        ]), 90, "the Date header may be an obsolete form too")
+
+        // No Date header: this Mac's clock is the only one there is.
+        let local = Date(timeIntervalSince1970: 784_111_777)  // Sun, 06 Nov 1994 08:49:37 GMT
+        XCTAssertEqual(
+            OnlineLyrics.retryAfter(
+                from: response(["Retry-After": "Sun, 06 Nov 1994 08:50:37 GMT"]), now: local
+            ), 60
+        )
+    }
+
+    /// A limited answer says nothing about the recording, so it is not an
+    /// answer to remember — a miss cached from a 429 would have hidden the
+    /// song's words for a fortnight on the strength of a busy gateway.
+    func testTheCacheNeverRemembersALimitedAnswer() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = OnlineLyricsCache(directory: directory)
+
+        cache.remember(.limited(retryAfter: 60), for: track)
+        XCTAssertTrue(cache.cached(track) == nil, "nothing is stored for a 429; the song asks again later")
+        cache.remember(.limited(retryAfter: nil), for: track)
+        XCTAssertTrue(cache.cached(track) == nil)
+
+        // And it does not disturb a hit that is already there.
+        let timeline = LyricTimeline(
+            lines: [LyricsStore.Line(at: 1, text: "One", end: 2)], granularity: .line
+        )
+        cache.remember(.found(timeline), for: track)
+        cache.remember(.limited(retryAfter: 60), for: track)
+        XCTAssertEqual(cache.cached(track)??.lines.first?.text, "One")
+        XCTAssertFalse(cache.needsRefresh(track))
+    }
 }

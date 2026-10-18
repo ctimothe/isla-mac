@@ -40,7 +40,7 @@ final class ConfirmationTests: XCTestCase {
         let probe = ProbeFixtures.isolatedStores()
         defer { probe.release() }
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: probe.stores)
-        vm.select(.clipboard)
+        vm.open(.clipboard)
 
         var disarmed = 0
         ArmedConfirmations.shared.register { disarmed += 1 }

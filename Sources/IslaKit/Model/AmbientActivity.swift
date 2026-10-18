@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Something the Mac itself did, shown on the island for a moment: the
 /// charger going in, headphones connecting.
@@ -17,22 +18,40 @@ enum AmbientActivity: Equatable {
     /// A Bluetooth audio output appeared.
     case headphones(name: String, symbol: String)
 
-    /// How much wider than the notch the pill grows for it. The charge fits
-    /// the resting pill. A device name needs a wider right wing, but not the
-    /// peek's whole title-and-artist width, which drawn with one short name
-    /// left half the pill empty.
-    var extensionWidth: CGFloat {
+    /// Whether the island can show it at all. A Mac with no battery shows no
+    /// Charging activity (spec §19.4): it reports no level, and the level and
+    /// the battery drawn round it are the activity.
+    var showsOnIsland: Bool {
+        if case .charging(nil, _) = self { return false }
+        return true
+    }
+
+    /// How long it holds the island (spec §19.1): the charger 3 s, headphones
+    /// 4 s — long enough to read a percentage, and a name with "Connected"
+    /// over it. Both were 2.2 s, the track peek's beat.
+    var holdDuration: TimeInterval {
         switch self {
-        case .charging: return NotchMetrics.compactMediaExtension
-        case .headphones: return NotchMetrics.ambientNameExtension
+        case .charging: return 3
+        case .headphones: return 4
         }
     }
 
-    /// The left wing's glyph for the charger: the bolt while charging, the
-    /// plug while it only holds, as the battery menu draws them.
+    /// The glyph for a charge: the bolt while charging, the plug while it only
+    /// holds, as the battery menu draws them. On the island the bolt's place is
+    /// the word "Charging" (§19.4); the plug still stands in for it while the
+    /// battery holds, because "Charging" would not be true.
     var chargeSymbol: String {
         if case .charging(_, false) = self { return "powerplug.fill" }
         return "bolt.fill"
+    }
+
+    /// Whether the moment is drawn in the system green (spec §3.6): a battery
+    /// that is charging and says how full it is. A Mac with no battery reports no
+    /// level and gets a white bolt alone, a charge that is only being held gets
+    /// a white plug, and headphones are white.
+    var usesChargingGreen: Bool {
+        guard case .charging(let level, let isCharging) = self else { return false }
+        return isCharging && level != nil
     }
 
     var accessibilityLabel: String {
@@ -42,7 +61,9 @@ enum AmbientActivity: Equatable {
                 guard let level else { return localized("Power adapter connected") }
                 return localized("Power adapter connected, %d percent", level)
             }
-            guard let level else { return localized("Charging") }
+            // No level: a Mac with no battery, which can only say the adapter is
+            // in — and which shows no Charging activity at all (`showsOnIsland`).
+            guard let level else { return localized("Power adapter connected") }
             return localized("Charging, %d percent", level)
         case .headphones(let name, _):
             return localized("%@ connected", name)
