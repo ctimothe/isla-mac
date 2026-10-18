@@ -161,6 +161,15 @@ final class NotchStores {
             clipboard.keepsPinned = { NotchViewModel.clipboardKeepPinnedEnabled }
             clipboard.loadPinned()
         }
+        // The pictures' bytes go to files of this launch, deleted as the entries
+        // leave and with the directory at quit; whatever a crashed launch left
+        // behind is swept now, off the main thread. Never under test, for the
+        // reason above: a test injects a spool in a temporary folder of its own.
+        if !PlayerBridge.isRunningTests {
+            clipboard.imageSpool = .session
+            let own = ClipImageSpool.session.directory
+            DispatchQueue.global(qos: .utility).async { ClipImageSpool.sweepStale(keeping: own) }
+        }
         clipboard.onImage = { [weak self] png in
             guard let self else { return }
             self.screenshotVault.save(png) { [weak self] url in
