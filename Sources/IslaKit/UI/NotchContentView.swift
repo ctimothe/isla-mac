@@ -554,10 +554,11 @@ struct NotchContentView: View {
         .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.ambient)
-        // The pop-up widens and folds on the outline's spring (spec §19.3).
-        // Keyed to whether it is up, not to its level: a press only moves the
-        // bar, which has a curve of its own.
-        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.hud != nil)
+        // The pop-up widens and folds on its own quick, critically damped
+        // spring (`Theme.hudSpring`, spec §19.3 amended 2026-10-18). Keyed to
+        // whether it is up, not to its level: a press only moves the bar,
+        // which has a curve of its own.
+        .animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hud != nil)
         // The Shelf as the live activity coming and going, and its count
         // changing (spec §19.4) — a file kept with the panel shut. Keyed to
         // the live count, not the Shelf's: a collected file's moment begins
@@ -632,7 +633,7 @@ struct NotchContentView: View {
                 switch vm.activity {
                 case .hud(let hud):
                     hudHeader(hud)
-                        .transition(Theme.expandedArrival(reduceMotion: reduceMotion))
+                        .transition(Theme.hudArrival(reduceMotion: reduceMotion))
                 case .ambient(let ambient):
                     ambientHeader(ambient)
                         .transition(ambientArrival(ambient))
@@ -845,12 +846,7 @@ struct NotchContentView: View {
         let notchHeight = vm.geometry.notchSize.height
         let track = HUDLayout.trackFrame(islandWidth: size.width, notchHeight: notchHeight)
         let symbol = HUDLayout.symbolFrame(notchHeight: notchHeight)
-        let fill: AnyShapeStyle = hud.muted
-            ? AnyShapeStyle(Color.white.opacity(HUDLayout.mutedFillOpacity))
-            : AnyShapeStyle(LinearGradient(
-                colors: [Theme.hudAmber.opacity(HUDLayout.fillStartOpacity), Theme.hudAmber],
-                startPoint: .leading, endPoint: .trailing
-            ))
+        let fill = Color.white.opacity(hud.muted ? HUDLayout.mutedFillOpacity : HUDLayout.levelOpacity)
         return ZStack(alignment: .topLeading) {
             Text(hud.title)
                 .islandFont(HUDLayout.titleSize)
@@ -872,10 +868,6 @@ struct NotchContentView: View {
                 .offset(x: track.minX, y: track.minY)
             RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
                 .fill(fill)
-                .shadow(
-                    color: hud.muted ? .clear : Theme.hudAmber.opacity(HUDLayout.glowOpacity),
-                    radius: HUDLayout.glowRadius
-                )
                 .frame(width: track.width * CGFloat(hud.level), height: track.height)
                 .offset(x: track.minX, y: track.minY)
                 .animation(Theme.hudLevel(reduceMotion: reduceMotion), value: hud.level)

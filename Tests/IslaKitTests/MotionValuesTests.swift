@@ -71,7 +71,8 @@ final class MotionValuesTests: XCTestCase {
         let controller = try String(
             contentsOf: root.appendingPathComponent("Sources/IslaKit/Notch/NotchController.swift"), encoding: .utf8)
         XCTAssertTrue(shell.contains(".animation(Theme.island(reduceMotion: reduceMotion), value: vm.openBodySize.height)"))
-        XCTAssertTrue(shell.contains(".animation(Theme.island(reduceMotion: reduceMotion), value: vm.hud != nil)"))
+        XCTAssertTrue(shell.contains(".animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hud != nil)"),
+                      "the pop-up has its own quick spring (spec §19.3, amended 2026-10-18)")
         XCTAssertFalse(shell.contains("withAnimation(Theme.expand("), "the body's Expand moves the outline")
         XCTAssertTrue(controller.contains("withAnimation(Theme.island(reduceMotion: reduceMotion)) {\n                vm.isPeeking = false\n                vm.ambient = nil\n                vm.hud = moment"))
     }
@@ -86,10 +87,28 @@ final class MotionValuesTests: XCTestCase {
             ("open, inside a surface", Theme.openAnimation), ("compact", Theme.compactAnimation),
             ("caption out", Theme.captionTurnOut), ("caption in", Theme.captionTurnIn),
             ("update card", Theme.expandAnimation), ("lock card", Theme.lockCardMorph),
+            ("pop-up", Theme.hudSpring), ("pop-up level", Theme.hudLevel),
         ] {
             XCTAssertTrue(listed.contains(String(describing: curve)), name)
         }
-        XCTAssertEqual(listed.count, 6)
+        XCTAssertEqual(listed.count, 8)
+    }
+
+    /// The pop-up arrives at once and only fades and settles: no blur, a
+    /// slight scale, a quick spring with no overshoot, and a level that
+    /// follows a held key as a spring rather than a chain of ease-outs
+    /// (owner's review, 2026-10-18: "heavy, not clean as the native one").
+    func testThePopUpIsQuickAndUnblurred() throws {
+        XCTAssertEqual(Theme.hudResponse, 0.3)
+        XCTAssertEqual(Theme.hud(reduceMotion: false), Theme.hudSpring)
+        XCTAssertEqual(Theme.hud(reduceMotion: true), Theme.reducedMotion)
+        XCTAssertGreaterThan(Theme.hudArrivalScale, 0.9)
+        XCTAssertNil(Theme.hudLevel(reduceMotion: true))
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let shell = try String(
+            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        XCTAssertTrue(shell.contains("hudHeader(hud)\n                        .transition(Theme.hudArrival(reduceMotion: reduceMotion))"))
     }
 
     // MARK: Content arriving (spec §19.3)

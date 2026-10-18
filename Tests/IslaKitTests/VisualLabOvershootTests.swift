@@ -50,4 +50,31 @@ final class VisualLabOvershootTests: XCTestCase {
             if step % 5 == 0 { try await shoot("3-toward-translate-\(step)") }
         }
     }
+
+    /// The volume and brightness pop-up as the island draws it, at three
+    /// levels and muted, so its fill can be looked at beside the system's.
+    func testThePopUp() async throws {
+        guard let out = ProcessInfo.processInfo.environment["ISLA_VISUAL_OUT"], !out.isEmpty else {
+            throw XCTSkip("lab only")
+        }
+        let folder = URL(fileURLWithPath: out).appendingPathComponent("hud", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        let size = vm.geometry.windowSize
+        for (name, reading) in [
+            ("volume-68", HUDReading(kind: .volume, level: 0.68, muted: false, deviceSymbol: nil)),
+            ("volume-muted", HUDReading(kind: .volume, level: 0.4, muted: true, deviceSymbol: nil)),
+            ("display-30", HUDReading(kind: .display, level: 0.3, muted: false, deviceSymbol: nil)),
+        ] {
+            vm.hud = HUDMoment(reading)
+            let view = NotchContentView(vm: vm).frame(width: size.width, height: size.height, alignment: .top)
+            guard let shot = await LabRenderer.host(view, size: size, variant: .base, settle: 0.6) else {
+                throw NSError(domain: "VisualLab", code: 4)
+            }
+            try shot.rep.representation(using: .png, properties: [:])!
+                .write(to: folder.appendingPathComponent("\(name).png"))
+        }
+    }
 }

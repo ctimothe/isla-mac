@@ -102,15 +102,19 @@ enum HUDLayout {
     }
 
     /// The bar, 107 × 8 at radius 4, at (69.5, 76.5): a track in white 0.18,
-    /// the level in amber from 0.82 to 1.0 left to right with a 5 pt glow at
-    /// 0.80; muted, white 0.32 at the level it will return to, no glow.
+    /// the level in flat white 0.92; muted, white 0.32 at the level it will
+    /// return to.
+    ///
+    /// The level was amber, a gradient from 0.82 to 1.0 under a 5 pt glow of
+    /// its own colour — the reference's. On the owner's Mac (2026-10-18) it
+    /// read as fake and exaggerated beside the system's own volume and
+    /// brightness indicators, which are a plain light fill on a dim track,
+    /// and the glow was a blurred shadow redrawn on every step of a held key.
     static let barHeight: CGFloat = 8
     static let barRadius: CGFloat = 4
     static let trackOpacity: Double = 0.18
     static let mutedFillOpacity: Double = 0.32
-    static let fillStartOpacity: Double = 0.82
-    static let glowRadius: CGFloat = 5
-    static let glowOpacity: Double = 0.80
+    static let levelOpacity: Double = 0.92
     /// The reference bar's distance from the shape's right edge, which a wider
     /// pop-up keeps: the bar grows between its start and the number.
     private static var barTrailing: CGFloat { shape.reference.width - 69.5 - 107 }

@@ -151,19 +151,45 @@ enum Theme {
     /// something inside a surface.
     static let criticallyDampedSprings: [Animation] = [
         openAnimation, compactAnimation, captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph,
+        hudSpring, hudLevel,
     ]
 
     /// The volume and brightness pop-up (redesign 2026-10-15, spec §2.4, §12)
-    /// widens and folds on the outline's spring (spec §19.3), like every
-    /// change of the island's size. It had a 0.28 critically damped spring of
-    /// its own on the way in and folded on the pill's fold.
+    /// widens and folds on a spring of its own: response 0.3, critically
+    /// damped, and its content arrives by opacity and a slight scale, with no
+    /// blur (`hudArrival`).
+    ///
+    /// It rode the outline's 0.5 spring with its 0.75 damping from 2026-10-17,
+    /// and its content focused in from a 30-point blur at 0.6 × 0.2 of its
+    /// size. A key press is the most frequent thing the island answers and
+    /// carries no momentum to express; on the owner's Mac (2026-10-18) the
+    /// pop-up felt heavy and laggy beside the system's own, which appears at
+    /// once and only fades, and the animated blur is among the costliest
+    /// things SwiftUI draws, frame by frame on the main thread, while the Mac
+    /// is busy (perf review, finding 3).
+    static let hudResponse: Double = 0.3
+    static let hudSpring = Animation.spring(response: hudResponse, dampingFraction: 1.0)
 
-    /// The level bar following each press: an ease-out of 0.12 s (spec §2.4).
-    /// Short, because a held key presses again every few tens of milliseconds
-    /// and a bar still travelling when the next step lands would trail the
-    /// keys; an ease-out because it leaves at its fastest, in the frame the
-    /// press landed.
-    static let hudLevel = Animation.easeOut(duration: 0.12)
+    /// The pop-up's curve, or the 0.24 ease-in-out under Reduce Motion.
+    static func hud(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : hudSpring
+    }
+
+    /// The pop-up's content arriving and leaving: opacity and 0.94 of its
+    /// size about the top edge, on the transaction's curve — `hudSpring`.
+    static func hudArrival(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: hudArrivalScale, anchor: .top))
+    }
+    static let hudArrivalScale: CGFloat = 0.94
+
+    /// The level bar following each press: a critically damped spring of
+    /// 0.2 s (spec §2.4, amended 2026-10-18). Short, because a held key
+    /// presses again every few tens of milliseconds and a bar still
+    /// travelling when the next step lands would trail the keys; a spring
+    /// rather than the 0.12 s ease-out it was because a spring takes the next
+    /// step from where the bar is and at the speed it has, where each new
+    /// ease-out began from rest and the bar moved in a stutter of restarts.
+    static let hudLevel = Animation.spring(response: 0.2, dampingFraction: 1.0)
 
     /// How long the pop-up stays after the *last* press (spec §2.4: 1.5 s idle)
     /// before it folds on the outline's spring. Each press
@@ -770,9 +796,6 @@ enum Theme {
 
     /// The system green, `#30D158`: the charging bolt and its level.
     static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
-    /// The volume pop-up's level (spec §19.5 d): amber, filled from 0.82 to
-    /// 1.0 with a glow — the reference's colour for a level the keys move.
-    static let hudAmber = Color(red: 250.0 / 255, green: 167.0 / 255, blue: 35.0 / 255)
 
     /// The island's stroke (spec §19.2), which replaced §3.3's key line: 2 pt
     /// centred on the outline, the activity's tint at 0.21 or white at 0.14,

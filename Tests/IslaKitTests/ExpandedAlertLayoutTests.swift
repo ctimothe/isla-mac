@@ -136,9 +136,13 @@ final class ExpandedAlertLayoutTests: XCTestCase {
         XCTAssertEqual(HUDLayout.fillFrame(level: 0, islandWidth: width, notchHeight: 38).width, 0)
         XCTAssertEqual(HUDLayout.fillFrame(level: 1.4, islandWidth: width, notchHeight: 38).width, track.width, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.mutedFillOpacity, 0.32)
-        XCTAssertEqual(HUDLayout.fillStartOpacity, 0.82, "amber from 0.82 to 1.0, left to right")
-        XCTAssertEqual(HUDLayout.glowRadius, 5)
-        XCTAssertEqual(HUDLayout.glowOpacity, 0.80)
+        // Flat white, no amber and no glow (owner's review, 2026-10-18).
+        XCTAssertEqual(HUDLayout.levelOpacity, 0.92)
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let shell = (try? String(contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)) ?? ""
+        XCTAssertFalse(shell.contains("hudAmber"))
+        XCTAssertFalse(shell.contains("glowRadius"))
     }
 
     /// The output's name, or what is being brightened.
