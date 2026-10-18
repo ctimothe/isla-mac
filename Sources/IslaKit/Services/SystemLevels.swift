@@ -1,4 +1,5 @@
 import AppKit
+import AudioToolbox
 import CoreAudio
 import CoreGraphics
 import Foundation
@@ -730,13 +731,24 @@ final class SystemLevelWatch: LevelWatching, @unchecked Sendable {
     }
 
     /// The level and the mute, on the wildcard element: the level can live on
-    /// the main control or on the two channels `SystemVolume` averages.
+    /// the main control or on the two channels `SystemVolume` averages. And
+    /// the virtual main volume, which is what the keys read and write first
+    /// (`SystemVolume.Control.virtualMain`): an output that has only that one
+    /// — AirPlay among them — never reported a change made elsewhere, so a
+    /// press stepped from a stale level (R8c review, L3). A device without a
+    /// property refuses its listener, and the refusal is ignored like the
+    /// rest.
     private static var deviceAddresses: [AudioObjectPropertyAddress] {
         [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute].map {
             AudioObjectPropertyAddress(
                 mSelector: $0, mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementWildcard
             )
-        }
+        } + [
+            AudioObjectPropertyAddress(
+                mSelector: AudioObjectPropertySelector(kAudioHardwareServiceDeviceProperty_VirtualMainVolume),
+                mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain
+            ),
+        ]
     }
 
     private static var dataSourceAddress: AudioObjectPropertyAddress {

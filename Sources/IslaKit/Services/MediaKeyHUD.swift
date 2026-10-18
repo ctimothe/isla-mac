@@ -371,12 +371,13 @@ final class MediaKeyHUD: ObservableObject {
         // A hold that heard something lately is a press in progress: renewing
         // now would let its repeats and key-up slip back to macOS. A silent
         // one is a lost key-up; drop it so it cannot veto every opening.
-        if gate.hasHold(heardSince: moment - Self.holdStaleAfter) { return }
-        gate.clearHolds()
+        //
+        // Asked and cleared under one lock: as two steps, a key pressed
+        // between them lost its hold and its repeats went to macOS.
+        guard gate.clearHoldsUnlessHeard(since: moment - Self.holdStaleAfter) else { return }
         guard let created = tapCreatedAt, moment - created >= Self.rebuildInterval else { return }
-        stopTap()
         lastRebuild = moment
-        startTap()
+        renewTap()
     }
 
     /// The display went to sleep, or the Mac locked: stop waiting for a
@@ -627,7 +628,37 @@ final class MediaKeyHUD: ObservableObject {
     // MARK: Tap and poll
 
     private func startTap() {
-        guard tap == nil else { return }
+        guard tap == nil, makeTapRunning() else { return }
+        // Resolved here, once per tap, and never by a press: loading the
+        // brightness frameworks is the slowest thing a key could trigger. This
+        // also reads the levels and starts the listeners that keep them
+        // current; until it returns, `canApply` says no and a key passes.
+        applier.prepare()
+        mirrorGate()
+    }
+
+    /// `panelOpened`'s renewal: a new event tap and nothing else. It used to
+    /// be `stopTap()` then `startTap()`, which also tore down and rebuilt the
+    /// applier — four CoreAudio listeners, the display callback, the keyboard
+    /// brightness client's XPC, a device read — on the main thread in front of
+    /// nearly every opening of the panel (R8c review, M1), and could reset the
+    /// cached level under a write still queued (L1). What the renewal is for
+    /// is a tap that reports itself enabled and hears nothing; the levels and
+    /// their listeners were never the problem.
+    private func renewTap() {
+        tap?.stop()
+        tap = nil
+        tapCreatedAt = nil
+        gate.clearHolds()
+        // No tap, nothing to keep current for: the applier stops with it, as
+        // `stopTap` would have stopped it.
+        if !makeTapRunning() { applier.stop() }
+        mirrorGate()
+    }
+
+    /// Makes and starts an event tap, and keeps it. False when the system
+    /// will not make one.
+    private func makeTapRunning() -> Bool {
         let route = self.route!
         let gate = self.gate
         let created = makeTap(
@@ -650,15 +681,10 @@ final class MediaKeyHUD: ObservableObject {
         )
         // If the system will not make one, nothing is consumed and nothing else
         // changes; the next panel opening tries again.
-        guard created.start() else { return }
+        guard created.start() else { return false }
         tap = created
         tapCreatedAt = now()
-        // Resolved here, once per tap, and never by a press: loading the
-        // brightness frameworks is the slowest thing a key could trigger. This
-        // also reads the levels and starts the listeners that keep them
-        // current; until it returns, `canApply` says no and a key passes.
-        applier.prepare()
-        mirrorGate()
+        return true
     }
 
     private func stopTap() {
@@ -794,6 +820,17 @@ final class MediaKeyGate: @unchecked Sendable {
     /// Whether any hold had an event at or after `moment`.
     func hasHold(heardSince moment: TimeInterval) -> Bool {
         lock.withLock { holds.keys.contains { (lastEvent[$0] ?? -.infinity) >= moment } }
+    }
+
+    /// Clears every hold unless one had an event at or after `moment`, in one
+    /// step under the lock: true when it cleared. See `panelOpened`.
+    func clearHoldsUnlessHeard(since moment: TimeInterval) -> Bool {
+        lock.withLock {
+            guard !holds.keys.contains(where: { (lastEvent[$0] ?? -.infinity) >= moment }) else { return false }
+            holds.removeAll()
+            lastEvent.removeAll()
+            return true
+        }
     }
 
     /// Isla consumes a key **only if it can apply it** (`capable`, the

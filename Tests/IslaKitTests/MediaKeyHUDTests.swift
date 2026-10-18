@@ -403,10 +403,27 @@ final class MediaKeyHUDTests: XCTestCase {
     func testPanelOpenRenewsATapOlderThanFiveSeconds() {
         let hud = hud()
         on(hud)
+        let prepares = applier.prepares, stops = applier.stops
         moment += 10
         hud.panelOpened()
         XCTAssertEqual(taps.created, 2)
         XCTAssertTrue(hud.isTapped)
+        // The tap alone: rebuilding the levels' listeners and clients on the
+        // main thread in front of nearly every opening was the cost (R8c
+        // review, M1), and it could reset a level under a queued write.
+        XCTAssertEqual(applier.prepares, prepares, "the levels are not read again")
+        XCTAssertEqual(applier.stops, stops, "and their listeners stay")
+    }
+
+    func testARenewalTheSystemRefusesStopsTheLevelsWithTheTap() {
+        let hud = hud()
+        on(hud)
+        let stops = applier.stops
+        moment += 10
+        taps.startSucceeds = false
+        hud.panelOpened()
+        XCTAssertFalse(hud.isTapped)
+        XCTAssertEqual(applier.stops, stops + 1, "no tap, nothing to keep current for")
     }
 
     func testPanelOpenMidPressNeverRenewsAndTheHoldStaysConsumedUntilItsKeyUp() {
