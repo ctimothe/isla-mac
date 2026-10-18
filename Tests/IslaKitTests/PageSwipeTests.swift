@@ -8,8 +8,10 @@ import XCTest
 final class PageSwipeTests: XCTestCase {
     typealias Surface = NotchViewModel.Surface
 
-    /// Four pages of the widths the board gives them, so a distance between
-    /// two is half of each.
+    /// Four pages of unequal widths, so a distance between two is half of
+    /// each and the arithmetic shows where widths differ. Not the shipping
+    /// widths: since 2026-10-18 the three tools share the panel's, and a strip
+    /// of equal widths would hide the half-of-each rule.
     private let strip = PageStrip(pages: Surface.pages, widths: [492, 413, 560, 560])
 
     private func context(at position: CGFloat, over: Bool = true) -> PageSwipe.Context {

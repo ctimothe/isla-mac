@@ -306,6 +306,10 @@ struct MediaPane: View {
         var index: Int? { resolution.map { $0.current ?? $0.centre } }
         /// Whether the voice is in that row, which is what sweeps it.
         var isSung: Bool { resolution?.current != nil }
+        /// How far the sweep has lit that row: none of a line still coming.
+        /// The view draws this, not the resolution's own, so what the tests
+        /// pin is what is drawn (review 5, S4).
+        var fraction: Double { isSung ? resolution?.fraction ?? 0 : 0 }
     }
 
     private var sungLine: SungLine {
@@ -337,7 +341,7 @@ struct MediaPane: View {
                 Button(action: openStage) {
                     KaraokeText(
                         text: Self.bandText(of: line),
-                        fraction: resolution.fraction,
+                        fraction: band.fraction,
                         clock: resolution.current.flatMap { current in
                             LyricSweep.liveFraction(
                                 line: line, end: LyricSweep.end(of: current, in: band.lines),

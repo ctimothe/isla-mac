@@ -280,8 +280,9 @@ page a gesture can reach, once per gesture. The stage and Settings sit a level
 below the pages: every page and the stage carry the **gear**, which opens
 Settings; on Settings it is an X (`HeaderGear`) that goes back. When the
 open body shrinks under a pointer that was on it (a dot to a shorter page),
-the body it left holds the panel until the pointer reaches the new one or
-leaves (`PointerWatcher.shrunkFromRect`). A click on the notch's own span of the
+the body it left holds the panel until the pointer reaches the new one,
+leaves, heads away or presses off the panel (`PointerWatcher.shrunkFromRect`;
+the controller's collapse check asks `holdsBeyondBody(at:)`, never a copy). A click on the notch's own span of the
 header row closes the panel. A right-click on the island or the header row opens
 `IslandMenu` (Clipboard, Shelf, Translate Clipboard, lyrics, Settings…, Quit);
 it is the app's only menu, since an `.accessory` app has no menu bar.

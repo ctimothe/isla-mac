@@ -134,6 +134,173 @@ final class PagesOnHardwareTests: XCTestCase {
         XCTAssertTrue(vm.isOpen)
     }
 
+    /// A watcher holding the shrink for rects away from the screen's origin,
+    /// where real ones are: the built-in display's notch sits at its top, and
+    /// (0, 0) is the bottom-left corner.
+    private func heldWatcher(
+        at start: CGPoint, changes: @escaping (Bool) -> Void
+    ) -> (PointerWatcher, (CGPoint) -> Void) {
+        let watcher = PointerWatcher()
+        var point = start
+        watcher.location = { point }
+        watcher.openDelay = 0
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { true }
+        watcher.onChange = changes
+        watcher.closeRect = Self.tallBody
+        watcher.interactiveRect = Self.tallBody
+        watcher.setInside(true)
+        watcher.closeRect = Self.shortBody
+        watcher.interactiveRect = Self.shortBody
+        return (watcher, { point = $0 })
+    }
+
+    private static let tallBody = CGRect(x: 500, y: 600, width: 600, height: 340)
+    private static let shortBody = CGRect(x: 600, y: 700, width: 400, height: 240)
+
+    /// The hold is the body the panel shrank from and nothing more. It began
+    /// as `.zero`, and a union with `.zero` reaches out to the screen's
+    /// origin: on the built-in display the panel then held a pointer anywhere
+    /// left of and below the old body (review 5, S1). Here the pointer leaves
+    /// the old body down and to the left while coming no farther from the new
+    /// one, and the panel folds.
+    func testTheHoldReachesNoFurtherThanTheBodyItShrankFrom() {
+        var changes: [Bool] = []
+        let (watcher, move) = heldWatcher(at: CGPoint(x: 510, y: 610)) { changes.append($0) }
+        defer { watcher.stop() }
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [], "held in the old body's far corner")
+
+        let outside = CGPoint(x: 495, y: 700)
+        XCTAssertFalse(Self.tallBody.contains(outside))
+        move(outside)
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false], "off the old body is off the panel")
+    }
+
+    /// The hold is for a pointer that has not gone anywhere. One that moves
+    /// away from the new body has: inside the old body is now click-through,
+    /// and from Settings back to Music the person could work in the browser
+    /// under it while Music stood open over them (review 5, S3).
+    func testTheHoldEndsWhenThePointerHeadsAway() {
+        var changes: [Bool] = []
+        let (watcher, move) = heldWatcher(at: CGPoint(x: 800, y: 650)) { changes.append($0) }
+        defer { watcher.stop() }
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [])
+
+        let away = CGPoint(x: 560, y: 610)
+        XCTAssertTrue(Self.tallBody.contains(away), "still inside the old body")
+        move(away)
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false], "going away is leaving")
+    }
+
+    /// A pointer on its way up to the new body is held all the way, with 6 pt
+    /// of slack for a hand that trembles, and the new body takes it from
+    /// there.
+    func testThePointerMayHeadForTheNewBody() {
+        var changes: [Bool] = []
+        let (watcher, move) = heldWatcher(at: CGPoint(x: 800, y: 650)) { changes.append($0) }
+        defer { watcher.stop() }
+        for point in [CGPoint(x: 800, y: 680), CGPoint(x: 790, y: 690), CGPoint(x: 800, y: 686)] {
+            move(point)
+            sample(watcher, times: 2)
+        }
+        XCTAssertEqual(changes, [], "closer, closer, and 4 pt back: still on its way")
+
+        move(CGPoint(x: 800, y: 720))
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [], "on the new body")
+        move(CGPoint(x: 800, y: 650))
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false], "and the old body holds nothing after that")
+    }
+
+    /// A press where the old body was is a click in whatever app is under it,
+    /// since that area no longer takes clicks: the person is working there.
+    func testAPressOffThePanelEndsTheHold() {
+        var changes: [Bool] = []
+        let (watcher, _) = heldWatcher(at: CGPoint(x: 800, y: 650)) { changes.append($0) }
+        defer { watcher.stop() }
+        var held = false
+        watcher.buttonsHeld = { held }
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [])
+
+        held = true
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false])
+    }
+
+    /// The controller's own check — the one a dropped keyboard runs 0.6 s
+    /// later — counts the hold too. On Clipboard with the search field
+    /// claimed, Music's dot drops the keyboard; the check found the pointer
+    /// below Music's body and folded the island, the owner's bug by another
+    /// door (review 5, S2).
+    func testADotThatDropsTheKeyboardLeavesThePanelOpen() throws {
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
+        let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
+        let controller = NotchController()
+        controller.attachForTesting(viewModel: vm, rootView: root)
+        vm.isOpen = true
+        vm.turnPage(to: .clipboard)
+        controller.refreshOpenRects(bodySettled: true, animated: false)
+        let content = vm.geometry.contentScreenRect(for: vm.openBodySize)
+        let dot = PageDotsLayout.centres(bodySize: vm.openBodySize)[0]
+        let point = CGPoint(x: content.minX + dot.x, y: content.maxY - dot.y)
+        controller.pointer.location = { point }
+        controller.pointerLocation = { point }
+        controller.pointer.closeDelay = 0
+        defer { controller.pointer.stop() }
+        controller.pointer.setInside(true)
+        controller.pointer.start()
+
+        vm.travel(to: .player, reduceMotion: true)
+        controller.refreshOpenRects(bodySettled: true, animated: false)
+        controller.setKeyboard(false)
+        let settled = expectation(description: "the check has run")
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.pointerAwayCollapseDelay + 0.2) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 3)
+
+        XCTAssertTrue(vm.isOpen, "the panel stays open under the pointer that pressed the dot")
+        XCTAssertTrue(controller.pointer.isInside)
+    }
+
+    /// And leaving after the dot still folds it, wherever the panel sits on
+    /// the screen.
+    func testLeavingAfterADotFoldsThePanel() throws {
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
+        let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
+        let controller = NotchController()
+        controller.attachForTesting(viewModel: vm, rootView: root)
+        vm.isOpen = true
+        vm.turnPage(to: .clipboard)
+        controller.refreshOpenRects(bodySettled: true, animated: false)
+        let content = vm.geometry.contentScreenRect(for: vm.openBodySize)
+        let dot = PageDotsLayout.centres(bodySize: vm.openBodySize)[0]
+        var point = CGPoint(x: content.minX + dot.x, y: content.maxY - dot.y)
+        controller.pointer.location = { point }
+        controller.pointerLocation = { point }
+        controller.pointer.openDelay = 0
+        controller.pointer.closeDelay = 0
+        var changes: [Bool] = []
+        controller.pointer.onChange = { changes.append($0) }
+        defer { controller.pointer.stop() }
+        controller.pointer.setInside(true)
+        controller.pointer.start()
+        vm.travel(to: .player, reduceMotion: true)
+        controller.refreshOpenRects(bodySettled: true, animated: false)
+        for _ in 0..<2 { controller.pointer.start() }
+        XCTAssertEqual(changes, [])
+
+        point = CGPoint(x: content.minX - 200, y: content.minY - 200)
+        for _ in 0..<2 { controller.pointer.start() }
+        XCTAssertEqual(changes, [false])
+    }
+
     // MARK: - One size for the three tools
 
     /// Shelf, Clipboard and Translate share one body at every width and

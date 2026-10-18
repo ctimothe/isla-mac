@@ -1020,15 +1020,21 @@ final class NotchController {
     /// Whether the cursor is standing where the open panel holds itself open
     /// from.
     ///
-    /// The same rects the watcher closes on — the body, and the island the
-    /// panel opened from until the pointer reaches the body — so the answer
-    /// cannot drift from the rule it stands in for. The body alone stopped
-    /// containing the collapsed island in R8, when surfaces took their own
-    /// widths: the peek is wider than the player it opens (R8 review F1).
+    /// The same rule the watcher closes on — the body as drawn and as the
+    /// watcher still has it cut, the island the panel opened from until the
+    /// pointer reaches the body, and the body it shrank from while that holds —
+    /// asked of the watcher, so the answer cannot drift from the rule it stands
+    /// in for. The body alone stopped containing the collapsed island in R8,
+    /// when surfaces took their own widths: the peek is wider than the player
+    /// it opens (R8 review F1). And a copy of the rule without the shrink
+    /// folded the island 0.6 s after a dot to Music had dropped Clipboard's
+    /// keyboard, with the pointer still on the dot (review 5, S2).
     private var pointerIsOnOpenPanel: Bool {
         guard let vm = viewModel else { return false }
         let point = pointerLocation()
-        return vm.geometry.hoverRect(for: vm.openBodySize).contains(point) || pointer.landingRect.contains(point)
+        return vm.geometry.hoverRect(for: vm.openBodySize).contains(point)
+            || pointer.closeRect.contains(point)
+            || pointer.holdsBeyondBody(at: point)
     }
 
     /// Test seam: where the pointer is, in screen coordinates.

@@ -195,6 +195,10 @@ final class PlayerPaneTests: XCTestCase {
         XCTAssertEqual(band(at: 4.5).index, 1, "the same row when it is sung: nothing turns")
         XCTAssertEqual(band(at: 9).index, 1, "the outro holds the last line")
         XCTAssertFalse(band(at: 9).isSung)
+        // What the view sweeps by: nothing of a line the voice is not in.
+        XCTAssertEqual(band(at: 3).fraction, 0)
+        XCTAssertEqual(band(at: 9).fraction, 0)
+        XCTAssertGreaterThan(band(at: 1.5).fraction, 0)
     }
 
     /// Lyric Band off, or Show Lyrics off, never draws the sung line: the

@@ -2507,7 +2507,8 @@ in every pause of a second or two — once after the title, once under it — an
 the line then snapped in when the voice came back. While the band is on, the
 subtitle never falls back to the artist: between lines, before the first and
 after the last it holds the line the voice reaches next (the last line in the
-outro), unswept in white 0.50 — the island caption's rule, `LyricMoment.centre`.
+outro), unswept in white 0.45 (`Theme.playerUnsungOpacity`, the unsung colour
+the band already had) — the island caption's rule, `LyricMoment.centre`.
 When the voice arrives, the sweep starts on the line already there, so a pause
 turns nothing; only a change of line turns. Replaces "Between lines and before
 the first, the subtitle is the artist."
@@ -3057,7 +3058,13 @@ first use on hardware:
   panel folded `closeDelay` later. Now when the body shrinks out from under a
   pointer that was on it, the body it left keeps holding the panel until the
   pointer reaches the new body or leaves the old one. Folding is for leaving,
-  never for the content changing size.
+  never for the content changing size. The hold is for a pointer that has not
+  gone anywhere, since the old body is click-through once it shrinks and an
+  unpinned panel watches no clicks: it also ends when the pointer moves
+  farther from the new body than it has come (6 pt of slack), and on a press
+  off the panel. Every check of "is the pointer on the panel" asks the same
+  rule, the one a dropped keyboard runs 0.6 s later included (adversarial
+  review 5, the same day).
 - **The gear becomes a close button on Settings.** On Settings the gear well
   shows `xmark` 14, labelled "Close Settings", unlit and without the update
   badge (Settings shows the update itself); a click goes back to the page or

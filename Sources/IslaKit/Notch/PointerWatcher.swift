@@ -48,8 +48,9 @@ final class PointerWatcher {
     private(set) var landingRect: CGRect = .zero
 
     /// The open body the panel shrank out of, while the pointer that was on it
-    /// still stands in it: counted as part of `closeRect` until the pointer
-    /// reaches the new body or leaves this one.
+    /// stays in it and has not gone anywhere: counted as part of `closeRect`
+    /// until the pointer reaches the new body, leaves this one, heads away
+    /// from the new body or presses off the panel (`shrinkHolds`).
     ///
     /// The open panel changes size under a pointer that has not moved — a dot
     /// to a shorter page above all. On Clipboard the dots sit 306 pt down;
@@ -58,19 +59,65 @@ final class PointerWatcher {
     /// away (owner, 2026-10-18). Folding is for leaving, never for the content
     /// changing size. Held like `landingRect`: only while the panel is open,
     /// and a forced state lets it go.
+    ///
+    /// `.zero` means nothing is held, and is never a union's starting point:
+    /// `CGRect.union` skips only `.null`, so the first hold once reached from
+    /// the old body to the screen's origin — on the built-in display, every
+    /// point left of and below it (review 5, S1).
     private(set) var shrunkFromRect: CGRect = .zero
+
+    /// The nearest the held pointer has come to the new body since the hold
+    /// began. Coming no farther than this, give or take `shrinkSlack`, is
+    /// standing still or heading for the content; more is going away.
+    private var shrinkNearest: CGFloat = 0
+
+    /// What a hand that is resting or reaching still trembles by.
+    static let shrinkSlack: CGFloat = 6
 
     /// A new `closeRect` that no longer holds a pointer the old one held, on
     /// an open panel the pointer is in: the old one keeps holding it. A shrink
-    /// on top of a shrink keeps everything still held.
+    /// on top of a shrink keeps everything still held, measured afresh against
+    /// the newest body.
     private func noteShrink(from old: CGRect) {
         guard isInside, isPanelOpen() else { return }
         let point = location()
         if closeRect.contains(point) {
             shrunkFromRect = .zero
         } else if old.contains(point) || shrunkFromRect.contains(point) {
-            shrunkFromRect = shrunkFromRect.union(old)
+            shrunkFromRect = shrunkFromRect.isEmpty ? old : shrunkFromRect.union(old)
+            shrinkNearest = Self.distance(from: point, to: closeRect)
         }
+    }
+
+    /// Whether the body the panel shrank from still holds a pointer at
+    /// `point`. Not for long, and not for a pointer that has gone anywhere:
+    /// that area is click-through now, and an unpinned panel watches no
+    /// clicks, so from Settings back to Music a person could work in the
+    /// browser under where Settings was while Music stood open over them
+    /// (review 5, S3). A pointer heading away from the new body, or a press
+    /// off the panel, which is a click in whatever app is under it, ends it.
+    private func shrinkHolds(_ point: CGPoint) -> Bool {
+        guard !shrunkFromRect.isEmpty, shrunkFromRect.contains(point) else { return false }
+        if buttonsHeld(), !interactiveRect.contains(point), !isDragging() { return false }
+        return Self.distance(from: point, to: closeRect) <= shrinkNearest + Self.shrinkSlack
+    }
+
+    /// Whether the open panel counts a pointer at `point` as on it beyond its
+    /// body: the island it opened from, until the pointer first reaches the
+    /// body, and the body it shrank from, while `shrinkHolds`. The controller's
+    /// own check asks this rather than keeping a copy of the rule — it had
+    /// none of the shrink, and a dot that dropped the keyboard folded the
+    /// island 0.6 s later through it (review 5, S2).
+    func holdsBeyondBody(at point: CGPoint) -> Bool {
+        guard isPanelOpen() else { return false }
+        return landingRect.contains(point) || shrinkHolds(point)
+    }
+
+    /// How far `point` is from the nearest edge of `rect`, zero inside it.
+    nonisolated static func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
+        let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
+        return hypot(dx, dy)
     }
 
     /// The closed island as the controller draws it now, in screen
@@ -351,10 +398,17 @@ final class PointerWatcher {
             landingRect = .zero
             shrunkFromRect = .zero
         }
-        let onLanding = isPanelOpen() && landingRect.contains(point)
-        let onShrunkFrom = isPanelOpen() && shrunkFromRect.contains(point)
-        if isInside, !onShrunkFrom { shrunkFromRect = .zero }
-        let inside = isInside ? onBody || onLanding || onShrunkFrom : openRect.contains(point)
+        let onShrunkFrom = isPanelOpen() && shrinkHolds(point)
+        if isInside {
+            // Once ended, a hold stays ended: a pointer that went away and
+            // came back is on the panel by the body or not at all.
+            if onShrunkFrom {
+                shrinkNearest = min(shrinkNearest, Self.distance(from: point, to: closeRect))
+            } else {
+                shrunkFromRect = .zero
+            }
+        }
+        let inside = isInside ? onBody || holdsBeyondBody(at: point) : openRect.contains(point)
 
         // Whether the panel is open and where the pointer is are two separate
         // facts, and only one of them is tracked here. They are supposed to

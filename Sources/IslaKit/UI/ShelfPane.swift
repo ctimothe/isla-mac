@@ -101,7 +101,9 @@ struct ShelfPane: View {
             }
             .frame(
                 width: viewport.width,
-                height: max(viewport.height, ShelfLayout.contentHeight(count: items.count, bodyWidth: bodyWidth)),
+                height: max(viewport.height, ShelfLayout.contentHeight(
+                    count: items.count, bodyWidth: bodyWidth, notice: shelf.notice != nil
+                )),
                 alignment: .topLeading
             )
         }

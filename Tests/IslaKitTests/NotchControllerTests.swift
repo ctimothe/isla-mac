@@ -233,10 +233,11 @@ final class NotchControllerRectTests: XCTestCase {
     /// The body shrinks on the outline's spring (spec §19.3), which overshoots
     /// — inward, on a shrink: past its first crossing the shape is smaller than
     /// the body it is going to, so inside the rect cut for it, and the swing
-    /// back out is a tenth of a point. Held from the closed form over the
-    /// biggest fold a surface change makes — the stage's 400 down to the tray's
-    /// 158, 242 pt: from the hold on, no drawn point lies more than half a
-    /// point outside the smaller rect.
+    /// back out is a tenth of a point. Held from the closed form over a
+    /// 242 pt fold — the stage's 400 down to the tray's old 158, more than any
+    /// surface change makes since the three tools took one size (the stage
+    /// down to the player's 214, 186 pt): from the hold on, no drawn point
+    /// lies more than half a point outside the smaller rect.
     func testTheShrinkHoldOutlastsTheIslandSpring() {
         let omega = 2 * Double.pi / Theme.islandResponse
         let zeta = Theme.islandDamping
@@ -244,8 +245,18 @@ final class NotchControllerRectTests: XCTestCase {
         func progress(_ t: Double) -> Double {
             1 - exp(-zeta * omega * t) * (cos(damped * t) + (zeta * omega / damped) * sin(damped * t))
         }
-        let travel = Double(SurfaceLayout.stageHeight - SurfaceLayout.trayReference.height)
-        XCTAssertEqual(travel, 242)
+        let travel = 242.0
+        for notchHeight in [CGFloat(24), 32, 38] {
+            let heights = NotchViewModel.Surface.allCases.map {
+                SurfaceLayout.bodySize(
+                    for: $0, bodyWidth: 560, notch: CGSize(width: 185, height: notchHeight)
+                ).height
+            }
+            XCTAssertGreaterThanOrEqual(
+                travel, Double(heights.max()! - heights.min()!),
+                "the bound covers every fold there is, notch \(notchHeight)"
+            )
+        }
         for t in stride(from: Theme.expandSettle, through: 3, by: 0.001) {
             // Progress short of 1 is a body still taller than its end.
             let outside = (1 - progress(t)) * travel

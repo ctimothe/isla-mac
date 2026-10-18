@@ -2125,7 +2125,10 @@ Owed on hardware (record the Mac model and macOS version when run):
   обмена, Перевод.
 - [ ] **R8b-H9** On Clipboard, press Music's dot and leave the pointer where
   it is: the panel shrinks to Music and stays open; move up onto Music and
-  back down past it, and it folds. From Settings, the X at the top right goes
+  back down past it, and it folds. Again with the search field clicked first
+  (the keyboard drops with the dot): still open after a second. Again, then
+  move slowly down and left inside where Clipboard was: it folds. From
+  Settings, the X at the top right goes
   back to the page Settings came from, and the gear returns ("Закрыть
   настройки" under VoiceOver in Russian).
 - [ ] **R8b-H10** A song with timed lyrics and pauses of a second or more
@@ -2146,3 +2149,12 @@ holds the coming line, unswept; (5) Shelf, Clipboard and Translate share one
 size, `bw` × 316 (Translate's cards grow to 192; Music and Settings unchanged).
 One exception is kept on purpose: Russian beside a 240 pt notch at Panel Width
 480 keeps the tray 8 wider (488) rather than run Remove All into the notch.
+Codex found nothing in `a166b74`; the Opus review of it (review 5) found the
+hold reaching from the old body to the screen's origin (`CGRect.union` with
+`.zero`), the dropped-keyboard check still folding after a dot, and the hold
+outliving a pointer that went to work under it. All three are fixed test-first
+in `PagesOnHardwareTests`, with its lows: the band sweeps by `SungLine.fraction`,
+a notice on a full grid leaves the last row clear, the spec's unsung opacity
+reads 0.45, and stale test comments are corrected. Accepted: in the outro the
+last line dims back to unsung in place (S5, the island caption's rule; one look
+on hardware under R8b-H10).

@@ -83,6 +83,28 @@ final class ShelfLayoutTests: XCTestCase {
     /// A notice sits under the last row while the grid fits, and at the foot
     /// of the viewport, over the fade, once it scrolls: it never covers a tile
     /// in full view.
+    /// Scrolled to the end, a grid that scrolls lifts its last row clear of
+    /// the notice at the viewport's foot: the notice covered 5.5 pt of tiles
+    /// in full view, exactly when the Shelf was full and a notice said so
+    /// (review 5, S6). A grid that fits gains nothing.
+    func testANoticeNeverCoversTheLastRowScrolledToTheEnd() {
+        let viewport = ShelfLayout.viewport(bodyWidth: 560).height
+        for count in [13, 18, 30, 60] {
+            let content = ShelfLayout.contentHeight(count: count, bodyWidth: 560, notice: true)
+            let lastRow = ShelfLayout.tileFrame(index: count - 1, bodyWidth: 560)
+            let bottomScrolledToEnd = lastRow.maxY - (content - viewport)
+            XCTAssertLessThanOrEqual(
+                bottomScrolledToEnd, ShelfLayout.noticeTop(count: count, bodyWidth: 560), "\(count) files"
+            )
+        }
+        for count in [1, 6, 12] {
+            XCTAssertEqual(
+                ShelfLayout.contentHeight(count: count, bodyWidth: 560, notice: true),
+                ShelfLayout.contentHeight(count: count, bodyWidth: 560), "\(count) files fit"
+            )
+        }
+    }
+
     func testTheNoticeSitsUnderTheGrid() {
         XCTAssertEqual(ShelfLayout.noticeTop(count: 3, bodyWidth: 560), 9.5 + 94 + 1, accuracy: 0.0001)
         XCTAssertEqual(ShelfLayout.noticeTop(count: 12, bodyWidth: 560), 9.5 + 104 + 94 + 1, accuracy: 0.0001)
