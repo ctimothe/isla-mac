@@ -50,8 +50,13 @@ private final class ReadProbe: @unchecked Sendable {
 final class ClipboardPasteboardReadTests: XCTestCase {
     private var board: NSPasteboard!
     private var store: ClipboardStore!
+    private var readsStayOnMain: (() -> Bool)!
 
     override func setUp() async throws {
+        // Another test may leave a window key, which would keep these reads on
+        // the main thread: pin the answer to "no window has the keyboard".
+        readsStayOnMain = PasteboardRead.readsStayOnMain
+        PasteboardRead.readsStayOnMain = { false }
         board = NSPasteboard(name: .init("ClipboardPasteboardReadTests.\(UUID())"))
         store = ClipboardStore(pasteboard: board)
         store.accessBehavior = { .allowed }
@@ -62,6 +67,7 @@ final class ClipboardPasteboardReadTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        PasteboardRead.readsStayOnMain = readsStayOnMain
         board.releaseGlobally()
     }
 
@@ -259,10 +265,47 @@ final class ClipboardPasteboardReadTests: XCTestCase {
         settle { !PasteboardRead.isReading(self.board) }
     }
 
-    func testSettleCostsNothingWhenNothingIsReading() {
+    /// The hazard is two threads in one `NSPasteboard`, so a read of one board
+    /// holds up nobody who asks another. An unconditional wait on the queue
+    /// would make this one wait for the read of the first.
+    func testSettleWaitsOnlyForTheBoardThatIsBeingRead() {
+        let other = NSPasteboard(name: .init("ClipboardPasteboardReadTests.other.\(UUID())"))
+        defer { other.releaseGlobally() }
+        let probe = ReadProbe(holds: true, answers: [png()])
+        store.readPasteboardData = probe.reader
+        board.clearContents()
+        board.setData(png(), forType: .png)
+        store.pollNow()
+        waitForTheReadToBegin(probe)
+
         let begun = Date()
-        for _ in 0..<1_000 { PasteboardRead.settle(board) }
-        XCTAssertLessThan(Date().timeIntervalSince(begun), 0.5)
+        PasteboardRead.settle(other)
+
+        XCTAssertLessThan(Date().timeIntervalSince(begun), 0.1, "the other board was not held up")
+        XCTAssertEqual(probe.finishedReads, 0, "and the read of this one is still running")
+        probe.release.signal()
+        settle { !PasteboardRead.isReading(self.board) }
+    }
+
+    // MARK: AppKit's own calls
+
+    /// With a window holding the keyboard AppKit may ask the pasteboard on the
+    /// main thread by itself (⌘V in the Translate field), which cannot be made
+    /// to wait; the read is the main thread's then, and arrives at once.
+    func testWhileAWindowHoldsTheKeyboardTheReadStaysOnTheMainThread() {
+        PasteboardRead.readsStayOnMain = { true }
+        let probe = ReadProbe(holds: false, answers: [png()])
+        store.readPasteboardData = probe.reader
+        board.clearContents()
+        board.setData(png(), forType: .png)
+
+        store.pollNow()
+        settle { !self.store.items.isEmpty }
+
+        XCTAssertEqual(probe.reads, 1)
+        XCTAssertTrue(probe.anyReadRanOnMain)
+        XCTAssertFalse(PasteboardRead.isReading(board), "nothing is marked as reading: the main thread did it")
+        XCTAssertEqual(store.items.first?.kind, .image)
     }
 
     // MARK: The wait for a picture still on its way
@@ -284,11 +327,11 @@ final class ClipboardPasteboardReadTests: XCTestCase {
 
     // MARK: The one thing the main actor may ask meanwhile
 
-    /// The pattern the rule rests on, under load: a queue reading 4 MB TIFFs
-    /// back to back while the main actor asks for the change counter as fast
-    /// as it can. `types` in its place crashes AppKit; this is the check that a
-    /// future macOS has not taken the counter away too.
-    func testTheChangeCounterCanBeAskedWhileReadsRun() throws {
+    /// The pattern the rule rests on, under load: a queue reading 1 MP TIFFs
+    /// back to back while the main thread calls `changeCount` in bursts of
+    /// thousands. This does not reproduce the hazard, which needs another
+    /// process to land a copy mid-read; it holds the one call the rule allows.
+    func testTheChangeCounterCanBeAskedInBurstsWhileReadsRun() throws {
         let rep = try XCTUnwrap(NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: 1024, pixelsHigh: 1024,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -308,10 +351,14 @@ final class ClipboardPasteboardReadTests: XCTestCase {
             }
         }
         next()
-        settle(until: { _ = self.board.changeCount; asked += 1; return Date() > deadline && !PasteboardRead.isReading(self.board) }, timeout: 4)
+        settle(until: {
+            for _ in 0..<5_000 { _ = self.board.changeCount }
+            asked += 5_000
+            return Date() > deadline && !PasteboardRead.isReading(self.board)
+        }, timeout: 4)
 
         XCTAssertGreaterThan(completed, 10)
-        XCTAssertGreaterThan(asked, 10)
+        XCTAssertGreaterThan(asked, 50_000)
     }
 }
 
@@ -320,18 +367,31 @@ final class ClipboardPasteboardReadTests: XCTestCase {
 /// forgets would be the crash `PasteboardRead` describes, so this test is where
 /// it is caught: adding one means choosing `PasteboardRead.general` or settling.
 final class PasteboardAccessContractTests: XCTestCase {
+    /// The two declarations that hold a pasteboard for later and settle it at
+    /// each use (`ClipboardStore` and `Translator` call `PasteboardRead.settle`).
+    private static let allowed: Set<String> = [
+        "init(pasteboard: NSPasteboard = .general) {",
+        "var pasteboard: NSPasteboard = .general",
+    ]
+
     func testNoOneReachesForTheGeneralPasteboardOutsidePasteboardRead() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/IslaKit")
         let walker = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        // `NSPasteboard.general`, and the shorthand where the type is inferred:
+        // `of: .general`, `pasteboard: ... = .general`.
+        let reaches = try NSRegularExpression(
+            pattern: #"NSPasteboard\.general|of:\s*\.general\b|[Pp]asteboard\w*\s*[:=][^=\n]*(?<!PasteboardRead)\.general\b"#
+        )
         var offenders: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" && url.lastPathComponent != "PasteboardRead.swift" {
             let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
             for (index, line) in lines.enumerated() {
-                let code = line.drop(while: { $0 == " " })
-                if code.hasPrefix("//") { continue }
-                if line.contains("NSPasteboard.general") { offenders.append("\(url.lastPathComponent):\(index + 1)") }
+                let code = line.trimmingCharacters(in: .whitespaces)
+                if code.hasPrefix("//") || code.hasPrefix("*") || code.hasPrefix("/*") || Self.allowed.contains(code) { continue }
+                let range = NSRange(code.startIndex..., in: code)
+                if reaches.firstMatch(in: code, range: range) != nil { offenders.append("\(url.lastPathComponent):\(index + 1)") }
             }
         }
         XCTAssertEqual(offenders, [], "use PasteboardRead.general, or call PasteboardRead.settle(_:) first")

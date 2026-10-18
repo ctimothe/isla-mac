@@ -2251,7 +2251,10 @@ Owed on hardware (record the Mac model and macOS version when run):
   never stutter at the moment of the copy, every picture is in the history and,
   with Save Clipboard Screenshots on, on the Shelf. Copy two pictures within a
   second of each other: the history keeps the second, never only the first.
-  Copy a picture and press ⌘V in the Translate field and ⌥⌘T at once, ten
-  times: no crash (the one reach spec §19.12 says Isla cannot gate). In
+  With the Translate field focused, copy a picture in another app and press
+  ⌘V and ⌥⌘T at once, ten times: no crash (the reach Isla cannot gate; the
+  read stays on the main thread while the field has the keyboard). With Paste
+  from Other Apps set to Ask, copy a screenshot: the alert appears once, Isla
+  stays responsive while it is up, and Allow gives the picture. In
   Instruments, the `pasteboard read` interval (category `clipboard`) sits on a
   background thread and the main thread shows nothing for it.
