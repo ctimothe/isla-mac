@@ -435,9 +435,9 @@ struct NotchContentView: View {
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .top)
-            // Nothing is ever drawn outside the island (owner, 2026-10-18: "it
-            // shouldn't go over the edges of the dynamic island, that's a hard
-            // rule"). The clip used to be square at rest and rounded only
+            // Nothing is ever drawn outside the island (owner, 2026-10-18: no
+            // content may go over the island's edges, "that's a hard rule").
+            // The clip used to be square at rest and rounded only
             // while two pages travelled, so every other motion could leave
             // content outside the outline: a pane removed on a surface change
             // keeps the frame it had while the outline springs to the new
@@ -586,7 +586,7 @@ struct NotchContentView: View {
         // the island from the player's size to Settings' on this 0.18 s
         // ease-out while every other change of size rode the spring, the one
         // motion in the island that moved like something else (owner's
-        // review, 2026-10-18: "treat the dynamic island as one thing"). What
+        // review, 2026-10-18: treat the island as one thing). What
         // the change alone moves — the header's title, the dots — still fades
         // on it; the panes carry their own curves (`Theme.swapIn`/`swapOut`).
         .animation(Theme.paneAnimation, value: vm.presented)
