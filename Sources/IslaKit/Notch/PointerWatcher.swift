@@ -87,7 +87,13 @@ final class PointerWatcher {
             self.pressWatch = nil
         } else if pressWatch == nil {
             pressWatch = watchPressesElsewhere { [weak self] in
-                MainActor.assumeIsolated { self?.shrunkFromRect = .zero }
+                // AppKit hands a global monitor its events on the main thread
+                // in practice, but does not say so; a hop is cheap, and
+                // `assumeIsolated` off the main thread is a trap.
+                let end: @Sendable () -> Void = {
+                    MainActor.assumeIsolated { self?.shrunkFromRect = .zero }
+                }
+                if Thread.isMainThread { end() } else { DispatchQueue.main.async(execute: end) }
             }
         }
     }

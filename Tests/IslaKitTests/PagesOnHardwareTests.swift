@@ -264,7 +264,18 @@ final class PagesOnHardwareTests: XCTestCase {
         sample(watcher, times: 2)
         XCTAssertEqual(changes, [])
 
-        pressed?()
+        // From another thread, which is not promised either way: the hold
+        // ends on the main thread a pass later.
+        let handler = pressed
+        let delivered = expectation(description: "delivered off the main thread")
+        DispatchQueue.global().async {
+            handler?()
+            delivered.fulfill()
+        }
+        wait(for: [delivered], timeout: 2)
+        let drained = expectation(description: "main queue drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 2)
         XCTAssertEqual(removals, 1, "the monitor goes with the hold")
         sample(watcher, times: 2)
         XCTAssertEqual(changes, [false])
