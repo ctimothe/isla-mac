@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import OSLog
 
 /// The seven keys the pop-up replaces (redesign 2026-10-15, spec §12).
 ///
@@ -131,40 +132,56 @@ protocol MediaKeyTapping: AnyObject {
     func stop()
 }
 
-/// What a tap asks its owner for each decoded press: `true` when Isla applied
-/// it and the event must be consumed, `false` to hand it on to the system.
-typealias MediaKeyHandler = @MainActor (MediaKeyPress, MediaKeyModifiers) -> Bool
+/// What a tap asks its owner for each decoded press: `true` when Isla takes
+/// the key and the event must be consumed, `false` to hand it on to the
+/// system.
+///
+/// Called on the tap's own thread, inside the callback, so it must answer from
+/// cached state and return at once (`MediaKeyGate`); it is `@Sendable` and not
+/// main-actor for exactly that reason.
+typealias MediaKeyHandler = @Sendable (MediaKeyPress, MediaKeyModifiers) -> Bool
 
-/// Makes a tap that reports to `handler`. Production passes
-/// `EventMediaKeyTap.live`; tests pass a counting fake.
+/// Makes a tap that reports to `handler`, and calls `disabled` — on the tap's
+/// thread, before the tap is switched back on — when macOS switched it off.
+/// Production passes `EventMediaKeyTap.live`; tests pass a counting fake.
 typealias MediaKeyTapFactory = @MainActor (
-    _ handler: @escaping MediaKeyHandler, _ disabled: @escaping @MainActor @Sendable () -> Void
+    _ handler: @escaping MediaKeyHandler, _ disabled: @escaping @Sendable () -> Void
 ) -> MediaKeyTapping
+
+/// The signposts an Instruments run reads the key path's latency from:
+/// "media key" around the tap's callback, "level write" around the hardware
+/// write. They cost nothing while nobody is recording.
+enum HUDSignpost {
+    static let signposter = OSSignposter(subsystem: Log.subsystem, category: "hud")
+}
 
 /// The real tap: `.cgSessionEventTap`, head-inserted, `.defaultTap` (listen
 /// *and modify*, which is what lets a callback consume an event) over
 /// `NX_SYSDEFINED`.
 ///
-/// The run-loop source goes on the **main** run loop, so the C callback runs on
-/// the main thread and can reach the main actor with `MainActor.assumeIsolated`
-/// rather than hopping a queue — a hop would make the answer to "may the system
-/// have this key?" arrive after the system had already acted on it. The
-/// callback stays minimal: it finds this object and calls `receive`, which
-/// decodes and asks the handler.
+/// **Its run-loop source lives on a thread of its own**, at user-interactive
+/// quality of service, never on the main run loop. It used to sit on the main
+/// loop so the callback could reach the main actor directly — but then every
+/// volume press waited for whatever the main thread was drawing, and while the
+/// Mac was loaded the wait passed macOS's timeout: the tap was disabled, and
+/// the presses until it was re-enabled went to the system's own pop-up. The
+/// callback now answers from cached state (`MediaKeyGate`) and the hardware
+/// write happens later on the applier's queue, so nothing in front of a key
+/// waits on the main thread or on CoreAudio.
+///
+/// The object itself stays main-actor (it is started and stopped from there);
+/// everything the tap's thread touches lives in `MediaKeyTapContext`.
 @MainActor
 final class EventMediaKeyTap: MediaKeyTapping {
+    /// How long `stop()` waits for the tap's thread to leave its run loop. The
+    /// callback never blocks, so this is only ever a bound, not a delay.
+    static let threadExitTimeout: TimeInterval = 1.0
+
     private let handler: MediaKeyHandler
-    private let disabled: @MainActor @Sendable () -> Void
-    private var port: CFMachPort?
-    private var source: CFRunLoopSource?
+    private let disabled: @Sendable () -> Void
+    private var context: MediaKeyTapContext?
 
-    /// Switches the tap back on. A property so a test can watch it without a
-    /// port.
-    var reenable: @MainActor (CFMachPort?) -> Void = { port in
-        if let port { CGEvent.tapEnable(tap: port, enable: true) }
-    }
-
-    init(handler: @escaping MediaKeyHandler, disabled: @escaping @MainActor @Sendable () -> Void = {}) {
+    init(handler: @escaping MediaKeyHandler, disabled: @escaping @Sendable () -> Void = {}) {
         self.handler = handler
         self.disabled = disabled
     }
@@ -177,51 +194,146 @@ final class EventMediaKeyTap: MediaKeyTapping {
         return EventMediaKeyTap(handler: handler, disabled: disabled)
     }
 
-    var isRunning: Bool { port != nil }
+    var isRunning: Bool { context != nil }
 
     var isTapEnabled: Bool {
-        guard let port else { return false }
+        guard let port = context?.port else { return false }
         return CGEvent.tapIsEnabled(tap: port)
     }
 
     @discardableResult
     func start() -> Bool {
-        guard port == nil else { return true }
+        guard context == nil else { return true }
+        let made = MediaKeyTapContext(handler: handler, disabled: disabled)
         let mask: CGEventMask = 1 << CGEventMask(MediaKeyDecoder.systemDefinedType)
-        guard let created = CGEvent.tapCreate(
+        // Unretained: the callback only ever runs on the tap's thread, inside
+        // its run loop, and that thread's closure holds the context strongly
+        // until the loop has ended.
+        guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: mask,
             callback: mediaKeyTapCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
+            userInfo: Unmanaged.passUnretained(made).toOpaque()
         ) else { return false }
-        let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, created, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: created, enable: true)
-        port = created
-        source = runLoopSource
+        made.attach(port: port, source: CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0))
+        let thread = Thread { made.run() }
+        thread.name = "com.ctimothe.isla.media-keys"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        // Microseconds: the thread only adds the source to its loop.
+        made.loopReady.wait()
+        CGEvent.tapEnable(tap: port, enable: true)
+        context = made
         return true
     }
 
     func stop() {
-        guard let port else { return }
-        CGEvent.tapEnable(tap: port, enable: false)
-        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        // Invalidating the port is what releases the keys for good: a disabled
-        // tap is still in the chain.
-        CFMachPortInvalidate(port)
-        self.port = nil
-        source = nil
+        guard let context else { return }
+        self.context = nil
+        context.shutdown()
+        // No thread outlives `stop()`: wait for it to leave its run loop.
+        if context.loopEnded.wait(timeout: .now() + Self.threadExitTimeout) == .timedOut {
+            Log.app.error("media key tap thread did not end within \(Self.threadExitTimeout, privacy: .public) s")
+        }
     }
 
-    /// One event from the callback. `nil` consumes it.
+    deinit {
+        // `stop()` is main-actor; a tap that is deallocated while running has
+        // already lost its owner, so the port is ended and the thread told to
+        // leave without being waited for.
+        context?.shutdown()
+    }
+}
+
+/// What the tap's thread shares with the main actor: the handler, the port,
+/// and the thread's run loop. The handler and `disabled` are immutable and
+/// `@Sendable`; the port, source, run loop and stopping flag are written once
+/// at start and once at shutdown, always under `lock`. The CF calls made on
+/// them from another thread (`CGEvent.tapEnable`, `CFRunLoopStop`,
+/// `CFRunLoopRemoveSource`, `CFMachPortInvalidate`) are documented
+/// thread-safe. That is why `@unchecked Sendable` is safe.
+final class MediaKeyTapContext: @unchecked Sendable {
+    let handler: MediaKeyHandler
+    let disabled: @Sendable () -> Void
+    /// Switches the tap back on. A seam so a test can watch it without a port.
+    let reenable: @Sendable (CFMachPort?) -> Void
+    let loopReady = DispatchSemaphore(value: 0)
+    let loopEnded = DispatchSemaphore(value: 0)
+
+    private let lock = NSLock()
+    // Guarded by `lock`.
+    private var portStorage: CFMachPort?
+    private var source: CFRunLoopSource?
+    private var runLoop: CFRunLoop?
+    private var stopping = false
+
+    init(
+        handler: @escaping MediaKeyHandler, disabled: @escaping @Sendable () -> Void = {},
+        reenable: (@Sendable (CFMachPort?) -> Void)? = nil
+    ) {
+        self.handler = handler
+        self.disabled = disabled
+        self.reenable = reenable ?? { port in
+            if let port { CGEvent.tapEnable(tap: port, enable: true) }
+        }
+    }
+
+    var port: CFMachPort? { lock.withLock { portStorage } }
+
+    func attach(port: CFMachPort, source: CFRunLoopSource?) {
+        lock.withLock {
+            portStorage = port
+            self.source = source
+        }
+    }
+
+    /// The tap's thread: add the source to this thread's loop and run it until
+    /// `shutdown()`.
+    func run() {
+        let loop = CFRunLoopGetCurrent()
+        lock.withLock {
+            runLoop = loop
+            if let source { CFRunLoopAddSource(loop, source, .commonModes) }
+        }
+        loopReady.signal()
+        while !lock.withLock({ stopping }) {
+            // Returns when `shutdown()` stops the loop, or at once when the
+            // source has been removed (`.finished`) — never a spin, because
+            // removal only happens after `stopping` is set.
+            let result = CFRunLoopRunInMode(.defaultMode, 3600, false)
+            if result == .finished { break }
+        }
+        loopEnded.signal()
+    }
+
+    /// Releases the keys for good and tells the thread to leave. Safe from any
+    /// thread, and idempotent.
+    func shutdown() {
+        let (port, source, loop) = lock.withLock { () -> (CFMachPort?, CFRunLoopSource?, CFRunLoop?) in
+            stopping = true
+            let parts = (portStorage, self.source, runLoop)
+            self.source = nil
+            return parts
+        }
+        if let port { CGEvent.tapEnable(tap: port, enable: false) }
+        if let source, let loop { CFRunLoopRemoveSource(loop, source, .commonModes) }
+        // Invalidating the port is what takes the tap out of the chain: a
+        // disabled tap is still in it.
+        if let port { CFMachPortInvalidate(port) }
+        if let loop { CFRunLoopStop(loop) }
+    }
+
+    /// One event from the callback, on the tap's thread. `nil` consumes it.
     func receive(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         let passThrough = Unmanaged.passUnretained(event)
         switch MediaKeyTapDisposition.of(type) {
         case .reenable:
-            reenable(port)
+            // Holds first, then the tap back on: nothing may reach the handler
+            // in between with a hold left over from before the gap.
             disabled()
+            if !lock.withLock({ stopping }) { reenable(port) }
             return passThrough
         case .ignore:
             return passThrough
@@ -232,12 +344,6 @@ final class EventMediaKeyTap: MediaKeyTapping {
             let consumed = handler(press, MediaKeyModifiers(flags: event.flags))
             return consumed ? nil : passThrough
         }
-    }
-
-    deinit {
-        // `stop()` is main-actor; a tap that is deallocated while running has
-        // already lost its owner, so only the port needs ending.
-        if let port { CFMachPortInvalidate(port) }
     }
 }
 
@@ -250,12 +356,15 @@ final class InertMediaKeyTap: MediaKeyTapping {
     func stop() {}
 }
 
-/// The C callback. Nothing here but the hop to the main actor: the run-loop
-/// source is on the main loop, so this already runs on the main thread.
+/// The C callback, on the tap's thread. Nothing here but the signpost and the
+/// hand-off to the context.
 private func mediaKeyTapCallback(
     proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
     guard let refcon else { return Unmanaged.passUnretained(event) }
-    let tap = Unmanaged<EventMediaKeyTap>.fromOpaque(refcon).takeUnretainedValue()
-    return MainActor.assumeIsolated { tap.receive(type: type, event: event) }
+    let context = Unmanaged<MediaKeyTapContext>.fromOpaque(refcon).takeUnretainedValue()
+    let signposter = HUDSignpost.signposter
+    let interval = signposter.beginInterval("media key", id: signposter.makeSignpostID())
+    defer { signposter.endInterval("media key", interval) }
+    return context.receive(type: type, event: event)
 }

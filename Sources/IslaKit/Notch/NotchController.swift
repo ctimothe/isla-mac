@@ -487,6 +487,10 @@ final class NotchController {
         lockPresence.apply(to: panel, locked: false)
         geometryTrace("unlocked")
         withTransaction(Self.cut) { viewModel?.isLockedPresentation = false }
+        // The volume keys' tap reads the lock from a mirror on its own thread;
+        // an unlock with the display still dark resumes nothing below, so say
+        // so here or the keys stay with the system until the wake.
+        stores.hud.lockChanged()
         // The notch frame first, then the collapsed strip's rect; the first
         // pointer sample after unlock re-applies the hover machinery.
         if let vm = viewModel { panel?.setFrame(vm.geometry.windowFrame, display: true) }

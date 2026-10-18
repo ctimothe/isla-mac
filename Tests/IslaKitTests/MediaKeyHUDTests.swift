@@ -66,7 +66,7 @@ final class FakeTap: MediaKeyTapping {
 final class FakeTapFactory {
     private(set) var taps: [FakeTap] = []
     private(set) var handler: MediaKeyHandler?
-    private(set) var disabled: (@MainActor () -> Void)?
+    private(set) var disabled: (@Sendable () -> Void)?
     var startSucceeds = true
 
     var factory: MediaKeyTapFactory {
@@ -143,18 +143,50 @@ final class FakeGrantNotifier: AccessibilityGrantNotifying {
     func post() { for handler in handlers.values { handler() } }
 }
 
-@MainActor
-final class FakeApplier: MediaKeyApplying {
+/// A value two threads can hand each other in a test.
+final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Value
+    init(_ value: Value) { stored = value }
+    var value: Value {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
+}
+
+/// An applier that is a counter. `canApply` answers from `capable`, or from
+/// whether a reading is set; `submit` runs the "write" at once on the calling
+/// thread, or holds it for `flush()` when `holdsWrites` is set, so a test can
+/// see the key answered before anything was applied. Every test drives it from
+/// the main actor (the key path runs inline there), which is why the unchecked
+/// conformance is safe.
+final class FakeApplier: MediaKeyApplying, @unchecked Sendable {
     var reading: HUDReading?
+    var capable: Bool?
+    var holdsWrites = false
     private(set) var applied: [(MediaKey, Bool)] = []
     private(set) var prepares = 0
+    private(set) var stops = 0
+    private var held: [() -> Void] = []
     init(_ reading: HUDReading? = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil)) {
         self.reading = reading
     }
     func prepare() { prepares += 1 }
-    func apply(_ key: MediaKey, fine: Bool) -> HUDReading? {
-        applied.append((key, fine))
-        return reading
+    func stop() { stops += 1 }
+    func canApply(_ key: MediaKey) -> Bool { capable ?? (reading != nil) }
+    func submit(_ key: MediaKey, fine: Bool, deliver: @escaping @Sendable (HUDReading) -> Void) {
+        let write = { [self] in
+            applied.append((key, fine))
+            if let reading { deliver(reading) }
+        }
+        if holdsWrites { held.append(write) } else { write() }
+    }
+    var heldWrites: Int { held.count }
+    /// The queue gets to the writes it was handed.
+    func flush() {
+        let due = held
+        held = []
+        due.forEach { $0() }
     }
 }
 
@@ -176,12 +208,6 @@ final class MediaKeyHUDTests: XCTestCase {
     private var locked = false
     private var sessionAvailable = true
     private var readings: [HUDReading] = []
-    /// Every device the glyph lookup was asked about: the enumerator, counted.
-    private var glyphLookups: [AudioDeviceID] = []
-    private var glyphs: [AudioDeviceID: String] = [42: "airpods.pro"]
-    /// And the name lookup, counted the same way.
-    private var nameLookups: [AudioDeviceID] = []
-    private var names: [AudioDeviceID: String] = [42: "AirPods Pro"]
     private var moment: TimeInterval = 1000
 
     private func hud() -> MediaKeyHUD {
@@ -191,20 +217,12 @@ final class MediaKeyHUDTests: XCTestCase {
             makeTap: taps.factory,
             applier: applier,
             schedule: clock.scheduler,
-            deviceSymbol: { [unowned self] id in
-                self.glyphLookups.append(id)
-                return self.glyphs[id]
-            },
             now: { [unowned self] in self.moment },
             grantNotifier: grants,
             repairer: repair,
             ledger: ledger,
             currentBuildIdentity: { [unowned self] in self.build },
-            sessionIsAvailable: { [unowned self] in self.sessionAvailable },
-            deviceName: { [unowned self] id in
-                self.nameLookups.append(id)
-                return self.names[id]
-            }
+            sessionIsAvailable: { [unowned self] in self.sessionAvailable }
         )
         hud.isLocked = { [unowned self] in self.locked }
         hud.onReading = { [unowned self] in self.readings.append($0) }
@@ -472,18 +490,21 @@ final class MediaKeyHUDTests: XCTestCase {
 
     // MARK: Consuming
 
-    func testAKeyIsConsumedOnlyWhenIslaAppliedIt() {
+    func testAKeyIsConsumedOnlyWhenIslaCanApplyIt() async {
         let hud = hud()
         enabled = true
         trust.trusted = true
         hud.refresh()
 
         XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        await drain()
         XCTAssertEqual(readings.count, 1)
 
         applier.reading = nil
         XCTAssertFalse(hud.handle(down(.brightnessUp), modifiers: .none), "not applicable: the system's")
+        await drain()
         XCTAssertEqual(readings.count, 1, "and nothing is shown for it")
+        XCTAssertEqual(applier.applied.count, 1, "nor written")
     }
 
     func testTheMatchingKeyUpIsSwallowedAndAnUnmatchedOneIsNot() {
@@ -501,7 +522,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertFalse(hud.handle(up(.mute), modifiers: .none), "a passed-through press passes its release")
     }
 
-    func testRepeatsAreActedOnAndFineStepsAreForwarded() {
+    func testRepeatsAreActedOnAndFineStepsAreForwarded() async {
         let hud = hud()
         enabled = true
         trust.trusted = true
@@ -511,6 +532,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(applier.applied.count, 2)
         XCTAssertEqual(applier.applied[0].1, false)
         XCTAssertEqual(applier.applied[1].1, true)
+        await drain()
         XCTAssertEqual(readings.count, 2)
     }
 
@@ -523,7 +545,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(taps.handler?(up(.volumeDown), .none), true)
     }
 
-    func testNothingIsConsumedOrShownWhileTheMacIsLocked() {
+    func testNothingIsConsumedOrShownWhileTheMacIsLocked() async {
         let hud = hud()
         enabled = true
         trust.trusted = true
@@ -535,24 +557,103 @@ final class MediaKeyHUDTests: XCTestCase {
             XCTAssertFalse(hud.handle(up(key), modifiers: .none))
         }
         XCTAssertTrue(applier.applied.isEmpty, "nothing was changed behind the shield")
+        await drain()
         XCTAssertTrue(readings.isEmpty, "nothing is shown")
         locked = false
         XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none), "and it works again on unlock")
     }
 
-    // MARK: The callback does no slow work
+    // MARK: The callback answers before anything is applied (2026-10-18)
 
-    func testAVolumePressAsksNoDeviceEnumeratorInsideTheCallback() async {
+    func testTheKeyIsAnsweredBeforeTheApplierRuns() async {
         let hud = hud()
         on(hud)
-        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil, outputDevice: 42)
-        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
-        XCTAssertTrue(glyphLookups.isEmpty, "zero lookups from handle(...)")
-        XCTAssertTrue(readings.isEmpty, "the pop-up follows once the glyph is known")
+        applier.holdsWrites = true
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none), "consumed from cached state")
+        XCTAssertTrue(applier.applied.isEmpty, "the write has not happened when the tap is answered")
+        XCTAssertEqual(applier.heldWrites, 1, "it waits on the applier's queue")
+        applier.flush()
+        XCTAssertEqual(applier.applied.count, 1)
+        XCTAssertTrue(readings.isEmpty, "the pop-up is one hop to the main actor away")
         await drain()
-        XCTAssertEqual(glyphLookups, [42], "resolved after the callback returned, for the pop-up only")
-        XCTAssertEqual(readings.map(\.deviceSymbol), ["airpods.pro"])
-        XCTAssertEqual(readings.first?.outputDevice, 42)
+        XCTAssertEqual(readings.count, 1)
+    }
+
+    /// The decision is the gate's and the applier's cached answer; what the
+    /// write later does cannot change it.
+    func testTheDecisionDoesNotDependOnTheWrite() async {
+        let hud = hud()
+        on(hud)
+        applier.capable = true
+        applier.reading = nil
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none), "applicable by the cache: consumed")
+        XCTAssertEqual(applier.applied.count, 1)
+        await drain()
+        XCTAssertTrue(readings.isEmpty, "a write that produced nothing shows nothing")
+
+        applier.capable = false
+        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil)
+        XCTAssertFalse(hud.handle(down(.volumeDown), modifiers: .none), "not applicable by the cache: passed")
+        XCTAssertEqual(applier.applied.count, 1, "and never handed to the applier")
+    }
+
+    /// The tap's thread is not the main thread, and the main thread may be
+    /// busy: the handler must answer without it.
+    func testTheTapsHandlerAnswersWithoutTheMainThread() {
+        let hud = hud()
+        on(hud)
+        applier.holdsWrites = true
+        guard let handler = taps.handler else { return XCTFail("no handler") }
+        let answered = DispatchSemaphore(value: 0)
+        let answer = LockedBox<Bool?>(nil)
+        DispatchQueue.global(qos: .userInteractive).async {
+            answer.value = handler(MediaKeyPress(key: .volumeUp, isDown: true, isRepeat: false), .none)
+            answered.signal()
+        }
+        // The main thread is blocked right here; a handler that needed it
+        // would never answer.
+        XCTAssertEqual(answered.wait(timeout: .now() + 2), .success, "answered while the main thread waited")
+        XCTAssertEqual(answer.value, true)
+        XCTAssertEqual(applier.heldWrites, 1)
+    }
+
+    /// The tap's handler reads the lock from the mirror, so the lock path must
+    /// mirror it; the main-actor `handle` mirrors before it asks.
+    func testTheTapsHandlerDecidesFromTheMirroredLock() {
+        let hud = hud()
+        var locked = false
+        hud.isLocked = { locked }
+        on(hud)
+        locked = true
+        XCTAssertEqual(taps.handler?(down(.volumeUp), .none), true, "nothing mirrored the lock yet")
+        XCTAssertEqual(taps.handler?(up(.volumeUp), .none), true)
+        hud.lockChanged()
+        XCTAssertEqual(taps.handler?(down(.volumeUp), .none), false, "mirrored: passed over the lock screen")
+        XCTAssertEqual(taps.handler?(up(.volumeUp), .none), false)
+        locked = false
+        hud.suspend()
+        hud.resume()
+        XCTAssertEqual(taps.handler?(down(.volumeUp), .none), true, "the unlock reaches the mirror too")
+    }
+
+    func testThePopUpCarriesTheApplierLabelInOneHop() async {
+        let hud = hud()
+        on(hud)
+        applier.reading = HUDReading(
+            kind: .volume, level: 0.5, muted: false, deviceSymbol: "airpods.pro", outputDevice: 42,
+            deviceName: "AirPods Pro"
+        )
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        for _ in 0..<5 { _ = hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none) }
+        await drain()
+        XCTAssertEqual(readings.count, 6, "every step, after a single main-queue turn")
+        XCTAssertTrue(readings.allSatisfy { $0.deviceSymbol == "airpods.pro" && $0.deviceName == "AirPods Pro" })
+
+        applier.reading = HUDReading(kind: .display, level: 0.5, muted: false, deviceSymbol: nil)
+        _ = hud.handle(up(.volumeUp), modifiers: .none)
+        XCTAssertTrue(hud.handle(down(.brightnessUp), modifiers: .none))
+        await drain()
+        XCTAssertEqual(readings.last?.kind, .display, "brightness takes the same single hop")
     }
 
     func testNoPopUpFollowsAPressOnceTheMacLocksBeforeTheQueueDrains() async {
@@ -577,56 +678,21 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(readings.isEmpty)
     }
 
-    func testTheRepeatsOfAHeldVolumeKeyReuseTheGlyphAndStayInOrder() async {
+    func testTurningTheFeatureOffStopsTheApplierWithTheTap() {
         let hud = hud()
+        hud.refresh()
+        hud.stop()
+        XCTAssertEqual(applier.stops, 0, "nothing was started, nothing to stop")
         on(hud)
-        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil, outputDevice: 42)
-        _ = hud.handle(down(.volumeUp), modifiers: .none)
-        for _ in 0..<10 { _ = hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none) }
-        await drain()
-        XCTAssertEqual(glyphLookups.count, 1, "one lookup for the hold, none per repeat")
-        XCTAssertEqual(readings.count, 11)
-        XCTAssertTrue(readings.allSatisfy { $0.deviceSymbol == "airpods.pro" })
-
-        // The next press is a new hold and asks again: a headphone jack's data
-        // source changes with the device id unchanged.
-        _ = hud.handle(up(.volumeUp), modifiers: .none)
-        glyphs[42] = "headphones"
-        _ = hud.handle(down(.volumeUp), modifiers: .none)
-        await drain()
-        XCTAssertEqual(glyphLookups.count, 2)
-        XCTAssertEqual(readings.last?.deviceSymbol, "headphones")
-    }
-
-    /// The pop-up names the output it changed (spec §19.5 d). The name is
-    /// found with the glyph — after the callback, once per hold — since it is
-    /// the same CoreAudio enumeration.
-    func testThePopUpNamesTheOutputFoundOncePerHold() async {
-        let hud = hud()
+        XCTAssertEqual(applier.prepares, 1)
+        enabled = false
+        hud.settingChanged(to: false)
+        XCTAssertFalse(hud.isTapped)
+        XCTAssertEqual(applier.stops, 1, "the listeners end with the tap")
         on(hud)
-        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil, outputDevice: 42)
-        _ = hud.handle(down(.volumeUp), modifiers: .none)
-        XCTAssertTrue(nameLookups.isEmpty, "zero lookups from handle(...)")
-        for _ in 0..<5 { _ = hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none) }
-        await drain()
-        XCTAssertEqual(nameLookups, [42], "one lookup for the hold")
-        XCTAssertTrue(readings.allSatisfy { $0.deviceName == "AirPods Pro" })
-
-        _ = hud.handle(up(.volumeUp), modifiers: .none)
-        names[42] = "External Headphones"
-        _ = hud.handle(down(.volumeUp), modifiers: .none)
-        await drain()
-        XCTAssertEqual(nameLookups.count, 2, "a new hold asks again")
-        XCTAssertEqual(readings.last?.deviceName, "External Headphones")
-    }
-
-    func testBrightnessReadingsNeedNoGlyphAndAreShownAtOnce() {
-        let hud = hud()
-        on(hud)
-        applier.reading = HUDReading(kind: .display, level: 0.5, muted: false, deviceSymbol: nil)
-        XCTAssertTrue(hud.handle(down(.brightnessUp), modifiers: .none))
-        XCTAssertEqual(readings.count, 1)
-        XCTAssertTrue(glyphLookups.isEmpty)
+        hud.stop()
+        XCTAssertEqual(applier.stops, 2, "and with the app")
+        XCTAssertEqual(taps.live.count, 0)
     }
 
     func testTheApplierIsPreparedOncePerTapAndNeverByAPress() {
@@ -689,13 +755,14 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(MediaKeyModifiers(flags: [.maskSecondaryFn, .maskCommand]).leavesToTheSystem)
     }
 
-    func testAChordPassedThroughAppliesAndShowsNothing() {
+    func testAChordPassedThroughAppliesAndShowsNothing() async {
         let hud = hud()
         on(hud)
         XCTAssertFalse(hud.handle(down(.volumeUp), modifiers: MediaKeyModifiers(flags: .maskShift)))
         XCTAssertFalse(hud.handle(down(.brightnessDown), modifiers: MediaKeyModifiers(flags: .maskAlternate)))
         XCTAssertFalse(hud.handle(down(.mute), modifiers: MediaKeyModifiers(flags: .maskCommand)))
         XCTAssertTrue(applier.applied.isEmpty)
+        await drain()
         XCTAssertTrue(readings.isEmpty)
     }
 
@@ -710,7 +777,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertFalse(hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none), "now it could apply; it still passes")
         XCTAssertFalse(hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none))
         XCTAssertFalse(hud.handle(up(.volumeUp), modifiers: .none), "and so does its release")
-        XCTAssertEqual(applier.applied.count, 1, "only the first key-down was tried")
+        XCTAssertTrue(applier.applied.isEmpty, "the cache said no, so nothing was ever handed to the applier")
         XCTAssertTrue(readings.isEmpty)
     }
 
@@ -737,15 +804,17 @@ final class MediaKeyHUDTests: XCTestCase {
 
     /// The rule chosen for a lock mid-hold: the hold stays consumed, so its
     /// key-up pairs; nothing changes and nothing is shown while locked.
-    func testALockInTheMiddleOfAConsumedHoldSwallowsTheRepeatsWithoutChangingAnything() {
+    func testALockInTheMiddleOfAConsumedHoldSwallowsTheRepeatsWithoutChangingAnything() async {
         let hud = hud()
         var locked = false
         hud.isLocked = { locked }
         on(hud)
         XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
+        await drain()
         locked = true
         XCTAssertTrue(hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none), "still consumed")
         XCTAssertEqual(applier.applied.count, 1, "no level change while locked")
+        await drain()
         XCTAssertEqual(readings.count, 1, "nothing shown while locked")
         XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: .none), "the release pairs with the swallowed press")
     }
@@ -769,12 +838,13 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: .none))
     }
 
-    func testAHeldMuteDoesNotFlipTheMuteBackAndForth() {
+    func testAHeldMuteDoesNotFlipTheMuteBackAndForth() async {
         let hud = hud()
         on(hud)
         XCTAssertTrue(hud.handle(down(.mute), modifiers: .none))
         for _ in 0..<5 { XCTAssertTrue(hud.handle(down(.mute, isRepeat: true), modifiers: .none), "consumed") }
         XCTAssertEqual(applier.applied.count, 1, "one toggle, however long it is held")
+        await drain()
         XCTAssertEqual(readings.count, 1)
         XCTAssertTrue(hud.handle(up(.mute), modifiers: .none))
     }
