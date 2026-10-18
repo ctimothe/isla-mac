@@ -57,25 +57,37 @@ ctx.setFillColor(CGColor(gray: 1, alpha: 0.8))
 ctx.fill(CGRect(x: 0, y: Double(h) - 1, width: Double(w), height: 1))
 ctx.fill(CGRect(x: 0, y: 0, width: Double(w), height: 1))
 
-// The arrow, between where dmgbuild places the two icons (165 and 495 on x).
-// Finder draws a still picture and nothing else, so the motion is drawn in:
-// two ghost chevrons trail the head, each fainter and further back, the way
-// a long exposure would show the drag the picture asks for.
-let ay = 215.0
-ctx.setLineWidth(2)
+// Three arrows from the app to the folder: one straight through the middle,
+// one arcing over, one arcing under. Finder draws a still picture and nothing
+// else, so the sense of movement comes from the three paths converging.
+// Icons sit at x 165 and 495 (centres, 128 pt), so the arrows run between
+// the app's right edge and the folder's left edge.
+let x0 = 250.0, x1 = 410.0, mid = 210.0
+ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.85))
+ctx.setLineWidth(1.8)
 ctx.setLineCap(.round)
 ctx.setLineJoin(.round)
-func chevron(at x: Double, alpha: CGFloat) {
-    ctx.setStrokeColor(CGColor(gray: 1, alpha: alpha))
-    ctx.move(to: CGPoint(x: x - 16, y: ay + 12)); ctx.addLine(to: CGPoint(x: x, y: ay)); ctx.addLine(to: CGPoint(x: x - 16, y: ay - 12))
+func head(at tip: CGPoint, from dir: CGPoint) {
+    let len = hypot(dir.x, dir.y)
+    let ux = dir.x / len, uy = dir.y / len
+    let size = 11.0, spread = 0.55
+    let l = CGPoint(x: tip.x - size * (ux * cos(spread) - uy * sin(spread)), y: tip.y - size * (uy * cos(spread) + ux * sin(spread)))
+    let r = CGPoint(x: tip.x - size * (ux * cos(spread) + uy * sin(spread)), y: tip.y - size * (uy * cos(spread) - ux * sin(spread)))
+    ctx.move(to: l); ctx.addLine(to: tip); ctx.addLine(to: r)
     ctx.strokePath()
 }
-chevron(at: 328, alpha: 0.22)
-chevron(at: 356, alpha: 0.45)
-ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.9))
-ctx.move(to: CGPoint(x: 270, y: ay)); ctx.addLine(to: CGPoint(x: 390, y: ay))
-ctx.strokePath()
-chevron(at: 390, alpha: 0.9)
+// Middle, straight.
+ctx.move(to: CGPoint(x: x0, y: mid)); ctx.addLine(to: CGPoint(x: x1, y: mid)); ctx.strokePath()
+head(at: CGPoint(x: x1, y: mid), from: CGPoint(x: 1, y: 0))
+// Over and under: quadratic arcs whose heads follow the curve's tangent,
+// which for a quadratic is the line from the control point to the end.
+for sign in [1.0, -1.0] {
+    let start = CGPoint(x: x0, y: mid + 28 * sign)
+    let control = CGPoint(x: (x0 + x1) / 2, y: mid + 88 * sign)
+    let end = CGPoint(x: x1, y: mid + 28 * sign)
+    ctx.move(to: start); ctx.addQuadCurve(to: end, control: control); ctx.strokePath()
+    head(at: end, from: CGPoint(x: end.x - control.x, y: end.y - control.y))
+}
 
 // The one line of copy.
 let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center
