@@ -143,6 +143,15 @@ enum AXProbe {
         of view: V, size: CGSize, settle: TimeInterval = 0.15,
         file: StaticString = #filePath, line: UInt = #line
     ) async -> AXNode {
+        let host = present(view, size: size)
+        return await read(host, settle: settle, file: file, line: line)
+    }
+
+    /// Hosts `view` offscreen and lays it out, without reading it yet: for a
+    /// test that changes what the view shows and reads the tree before and
+    /// after (a surface swapped in an open island), which `tree` — one view,
+    /// one reading — cannot.
+    static func present<V: View>(_ view: V, size: CGSize) -> Host {
         requestEnhancedInterface()
         let window = NSWindow(
             contentRect: NSRect(x: -40_000, y: -40_000, width: size.width, height: size.height),
@@ -156,6 +165,15 @@ enum AXProbe {
         hosting.frame = NSRect(origin: .zero, size: size)
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
+        return Host(window: window, hosting: hosting)
+    }
+
+    /// The tree of a view `present` hosts, as it is `settle` seconds from now.
+    static func read(
+        _ host: Host, settle: TimeInterval = 0.15,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async -> AXNode {
+        let hosting = host.hosting
         // The first question is what makes SwiftUI build the tree, and custom
         // actions are vended only once it is built; the answer is there a
         // run-loop turn later. Asking once and reading at once found an empty
@@ -166,7 +184,6 @@ enum AXProbe {
         await wait(0.02)
         hosting.layoutSubtreeIfNeeded()
 
-        let host = Host(window: window, hosting: hosting)
         let root = walk(hosting, host: host, depth: 0)
         if root.children.isEmpty {
             XCTFail("the accessibility tree came back empty; SwiftUI did not build it offscreen", file: file, line: line)

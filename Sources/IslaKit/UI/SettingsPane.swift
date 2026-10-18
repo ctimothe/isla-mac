@@ -90,6 +90,30 @@ struct SettingsPane: View {
     /// Where switches are read and written: the standard domain in the app, a
     /// test's own suite in a test, so pressing one never reaches the owner's.
     var settingsDefaults: UserDefaults = .standard
+    /// How long after the pane appears its sidebar and form are built, in
+    /// seconds; none draws them with the pane, which is how a test or the
+    /// visual lab sees it. The shell asks for `Theme.swapOutDuration` when the
+    /// pane arrives by a swap, and for none when it comes with the island.
+    ///
+    /// Settings is the heaviest tree any surface builds, and built in the
+    /// frame a swap begins it landed on the frame the island's own motion
+    /// starts in and the old pane leaves in: the morph's costliest, 18–36 ms
+    /// of main-thread CPU against an 8.3 ms slot at 120 Hz (the hitch lab's
+    /// `worstFrameCPUMs`). The arriving pane is transparent until the old one
+    /// has gone (`Theme.swapIn` is delayed by `Theme.swapOutDuration`), so
+    /// building its content then should cost a frame nobody can see, and the
+    /// swap should look as it did (spec §19.3, amended 2026-10-18; R8e-H1 is
+    /// the eye on it). It lowers the worst frame; it does not lower the number
+    /// of frames above three quarters of a slot or the display link's missed
+    /// frames, which the lab found no better and mostly worse (§19.12): the
+    /// cost is split, not removed.
+    var mountsAfter: TimeInterval = SettingsPane.defaultMountDelay
+    static let defaultMountDelay: TimeInterval = 0
+
+    /// True once `mountsAfter` has passed. Per pane, not per surface: every
+    /// arrival builds a new pane, and every arrival waits.
+    @State private var contentMounted = false
+    private var showsContent: Bool { mountsAfter <= 0 || contentMounted }
 
     @State private var flags: [SettingsRowID: Bool] = [:]
     @State private var launchAtLogin = LaunchAtLogin.read()
@@ -298,27 +322,20 @@ struct SettingsPane: View {
 
     var body: some View {
         GeometryReader { proxy in
-            // The content is the body's full width now the rail is gone.
-            let bodyWidth = proxy.size.width
-            // The board's y of 46 less the header row: the content starts
-            // under it on any notch.
-            let top = SettingsLayout.inContent(SettingsLayout.formFrame(bodyWidth: bodyWidth)).minY
-            let formX = SettingsLayout.formLeading
-            let formWidth = SettingsLayout.formWidth(bodyWidth: bodyWidth)
-            ZStack(alignment: .topLeading) {
-                SettingsSidebar(selection: selection, icons: icons)
-                    .offset(x: SettingsLayout.sidebarLeading, y: top)
-                // The hairline between the two, 5 pt past the sidebar.
-                Rectangle()
-                    .fill(Theme.hairline)
-                    .frame(width: 0.5, height: max(0, proxy.size.height - top))
-                    .offset(x: SettingsLayout.dividerLeading, y: top)
-                    .accessibilityHidden(true)
-                form(width: formWidth, narrow: SettingsLayout.isNarrow(bodyWidth: bodyWidth))
-                    .frame(width: formWidth, height: max(0, proxy.size.height - top), alignment: .topLeading)
-                    .offset(x: formX, y: top)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            if showsContent { content(in: proxy) }
+        }
+        // Re-armed if the delay changes under a live pane (the shell's word
+        // for a swap cannot change while a Settings pane is up; a change
+        // from none to a delay would hide the content until it passed).
+        .task(id: mountsAfter) {
+            guard mountsAfter > 0, !contentMounted else { return }
+            try? await Task.sleep(for: .seconds(mountsAfter))
+            guard !Task.isCancelled else { return }
+            // Not animated: the pane's own arrival is the fade, and the
+            // content joins a pane that is already on its way in.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { contentMounted = true }
         }
         // Live state, not a snapshot taken once at launch: System Settings can
         // flip Launch at Login from outside, and the folder can empty or fill
@@ -353,6 +370,32 @@ struct SettingsPane: View {
         .onReceive(accessibilityRepairing) { repairingAccessibility = $0 }
         .onReceive(accessibilityEntrySuspectedStale) { staleAccessibilityEntry = $0 }
         .onReceive(volumeKeysRefused) { keysRefused = $0 }
+    }
+
+    /// The sidebar, its hairline and the form, laid out to the pane's own size.
+    @ViewBuilder
+    private func content(in proxy: GeometryProxy) -> some View {
+        // The content is the body's full width now the rail is gone.
+        let bodyWidth = proxy.size.width
+        // The board's y of 46 less the header row: the content starts
+        // under it on any notch.
+        let top = SettingsLayout.inContent(SettingsLayout.formFrame(bodyWidth: bodyWidth)).minY
+        let formX = SettingsLayout.formLeading
+        let formWidth = SettingsLayout.formWidth(bodyWidth: bodyWidth)
+        ZStack(alignment: .topLeading) {
+            SettingsSidebar(selection: selection, icons: icons)
+                .offset(x: SettingsLayout.sidebarLeading, y: top)
+            // The hairline between the two, 5 pt past the sidebar.
+            Rectangle()
+                .fill(Theme.hairline)
+                .frame(width: 0.5, height: max(0, proxy.size.height - top))
+                .offset(x: SettingsLayout.dividerLeading, y: top)
+                .accessibilityHidden(true)
+            form(width: formWidth, narrow: SettingsLayout.isNarrow(bodyWidth: bodyWidth))
+                .frame(width: formWidth, height: max(0, proxy.size.height - top), alignment: .topLeading)
+                .offset(x: formX, y: top)
+        }
+        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
     }
 
     // MARK: - The form

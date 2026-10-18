@@ -1451,7 +1451,12 @@ struct NotchContentView: View {
                 accessibilityEntrySuspectedStale: vm.accessibilityEntrySuspectedStale,
                 accessibilityRepairing: vm.accessibilityRepairing,
                 volumeKeysRefused: vm.volumeKeysRefused,
-                selection: $vm.settingsSection
+                selection: $vm.settingsSection,
+                // Built once the old pane has gone and this one is still
+                // transparent (`Theme.swapIn` starts then): the heaviest tree
+                // in the island, and the morph's costliest frame when it was
+                // built in the first one (§19.3, 2026-10-18).
+                mountsAfter: vm.arrivedOverAnOpenSurface ? Theme.swapOutDuration : 0
             )
         case .welcome:
             WelcomePane(onDismiss: { vm.dismissWelcome() })

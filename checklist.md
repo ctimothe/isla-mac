@@ -1893,7 +1893,7 @@ ask:
   R10 merges.
 
 Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
-R8-H1…H8, R8b-H1…H10, R8c-H1…H8, R8d-H1…H9, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+R8-H1…H8, R8b-H1…H10, R8c-H1…H8, R8d-H1…H9, R8e-H1…H6, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
 
@@ -2331,3 +2331,53 @@ idle Mac (1–21 of ~120, gaps of 23–159 ms) because Settings' tree is built a
 laid out inside the animating frame. Neither is the outline, and neither is
 changed here; the lab's `surface-change` scenario is the harness for the next
 person (`Scripts/measure-hitches.sh`, `ISLA_HITCH_SCENARIOS=surface-change`).
+
+## R8e — Settings arrives without the frame it cost (2026-10-18)
+
+Built on `feat/redesign-settings-morph`, cut from `feat/redesign-r8d-outline-layer`
+(fec3379). Spec §19.3 and §19.12, amended in place. Settings' sidebar and form
+are built `Theme.swapOutDuration` (0.08 s) after the pane appears — when the old
+pane has gone and the new one is still transparent — instead of in the frame the
+swap begins (`SettingsPane.mountsAfter`, set only by the shell, and only for a
+swap: Settings opened from the shut island is built with the island, because its
+content arrives on `Theme.paneIn`, already a third opaque 0.08 s in). The swap is
+meant to look exactly as it did.
+
+What the lab said, so the next person does not take this for a cure: one test
+bundle, the delay the only difference, player → Settings, on a quiet Mac (load
+average 3–4), medians of three runs — the costliest frame 28.3 → 22.1 ms of
+main-thread CPU at 80 ms (21.7 at 100 ms), the CPU past the slot 15.1 → 13.2 ms
+(10.7), but the frames over three quarters of a slot 1.3 → 3.0 (2.8) and the
+display link's missed frames 3.5 → 10.5 (5.2). Saturated, two rounds, the
+costliest frame and the CPU past the slot fell by more (7 → 2.5–3.4 ms) and the
+missed frames still did not improve; the load was rising through those rounds.
+The cost is split, not removed; the form is ~75 ms of the morph's ~150, and a
+smaller tree is what would remove it. Spec §19.12 has the table and what it does
+not show.
+
+Owed on hardware (record the Mac model and macOS version when run):
+
+- [ ] **R8e-H1** Press the gear from the player, twenty times, then the X: the
+  old pane recedes and is gone, the new one arrives from 0.97 about the top, the
+  island grows underneath it — as on the build before this one, side by side if
+  it is to hand (R8d, `feat/redesign-r8d-outline-layer`). Nothing flashes: no
+  moment where the pane is visible and its sidebar or form is not.
+- [ ] **R8e-H2** With the Mac busy (agents compiling, or `yes > /dev/null` once
+  per core): the same twenty presses of the gear and the X. Compare with R8d on
+  the same Mac. Better, equal or worse? The lab says "worse or equal" on missed
+  frames at 80 ms (see above) and put 100 ms ahead of it on the CPU columns; if
+  the eye agrees with the lab, change the delay (`Theme.swapOutDuration` is what
+  the shell passes; a named constant of its own would be the way to 100 ms) or
+  drop the commit.
+- [ ] **R8e-H3** Open straight onto Settings from the shut island (Open Settings
+  from the menu or its shortcut), and "Lyrics Settings…" / the player's Music
+  Only remedy from the open player (those two are swaps), ten times each. From
+  shut, the form arrives with the island's opening exactly as before; from the
+  player, as the gear does. Never a blank body that fills in late.
+- [ ] **R8e-H4** Reduce Motion on: the gear and the X are the plain fade out and
+  in, in the same order, with the form there as the new pane becomes visible.
+- [ ] **R8e-H5** VoiceOver and the keyboard: after the gear, VoiceOver reads
+  Settings and finds the sidebar and the first switch without a second
+  navigation; Tab from the header reaches the sidebar. Pressing a section in the
+  sidebar changes the form as before (it is not staged).
+- [ ] **R8e-H6** Settings → player, X pressed, twenty times: unchanged from R8d.

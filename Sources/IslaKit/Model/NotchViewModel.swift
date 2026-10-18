@@ -10,6 +10,7 @@ final class NotchViewModel: ObservableObject {
 
     @Published var isOpen = false {
         didSet {
+            if isOpen, !oldValue { arrivedOverAnOpenSurface = false }
             // Opening ends a charger or headphones moment and a track peek
             // (F-033). They were cleared only on sleep and lock, so a panel
             // opened half a second into the 2.2 s moment and closed a second
@@ -254,6 +255,7 @@ final class NotchViewModel: ObservableObject {
     /// first page, and the one the bare notch opens at launch (§19.16).
     @Published var surface: Surface = .player {
         didSet {
+            if surface != oldValue { arrivedOverAnOpenSurface = isOpen }
             // A surface changed by anything but the pages' own turn — the
             // gear, the stage, the menu, a shortcut — puts the pages at rest
             // at once, so the new surface arrives on its own swap rather than
@@ -322,6 +324,21 @@ final class NotchViewModel: ObservableObject {
     /// Where the lit gear on Settings goes back to: the page or the stage
     /// Settings was opened from, by the gear or by the menu.
     private(set) var settingsReturn: Surface?
+
+    /// Whether the surface on screen came in over another one in an island
+    /// that was already open — a swap — and not with the island: what the
+    /// shell asks to decide when a heavy pane may be built. A swap's arriving
+    /// pane is transparent until the old one has gone (`Theme.swapIn`); the
+    /// island opening onto a surface brings its content in on the open's own
+    /// `Theme.paneIn`, which is 35 % opaque by the time the swap's would be
+    /// built, so that arrival is not delayed.
+    ///
+    /// Set where the surface changes, read by the pane for as long as it
+    /// lives, and cleared by the island opening: a reopening onto the surface
+    /// the last swap brought is an opening. Writable for the visual lab, which
+    /// draws still images (no clock to wait for) of a panel it opens by
+    /// setting `isOpen` first.
+    var arrivedOverAnOpenSurface = false
 
     /// What the open island draws: the drop surface while files are dragged
     /// to the notch, the welcome for one launch, and otherwise the surface

@@ -31,7 +31,11 @@ import os
 // What it records, per morph:
 // - The display link's callbacks (one per vsync the main thread was free for,
 //   so a gap is a frame it did not deliver): Apple's hitch time from them.
-// - The main thread's CPU time over the morph.
+// - The main thread's CPU time over the morph, and per frame: the costliest
+//   frame, the frames that took more than three quarters of their slot, and
+//   how much CPU time went past the slot. A wall-clock gap is stretched by
+//   every other process on the Mac; the CPU a frame cost is not, so these are
+//   what two builds are compared on.
 // A scenario blocks the main thread for 50 ms, 120 ms into a morph, to count
 // what a stall costs the frames the main thread owes. What it cannot say is
 // what the *outline* does meanwhile: that is Core Animation's, in the render
@@ -61,9 +65,14 @@ private struct HitchWindow {
 
 @MainActor
 private final class FrameRecorder: NSObject {
-    struct Tick { var timestamp: CFTimeInterval; var target: CFTimeInterval; var ranAt: CFTimeInterval }
+    /// `cpu` is the main thread's CPU time so far, read as the callback runs:
+    /// the difference between two callbacks is the work the main thread did
+    /// for that frame, which the other processes on the Mac cannot inflate the
+    /// way they stretch a gap.
+    struct Tick { var timestamp: CFTimeInterval; var target: CFTimeInterval; var ranAt: CFTimeInterval; var cpu: TimeInterval }
     private(set) var ticks: [Tick] = []
     private var link: CADisplayLink?
+    private let clock = MainThreadClock()
 
     func start(on view: NSView) {
         let link = view.displayLink(target: self, selector: #selector(fire(_:)))
@@ -77,7 +86,9 @@ private final class FrameRecorder: NSObject {
     }
 
     @objc private func fire(_ link: CADisplayLink) {
-        ticks.append(Tick(timestamp: link.timestamp, target: link.targetTimestamp, ranAt: CACurrentMediaTime()))
+        ticks.append(Tick(
+            timestamp: link.timestamp, target: link.targetTimestamp, ranAt: CACurrentMediaTime(), cpu: clock.cpu()
+        ))
     }
 }
 
@@ -435,12 +446,28 @@ final class OutlineHitchLab: VisualLabCase {
             var hitch = 0.0
             var missed = 0
             var worstGap = 0.0
-            for (a, b) in zip(inside, inside.dropFirst()) {
+            // Over every pair of ticks that ends inside the window, like the
+            // CPU below: the change is committed in the turn before the first
+            // tick inside the window, and the gap into that tick holds the
+            // morph's costliest frame. Pairs taken only among the ticks
+            // inside it left that frame out of the missed frames of the
+            // build that has it first and counted it for a build that has
+            // it later (found in review, 2026-10-18).
+            for (a, b) in zip(ticks, ticks.dropFirst()) where b.timestamp >= w.start && b.timestamp <= w.end {
                 let gap = b.timestamp - a.timestamp
                 let late = gap - period
                 if late > period * 0.5 { hitch += late; missed += Int((late / period).rounded()) }
                 worstGap = max(worstGap, gap)
             }
+            // What each frame cost the main thread, and how much of that was
+            // over the frame's slot: the hitch the morph would have on a Mac
+            // with nothing else to do, which is what the code can be blamed for.
+            var frameCPU: [Double] = []
+            for (a, b) in zip(ticks, ticks.dropFirst()) where b.timestamp >= w.start && b.timestamp <= w.end {
+                frameCPU.append(b.cpu - a.cpu)
+            }
+            let overrun = frameCPU.map { max(0, $0 - period) }.reduce(0, +)
+            let heavy = frameCPU.filter { $0 > period * 0.75 }.count
             let span = w.end - w.start
             let lateness = inside.map { max(0, $0.ranAt - $0.timestamp) }
             var sample: [String: Double] = [
@@ -451,6 +478,9 @@ final class OutlineHitchLab: VisualLabCase {
                 "worstGapMs": worstGap * 1000,
                 "worstCallbackLatenessMs": (lateness.max() ?? 0) * 1000,
                 "mainCPUMs": w.cpu * 1000,
+                "worstFrameCPUMs": (frameCPU.max() ?? 0) * 1000,
+                "heavyFrames": Double(heavy),
+                "cpuOverrunMs": overrun * 1000,
             ]
             perStep[w.name, default: []].append(sample)
         }
@@ -468,6 +498,9 @@ final class OutlineHitchLab: VisualLabCase {
                 "meanFrames": mean("frames"),
                 "expectedFrames": mean("expectedFrames"),
                 "meanMainCPUMs": mean("mainCPUMs"),
+                "worstFrameCPUMs": worst("worstFrameCPUMs"),
+                "meanHeavyFrames": mean("heavyFrames"),
+                "meanCPUOverrunMs": mean("cpuOverrunMs"),
             ])
         }
         return ["scenario": scenario, "load": load, "periodMs": period * 1000, "steps": steps]
@@ -480,18 +513,21 @@ final class OutlineHitchLab: VisualLabCase {
     }
 
     private static func table(label: String, results: [[String: Any]]) -> String {
-        var lines = ["", "hitch lab \(label)", String(format: "%-18@ %-9@ %-26@ %8@ %6@ %7@ %8@",
+        var lines = ["", "hitch lab \(label)", String(format: "%-18@ %-9@ %-26@ %8@ %6@ %7@ %8@ %8@ %6@ %8@",
                                                     "scenario" as NSString, "load" as NSString, "step" as NSString,
                                                     "hitch/s" as NSString, "missed" as NSString, "cpu ms" as NSString,
-                                                    "gap ms" as NSString)]
+                                                    "gap ms" as NSString, "worst f" as NSString, "heavy" as NSString,
+                                                    "overrun" as NSString)]
         for result in results {
             for step in (result["steps"] as? [[String: Any]]) ?? [] {
                 lines.append(String(
-                    format: "%-18@ %-9@ %-26@ %8.1f %6.1f %7.0f %8.1f",
+                    format: "%-18@ %-9@ %-26@ %8.1f %6.1f %7.0f %8.1f %8.1f %6.1f %8.1f",
                     (result["scenario"] as? String ?? "") as NSString, (result["load"] as? String ?? "") as NSString,
                     (step["step"] as? String ?? "") as NSString,
                     step["meanHitchMsPerSecond"] as? Double ?? 0, step["meanMissedFrames"] as? Double ?? 0,
-                    step["meanMainCPUMs"] as? Double ?? 0, step["worstGapMs"] as? Double ?? 0
+                    step["meanMainCPUMs"] as? Double ?? 0, step["worstGapMs"] as? Double ?? 0,
+                    step["worstFrameCPUMs"] as? Double ?? 0, step["meanHeavyFrames"] as? Double ?? 0,
+                    step["meanCPUOverrunMs"] as? Double ?? 0
                 ))
             }
         }
