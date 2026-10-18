@@ -42,6 +42,10 @@ struct TranslatePane: View {
     @AppStorage private var speakButton: Bool
 
     @FocusState private var focused: Bool
+    /// Where the editor is scrolled, for the drawn copy that stands in for it
+    /// while the pages travel. A reference nobody observes: reading it costs
+    /// no render.
+    @State private var scrollMemory = EditorScrollMemory()
     /// False while the pane is drawn only as the page beside the one on
     /// screen, for a swipe's length (§19.16): it translates nothing until it
     /// is the page.
@@ -417,6 +421,7 @@ struct TranslatePane: View {
                     )
                 }
             )
+            .background(EditorScrollProbe(memory: scrollMemory))
             // Named, or VoiceOver announced an unnamed text area: the
             // only field in the panel, and nothing said what it was for
             // (F-030).
@@ -442,12 +447,16 @@ struct TranslatePane: View {
     }
 
     /// The source text as the editor draws it, for a travel's length: the
-    /// same face, size, spacing and colour, from the editor's first line.
+    /// same face, size, spacing and colour, scrolled as far as the editor was,
+    /// every line laid out (never truncated to the card) and cut by the card.
     private func standIn(fontSize: CGFloat) -> some View {
         Text(translator.input)
             .font(.system(size: fontSize, weight: .medium))
             .lineSpacing(Self.lineSpacing(size: fontSize))
             .foregroundStyle(.white)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .offset(y: -scrollMemory.offset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .clipped()
             .allowsHitTesting(false)
