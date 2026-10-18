@@ -14,8 +14,18 @@
 # the installed Isla reads exactly as a rehearsal reads its own
 # (UpdateSource.localFeed): a release.json shaped like GitHub's releases/latest
 # and file:// assets confined to the folder. What may be installed does not
-# change: the image must carry the update key's signature, and the staged app
+# change: the image must carry the feed key's signature, and the staged app
 # must be Isla, newer, a greater build and signed as the running copy is.
+#
+# The feed has a key pair of its own, not the release key: the private half in
+# the login keychain as "Isla Dev Update Signing", the public half committed as
+# Resources/update-dev-public-key.txt and put in every build as
+# IslaDevUpdatePublicKey. A copy following the feed trusts that key and only
+# that key (UpdateSignature.trustedKey), so a day of dev builds never reads the
+# release key and a dev build's signature installs nowhere else. Losing it
+# costs one install.sh after a new pair is made:
+#
+#   swift Scripts/update-signing.swift create-key --dev Resources/update-dev-public-key.txt
 #
 # The feed is $ISLA_DEV_FEED, or .dev-updates in the main checkout (git-ignored,
 # 0700). Isla follows it once `defaults read com.ctimothe.isla updates.localFeed`
@@ -40,7 +50,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALLED="/Applications/Isla.app"
-KEY_FILE="$ROOT/Resources/update-public-key.txt"
+KEY_FILE="$ROOT/Resources/update-dev-public-key.txt"
+KEY_SERVICE="Isla Dev Update Signing"
 APP="$ROOT/build/app.noindex/Isla.app"
 DOMAIN="com.ctimothe.isla"
 SETTING="updates.localFeed"
@@ -110,12 +121,13 @@ case "$FEED" in *[!A-Za-z0-9_./-]*) fail "the feed path has characters that do n
 # 3. The installed app, which the new build must be newer than.
 PLIST="$INSTALLED/Contents/Info.plist"
 [ -f "$PLIST" ] || fail "Isla is not installed at $INSTALLED; bootstrap once with: bash Scripts/bundle.sh release && bash Scripts/install.sh"
-security find-generic-password -s "Isla Update Signing" -a ed25519 >/dev/null 2>&1 \
-    || fail "the update signing key is not in the login keychain; run: bash Scripts/make-update-key.sh"
-[ -s "$KEY_FILE" ] || fail "$KEY_FILE is missing; run: bash Scripts/make-update-key.sh"
+MAKE_KEY="swift Scripts/update-signing.swift create-key --dev Resources/update-dev-public-key.txt"
+[ -s "$KEY_FILE" ] || fail "$KEY_FILE is missing; make the feed's key pair with: $MAKE_KEY, commit it, then bootstrap with bundle.sh and install.sh"
+security find-generic-password -s "$KEY_SERVICE" -a ed25519 >/dev/null 2>&1 \
+    || fail "the login keychain has no \"$KEY_SERVICE\" key for $KEY_FILE; restore it, or make a new pair (remove the file, run: $MAKE_KEY), commit it and reinstall once"
 WANT_KEY="$(tr -d '[:space:]' < "$KEY_FILE")"
-HAVE_KEY="$(/usr/libexec/PlistBuddy -c 'Print :IslaUpdatePublicKey' "$PLIST" 2>/dev/null || true)"
-[ "$HAVE_KEY" = "$WANT_KEY" ] || fail "the installed Isla has no matching IslaUpdatePublicKey, so it cannot accept a dev build; bootstrap with bundle.sh and install.sh"
+HAVE_KEY="$(/usr/libexec/PlistBuddy -c 'Print :IslaDevUpdatePublicKey' "$PLIST" 2>/dev/null || true)"
+[ "$HAVE_KEY" = "$WANT_KEY" ] || fail "the installed Isla has no matching IslaDevUpdatePublicKey, so it cannot accept a dev build; bootstrap with bundle.sh and install.sh"
 HAVE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null || true)"
 HAVE_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" 2>/dev/null || true)"
 is_dotted "$HAVE_VERSION" || fail "the installed Isla's version is '$HAVE_VERSION', not dotted numbers"
@@ -200,9 +212,9 @@ mv "$ROOT/build/$IMAGE" "$STAGE/$IMAGE"
 SIZE="$(stat -f %z "$STAGE/$IMAGE")"
 [ "$SIZE" -le $(( 100 * 1024 * 1024 )) ] || fail "the image is $SIZE bytes; Update Now refuses an image over 100 MB"
 
-# 8. Signed with the update key (macOS may ask once to allow the keychain read),
+# 8. Signed with the feed's key (macOS may ask once to allow the keychain read),
 # and checked against the committed public key before anything reaches the feed.
-swift "$ROOT/Scripts/update-signing.swift" sign "$STAGE/$IMAGE" > "$STAGE/$IMAGE.sig"
+swift "$ROOT/Scripts/update-signing.swift" sign --dev "$STAGE/$IMAGE" > "$STAGE/$IMAGE.sig"
 swift "$ROOT/Scripts/update-signing.swift" verify "$KEY_FILE" "$STAGE/$IMAGE" "$STAGE/$IMAGE.sig" >/dev/null \
     || fail "the signature does not verify against $KEY_FILE"
 SIG_SIZE="$(stat -f %z "$STAGE/$IMAGE.sig")"

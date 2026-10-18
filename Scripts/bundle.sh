@@ -147,6 +147,20 @@ else
     echo "==> no update key (Resources/update-public-key.txt): Update Now offers only the download page" >&2
 fi
 
+# The local update feed's key (publish-dev-update.sh), a pair of its own so dev
+# builds never read the release key. Only a copy following the feed
+# (updates.localFeed) trusts it, and it trusts nothing else there
+# (UpdateSignature.trustedKey).
+DEV_KEY_FILE="$ROOT/Resources/update-dev-public-key.txt"
+if [ -s "$DEV_KEY_FILE" ]; then
+    DEV_KEY="$(tr -d '[:space:]' < "$DEV_KEY_FILE")"
+    [ "$(printf '%s' "$DEV_KEY" | base64 -D 2>/dev/null | wc -c | tr -d ' ')" = 32 ] || {
+        echo "!!! $DEV_KEY_FILE is not a 32-byte base64 Ed25519 public key" >&2
+        exit 1
+    }
+    /usr/libexec/PlistBuddy -c "Add :IslaDevUpdatePublicKey string $DEV_KEY" "$APP/Contents/Info.plist" >/dev/null
+fi
+
 for asset in "$ICON" "$ICON_CATALOG"; do
     if [ ! -f "$asset" ]; then
         echo "missing app icon: $asset (rebuild it with Scripts/make-app-icon.sh)" >&2

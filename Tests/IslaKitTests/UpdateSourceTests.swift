@@ -189,6 +189,24 @@ final class UpdateSourceTests: XCTestCase {
         XCTAssertNil(UpdateEnvironment.live().rehearsal, "a test run follows GitHub")
     }
 
+    /// The local feed is signed with a key of its own (`IslaDevUpdatePublicKey`,
+    /// the keychain's "Isla Dev Update Signing"), so a day of dev builds never
+    /// reads the release key, and a dev build's signature installs nowhere but
+    /// from the feed. GitHub and a rehearsal keep the release key; the feed
+    /// never falls back to it, so a build without the dev key offers only its
+    /// page there.
+    func testTheLocalFeedTrustsTheDevKeyAndNothingElse() throws {
+        let feed = try folder()
+        func key(_ source: UpdateSource, dev: String? = "DEV") -> String? {
+            UpdateSignature.trustedKey(for: source, release: "RELEASE", dev: dev)
+        }
+        XCTAssertEqual(key(.github), "RELEASE")
+        XCTAssertEqual(key(.rehearsal(feed)), "RELEASE", "rehearse-update.sh signs with the release key")
+        XCTAssertEqual(key(.localFeed(feed)), "DEV")
+        XCTAssertNil(key(.localFeed(feed), dev: nil), "never the release key on the feed")
+        XCTAssertNil(UpdateSignature.bundledDevPublicKey, "the test host carries no key")
+    }
+
     /// The card says where its updates come from whenever it is not GitHub.
     func testTheCardSaysWhenUpdatesComeFromTheLocalFeed() {
         func note(rehearsal: Bool = false, localFeed: Bool = false) -> String? {

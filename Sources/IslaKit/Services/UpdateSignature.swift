@@ -20,6 +20,29 @@ enum UpdateSignature {
         Bundle.main.infoDictionary?["IslaUpdatePublicKey"] as? String
     }
 
+    /// The local feed's key (`IslaDevUpdatePublicKey`, from
+    /// `Resources/update-dev-public-key.txt`), or nil for a build made without
+    /// one.
+    nonisolated static var bundledDevPublicKey: String? {
+        Bundle.main.infoDictionary?["IslaDevUpdatePublicKey"] as? String
+    }
+
+    /// The key an update from `source` must be signed with. The local feed
+    /// has a key of its own: `Scripts/publish-dev-update.sh` signs a build
+    /// after every change, and on the release key that was a read of the one
+    /// secret every installed Isla trusts, many times a day, for builds no one
+    /// else should ever be able to install (review, 2026-10-19). With its own
+    /// key a dev build's signature is worth nothing outside the feed, and the
+    /// feed never falls back to the release key — a build without the dev key
+    /// offers only the page there. GitHub and a rehearsal
+    /// (`Scripts/rehearse-update.sh`) keep the release key.
+    nonisolated static func trustedKey(for source: UpdateSource, release: String?, dev: String?) -> String? {
+        switch source {
+        case .github, .rehearsal: return release
+        case .localFeed: return dev
+        }
+    }
+
     /// Whether `key` is the base64 of 32 bytes, which is all an Ed25519 public
     /// key is. A build whose key is anything else cannot verify an update and
     /// so does not offer to install one.

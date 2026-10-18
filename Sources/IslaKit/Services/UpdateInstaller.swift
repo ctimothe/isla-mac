@@ -70,7 +70,8 @@ protocol UpdateRelaunching {
 struct UpdateEnvironment {
     /// The running app: `Bundle.main.bundleURL`.
     var installedURL: URL
-    /// The base64 public key of this build, if it was built with one.
+    /// The base64 public key updates from this run's source must be signed
+    /// with (`UpdateSignature.trustedKey`), if this build carries it.
     var publicKey: String?
     var processID: Int32
     /// Bytes available for important use on the volume of `url`, nil if unknown.
@@ -96,7 +97,10 @@ struct UpdateEnvironment {
         let scratch = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return UpdateEnvironment(
             installedURL: Bundle.main.bundleURL,
-            publicKey: UpdateSignature.bundledPublicKey,
+            publicKey: UpdateSignature.trustedKey(
+                for: UpdateSource.current,
+                release: UpdateSignature.bundledPublicKey, dev: UpdateSignature.bundledDevPublicKey
+            ),
             processID: ProcessInfo.processInfo.processIdentifier,
             availableCapacity: { url in
                 (try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?

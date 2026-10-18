@@ -14,6 +14,12 @@
 //   swift Scripts/update-signing.swift verify <public-key-file> <file> <signature-file>
 //       exits 0 when the signature is valid, 1 when it is not
 //
+// With --dev, create-key and sign use the local update feed's own key instead
+// (service "Isla Dev Update Signing"), which publish-dev-update.sh signs every
+// dev build with: a day of dev builds then never reads the release key, and a
+// dev build's signature installs nowhere but from the feed
+// (UpdateSignature.trustedKey).
+//
 // The private key never appears on a command line, where `ps` would show it to
 // every process on the Mac: it goes from CryptoKit into the keychain inside this
 // process, and comes back out the same way (or on stdin, for tests). The app checks the same signature
@@ -23,7 +29,8 @@ import CryptoKit
 import Foundation
 import Security
 
-let service = "Isla Update Signing"
+let isDev = CommandLine.arguments.dropFirst().contains("--dev")
+let service = isDev ? "Isla Dev Update Signing" : "Isla Update Signing"
 let account = "ed25519"
 
 func fail(_ message: String, code: Int32 = 2) -> Never {
@@ -58,7 +65,7 @@ func keychainKey() -> String? {
     return String(decoding: data, as: UTF8.self)
 }
 
-let arguments = Array(CommandLine.arguments.dropFirst())
+let arguments = Array(CommandLine.arguments.dropFirst().filter { $0 != "--dev" })
 switch arguments.first {
 case "generate":
     let key = Curve25519.Signing.PrivateKey()
@@ -67,14 +74,14 @@ case "generate":
 
 case "create-key":
     guard arguments.count == 2 else { fail("usage: create-key <public-key-file>") }
-    if keychainKey() != nil { fail("the login keychain already holds an update signing key") }
+    if keychainKey() != nil { fail("the login keychain already holds \"\(service)\"") }
     let key = Curve25519.Signing.PrivateKey()
     let item: [CFString: Any] = [
         kSecClass: kSecClassGenericPassword,
         kSecAttrService: service,
         kSecAttrAccount: account,
         kSecAttrLabel: service,
-        kSecAttrDescription: "Ed25519 private key",
+        kSecAttrDescription: isDev ? "Ed25519 private key, local update feed" : "Ed25519 private key",
         kSecValueData: Data(key.rawRepresentation.base64EncodedString().utf8),
     ]
     let status = SecItemAdd(item as CFDictionary, nil)
@@ -93,7 +100,9 @@ case "sign":
         keyText = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
     } else {
         guard let stored = keychainKey() else {
-            fail("no update signing key in the login keychain; run Scripts/make-update-key.sh")
+            fail(isDev
+                ? "no \"\(service)\" key in the login keychain; publish-dev-update.sh says how to make one"
+                : "no update signing key in the login keychain; run Scripts/make-update-key.sh")
         }
         keyText = stored
     }
@@ -125,5 +134,5 @@ case "verify":
     print("signature ok")
 
 default:
-    fail("usage: update-signing.swift generate | sign <file> | verify <public-key-file> <file> <signature-file>")
+    fail("usage: update-signing.swift generate | [--dev] create-key <public-key-file> | [--dev] sign <file> | verify <public-key-file> <file> <signature-file>")
 }
