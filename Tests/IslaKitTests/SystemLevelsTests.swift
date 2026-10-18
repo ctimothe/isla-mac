@@ -7,9 +7,10 @@ import XCTest
 
 /// A volume that is a value: no device, no CoreAudio. It models the one thing
 /// that makes the real one dangerous — the default output can change between a
-/// read and a write.
-@MainActor
-final class FakeVolumeOutput: VolumeOutput {
+/// read and a write. Unchecked-sendable: a test drives it from one thread at
+/// a time (the main actor, or the applier's queue while the main actor waits
+/// on an expectation).
+final class FakeVolumeOutput: VolumeOutput, @unchecked Sendable {
     /// nil is an output with no volume Isla can set.
     var state: (level: Float, muted: Bool)?
     /// What `AudioOutputs.current()` would answer now.
@@ -20,6 +21,8 @@ final class FakeVolumeOutput: VolumeOutput {
     var writeSucceeds = true
     private(set) var writes: [(device: AudioDeviceID, level: Float, muted: Bool)] = []
     private(set) var reads = 0
+    /// Whether each write ran on the main thread.
+    private(set) var writesOnMain: [Bool] = []
 
     init(level: Float = 0.5, muted: Bool = false, device: AudioDeviceID = 42) {
         state = (level, muted)
@@ -37,6 +40,7 @@ final class FakeVolumeOutput: VolumeOutput {
     func write(level: Float, muted: Bool, from old: VolumeState) -> VolumeWriteResult {
         guard defaultDevice == old.device else { return .deviceChanged }
         writes.append((old.device, level, muted))
+        writesOnMain.append(Thread.isMainThread)
         guard writeSucceeds else { return .failed }
         state = (level, muted)
         return .written
@@ -46,8 +50,9 @@ final class FakeVolumeOutput: VolumeOutput {
 final class FakeDisplayClient: DisplayBrightnessClient {
     var value: Float
     var sets: [(Float, CGDirectDisplayID)] = []
+    private(set) var reads = 0
     init(_ value: Float) { self.value = value }
-    func brightness(of display: CGDirectDisplayID) -> Float? { value }
+    func brightness(of display: CGDirectDisplayID) -> Float? { reads += 1; return value }
     func setBrightness(_ new: Float, of display: CGDirectDisplayID) -> Bool {
         sets.append((new, display))
         value = new
@@ -81,6 +86,23 @@ final class FakeKeyboardResolver: KeyboardBrightnessResolver {
     private(set) var resolves = 0
     init(client: KeyboardBrightnessClient?) { self.client = client }
     func resolve() -> KeyboardBrightnessClient? { resolves += 1; return client }
+}
+
+/// The applier's listeners, as a counter. `fire` delivers an event at once on
+/// the calling thread, where the real watch delivers it on the applier's
+/// queue; it keeps firing after `stop()` so a test can play a late event.
+final class FakeLevelWatch: LevelWatching, @unchecked Sendable {
+    private(set) var starts = 0
+    private(set) var stops = 0
+    private(set) var followed: [AudioDeviceID?] = []
+    private var events: (@Sendable (LevelEvent) -> Void)?
+    func start(on queue: DispatchQueue, events: @escaping @Sendable (LevelEvent) -> Void) {
+        starts += 1
+        self.events = events
+    }
+    func follow(_ device: AudioDeviceID?) { followed.append(device) }
+    func stop() { stops += 1 }
+    func fire(_ event: LevelEvent) { events?(event) }
 }
 
 /// The step arithmetic and the applier (spec §12). No test here reads or
@@ -149,16 +171,24 @@ final class SystemLevelsTests: XCTestCase {
         return DisplayTopology(builtIn: builtIn, active: [builtIn], main: builtIn)
     }
 
+    private let watch = FakeLevelWatch()
+    private let clock = LockedBox<TimeInterval>(100)
+
     private func applier(
         volume: FakeVolumeOutput = FakeVolumeOutput(),
         display: DisplayBrightnessClient? = nil, builtIn: CGDirectDisplayID? = 1,
-        keyboard: KeyboardBrightnessClient? = nil
+        keyboard: KeyboardBrightnessClient? = nil,
+        describe: (@Sendable (AudioDeviceID) -> DeviceLabel)? = nil
     ) -> SystemLevelApplier {
-        SystemLevelApplier(
+        let clock = clock
+        return SystemLevelApplier(
             volume: volume,
             displays: FakeDisplayResolver(client: display),
             topology: { [self] in lone(builtIn) },
-            keyboards: FakeKeyboardResolver(client: keyboard)
+            keyboards: FakeKeyboardResolver(client: keyboard),
+            watch: watch,
+            describe: describe ?? { _ in DeviceLabel() },
+            now: { clock.value }
         )
     }
 
@@ -204,17 +234,21 @@ final class SystemLevelsTests: XCTestCase {
         let volume = FakeVolumeOutput()
         volume.state = nil
         let sut = applier(volume: volume)
+        sut.prepare()
         for key in [MediaKey.volumeUp, .volumeDown, .mute] {
+            XCTAssertFalse(sut.canApply(key), "\(key) is passed by the tap")
             XCTAssertNil(sut.apply(key, fine: false), "\(key) is not Isla's to take")
         }
         XCTAssertTrue(volume.writes.isEmpty)
     }
 
-    func testAWriteTheDeviceRefusesIsNotConsumed() {
+    func testAWriteTheDeviceRefusesShowsNothingAndRereadsTheDevice() {
         let volume = FakeVolumeOutput()
         volume.writeSucceeds = false
-        XCTAssertNil(applier(volume: volume).apply(.volumeUp, fine: false),
-                     "a key whose effect did not land is the system's, which has another way to try")
+        let sut = applier(volume: volume)
+        sut.prepare()
+        XCTAssertNil(sut.apply(.volumeUp, fine: false), "a key whose effect did not land shows no pop-up")
+        XCTAssertEqual(volume.reads, 2, "the cache is unsure of the device after a refusal, so it reads once")
     }
 
     // MARK: Display brightness
@@ -226,7 +260,10 @@ final class SystemLevelsTests: XCTestCase {
                        HUDReading(kind: .display, level: 0.5625, muted: false, deviceSymbol: nil))
         XCTAssertEqual(client.sets.last?.1, 7, "the built-in display, by its id")
         XCTAssertEqual(sut.apply(.brightnessDown, fine: true)?.level, 0.546875)
+        // Auto-brightness took it to black meanwhile; after a pause the level
+        // is read again rather than trusted.
         client.value = 0
+        clock.value += SystemLevelApplier.levelTrustedFor + 0.5
         XCTAssertEqual(sut.apply(.brightnessDown, fine: false)?.level, 0, "clamped at black")
     }
 
@@ -271,27 +308,175 @@ final class SystemLevelsTests: XCTestCase {
 
     // MARK: The output device is latched across a press
 
-    /// AirPods connecting between the read and the write: the level worked out
-    /// from the speakers must not be written to the headphones.
-    func testADefaultOutputThatChangesBetweenReadAndWriteIsNeverWrittenTo() {
+    /// AirPods connecting after the level was cached and before its listener
+    /// ran: the level worked out from the speakers must not be written to the
+    /// headphones. The key was already consumed, so it is stepped from the new
+    /// device's own level and lands there.
+    func testADefaultOutputThatChangesUnderThePressIsSteppedFromItsOwnLevel() {
         let volume = FakeVolumeOutput(level: 0.9, device: 1)
         volume.switchDefaultAfterRead = 2
         let sut = applier(volume: volume)
-        XCTAssertNil(sut.apply(.volumeDown, fine: false), "passed through: the system handles the new device")
-        XCTAssertTrue(volume.writes.isEmpty, "neither the old device nor the new one was written")
-        XCTAssertEqual(volume.defaultDevice, 2)
-
-        // The next press starts from the new device and lands on it.
+        sut.prepare()
+        volume.state = (0.25, false)   // the headphones' own level
         let reading = sut.apply(.volumeDown, fine: false)
         XCTAssertEqual(reading?.outputDevice, 2)
+        XCTAssertEqual(reading?.level, 0.1875, "stepped from the headphones' level, not the speakers' 0.9")
+        XCTAssertEqual(volume.writes.map(\.device), [2], "the old device was never written")
+        XCTAssertEqual(watch.followed.last, 2, "and the listeners moved to it")
+    }
+
+    func testAMuteThatStraddlesADeviceChangeLandsOnTheNewDevice() {
+        let volume = FakeVolumeOutput(level: 0.5, device: 1)
+        volume.switchDefaultAfterRead = 2
+        let sut = applier(volume: volume)
+        sut.prepare()
+        XCTAssertEqual(sut.apply(.mute, fine: false)?.outputDevice, 2)
         XCTAssertEqual(volume.writes.map(\.device), [2])
     }
 
-    func testAMuteThatStraddlesADeviceChangeIsPassedThroughToo() {
-        let volume = FakeVolumeOutput(level: 0.5, device: 1)
-        volume.switchDefaultAfterRead = 2
-        XCTAssertNil(applier(volume: volume).apply(.mute, fine: false))
-        XCTAssertTrue(volume.writes.isEmpty)
+    // MARK: The cache the tap decides from and the queue writes from (2026-10-18)
+
+    func testCanApplyAnswersFromTheCacheAndNothingElse() {
+        let volume = FakeVolumeOutput()
+        let display = FakeDisplayClient(0.5)
+        let sut = applier(volume: volume, display: display, keyboard: nil)
+        for key in MediaKey.allCases {
+            XCTAssertFalse(sut.canApply(key), "\(key): nothing is applicable before the tap's prepare")
+        }
+        sut.prepare()
+        let reads = volume.reads
+        XCTAssertTrue(sut.canApply(.volumeUp))
+        XCTAssertTrue(sut.canApply(.mute))
+        XCTAssertTrue(sut.canApply(.brightnessDown))
+        XCTAssertFalse(sut.canApply(.keyboardBrightnessUp), "no backlight client")
+        XCTAssertEqual(volume.reads, reads, "asking reads no hardware")
+        XCTAssertEqual(display.reads, 0)
+
+        // The output became one with no settable volume; its listener says so.
+        volume.state = nil
+        watch.fire(.volume)
+        XCTAssertFalse(sut.canApply(.volumeUp))
+    }
+
+    func testAHeldVolumeKeyStepsFromTheCacheWithoutAReadBeforeEachWrite() {
+        let volume = FakeVolumeOutput(level: 0.5)
+        let sut = applier(volume: volume)
+        sut.prepare()
+        XCTAssertEqual(volume.reads, 1, "one read when the tap starts")
+        for _ in 0..<3 { _ = sut.apply(.volumeUp, fine: false) }
+        XCTAssertEqual(volume.reads, 1, "no read in front of any of the three writes")
+        XCTAssertEqual(volume.writes.map(\.level), [0.5625, 0.625, 0.6875])
+    }
+
+    func testSubmitWritesOnTheQueueInOrderAndDelivers() {
+        let volume = FakeVolumeOutput(level: 0.5)
+        let sut = applier(volume: volume)
+        sut.prepare()
+        let delivered = LockedBox<[Float]>([])
+        let done = expectation(description: "three readings")
+        done.expectedFulfillmentCount = 3
+        for _ in 0..<3 {
+            sut.submit(.volumeUp, fine: false) { reading in
+                delivered.value.append(reading.level)
+                done.fulfill()
+            }
+        }
+        wait(for: [done], timeout: 2)
+        XCTAssertEqual(delivered.value, [0.5625, 0.625, 0.6875], "in order")
+        XCTAssertEqual(volume.writesOnMain, [false, false, false], "every write on the applier's queue")
+        XCTAssertEqual(volume.reads, 1, "from the cached level")
+    }
+
+    func testAVolumeChangedElsewhereReachesTheCacheThroughItsListener() {
+        let volume = FakeVolumeOutput(level: 0.5)
+        let sut = applier(volume: volume)
+        sut.prepare()
+        volume.state = (0.25, true)   // the menu bar slider, then mute
+        watch.fire(.volume)
+        let reading = sut.apply(.volumeUp, fine: false)
+        XCTAssertEqual(reading?.level, 0.3125)
+        XCTAssertEqual(reading?.muted, false, "volume up unmutes, from the cached mute")
+    }
+
+    func testTheDeviceLabelIsFoundOncePerDeviceAndRefreshedByItsListeners() {
+        let volume = FakeVolumeOutput(level: 0.5, device: 42)
+        let lookups = LockedBox<[AudioDeviceID]>([])
+        let symbol = LockedBox("laptopcomputer")
+        let sut = applier(volume: volume) { id in
+            lookups.value.append(id)
+            return DeviceLabel(symbol: id == 42 ? symbol.value : "airpods.pro", name: "Device \(id)")
+        }
+        sut.prepare()
+        XCTAssertEqual(lookups.value, [42], "found when the tap starts")
+        for _ in 0..<10 {
+            let reading = sut.apply(.volumeUp, fine: false)
+            XCTAssertEqual(reading?.deviceSymbol, "laptopcomputer")
+            XCTAssertEqual(reading?.deviceName, "Device 42")
+        }
+        XCTAssertEqual(lookups.value, [42], "no lookup for any press")
+
+        // Headphones into the jack: same device id, new data source.
+        symbol.value = "headphones"
+        watch.fire(.dataSource)
+        XCTAssertEqual(sut.apply(.volumeDown, fine: false)?.deviceSymbol, "headphones")
+
+        // AirPods become the default output.
+        volume.defaultDevice = 7
+        watch.fire(.defaultOutput)
+        XCTAssertEqual(watch.followed.last, 7, "the per-device listeners follow")
+        let reading = sut.apply(.volumeDown, fine: false)
+        XCTAssertEqual(reading?.outputDevice, 7)
+        XCTAssertEqual(reading?.deviceSymbol, "airpods.pro")
+        XCTAssertEqual(lookups.value, [42, 42, 7], "one lookup per listener event, none per press")
+    }
+
+    func testStopRemovesTheListenersAndALateEventIsIgnored() {
+        let volume = FakeVolumeOutput(level: 0.5)
+        let sut = applier(volume: volume)
+        sut.prepare()
+        XCTAssertEqual(watch.starts, 1)
+        sut.stop()
+        XCTAssertEqual(watch.stops, 1, "removed before stop returns")
+        let reads = volume.reads
+        watch.fire(.volume)
+        watch.fire(.defaultOutput)
+        XCTAssertEqual(volume.reads, reads, "an event queued before the stop changes nothing")
+        sut.stop()
+        XCTAssertEqual(watch.stops, 1, "stopping twice removes nothing twice")
+        sut.prepare()
+        XCTAssertEqual(watch.starts, 2, "a restarted tap listens again")
+    }
+
+    func testABrightnessHoldReadsOnceAndAPauseReadsAgain() {
+        let client = FakeDisplayClient(0.5)
+        let keyboard = FakeKeyboardClient(0.5)
+        let sut = applier(display: client, keyboard: keyboard)
+        sut.prepare()
+        for _ in 0..<4 { _ = sut.apply(.brightnessUp, fine: false) }
+        XCTAssertEqual(client.reads, 1, "a hold steps from the level it wrote")
+        XCTAssertEqual(client.sets.map(\.0), [0.5625, 0.625, 0.6875, 0.75])
+        clock.value += SystemLevelApplier.levelTrustedFor + 0.1
+        _ = sut.apply(.brightnessUp, fine: false)
+        XCTAssertEqual(client.reads, 2, "after a pause the sensor may have moved it")
+
+        _ = sut.apply(.keyboardBrightnessUp, fine: false)
+        _ = sut.apply(.keyboardBrightnessUp, fine: false)
+        XCTAssertEqual(keyboard.sets, [0.5625, 0.625])
+    }
+
+    func testADisplayChangeIsHeardAndMovesTheBrightnessKeysToTheSystem() {
+        let topology = LockedBox(DisplayTopology(builtIn: 1, active: [1], main: 1))
+        let sut = SystemLevelApplier(
+            volume: FakeVolumeOutput(), displays: FakeDisplayResolver(client: FakeDisplayClient(0.5)),
+            topology: { topology.value }, keyboards: FakeKeyboardResolver(client: nil), watch: watch,
+            describe: { _ in DeviceLabel() }
+        )
+        sut.prepare()
+        XCTAssertTrue(sut.canApply(.brightnessUp))
+        topology.value = DisplayTopology(builtIn: 1, active: [1, 2], main: 2)   // an external monitor became main
+        watch.fire(.displays)
+        XCTAssertFalse(sut.canApply(.brightnessUp), "the key is the system's again")
+        XCTAssertNil(sut.apply(.brightnessUp, fine: false))
     }
 
     // MARK: Display brightness follows the display in use
