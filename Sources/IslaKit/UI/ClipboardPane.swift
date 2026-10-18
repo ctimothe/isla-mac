@@ -41,6 +41,10 @@ struct ClipboardPane: View {
     private let isLive: Bool
     /// The keyboard claim the search field follows (`NotchViewModel.wantsKeyboard`).
     @Binding private var wantsKeyboard: Bool
+    /// The claim's value when this pane was built. A binding reads its source
+    /// live, so two of them always compare equal; `==` compares these instead,
+    /// or a claim that changed would never reach a pane `.equatable()` keeps.
+    private let keyboardClaim: Bool
 
     @StateObject private var clear: ClipboardClearConfirmation
 
@@ -64,6 +68,7 @@ struct ClipboardPane: View {
         _historyEnabled = AppStorage(wrappedValue: true, NotchViewModel.clipboardHistoryKey, store: historyDefaults)
         self.bodyWidth = bodyWidth
         _wantsKeyboard = wantsKeyboard
+        keyboardClaim = wantsKeyboard.wrappedValue
         self.translate = translate
         self.turnOnHistory = turnOnHistory
     }
@@ -1101,5 +1106,26 @@ enum ClipFileIcons {
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         cache[url.path] = icon
         return icon
+    }
+}
+
+/// Equal when everything it draws from is: the same objects, the same values,
+/// and the bindings holding the same value. The closures are left out on
+/// purpose — they are rebuilt on every pass of the root view and so are never
+/// equal, which made SwiftUI re-run this whole pane on every frame of a page
+/// swipe, once per frame for each of the two pages on screen (measured
+/// 2026-10-18: 30 bodies each over a 30-frame swipe). Each one only calls into
+/// the view model, or reads Reduce Motion through `SystemAppearance` when it
+/// is called, so a kept copy does exactly what a fresh one would. Its own
+/// state and observed objects still redraw it as ever; this only stops a
+/// parent's pass from doing it for nothing (`NotchContentView.pane(for:)`).
+extension ClipboardPane: @MainActor Equatable {
+    static func == (lhs: ClipboardPane, rhs: ClipboardPane) -> Bool {
+        lhs.clipboard === rhs.clipboard
+            && lhs.privacy === rhs.privacy
+            && lhs.browser === rhs.browser
+            && lhs.bodyWidth == rhs.bodyWidth
+            && lhs.isLive == rhs.isLive
+            && lhs.keyboardClaim == rhs.keyboardClaim
     }
 }

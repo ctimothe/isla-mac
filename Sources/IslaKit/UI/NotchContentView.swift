@@ -1345,6 +1345,10 @@ struct NotchContentView: View {
                 coverTint: vm.coverTint.nsColor,
                 isLive: live
             )
+            // Skipped on a pass that changes nothing it draws: during a page
+            // swipe this body is re-run on every frame, and without it so was
+            // each page under it (`MediaPane ==`).
+            .equatable()
         case .stage:
             LyricsStageSurface(
                 media: vm.media,
@@ -1384,12 +1388,14 @@ struct NotchContentView: View {
                 turnOnHistory: { vm.setClipboardHistory(true) },
                 isLive: live
             )
+            .equatable()
         case .translate:
             TranslatePane(
                 translator: vm.translator, privacy: vm.privacy, wantsKeyboard: keyboard,
                 showsHistory: $vm.translateShowsHistory, bodyWidth: bodyWidth, isLive: live,
                 isTravelling: vm.travellingLeg != nil
             )
+                .equatable()
                 .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:
             SettingsPane(

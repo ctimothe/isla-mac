@@ -61,6 +61,11 @@ struct TranslatePane: View {
     /// wrote the view model on every frame of the swipe, which redrew the
     /// whole island a second time per frame (perf review, finding 2).
     private let isTravelling: Bool
+    /// The two bindings' values when this pane was built. A binding reads its
+    /// source live, so two of them always compare equal; `==` compares these
+    /// instead, or a change would never reach a pane `.equatable()` keeps.
+    private let keyboardClaim: Bool
+    private let historyClaim: Bool
 
     init(
         translator: Translator,
@@ -75,6 +80,8 @@ struct TranslatePane: View {
         self.privacy = privacy
         _wantsKeyboard = wantsKeyboard
         _showsHistory = showsHistory
+        keyboardClaim = wantsKeyboard.wrappedValue
+        historyClaim = showsHistory.wrappedValue
         self.bodyWidth = bodyWidth
         self.isLive = isLive
         self.isTravelling = isTravelling
@@ -1032,5 +1039,27 @@ struct TextInputRectKey: PreferenceKey {
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
         if !next.isEmpty { value = next }
+    }
+}
+
+/// Equal when everything it draws from is: the same objects, the same values,
+/// and the bindings holding the same value. The closures are left out on
+/// purpose — they are rebuilt on every pass of the root view and so are never
+/// equal, which made SwiftUI re-run this whole pane on every frame of a page
+/// swipe, once per frame for each of the two pages on screen (measured
+/// 2026-10-18: 30 bodies each over a 30-frame swipe). Each one only calls into
+/// the view model, or reads Reduce Motion through `SystemAppearance` when it
+/// is called, so a kept copy does exactly what a fresh one would. Its own
+/// state and observed objects still redraw it as ever; this only stops a
+/// parent's pass from doing it for nothing (`NotchContentView.pane(for:)`).
+extension TranslatePane: @MainActor Equatable {
+    static func == (lhs: TranslatePane, rhs: TranslatePane) -> Bool {
+        lhs.translator === rhs.translator
+            && lhs.privacy === rhs.privacy
+            && lhs.bodyWidth == rhs.bodyWidth
+            && lhs.isLive == rhs.isLive
+            && lhs.isTravelling == rhs.isTravelling
+            && lhs.keyboardClaim == rhs.keyboardClaim
+            && lhs.historyClaim == rhs.historyClaim
     }
 }

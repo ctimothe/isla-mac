@@ -968,3 +968,26 @@ final class OutputButtonState: ObservableObject {
         )
     }
 }
+
+/// Equal when everything it draws from is: the same objects, the same values,
+/// and the bindings holding the same value. The closures are left out on
+/// purpose — they are rebuilt on every pass of the root view and so are never
+/// equal, which made SwiftUI re-run this whole pane on every frame of a page
+/// swipe, once per frame for each of the two pages on screen (measured
+/// 2026-10-18: 30 bodies each over a 30-frame swipe). Each one only calls into
+/// the view model, or reads Reduce Motion through `SystemAppearance` when it
+/// is called, so a kept copy does exactly what a fresh one would. Its own
+/// state and observed objects still redraw it as ever; this only stops a
+/// parent's pass from doing it for nothing (`NotchContentView.pane(for:)`).
+extension MediaPane: @MainActor Equatable {
+    static func == (lhs: MediaPane, rhs: MediaPane) -> Bool {
+        lhs.media === rhs.media
+            && lhs.lyrics === rhs.lyrics
+            && lhs.audio === rhs.audio
+            && lhs.spotify === rhs.spotify
+            && lhs.icons === rhs.icons
+            && lhs.morph == rhs.morph
+            && lhs.coverTint.isEqual(rhs.coverTint)
+            && lhs.isLive == rhs.isLive
+    }
+}
