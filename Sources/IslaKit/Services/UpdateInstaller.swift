@@ -92,6 +92,9 @@ struct UpdateEnvironment {
     /// The folder releases are read from (`UpdateSource`: a rehearsal's or the
     /// local feed's), whose files the assets may be; nil for GitHub.
     var rehearsal: URL? = nil
+    /// Whether that folder may still be read (`UpdateSource.stillHolds`),
+    /// asked by the download before every copy out of it.
+    var folderStillHolds: @Sendable () -> Bool = { true }
 
     static func live() -> UpdateEnvironment {
         let scratch = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -121,7 +124,8 @@ struct UpdateEnvironment {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
                 return folder
             },
-            rehearsal: UpdateSource.current.folder
+            rehearsal: UpdateSource.current.folder,
+            folderStillHolds: { UpdateSource.current.stillHolds() }
         )
     }
 }
@@ -266,7 +270,7 @@ final class UpdateInstaller: ObservableObject {
     ) {
         self.stagingActivity = stagingActivity
         self.environment = environment
-        self.downloader = downloader ?? URLSessionUpdateDownloader(rehearsal: environment.rehearsal)
+        self.downloader = downloader ?? Self.defaultDownloader(for: environment)
         self.verifier = verifier ?? Ed25519UpdateVerifier(publicKey: environment.publicKey ?? "")
         self.diskImage = diskImage
         self.stager = stager
@@ -274,6 +278,14 @@ final class UpdateInstaller: ObservableObject {
         self.swapper = swapper
         self.relauncher = relauncher ?? ShellRelauncher()
         self.installTimeout = installTimeout
+    }
+
+    /// The downloader Update Now uses when none is handed in: the
+    /// environment's folder, judged again before every copy out of it.
+    nonisolated static func defaultDownloader(for environment: UpdateEnvironment) -> URLSessionUpdateDownloader {
+        var downloader = URLSessionUpdateDownloader(rehearsal: environment.rehearsal)
+        downloader.folderStillHolds = environment.folderStillHolds
+        return downloader
     }
 
     // MARK: Deciding

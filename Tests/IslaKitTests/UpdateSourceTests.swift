@@ -126,8 +126,17 @@ final class UpdateSourceTests: XCTestCase {
             XCTAssertEqual(error as? UpdateDownloadError, .badResponse)
         }
 
+        // And the installer's own downloader asks the same question: Update
+        // Now builds it from the environment, which carries the live answer.
+        var environment = UpdateEnvironment.neverInstalls
+        environment.rehearsal = feed
+        environment.folderStillHolds = { source.stillHolds() }
+        XCTAssertFalse(UpdateInstaller.defaultDownloader(for: environment).folderStillHolds())
+
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: feed.path)
         XCTAssertTrue(source.stillHolds(), "put right, it is read again")
+        XCTAssertTrue(UpdateInstaller.defaultDownloader(for: environment).folderStillHolds())
+        XCTAssertTrue(UpdateEnvironment.live().folderStillHolds(), "a test run follows GitHub")
         XCTAssertTrue(UpdateSource.github.stillHolds())
         XCTAssertTrue(UpdateSource.rehearsal(feed).stillHolds(), "a rehearsal is by hand, for one launch")
     }
