@@ -406,12 +406,6 @@ final class LockCardMaterialTests: XCTestCase {
         XCTAssertEqual(gated.alpha, 0.84)
     }
 
-    /// Blocking is fine on a detached thread, and `wait` is only unavailable to the
-    /// compiler inside an async closure, so the wait lives in a plain function.
-    nonisolated private static func signalled(_ semaphore: DispatchSemaphore) -> Bool {
-        semaphore.wait(timeout: .now() + 5) == .success
-    }
-
     /// **A stale answer never lands.** The display changed under a slow read: the
     /// earlier request finishes after the later one has been answered, and must
     /// not overwrite it (the generation guard in `refresh`).
@@ -434,7 +428,7 @@ final class LockCardMaterialTests: XCTestCase {
         XCTAssertEqual(model.luminance, 0.90)
 
         release.signal()
-        let ran = await Task.detached { Self.signalled(finished) }.value
+        let ran = await waitOffMain(finished)
         XCTAssertTrue(ran, "the earlier read did finish")
         try await Task.sleep(for: .milliseconds(150))
         XCTAssertEqual(model.luminance, 0.90, "and its answer was dropped")
@@ -450,8 +444,23 @@ final class LockCardMaterialTests: XCTestCase {
         second.refresh(wallpaper: URL(fileURLWithPath: "/tmp/old.png"), screenSize: screen, cardSize: card)
         second.refresh(wallpaper: nil, screenSize: screen, cardSize: card)
         slow.signal()
-        _ = await Task.detached { Self.signalled(slowDone) }.value
+        _ = await waitOffMain(slowDone)
         try await Task.sleep(for: .milliseconds(150))
         XCTAssertNil(second.luminance, "an unknown is not overwritten by the read it replaced")
+    }
+}
+
+/// Waits for `semaphore` on a global queue and hands the verdict back to the
+/// awaiting test, so the test's own thread never blocks. This was a
+/// `Task.detached { Self.signalled(x) }.value` once, and Xcode 26.6's
+/// region-based isolation checker gave up on that closure ("pattern that the
+/// region-based isolation checker does not understand") and failed the CI build,
+/// though Swift 6.4 compiled it. A continuation resumed from a plain dispatch
+/// block has nothing for the checker to reason about.
+private func waitOffMain(_ semaphore: DispatchSemaphore) async -> Bool {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global().async {
+            continuation.resume(returning: semaphore.wait(timeout: .now() + 5) == .success)
+        }
     }
 }
