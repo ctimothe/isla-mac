@@ -65,16 +65,17 @@ enum ShelfLayout {
     }
 
     /// The grid's scrolled content: the rows, and the same margin under the
-    /// last as over the first. While a notice shows on a grid that scrolls,
-    /// the notice's height more, so scrolled to the end the last row stands
-    /// clear of it: it sits at the viewport's foot, and covered 5.5 pt of
-    /// tiles in full view exactly when a full Shelf said so (review 5, S6).
-    static func contentHeight(count: Int, bodyWidth: CGFloat, notice: Bool = false) -> CGFloat {
+    /// last as over the first. On a grid that scrolls, the notice's height
+    /// more, so scrolled to the end the last row stands clear of a notice at
+    /// the viewport's foot: it covered 5.5 pt of tiles in full view exactly
+    /// when a full Shelf said so (review 5, S6). The room stands whether a
+    /// notice shows or not: added only for one, every tile moved 14 pt as the
+    /// notice came and went (re-review 6, F3).
+    static func contentHeight(count: Int, bodyWidth: CGFloat) -> CGFloat {
         let rows = rows(count: count, bodyWidth: bodyWidth)
         guard rows > 0 else { return 0 }
         let grid = 2 * firstRowTop + CGFloat(rows - 1) * rowPitch + tile.height
-        guard notice, grid > viewport(bodyWidth: bodyWidth).height else { return grid }
-        return grid + noticeHeight
+        return grid > viewport(bodyWidth: bodyWidth).height ? grid + noticeHeight : grid
     }
 
     /// The viewport the grid scrolls in: the body's whole width and its
@@ -110,7 +111,7 @@ enum ShelfLayout {
     /// The notice line's height and top: under the last row while the grid
     /// fits, and at the viewport's foot, over the fade, once it scrolls — where
     /// the grid's content grows by its height so that, scrolled to the end, it
-    /// covers no tile in full view (`contentHeight(count:bodyWidth:notice:)`).
+    /// covers no tile in full view (`contentHeight(count:bodyWidth:)`).
     static let noticeHeight: CGFloat = 14
     static func noticeTop(count: Int, bodyWidth: CGFloat) -> CGFloat {
         let lastRow = firstRowTop + CGFloat(max(rows(count: count, bodyWidth: bodyWidth) - 1, 0)) * rowPitch

@@ -3061,10 +3061,11 @@ first use on hardware:
   never for the content changing size. The hold is for a pointer that has not
   gone anywhere, since the old body is click-through once it shrinks and an
   unpinned panel watches no clicks: it also ends when the pointer moves
-  farther from the new body than it has come (6 pt of slack), and on a press
-  off the panel. Every check of "is the pointer on the panel" asks the same
-  rule, the one a dropped keyboard runs 0.6 s later included (adversarial
-  review 5, the same day).
+  farther from the new body than it has come (6 pt of slack), and on a press,
+  or a scroll the person starts, off the panel — seen by a global mouse
+  monitor that stands only while a hold does, since the sampler misses a tap.
+  The collapse check a dropped keyboard runs 0.6 s later asks the watcher's
+  rule rather than a copy (adversarial reviews 5 and 6, the same day).
 - **The gear becomes a close button on Settings.** On Settings the gear well
   shows `xmark` 14, labelled "Close Settings", unlit and without the update
   badge (Settings shows the update itself); a click goes back to the page or

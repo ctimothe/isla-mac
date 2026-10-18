@@ -2128,6 +2128,8 @@ Owed on hardware (record the Mac model and macOS version when run):
   back down past it, and it folds. Again with the search field clicked first
   (the keyboard drops with the dot): still open after a second. Again, then
   move slowly down and left inside where Clipboard was: it folds. From
+  Settings press the X, rest three seconds, then tap-to-click a browser tab
+  just right of Music: Music folds. From
   Settings, the X at the top right goes
   back to the page Settings came from, and the gear returns ("Закрыть
   настройки" under VoiceOver in Russian).
@@ -2157,4 +2159,12 @@ in `PagesOnHardwareTests`, with its lows: the band sweeps by `SungLine.fraction`
 a notice on a full grid leaves the last row clear, the spec's unsung opacity
 reads 0.45, and stale test comments are corrected. Accepted: in the outro the
 last line dims back to unsung in place (S5, the island caption's rule; one look
-on hardware under R8b-H10).
+on hardware under R8b-H10). Codex found nothing in that fix (`6a3f042`); the
+Opus re-review of it (review 6) confirmed S1 and S2 and found a tap in the app
+under the old body missed by the sampler half the time: a global mouse monitor
+now stands exactly while a hold does (presses, and scrolls the person starts —
+not a swipe's momentum), the Shelf grid keeps its notice room whenever it
+scrolls so no tile moves as a notice comes and goes, and a `.zero` close rect
+can no longer start a union. Accepted: the notice's text still takes clicks
+over its own glyphs (its `.help` needs hover), and the controller's check can
+be a tick more lenient than the sampler, never stricter (F5).

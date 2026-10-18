@@ -233,6 +233,79 @@ final class PagesOnHardwareTests: XCTestCase {
         XCTAssertEqual(changes, [false])
     }
 
+    /// A click or a scroll in the app under where the old body was is seen
+    /// by a monitor that stands only while a hold does, not by the sampler
+    /// catching a button down: resting, it samples every 125 ms, and a tap to
+    /// click is shorter than that (re-review 6, F1).
+    func testAPressElsewhereSeenByTheMonitorEndsTheHold() {
+        var changes: [Bool] = []
+        var installs = 0
+        var removals = 0
+        var pressed: (@Sendable () -> Void)?
+        let watcher = PointerWatcher()
+        watcher.watchPressesElsewhere = { handler in
+            installs += 1
+            pressed = handler
+            return NSObject()
+        }
+        watcher.stopWatchingPresses = { _ in removals += 1 }
+        let point = CGPoint(x: 800, y: 650)
+        watcher.location = { point }
+        watcher.openDelay = 0
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { true }
+        watcher.onChange = { changes.append($0) }
+        watcher.closeRect = Self.tallBody
+        watcher.setInside(true)
+        XCTAssertEqual(installs, 0, "no hold, no monitor")
+        watcher.closeRect = Self.shortBody
+        watcher.closeRect = CGRect(x: 650, y: 750, width: 300, height: 190)
+        XCTAssertEqual(installs, 1, "one monitor however many shrinks")
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [])
+
+        pressed?()
+        XCTAssertEqual(removals, 1, "the monitor goes with the hold")
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false])
+        watcher.stop()
+        XCTAssertEqual(removals, 1)
+    }
+
+    /// Reaching the new body, or the watcher stopping, takes the monitor away.
+    func testTheMonitorStandsOnlyWhileTheHoldDoes() {
+        var removals = 0
+        let watcher = PointerWatcher()
+        watcher.watchPressesElsewhere = { _ in NSObject() }
+        watcher.stopWatchingPresses = { _ in removals += 1 }
+        var point = CGPoint(x: 800, y: 650)
+        watcher.location = { point }
+        watcher.isPanelOpen = { true }
+        watcher.closeRect = Self.tallBody
+        watcher.setInside(true)
+        watcher.closeRect = Self.shortBody
+        point = CGPoint(x: 800, y: 720)
+        sample(watcher, times: 1)
+        XCTAssertEqual(removals, 1, "on the new body")
+
+        point = CGPoint(x: 800, y: 650)
+        watcher.closeRect = Self.tallBody
+        watcher.closeRect = Self.shortBody
+        watcher.stop()
+        XCTAssertEqual(removals, 2, "stopped")
+    }
+
+    /// What the monitor counts as working elsewhere: any press, and a scroll
+    /// the person starts. Not the momentum of a page swipe made on the panel,
+    /// which can still be arriving under the pointer as the body shrinks.
+    func testOnlyAScrollThePersonStartsEndsTheHold() {
+        XCTAssertTrue(PointerWatcher.startsAScroll(phase: [], momentum: []), "a mouse wheel")
+        XCTAssertTrue(PointerWatcher.startsAScroll(phase: .began, momentum: []), "fingers down in another app")
+        XCTAssertFalse(PointerWatcher.startsAScroll(phase: .changed, momentum: []))
+        XCTAssertFalse(PointerWatcher.startsAScroll(phase: [], momentum: .changed), "momentum")
+        XCTAssertFalse(PointerWatcher.startsAScroll(phase: [], momentum: .began))
+    }
+
     /// The controller's own check — the one a dropped keyboard runs 0.6 s
     /// later — counts the hold too. On Clipboard with the search field
     /// claimed, Music's dot drops the keyboard; the check found the pointer

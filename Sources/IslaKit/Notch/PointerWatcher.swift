@@ -64,7 +64,41 @@ final class PointerWatcher {
     /// `CGRect.union` skips only `.null`, so the first hold once reached from
     /// the old body to the screen's origin — on the built-in display, every
     /// point left of and below it (review 5, S1).
-    private(set) var shrunkFromRect: CGRect = .zero
+    private(set) var shrunkFromRect: CGRect = .zero {
+        didSet { updatePressWatch() }
+    }
+
+    /// Starts watching presses and scrolls in other apps, returning a token
+    /// for `stopWatchingPresses`. Inert here: only the controller's `build`
+    /// gives it a real global monitor, so no test process registers one.
+    var watchPressesElsewhere: (@escaping @Sendable () -> Void) -> Any? = { _ in nil }
+    var stopWatchingPresses: (Any) -> Void = { _ in }
+    private var pressWatch: Any?
+
+    /// The monitor stands exactly while a hold does. The sampler alone saw a
+    /// press only if a tick caught the button down: resting, it ticks every
+    /// 125 ms, and a tap to click is over sooner, so a person clicking in the
+    /// browser under where Settings was half the time left Music standing
+    /// open over them (re-review 6, F1).
+    private func updatePressWatch() {
+        if shrunkFromRect.isEmpty {
+            guard let pressWatch else { return }
+            stopWatchingPresses(pressWatch)
+            self.pressWatch = nil
+        } else if pressWatch == nil {
+            pressWatch = watchPressesElsewhere { [weak self] in
+                MainActor.assumeIsolated { self?.shrunkFromRect = .zero }
+            }
+        }
+    }
+
+    /// Whether a scroll event is one the person started where it landed — a
+    /// mouse wheel, or fingers going down — rather than the momentum of a
+    /// page swipe made on the panel, which can still be arriving as the body
+    /// shrinks out from under the pointer. Only the first ends a hold.
+    nonisolated static func startsAScroll(phase: NSEvent.Phase, momentum: NSEvent.Phase) -> Bool {
+        momentum.isEmpty && (phase.isEmpty || phase.contains(.began))
+    }
 
     /// The nearest the held pointer has come to the new body since the hold
     /// began. Coming no farther than this, give or take `shrinkSlack`, is
@@ -83,19 +117,20 @@ final class PointerWatcher {
         let point = location()
         if closeRect.contains(point) {
             shrunkFromRect = .zero
-        } else if old.contains(point) || shrunkFromRect.contains(point) {
+        } else if !old.isEmpty, old.contains(point) || shrunkFromRect.contains(point) {
             shrunkFromRect = shrunkFromRect.isEmpty ? old : shrunkFromRect.union(old)
             shrinkNearest = Self.distance(from: point, to: closeRect)
         }
     }
 
     /// Whether the body the panel shrank from still holds a pointer at
-    /// `point`. Not for long, and not for a pointer that has gone anywhere:
-    /// that area is click-through now, and an unpinned panel watches no
-    /// clicks, so from Settings back to Music a person could work in the
-    /// browser under where Settings was while Music stood open over them
-    /// (review 5, S3). A pointer heading away from the new body, or a press
-    /// off the panel, which is a click in whatever app is under it, ends it.
+    /// `point`. Not a pointer that has gone anywhere: that area is
+    /// click-through now, and an unpinned panel watches no clicks of its own,
+    /// so from Settings back to Music a person could work in the browser
+    /// under where Settings was while Music stood open over them (review 5,
+    /// S3). A pointer heading away from the new body ends it, and so does a
+    /// press or a scroll off the panel — in whatever app is under it — which
+    /// `watchPressesElsewhere` reports and a held button read here backs up.
     private func shrinkHolds(_ point: CGPoint) -> Bool {
         guard !shrunkFromRect.isEmpty, shrunkFromRect.contains(point) else { return false }
         if buttonsHeld(), !interactiveRect.contains(point), !isDragging() { return false }

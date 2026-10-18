@@ -67,11 +67,12 @@ final class ShelfLayoutTests: XCTestCase {
         XCTAssertFalse(ShelfLayout.scrolls(count: 12, bodyWidth: 560))
         XCTAssertTrue(ShelfLayout.scrolls(count: 13, bodyWidth: 560))
         XCTAssertTrue(ShelfLayout.scrolls(count: 11, bodyWidth: 480), "five to a row: three rows")
-        // The content: the same margin under the last row as over the first.
+        // The content: the same margin under the last row as over the first,
+        // and on a grid that scrolls the notice's 14 more.
         XCTAssertEqual(ShelfLayout.contentHeight(count: 0, bodyWidth: 560), 0)
         XCTAssertEqual(ShelfLayout.contentHeight(count: 1, bodyWidth: 560), 2 * 9.5 + 94, accuracy: 0.0001)
         XCTAssertEqual(
-            ShelfLayout.contentHeight(count: 60, bodyWidth: 560), 2 * 9.5 + 9 * 104 + 94, accuracy: 0.0001,
+            ShelfLayout.contentHeight(count: 60, bodyWidth: 560), CGFloat(2 * 9.5 + 9 * 104 + 94 + 14), accuracy: 0.0001,
             "the Shelf's limit, ten rows"
         )
         // One shape with Clipboard and Translate (§19.16).
@@ -86,11 +87,13 @@ final class ShelfLayoutTests: XCTestCase {
     /// Scrolled to the end, a grid that scrolls lifts its last row clear of
     /// the notice at the viewport's foot: the notice covered 5.5 pt of tiles
     /// in full view, exactly when the Shelf was full and a notice said so
-    /// (review 5, S6). A grid that fits gains nothing.
+    /// (review 5, S6). The room is there whether a notice shows or not, so a
+    /// notice coming or going moves no tile (re-review 6, F3). A grid that
+    /// fits keeps its even margins.
     func testANoticeNeverCoversTheLastRowScrolledToTheEnd() {
         let viewport = ShelfLayout.viewport(bodyWidth: 560).height
         for count in [13, 18, 30, 60] {
-            let content = ShelfLayout.contentHeight(count: count, bodyWidth: 560, notice: true)
+            let content = ShelfLayout.contentHeight(count: count, bodyWidth: 560)
             let lastRow = ShelfLayout.tileFrame(index: count - 1, bodyWidth: 560)
             let bottomScrolledToEnd = lastRow.maxY - (content - viewport)
             XCTAssertLessThanOrEqual(
@@ -98,9 +101,10 @@ final class ShelfLayoutTests: XCTestCase {
             )
         }
         for count in [1, 6, 12] {
+            let rows = CGFloat(ShelfLayout.rows(count: count, bodyWidth: 560))
             XCTAssertEqual(
-                ShelfLayout.contentHeight(count: count, bodyWidth: 560, notice: true),
-                ShelfLayout.contentHeight(count: count, bodyWidth: 560), "\(count) files fit"
+                ShelfLayout.contentHeight(count: count, bodyWidth: 560),
+                2 * 9.5 + (rows - 1) * 104 + 94, accuracy: 0.0001, "\(count) files fit"
             )
         }
     }

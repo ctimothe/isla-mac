@@ -1623,6 +1623,20 @@ final class NotchController {
         MenuTracking.shared.start()
         pointer.isPanelOpen = { [weak vm] in vm?.isOpen ?? false }
         pointer.collapsedIsland = { [weak self] in self?.collapsedIslandScreenRect() ?? .zero }
+        // Only while a shrink holds the panel (`PointerWatcher.shrunkFromRect`):
+        // a press or a scroll in the app under where the old body was is the
+        // person working there. A mouse monitor needs no permission.
+        pointer.watchPressesElsewhere = { handler in
+            NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+            ) { event in
+                guard event.type != .scrollWheel
+                    || PointerWatcher.startsAScroll(phase: event.phase, momentum: event.momentumPhase)
+                else { return }
+                handler()
+            }
+        }
+        pointer.stopWatchingPresses = { NSEvent.removeMonitor($0) }
         pointer.onChange = { [weak self] inside in
             guard let self, let vm = self.viewModel else { return }
             // The edge is drawn from the shape's own `.onHover`, not from
