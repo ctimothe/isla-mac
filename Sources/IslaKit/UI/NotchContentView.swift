@@ -382,17 +382,6 @@ struct NotchContentView: View {
                 radius: Theme.islandShadowRadius
             )
 
-            // Over the black and centred on its edge, so half the line lies
-            // outside the shape and half inside. Always mounted and faded,
-            // never inserted, so it folds and unfolds with the shape instead
-            // of arriving after it, and built from the same radii and the same
-            // frame, so it follows the outline through every spring.
-            IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
-                .stroke(strokeColor, lineWidth: Theme.islandStrokeWidth)
-                .frame(width: shapeSize.width, height: shapeSize.height)
-                .opacity(strokeShown ? 1 : 0)
-                .allowsHitTesting(false)
-
             // The shape is the only black. A second black layer used to sit
             // over the wings, faded out on its own 0.12 s while the shape
             // contracted — and a removed view keeps the frame it had, so for
@@ -446,10 +435,44 @@ struct NotchContentView: View {
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .top)
-            // Square at rest, as it always was. Between two pages the one
-            // arriving passes the outline's bottom corners, and is clipped by
-            // them rather than drawn over the wallpaper beside them (§19.16).
-            .clipShape(NotchShape(topRadius: 0, bottomRadius: vm.travellingLeg == nil ? 0 : shapeBottomRadius))
+            // Nothing is ever drawn outside the island (owner, 2026-10-18: "it
+            // shouldn't go over the edges of the dynamic island, that's a hard
+            // rule"). The clip used to be square at rest and rounded only
+            // while two pages travelled, so every other motion could leave
+            // content outside the outline: a pane removed on a surface change
+            // keeps the frame it had while the outline springs to the new
+            // size, and a close folds the corners in over a body still fading
+            // — both drew past the rounded bottom corners onto the wallpaper.
+            // Masked by the outline itself, built from the same radii and the
+            // same frame as the black shape, the content follows the shape
+            // through every spring and cannot leave it in any frame.
+            //
+            // The rectangle first: a mask from a path is applied to what
+            // SwiftUI draws, and a square clip is what AppKit-backed views —
+            // the text editor, the scroll views, the pop-up menus — are
+            // guaranteed to honour as well, so the rule does not depend on how
+            // a control happens to be drawn.
+            .clipped()
+            .mask(alignment: .top) {
+                NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
+                    .frame(width: shapeSize.width, height: shapeSize.height)
+            }
+
+            // Over the black *and over the content*, centred on its edge, so
+            // half the line lies outside the shape and half inside. It sat
+            // under the content until 2026-10-18, and Translate's input card
+            // swiped past the last page slid over the inner half of the line:
+            // the island's own border looked overlapped by what it holds
+            // (owner's review). The border is the edge of the island; nothing
+            // inside passes over it. Always mounted and faded, never inserted,
+            // so it folds and unfolds with the shape instead of arriving after
+            // it, and built from the same radii and the same frame, so it
+            // follows the outline through every spring.
+            IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
+                .stroke(strokeColor, lineWidth: Theme.islandStrokeWidth)
+                .frame(width: shapeSize.width, height: shapeSize.height)
+                .opacity(strokeShown ? 1 : 0)
+                .allowsHitTesting(false)
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         // A click anywhere on the collapsed island opens it. The equalizer
@@ -542,7 +565,6 @@ struct NotchContentView: View {
         // capture adds one card and evicts one — and the island jumped in and
         // out of the notch without its spring (R7 review).
         .animation(Theme.island(reduceMotion: reduceMotion), value: vm.liveShelfCount)
-        .animation(Theme.paneAnimation, value: vm.presented)
         // The shoulders follow the surface: 24 for the Shelf's, 34 for the rest.
         .animation(Theme.island(reduceMotion: reduceMotion), value: vm.openTopRadius)
         // The body growing or folding (spec §6): its height, its bottom radius
@@ -556,6 +578,17 @@ struct NotchContentView: View {
         // from a `Button` — which animates nothing by itself, so without this
         // the crossfade above would be a cut.
         .animation(Theme.paneAnimation, value: vm.isShowingWelcome)
+        // A surface change, outermost, so that when it also changes the
+        // body's size the outline's spring above wins for the shape. It used
+        // to sit inside them, and the innermost `.animation` a change reaches
+        // is the one its transaction keeps: the gear opening Settings grew
+        // the island from the player's size to Settings' on this 0.18 s
+        // ease-out while every other change of size rode the spring, the one
+        // motion in the island that moved like something else (owner's
+        // review, 2026-10-18: "treat the dynamic island as one thing"). What
+        // the change alone moves — the header's title, the dots — still fades
+        // on it; the panes carry their own curves (`Theme.swapIn`/`swapOut`).
+        .animation(Theme.paneAnimation, value: vm.presented)
     }
 
     // MARK: - Header
@@ -1232,10 +1265,14 @@ struct NotchContentView: View {
     }
 
     private var panes: some View {
-        // At rest, one pane: the presented surface, replaced in place with the
-        // slight zoom that is the only travel a swap has; Reduce Motion takes
-        // it, and the swap is a plain crossfade (F-017). The body's own size
-        // springs on the island's curve underneath (`openBodySize`).
+        // At rest, one pane: the presented surface, replaced in place — the
+        // old one gone before the new one starts, each with the slight scale
+        // about the top edge that is the only travel a swap has, so the two
+        // are never on screen together (`Theme.swapOut`, `swapIn`). Reduce
+        // Motion takes the scale, and the swap is a plain fade out and in
+        // (F-017). The body's own size springs on the island's curve
+        // underneath (`openBodySize`), and the outline's mask cuts whatever
+        // of either pane is outside it on the way.
         //
         // Between two pages (§19.16), the two either side of the travel, side
         // by side, each at its own size, moved by exactly the travel and
@@ -1254,11 +1291,11 @@ struct NotchContentView: View {
                     .offset(x: paneX(surface, leg: leg))
                     .transition(leg != nil ? .identity : .asymmetric(
                         insertion: .opacity
-                            .combined(with: .scale(scale: scales.insertion))
-                            .animation(Theme.paneIn),
+                            .combined(with: .scale(scale: scales.insertion, anchor: .top))
+                            .animation(Theme.swapIn),
                         removal: .opacity
-                            .combined(with: .scale(scale: scales.removal))
-                            .animation(Theme.paneOut)
+                            .combined(with: .scale(scale: scales.removal, anchor: .top))
+                            .animation(Theme.swapOut)
                     ))
             }
         }
@@ -1363,7 +1400,8 @@ struct NotchContentView: View {
         case .translate:
             TranslatePane(
                 translator: vm.translator, privacy: vm.privacy, wantsKeyboard: keyboard,
-                showsHistory: $vm.translateShowsHistory, bodyWidth: bodyWidth, isLive: live
+                showsHistory: $vm.translateShowsHistory, bodyWidth: bodyWidth, isLive: live,
+                isTravelling: vm.travellingLeg != nil
             )
                 .onPreferenceChange(TextInputRectKey.self) { vm.textInputRect = $0 }
         case .settings:

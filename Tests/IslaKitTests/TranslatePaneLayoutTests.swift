@@ -141,7 +141,40 @@ final class TranslatePaneLayoutTests: XCTestCase {
     func testPasteAndTheCounterSitAtTheSourceFoot() {
         let card = TranslateLayout.sourceCard(bodyWidth: 560)
         XCTAssertEqual(TranslateLayout.counter(card: card), CGRect(x: 30, y: 216, width: 228, height: 12), "10 from the card's bottom")
-        XCTAssertEqual(TranslateLayout.paste(card: card), CGRect(x: 30, y: 211, width: 66, height: 22))
+        XCTAssertEqual(TranslateLayout.paste(card: card), CGRect(x: 30, y: 211, width: 228, height: 22))
+    }
+
+    /// Paste is never cut: the room it is placed in holds the glyph, the gap
+    /// and the word in either language with the plate's padding, so the
+    /// button's own width — which it takes, from the left — is all of it
+    /// (owner's review, 2026-10-18: "it should show the paste word fully").
+    func testPasteHasRoomForItsWholeLabel() {
+        let room = TranslateLayout.paste(card: TranslateLayout.sourceCard(bodyWidth: NotchMetrics.minimumBodyWidth)).width
+        for word in ["Paste", "Вставить"] {
+            let text = (word as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 15)]).width
+            let needed = 11 + 5 + text + 2 * ToolbarPushButtonStyle.horizontalPadding
+            XCTAssertLessThan(needed, room, word)
+        }
+        let source = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("Sources/IslaKit/UI/TranslatePane.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source?.contains("pasteButton\n                .fixedSize()") == true, "Paste takes its own width")
+    }
+
+    /// While the pages travel the editor is not what draws the text, and its
+    /// frame is not reported: the swipe moves no AppKit view and writes the
+    /// view model only as it starts and ends.
+    func testTheEditorStandsDownWhileThePagesTravel() {
+        XCTAssertTrue(TranslatePane.drawsStandIn(isTravelling: true, covered: false, input: "hello"))
+        XCTAssertFalse(TranslatePane.drawsStandIn(isTravelling: false, covered: false, input: "hello"))
+        XCTAssertFalse(TranslatePane.drawsStandIn(isTravelling: true, covered: true, input: "hello"), "covered stays dust")
+        XCTAssertFalse(TranslatePane.drawsStandIn(isTravelling: true, covered: false, input: ""))
+        let frame = CGRect(x: 10, y: 20, width: 200, height: 100)
+        XCTAssertEqual(TranslatePane.reportedInputRect(frame, isTravelling: false), frame)
+        XCTAssertEqual(TranslatePane.reportedInputRect(frame, isTravelling: true), .zero)
     }
 
     // MARK: - The counter and the limit

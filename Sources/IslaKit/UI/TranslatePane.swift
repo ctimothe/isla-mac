@@ -46,6 +46,21 @@ struct TranslatePane: View {
     /// screen, for a swipe's length (§19.16): it translates nothing until it
     /// is the page.
     private let isLive: Bool
+    /// True while the pages travel under the fingers or a dot (§19.16). The
+    /// source text is then drawn by SwiftUI in place of the editor, which
+    /// stays mounted, invisible, so the keyboard focus it holds survives a
+    /// swipe that comes back.
+    ///
+    /// The editor is an AppKit text view. Carried sideways by the travel it
+    /// was the one thing on the page that did not move as one with the
+    /// island: the owner's film (2026-10-18) shows the source card swiped past
+    /// the last page with a dark band across its foot and its left part over
+    /// the island's edge. A SwiftUI copy of the text is cut by the outline
+    /// like everything else, and costs no AppKit layout per frame. Its frame
+    /// in the window is not reported while it travels either: reporting it
+    /// wrote the view model on every frame of the swipe, which redrew the
+    /// whole island a second time per frame (perf review, finding 2).
+    private let isTravelling: Bool
 
     init(
         translator: Translator,
@@ -53,7 +68,8 @@ struct TranslatePane: View {
         wantsKeyboard: Binding<Bool>,
         showsHistory: Binding<Bool> = .constant(false),
         bodyWidth: CGFloat = NotchMetrics.defaultBodyWidth,
-        isLive: Bool = true
+        isLive: Bool = true,
+        isTravelling: Bool = false
     ) {
         self.translator = translator
         self.privacy = privacy
@@ -61,6 +77,7 @@ struct TranslatePane: View {
         _showsHistory = showsHistory
         self.bodyWidth = bodyWidth
         self.isLive = isLive
+        self.isTravelling = isTravelling
         _history = ObservedObject(wrappedValue: translator.history)
         _speaker = ObservedObject(wrappedValue: translator.speaker)
         _keepHistory = AppStorage(wrappedValue: false, NotchViewModel.translateKeepHistoryKey, store: translator.defaults)
@@ -326,6 +343,10 @@ struct TranslatePane: View {
                 )
             editor(fontSize: fontSize)
                 .modifier(Placement(frame: text))
+            if Self.drawsStandIn(isTravelling: isTravelling, covered: covered, input: translator.input) {
+                standIn(fontSize: fontSize)
+                    .modifier(Placement(frame: CGRect(x: text.minX, y: text.minY + 1, width: text.width, height: text.height)))
+            }
             if covered {
                 dust(seed: 0x5DEECE66D)
                     .modifier(Placement(frame: text))
@@ -359,7 +380,7 @@ struct TranslatePane: View {
             // Transparent rather than removed: the editor has to stay in
             // the tree to keep the keyboard focus the hot key gave it, so
             // the first keystroke lands here and uncovers what it typed.
-            .opacity(covered ? 0 : 1)
+            .opacity(covered || isTravelling ? 0 : 1)
             .textEditorStyle(.plain)
             .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
@@ -383,7 +404,10 @@ struct TranslatePane: View {
             // reading it must not feed back into layout.
             .background(
                 GeometryReader { proxy in
-                    Color.clear.preference(key: TextInputRectKey.self, value: proxy.frame(in: .global))
+                    Color.clear.preference(
+                        key: TextInputRectKey.self,
+                        value: Self.reportedInputRect(proxy.frame(in: .global), isTravelling: isTravelling)
+                    )
                 }
             )
             // Named, or VoiceOver announced an unnamed text area: the
@@ -395,6 +419,32 @@ struct TranslatePane: View {
             // Escape before it reaches the responder chain, and the reset
             // lives in `NotchViewModel.consumeEscape`. A handler here was
             // dead code that looked like the behaviour.
+    }
+
+    /// Whether the source text is drawn by `standIn` rather than the editor:
+    /// while the pages travel, when there is text and it is not covered.
+    nonisolated static func drawsStandIn(isTravelling: Bool, covered: Bool, input: String) -> Bool {
+        isTravelling && !covered && !input.isEmpty
+    }
+
+    /// The editor's frame as the panel's cursor is told it: none while the
+    /// pages travel (see `isTravelling`), so a swipe writes the view model
+    /// twice — as it starts and as it ends — instead of on every frame.
+    nonisolated static func reportedInputRect(_ frame: CGRect, isTravelling: Bool) -> CGRect {
+        isTravelling ? .zero : frame
+    }
+
+    /// The source text as the editor draws it, for a travel's length: the
+    /// same face, size, spacing and colour, from the editor's first line.
+    private func standIn(fontSize: CGFloat) -> some View {
+        Text(translator.input)
+            .font(.system(size: fontSize, weight: .medium))
+            .lineSpacing(Self.lineSpacing(size: fontSize))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .clipped()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     /// The empty card: the invitation where the first character will go, any
@@ -424,8 +474,12 @@ struct TranslatePane: View {
             .allowsHitTesting(false)
         }
         if TranslatePaste.shows(input: translator.input) {
+            // Its own width, from the left of the foot: a fixed 66 cut "Paste"
+            // to "Pa…" beside its glyph, and "Вставить" was never going to
+            // fit (owner's review, 2026-10-18).
             pasteButton
-                .modifier(Placement(frame: local(TranslateLayout.paste(card: card))))
+                .fixedSize()
+                .modifier(Placement(frame: local(TranslateLayout.paste(card: card)), alignment: .leading))
         }
     }
 

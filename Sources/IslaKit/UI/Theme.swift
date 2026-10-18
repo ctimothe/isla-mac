@@ -396,13 +396,35 @@ enum Theme {
     }
 
     /// The tab swap's scales: the arriving pane from 0.97, the leaving one
-    /// to 1.02, and 1 for both under Reduce Motion, so the swap is a plain
+    /// to 0.98 (it grew to 1.02 until 2026-10-18, past the edges it was
+    /// leaving), and 1 for both under Reduce Motion, so the swap is a plain
     /// crossfade. The swap built its scale inline beside `scaleIn`, which
     /// exists for exactly this, and so every tab switch still zoomed with the
     /// setting on (F-017).
     static func paneSwapScales(reduceMotion: Bool) -> (insertion: CGFloat, removal: CGFloat) {
-        reduceMotion ? (1, 1) : (0.97, 1.02)
+        reduceMotion ? (1, 1) : (0.97, 0.98)
     }
+
+    /// One surface replacing another in the open island — the gear opening
+    /// Settings, its X closing it, the stage and the player trading places:
+    /// the old pane leaves on `swapOut`, and the new one starts only once it
+    /// has gone.
+    ///
+    /// The swap shared the open's `paneIn`/`paneOut`, whose 0.04 s delay lets
+    /// the arriving body start while the leaving one is still most of the way
+    /// opaque; the leaving pane also grew to 1.02 as it went. On the owner's
+    /// film (2026-10-18) the gear's change from the player to Settings read
+    /// as two screens printed over each other, inside an island that was
+    /// growing at the same time: "make sure the motions are clean, not
+    /// anything just overlapping". Now the leaving pane recedes to 0.98 and
+    /// is gone in 0.08 s, the island growing on its spring meanwhile; the new
+    /// one arrives from 0.97 about the top edge — hanging from the notch, as
+    /// everything in the island does — beginning in the frame the old one
+    /// ends. `MotionValuesTests.testASwapNeverShowsTwoPanesAtOnce` holds it.
+    static let swapOutDuration: Double = 0.08
+    static let swapOut = Animation.easeOut(duration: swapOutDuration)
+    static let swapInDuration: Double = 0.20
+    static let swapIn = Animation.easeOut(duration: swapInDuration).delay(swapOutDuration)
 
     // MARK: - Type
 

@@ -171,7 +171,48 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertEqual(reduced.removal, 1)
         let full = Theme.paneSwapScales(reduceMotion: false)
         XCTAssertEqual(full.insertion, 0.97)
-        XCTAssertEqual(full.removal, 1.02)
+        XCTAssertEqual(full.removal, 0.98)
+    }
+
+    /// A surface change never prints two panes over each other (owner's
+    /// review, 2026-10-18): the arriving pane's delay is the leaving pane's
+    /// whole duration, neither pane grows past the frame it was in, and the
+    /// panes carry these curves rather than the open's `paneIn`/`paneOut`.
+    func testASwapNeverShowsTwoPanesAtOnce() throws {
+        XCTAssertEqual(
+            String(describing: Theme.swapIn),
+            String(describing: Animation.easeOut(duration: Theme.swapInDuration).delay(Theme.swapOutDuration))
+        )
+        XCTAssertEqual(Theme.swapOut, Animation.easeOut(duration: Theme.swapOutDuration))
+        XCTAssertLessThanOrEqual(Theme.paneSwapScales(reduceMotion: false).removal, 1)
+        XCTAssertLessThanOrEqual(Theme.paneSwapScales(reduceMotion: false).insertion, 1)
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let shell = try String(
+            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        XCTAssertTrue(shell.contains(".animation(Theme.swapIn)"))
+        XCTAssertTrue(shell.contains(".animation(Theme.swapOut)"))
+        // The surface change is the outermost of the shell's animations, so a
+        // change of size that comes with it keeps the outline's spring.
+        let presented = try XCTUnwrap(shell.range(of: ".animation(Theme.paneAnimation, value: vm.presented)"))
+        let body = try XCTUnwrap(shell.range(of: ".animation(Theme.island(reduceMotion: reduceMotion), value: vm.openBodySize.height)"))
+        XCTAssertLessThan(body.lowerBound, presented.lowerBound)
+    }
+
+    /// The island's content is masked by the outline itself in every state,
+    /// not square at rest: a removed pane, a closing body and a page past the
+    /// end all stay inside the island (owner's hard rule, 2026-10-18), and the
+    /// border is drawn over the content, never under it.
+    func testTheContentNeverLeavesTheOutline() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let shell = try String(
+            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        XCTAssertFalse(shell.contains("vm.travellingLeg == nil ? 0 : shapeBottomRadius"), "the clip is square at rest again")
+        let mask = try XCTUnwrap(shell.range(of: ".mask(alignment: .top) {\n                NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)\n                    .frame(width: shapeSize.width, height: shapeSize.height)"))
+        let stroke = try XCTUnwrap(shell.range(of: "IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)"))
+        XCTAssertLessThan(mask.lowerBound, stroke.lowerBound, "the border is drawn under the content")
     }
 
     /// Under Reduce Motion the cover and the equalizer do not fly between the

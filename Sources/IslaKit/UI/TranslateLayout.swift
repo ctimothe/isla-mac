@@ -112,10 +112,13 @@ enum TranslateLayout {
         )
     }
 
-    /// Paste sits where the count will, centred on the same row.
-    static func paste(card: CGRect, width: CGFloat = 66) -> CGRect {
+    /// Paste sits where the count will, centred on the same row: the row's
+    /// room, in which the button takes its own width from the left. It was a
+    /// fixed 66, which cut "Paste" to "Pa…" beside its glyph (owner's review,
+    /// 2026-10-18) and could never hold "Вставить".
+    static func paste(card: CGRect) -> CGRect {
         let row = counter(card: card)
-        return CGRect(x: row.minX, y: row.midY - pasteHeight / 2, width: width, height: pasteHeight)
+        return CGRect(x: row.minX, y: row.midY - pasteHeight / 2, width: row.width, height: pasteHeight)
     }
 
     /// The result's text, inset 12 and 4.
