@@ -223,6 +223,10 @@ final class PointerWatcher {
     /// Bounded on every side, so warmth cannot survive a move to another
     /// display that merely sits at a similar height.
     var coolZone: CGRect = .zero
+    /// Where a resting pointer keeps the movement monitor standing: the warm
+    /// band and `NotchMetrics.approachMargin` under it. Empty means the warm
+    /// band alone.
+    var approachZone: CGRect = .zero
     /// How long the pointer may stand still before sampling drops to the idle
     /// rate wherever it stands. Movement re-warms on the next idle tick.
     var restThreshold = NotchMetrics.restThreshold
@@ -339,8 +343,18 @@ final class PointerWatcher {
     /// A move into the band now ticks at once, which also warms the sampler;
     /// warm, the 60 Hz timer is quicker than anything a monitor adds, so the
     /// monitor goes and costs nothing while the pointer is near.
+    ///
+    /// And only near the notch: standing wherever the sampler idled, it woke
+    /// the main thread for every move of the mouse anywhere on the screen,
+    /// sixty to a hundred and twenty times a second against the idle beat's
+    /// eight (R8c review, M2). It stands while the last sample was in
+    /// `approachZone` — the top of the screen — or counted inside; a pointer
+    /// further down is put back on the idle beat, which reaches the band in
+    /// time for anything but a flick from the bottom of the screen.
     private func updateMovementWatch() {
-        if timer == nil || isWarm {
+        let zone = approachZone.isEmpty ? warmZone : approachZone
+        let near = isInside || zone.contains(lastPoint)
+        if timer == nil || isWarm || !near {
             guard let movementWatch else { return }
             stopWatchingMovement(movementWatch)
             self.movementWatch = nil
@@ -394,7 +408,12 @@ final class PointerWatcher {
             near = warmZone.contains(point)
         }
         let warm = near && moving
-        guard warm != isWarm else { return }
+        guard warm != isWarm else {
+            // Same beat, but the pointer may have come within reach of the
+            // notch, or left it.
+            updateMovementWatch()
+            return
+        }
         schedule(warm: warm)
     }
 

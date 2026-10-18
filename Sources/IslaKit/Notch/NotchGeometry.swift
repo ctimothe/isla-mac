@@ -400,6 +400,19 @@ struct NotchGeometry {
         )
     }
 
+    /// The warm band grown down by `approachMargin`: where a resting pointer
+    /// is close enough to the notch that its next move is worth hearing at
+    /// once (`PointerWatcher.approachZone`).
+    var approachZone: CGRect {
+        let zone = warmZone
+        return CGRect(
+            x: zone.minX,
+            y: zone.minY - NotchMetrics.approachMargin,
+            width: zone.width,
+            height: zone.height + NotchMetrics.approachMargin
+        )
+    }
+
     /// Area that keeps the panel open while expanded, in global screen
     /// coordinates. Taken for the body actually on screen, not for the standard
     /// one: the body's width is a setting, and a rect cut for another body

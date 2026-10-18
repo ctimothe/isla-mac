@@ -244,6 +244,7 @@ final class PointerWatcherTests: XCTestCase {
         watcher.stopWatchingMovement = { _ in removals += 1 }
         watcher.warmZone = CGRect(x: 0, y: 700, width: 1_000, height: 200)
         watcher.coolZone = CGRect(x: 0, y: 650, width: 1_000, height: 250)
+        watcher.approachZone = CGRect(x: 0, y: 400, width: 1_000, height: 500)
         watcher.interactiveRect = CGRect(x: 400, y: 850, width: 200, height: 50)
         var interactive: [Bool] = []
         watcher.onInteractiveChange = { interactive.append($0) }
@@ -252,11 +253,16 @@ final class PointerWatcherTests: XCTestCase {
 
         watcher.start()
         defer { watcher.stop() }
-        XCTAssertEqual(installs, 1, "idle, so the monitor stands")
+        XCTAssertEqual(installs, 0, "far down the screen: no monitor, moves there wake nothing")
         XCTAssertEqual(interactive, [false])
 
-        // Elsewhere on the screen: no tick, however much the pointer moves.
-        point = CGPoint(x: 900, y: 300)
+        // Within reach of the notch: the next idle sample stands the monitor.
+        point = CGPoint(x: 900, y: 500)
+        watcher.start()
+        XCTAssertEqual(installs, 1, "idle near the notch, so the monitor stands")
+
+        // A move still short of the band: no tick.
+        point = CGPoint(x: 900, y: 600)
         moved?()
         XCTAssertEqual(interactive, [false])
         XCTAssertEqual(removals, 0)
@@ -270,6 +276,7 @@ final class PointerWatcherTests: XCTestCase {
 
         watcher.stop()
         XCTAssertEqual(removals, 1, "nothing left to remove")
+        point = CGPoint(x: 900, y: 500)
         watcher.start()
         XCTAssertEqual(installs, 2, "idle again after a restart")
         watcher.stop()

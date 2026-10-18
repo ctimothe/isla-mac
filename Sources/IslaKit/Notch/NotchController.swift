@@ -553,6 +553,7 @@ final class NotchController {
         guard let vm = viewModel else { return }
         pointer.warmZone = vm.geometry.warmZone
         pointer.coolZone = vm.geometry.coolZone
+        pointer.approachZone = vm.geometry.approachZone
         pointer.closeRect = vm.geometry.hoverRect(for: vm.openBodySize)
         // A display change moves the geometry without animating the body: no
         // spring to wait for, so a shrink applies at once.
@@ -1578,6 +1579,7 @@ final class NotchController {
         pointer.hoverRect = geometry.collapsedIslandHoverRect(for: vm.bodySize.width)
         pointer.warmZone = geometry.warmZone
         pointer.coolZone = geometry.coolZone
+        pointer.approachZone = geometry.approachZone
         // Cut for the surface that will be showing: a rebuild restores the
         // previous one, and the surfaces differ in width and height.
         pointer.closeRect = geometry.hoverRect(for: vm.openBodySize)

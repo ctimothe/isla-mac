@@ -51,6 +51,11 @@ enum NotchMetrics {
     static let restThreshold: TimeInterval = 3.0
     static let warmZoneHeight: CGFloat = 260
     static let coolMargin: CGFloat = 80
+    /// How far below the warm band a resting pointer still has the movement
+    /// monitor standing (`PointerWatcher.updateMovementWatch`): close enough
+    /// that a flick to the island crosses it, far enough down that a pointer
+    /// at work in the lower half of the screen wakes nothing as it moves.
+    static let approachMargin: CGFloat = 300
     /// Delay before shrinking the panel's interactive rect back down after a
     /// close. Must outlast the close (`Theme.close`) crossing its end, or the
     /// rect shrinks out from under a panel that is still visibly on screen,
