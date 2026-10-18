@@ -1893,7 +1893,7 @@ ask:
   R10 merges.
 
 Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
-R8-H1…H8, R8b-H1…H10, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+R8-H1…H8, R8b-H1…H10, R8c-H1…H7, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
 
