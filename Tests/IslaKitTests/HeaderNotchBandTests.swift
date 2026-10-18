@@ -201,9 +201,28 @@ final class HeaderNotchBandTests: XCTestCase {
                     let title = PlayerSourceTitle(name: name, icon: nil)
                     XCTAssertEqual(title.showsName(room: room), needed <= room, "\(name) on \(surface) under \(notchWidth)")
                     XCTAssertLessThanOrEqual(SurfaceHeaderLayout.titleGlyphBox.width, room, "the glyph always fits")
+                    let withIcon = PlayerSourceTitle(name: name, icon: icon)
+                    let neededWithIcon = SurfaceHeaderLayout.toolSide + SurfaceHeaderLayout.titleGap + width
+                    XCTAssertEqual(withIcon.showsName(room: room), neededWithIcon <= room, "\(name) with its icon on \(surface) under \(notchWidth)")
+                    XCTAssertLessThanOrEqual(SurfaceHeaderLayout.glyphWidth(withIcon.glyph), room, "the app's icon always fits")
                 }
             }
         }
+    }
+
+    /// Whatever app is playing, its icon stands as tall as the gear across the
+    /// header (owner, 2026-10-18): the squircle macOS seats in 824 of an
+    /// icon's 1024 points is drawn the gear well's 26 pt, centred on the same
+    /// line, and 20 in from the left as the well is 20 in from the right.
+    func testThePlayersIconIsTheGearsHeight() {
+        let gear = SurfaceHeaderLayout.gear(bodyWidth: 480, notchHeight: 38)
+        let squircle = SurfaceHeaderLayout.appIconSide * 824 / 1024
+        XCTAssertEqual(squircle, gear.height, accuracy: 0.001)
+        XCTAssertEqual(SurfaceHeaderLayout.glyphWidth(.app(NSImage(size: NSSize(width: 32, height: 32)))), gear.width)
+        XCTAssertEqual(SurfaceHeaderLayout.glyphWidth(.symbol("music.note")), SurfaceHeaderLayout.titleGlyphBox.width)
+        let title = SurfaceHeaderLayout.title(bodyWidth: 480, notchWidth: 200, notchHeight: 38)
+        XCTAssertEqual(title.midY, gear.midY, accuracy: 0.001, "the icon and the gear share a centre line")
+        XCTAssertEqual(title.minX, 480 - gear.maxX, accuracy: 0.001, "as far in from the left as the gear from the right")
     }
 
     // MARK: Tray

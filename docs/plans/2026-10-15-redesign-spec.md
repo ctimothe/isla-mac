@@ -2562,6 +2562,16 @@ reads "Music" beside `music.note`. The name is left out, and kept as the
 icon's help and accessibility label, when it would not fit whole left of the
 notch; it never truncates.
 
+*Amended 2026-10-18 (owner, on hardware: the Spotify icon read smaller than
+the gear).* **The app's icon is the gear's height.** An icon's canvas is not
+its squircle: macOS 26 seats every app's squircle in 824 of its 1024 points,
+so 16 pt drew about 13 pt of icon beside the gear's 26 pt well. The icon is
+now drawn so its squircle is 26 pt, centred on the header's line, 20 in from
+the left as the well is 20 in from the right; the name follows 6 pt after it
+(x 52, where the symbol pages' names start at 44). Every app gets the same
+squircle on macOS 26 and later, so every player stands the same height.
+`HeaderNotchBandTests.testThePlayersIconIsTheGearsHeight`.
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the

@@ -41,7 +41,22 @@ enum SurfaceHeaderLayout {
     static let titleLeading: CGFloat = 20
     static let titleGlyphBox = CGSize(width: 18, height: 16)
     static let titleGlyphSize: CGFloat = 14
-    static let appIconSide: CGFloat = 16
+    /// The playing app's icon is the gear's height: its squircle is drawn
+    /// `toolSide` tall, 20 in from the left as the gear's well is 20 in from
+    /// the right. It was drawn 16 × 16, and an app icon's canvas is not its
+    /// squircle — macOS 26 seats every icon's squircle in 824 of its 1024
+    /// points — so Spotify showed about 13 pt beside the gear's 26 pt well,
+    /// half its height (owner, 2026-10-18: "whatever player icon is being
+    /// shown it should be consistent"). Every app gets the same squircle on
+    /// macOS 26 and later, so one scale makes every player the same height.
+    static let appIconSquircleShare: CGFloat = 824.0 / 1024.0
+    static let appIconSide: CGFloat = toolSide / appIconSquircleShare
+    /// The width a title's glyph takes before its name: the app's squircle,
+    /// or the box every symbol shares.
+    static func glyphWidth(_ glyph: HeaderGlyph) -> CGFloat {
+        if case .app = glyph { return toolSide }
+        return titleGlyphBox.width
+    }
     /// The glyph in a header tool's well: the gear, History, Remove All.
     static let toolGlyphSize: CGFloat = 14
     static let titleSize: CGFloat = 13
@@ -227,13 +242,14 @@ struct PlayerSourceTitle: Equatable {
     func showsName(room: CGFloat) -> Bool {
         let font = NSFont.systemFont(ofSize: SurfaceHeaderLayout.titleSize, weight: .semibold)
         let name = ceil((title as NSString).size(withAttributes: [.font: font]).width)
-        return SurfaceHeaderLayout.titleGlyphBox.width + SurfaceHeaderLayout.titleGap + name <= room
+        return SurfaceHeaderLayout.glyphWidth(glyph) + SurfaceHeaderLayout.titleGap + name <= room
     }
 }
 
-/// A title's glyph in the header's one glyph box: a filled symbol at 14
-/// medium in white, or an app's icon at 16, centred, so a page with an app
-/// and a page with a symbol start their names at the same x.
+/// A title's glyph: a filled symbol at 14 medium in white in the header's one
+/// glyph box, so every page that names itself starts its name at the same x;
+/// or an app's icon with its squircle the gear's 26 pt, which overhangs the
+/// 16 pt row evenly above and below, as the gear's well does.
 struct HeaderGlyphView: View {
     let glyph: HeaderGlyph
 
@@ -251,7 +267,7 @@ struct HeaderGlyphView: View {
                     .frame(width: SurfaceHeaderLayout.appIconSide, height: SurfaceHeaderLayout.appIconSide)
             }
         }
-        .frame(width: SurfaceHeaderLayout.titleGlyphBox.width, height: SurfaceHeaderLayout.titleGlyphBox.height)
+        .frame(width: SurfaceHeaderLayout.glyphWidth(glyph), height: SurfaceHeaderLayout.titleGlyphBox.height)
         .accessibilityHidden(true)
     }
 }
