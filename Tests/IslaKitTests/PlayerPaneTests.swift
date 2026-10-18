@@ -49,7 +49,7 @@ final class PlayerPaneTests: XCTestCase {
     private func scene(
         lyrics: Bool = true, lyricBand: Bool = true, outputButton: Bool = true,
         duration: TimeInterval = 238, elapsed: TimeInterval = 9, playing: Bool = true, volume: Float? = 0.62,
-        title: String = "Waiting Room", cover: Bool = false
+        title: String = "Waiting Room", cover: Bool = false, lines: [LyricsStore.Line] = PlayerPaneTests.lines
     ) async -> Scene {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
@@ -63,7 +63,7 @@ final class PlayerPaneTests: XCTestCase {
         await LabFixtures.play(track, on: media)
         let store = isolated.stores.lyrics
         if lyrics {
-            store.present(.ready(LyricTimeline(lines: Self.lines, granularity: .line)))
+            store.present(.ready(LyricTimeline(lines: lines, granularity: .line)))
         }
         let pane = MediaPane(
             media: media, lyrics: store, morph: nil, audio: Self.audio(volume: volume),
@@ -135,15 +135,66 @@ final class PlayerPaneTests: XCTestCase {
         )
     }
 
-    /// Before the first stamp the subtitle is the artist, not a line: there is
-    /// no sung line to say.
-    func testBeforeTheFirstLineTheSubtitleIsTheArtist() async throws {
+    /// Before the first stamp the subtitle holds the opening line, unswept,
+    /// as the island's caption does — not the artist the title already
+    /// carries (owner, 2026-10-18; spec §19.6's last amendment).
+    func testBeforeTheFirstLineTheSubtitleHoldsTheOpeningLine() async throws {
         let s = await scene(elapsed: 0)
-        XCTAssertNil(s.root.all { $0.value == "First line" || $0.value == "Third line" }.first, s.root.dump)
-        XCTAssertNotNil(
-            s.root.all { ($0.label + $0.value + $0.title).contains(LabFixtures.Track().artist) }.first,
-            "the artist stands in the subtitle\n\(s.root.dump)"
-        )
+        XCTAssertNotNil(s.root.all { $0.label == "Lyrics" && $0.value == "First line" }.first, s.root.dump)
+        assertTheArtistIsOnlyInTheTitle(s)
+    }
+
+    /// Between two lines — a pause the file marks and long enough to honour —
+    /// the subtitle holds the line coming next. It used to fall back to the
+    /// artist: the artist read twice, after the title and under it, and the
+    /// line snapped back in when the voice did.
+    func testBetweenLinesTheSubtitleHoldsTheComingLine() async throws {
+        let lines: [LyricsStore.Line] = [
+            .init(at: 1, text: "First line", end: 2), .init(at: 4, text: "Second line"),
+            .init(at: 8, text: "Third line"),
+        ]
+        let s = await scene(elapsed: 3, lines: lines)
+        XCTAssertNotNil(s.root.all { $0.label == "Lyrics" && $0.value == "Second line" }.first, s.root.dump)
+        assertTheArtistIsOnlyInTheTitle(s)
+    }
+
+    /// The artist appears once while the band is on: in "Title · Artist".
+    private func assertTheArtistIsOnlyInTheTitle(_ s: Scene, file: StaticString = #filePath, line: UInt = #line) {
+        let artist = LabFixtures.Track().artist
+        let saying = s.root.all { ($0.label + $0.value + $0.title).contains(artist) }
+        XCTAssertFalse(saying.isEmpty, "the title carries the artist\n\(s.root.dump)", file: file, line: line)
+        for node in saying {
+            XCTAssertTrue(
+                (node.label + node.value + node.title).contains("·"),
+                "the artist stands only in the title row\n\(s.root.dump)", file: file, line: line
+            )
+        }
+    }
+
+    /// What the band shows for a reading of the clock: the sung line, and
+    /// between lines, before the first and after the last, the line the
+    /// voice reaches next — never nothing, which drew the artist.
+    func testTheBandAlwaysHasALineWhileItIsOn() {
+        let lines: [LyricsStore.Line] = [
+            .init(at: 1, text: "a", end: 2), .init(at: 4, text: "b", end: 5),
+        ]
+        func band(at position: TimeInterval) -> MediaPane.SungLine {
+            let inputs = LyricInputs(
+                position: position, precisionSync: true, userOffset: 0, trackOffset: 0, wordTiming: false
+            )
+            return MediaPane.SungLine(
+                isOn: true, lines: lines, resolution: MediaPane.captionResolution(lines: lines, inputs: inputs)
+            )
+        }
+        XCTAssertEqual(band(at: 0).index, 0, "the intro holds the opening line")
+        XCTAssertFalse(band(at: 0).isSung)
+        XCTAssertEqual(band(at: 1.5).index, 0)
+        XCTAssertTrue(band(at: 1.5).isSung)
+        XCTAssertEqual(band(at: 3).index, 1, "the pause holds the coming line")
+        XCTAssertFalse(band(at: 3).isSung, "unswept until the voice reaches it")
+        XCTAssertEqual(band(at: 4.5).index, 1, "the same row when it is sung: nothing turns")
+        XCTAssertEqual(band(at: 9).index, 1, "the outro holds the last line")
+        XCTAssertFalse(band(at: 9).isSung)
     }
 
     /// Lyric Band off, or Show Lyrics off, never draws the sung line: the

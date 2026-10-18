@@ -12,10 +12,8 @@ final class PageSwipeTests: XCTestCase {
     /// two is half of each.
     private let strip = PageStrip(pages: Surface.pages, widths: [492, 413, 560, 560])
 
-    private func context(
-        at position: CGFloat, over: Bool = true, edge: PageSwipe.StripEdge? = nil
-    ) -> PageSwipe.Context {
-        PageSwipe.Context(strip: strip, presented: position, over: over, stripEdge: edge)
+    private func context(at position: CGFloat, over: Bool = true) -> PageSwipe.Context {
+        PageSwipe.Context(strip: strip, presented: position, over: over)
     }
 
     private func scroll(
@@ -146,23 +144,15 @@ final class PageSwipeTests: XCTestCase {
         XCTAssertEqual(swipe.handle(scroll(-2, 0, .none, momentum: .changed), context(at: 2)), .pass)
     }
 
-    /// The tray's strip scrolls first: a gesture pages only when the strip
-    /// was already at its end, in the direction of travel, when it began.
-    func testTheStripScrollsFirst() {
-        func outcome(edge: PageSwipe.StripEdge, dx: CGFloat) -> PageSwipe.Outcome {
+    /// Sideways is the pages' on every page, the Shelf included: nothing on a
+    /// page scrolls sideways first since its strip became a grid that scrolls
+    /// down (owner, 2026-10-18).
+    func testSidewaysTurnsThePageOnTheShelfToo() {
+        for dx in [CGFloat(-12), 12] {
             var swipe = PageSwipe()
-            _ = swipe.handle(scroll(0, 0, .began), context(at: 1, edge: edge))
-            return swipe.handle(scroll(dx, 0), context(at: 1, edge: PageSwipe.StripEdge(atStart: false, atEnd: false)))
+            _ = swipe.handle(scroll(0, 0, .began), context(at: 1))
+            XCTAssertEqual(swipe.handle(scroll(dx, 0), context(at: 1)), .grab(position: 1), "\(dx)")
         }
-        let middle = PageSwipe.StripEdge(atStart: false, atEnd: false)
-        let start = PageSwipe.StripEdge(atStart: true, atEnd: false)
-        let end = PageSwipe.StripEdge(atStart: false, atEnd: true)
-        XCTAssertEqual(outcome(edge: middle, dx: -12), .pass, "toward Clipboard, the strip has more")
-        XCTAssertEqual(outcome(edge: middle, dx: 12), .pass, "toward Music, the strip has more")
-        XCTAssertEqual(outcome(edge: end, dx: -12), .grab(position: 1), "at its end, toward Clipboard")
-        XCTAssertEqual(outcome(edge: end, dx: 12), .pass, "at its end, back into the strip")
-        XCTAssertEqual(outcome(edge: start, dx: 12), .grab(position: 1), "at its start, toward Music")
-        XCTAssertEqual(outcome(edge: start, dx: -12), .pass)
     }
 
     // MARK: Tracking

@@ -341,21 +341,4 @@ final class PageTravelTests: XCTestCase {
             XCTAssertEqual(ShelfLayout.headerSideRoom(), ShelfLayout.measuredHeaderSideRoom(), "\(language), kept")
         }
     }
-
-    // MARK: The tray's strip
-
-    func testTheStripsEdge() {
-        XCTAssertNil(ShelfLayout.stripEdge(offset: 0, count: 4, bodyWidth: 413), "four fit: nothing scrolls")
-        let end = ShelfLayout.contentWidth(count: 9) - ShelfLayout.viewport(bodyWidth: 413).width
-        XCTAssertEqual(
-            ShelfLayout.stripEdge(offset: 0, count: 9, bodyWidth: 413), PageSwipe.StripEdge(atStart: true, atEnd: false)
-        )
-        XCTAssertEqual(
-            ShelfLayout.stripEdge(offset: end, count: 9, bodyWidth: 413), PageSwipe.StripEdge(atStart: false, atEnd: true)
-        )
-        XCTAssertEqual(
-            ShelfLayout.stripEdge(offset: end / 2, count: 9, bodyWidth: 413),
-            PageSwipe.StripEdge(atStart: false, atEnd: false)
-        )
-    }
 }

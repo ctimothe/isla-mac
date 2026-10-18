@@ -518,60 +518,67 @@ final class ShelfPaneTests: XCTestCase {
         XCTAssertTrue(fake.live.isEmpty)
     }
 
-    // MARK: - The tray's row
+    // MARK: - The tray's grid
 
-    /// The tray's content, `ShelfLayout.viewport`: 385.3 wide — the tray never
-    /// widens, whatever the body width setting says — and 120 under the header row.
-    private var traySize: CGSize {
-        ShelfLayout.viewport(bodyWidth: SurfaceLayout.trayReference.width - 2 * ShelfLayout.shoulder).size
-    }
+    /// The tray's content, `ShelfLayout.viewport`: the panel's width at its
+    /// default, 560, and 262 under the header row — the three tools' shared
+    /// page (§19.16, amended 2026-10-18).
+    private static let trayWidth: CGFloat = 560
+    private var traySize: CGSize { ShelfLayout.viewport(bodyWidth: Self.trayWidth).size }
 
     private func tray(_ shelf: ShelfStore, clear: ShelfClearConfirmation = ShelfClearConfirmation()) -> ShelfPane {
-        ShelfPane(shelf: shelf, clear: clear)
+        ShelfPane(shelf: shelf, clear: clear, bodyWidth: Self.trayWidth)
     }
 
     private func names(_ count: Int) -> [String] { (0..<count).map { String(format: "file-%02d.txt", $0) } }
 
-    /// One row of tiles from the board's (17.9, 9.5), 80 × 94 on a 90 pitch:
-    /// four in view, and a fifth running past the edge, which is what the
-    /// row scrolls for.
-    func testTheRowIsOneLineOfTilesFourInView() async throws {
-        let fixture = try Fixture(names: names(12))
+    /// Rows of 80 × 94 tiles on a 90 pitch across and 104 down, six to a row
+    /// at 560, centred: two rows in view and part of a third, which is what
+    /// the grid scrolls down for (owner, 2026-10-18).
+    func testTheGridFillsRowsAndScrollsDown() async throws {
+        let fixture = try Fixture(names: names(16))
         defer { fixture.release() }
         let size = traySize
         let root = await AXProbe.tree(of: tray(fixture.shelf), size: size)
         let tiles = root.all(role: "AXButton").filter { $0.label.hasPrefix("file-") }
-        let frames = tiles.compactMap(\.frame).sorted { $0.minX < $1.minX }
+        let frames = tiles.compactMap(\.frame).sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
         XCTAssertEqual(frames.count, tiles.count, root.dump)
-        XCTAssertGreaterThanOrEqual(frames.count, ShelfLayout.visibleTiles + 1, "the fifth is built, past the edge\n\(root.dump)")
-        let first = ShelfLayout.tileFrame(index: 0)
-        XCTAssertEqual(frames[0].minX, first.minX, accuracy: 1, "from the board's x")
+        XCTAssertGreaterThanOrEqual(frames.count, 13, "the third row is built, past the foot\n\(root.dump)")
+        let first = ShelfLayout.tileFrame(index: 0, bodyWidth: Self.trayWidth)
+        XCTAssertEqual(frames[0].minX, first.minX, accuracy: 1, "the grid's leading edge")
         XCTAssertEqual(frames[0].minY, first.minY, accuracy: 1, "on the board's y")
         XCTAssertEqual(frames[0].width, 80, accuracy: 1)
         XCTAssertEqual(frames[0].height, 94, accuracy: 1)
-        XCTAssertEqual(Set(frames.map { ($0.minY * 2).rounded() }).count, 1, "one row: no tile wraps under another\n\(root.dump)")
-        for (a, b) in zip(frames, frames.dropFirst()) {
-            XCTAssertEqual(b.minX - a.minX, 90, accuracy: 1, "90 pt apart")
+        let rows = Dictionary(grouping: frames) { ($0.minY * 2).rounded() }.sorted { $0.key < $1.key }
+        XCTAssertEqual(rows.first?.value.count, 6, "six to a row at 560\n\(root.dump)")
+        for row in rows {
+            let xs = row.value.map(\.minX).sorted()
+            for (a, b) in zip(xs, xs.dropFirst()) { XCTAssertEqual(b - a, 90, accuracy: 1, "90 pt apart across") }
         }
-        for frame in frames.prefix(ShelfLayout.visibleTiles) {
-            XCTAssertLessThanOrEqual(frame.maxX, size.width + 1, "the first four are inside the tray")
+        for (a, b) in zip(rows, rows.dropFirst()) {
+            XCTAssertEqual((b.key - a.key) / 2, 104, accuracy: 1, "104 pt apart down")
         }
-        XCTAssertGreaterThan(frames[ShelfLayout.visibleTiles].maxX, size.width, "and the fifth runs past it")
+        XCTAssertLessThanOrEqual(rows[1].value[0].maxY, size.height + 1, "two rows inside the tray")
+        XCTAssertGreaterThan(rows[2].value[0].maxY, size.height, "and the third runs past its foot")
+        for frame in frames {
+            XCTAssertGreaterThanOrEqual(frame.minX, -1, "nothing runs off sideways")
+            XCTAssertLessThanOrEqual(frame.maxX, size.width + 1)
+        }
     }
 
-    /// Four or fewer tiles do not scroll: the row is the tray's width and no more.
-    func testFourTilesNeedNoScrolling() async throws {
-        let fixture = try Fixture(names: names(4))
+    /// Two rows or fewer do not scroll.
+    func testTwoRowsNeedNoScrolling() async throws {
+        let fixture = try Fixture(names: names(12))
         defer { fixture.release() }
         let size = traySize
         let root = await AXProbe.tree(of: tray(fixture.shelf), size: size)
         let frames = root.all(role: "AXButton").filter { $0.label.hasPrefix("file-") }.compactMap(\.frame)
-        XCTAssertEqual(frames.count, 4, root.dump)
+        XCTAssertEqual(frames.count, 12, root.dump)
         for frame in frames {
-            XCTAssertGreaterThanOrEqual(frame.minX, -1)
-            XCTAssertLessThanOrEqual(frame.maxX, size.width + 1)
+            XCTAssertGreaterThanOrEqual(frame.minY, -1)
+            XCTAssertLessThanOrEqual(frame.maxY, size.height + 1)
         }
-        XCTAssertFalse(ShelfLayout.scrolls(count: frames.count))
+        XCTAssertFalse(ShelfLayout.scrolls(count: frames.count, bodyWidth: Self.trayWidth))
     }
 
     /// Pressing Remove All (the header's, which asks the model's confirmation)

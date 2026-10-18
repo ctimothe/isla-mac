@@ -199,14 +199,16 @@ final class LyricColumnPaneTests: XCTestCase {
     }
 
     /// Every page and Settings carry the gear at (`bw − 46`, 6) and never an
-    /// Expand: their bodies have one size (§19.8, §19.11, §19.16). No surface
-    /// carries a Tools button any more.
+    /// Expand: their bodies have one size (§19.8, §19.11, §19.16). On
+    /// Settings the gear is its close button (§19.16, amended 2026-10-18). No
+    /// surface carries a Tools button any more.
     func testEveryPageAndSettingsCarryTheGearAndNoExpand() async throws {
         for surface in [NotchViewModel.Surface.tray, .clipboard, .translate, .settings] {
             let s = try await shell(surface)
             XCTAssertNil(s.root.first(label: "Tools"), "\(surface)")
+            let label = surface == .settings ? "Close Settings" : "Settings"
             let button = try XCTUnwrap(
-                s.root.all { $0.role == "AXButton" && $0.label == "Settings" }.first, "\(surface)\n\(s.root.dump)"
+                s.root.all { $0.role == "AXButton" && $0.label == label }.first, "\(surface)\n\(s.root.dump)"
             )
             let tools = try body(button, in: s)
             XCTAssertEqual(tools.minX, s.bodyWidth - 46, accuracy: 1, "\(surface)")

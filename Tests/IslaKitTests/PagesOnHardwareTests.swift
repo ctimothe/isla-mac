@@ -1,0 +1,223 @@
+import AppKit
+import XCTest
+@testable import IslaKit
+
+/// What the owner found on the first use of the pages on hardware
+/// (2026-10-18, spec §19.16's last amendment): a dot to a shorter page folded
+/// the panel under the pointer that pressed it, a quick sideways swipe on a
+/// full Shelf scrolled its strip instead of turning the page, the three tools
+/// changed size as they turned, and Settings had no way out but the gear lit.
+@MainActor
+final class PagesOnHardwareTests: XCTestCase {
+    typealias Surface = NotchViewModel.Surface
+
+    override func tearDown() {
+        LabLocalization.use("en")
+        super.tearDown()
+    }
+
+    /// Two samples make a verdict; see `PointerWatcherTests.sample`.
+    private func sample(_ watcher: PointerWatcher, times: Int) {
+        for _ in 0..<times { watcher.start() }
+    }
+
+    // MARK: - A panel that shrinks under the pointer
+
+    /// The body shrinks out from under a pointer resting on it. The body it
+    /// left holds the panel while the pointer stays in it; once the pointer
+    /// reaches the new body, the old one holds nothing.
+    func testABodyThatShrinksUnderTheRestingPointerKeepsThePanel() {
+        let watcher = PointerWatcher()
+        defer { watcher.stop() }
+        var changes: [Bool] = []
+        var point = CGPoint(x: 0, y: -300)
+        watcher.location = { point }
+        watcher.openDelay = 0
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { true }
+        watcher.onChange = { changes.append($0) }
+        let tall = CGRect(x: -300, y: -330, width: 600, height: 340)
+        let short = CGRect(x: -200, y: -230, width: 400, height: 240)
+        watcher.closeRect = tall
+        watcher.setInside(true)
+        sample(watcher, times: 3)
+        XCTAssertEqual(changes, [], "on the body")
+
+        watcher.closeRect = short
+        XCTAssertFalse(short.contains(point), "the case at hand: the new body ends above the pointer")
+        sample(watcher, times: 3)
+        XCTAssertEqual(changes, [], "the pointer has not moved, and the panel stays")
+
+        point = CGPoint(x: 0, y: -200)
+        sample(watcher, times: 2)
+        point = CGPoint(x: 0, y: -300)
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false], "once on the new body, the old one holds nothing")
+    }
+
+    /// Leaving the body it shrank from is leaving.
+    func testLeavingTheBodyItShrankFromCloses() {
+        let watcher = PointerWatcher()
+        defer { watcher.stop() }
+        var changes: [Bool] = []
+        var point = CGPoint(x: 0, y: -300)
+        watcher.location = { point }
+        watcher.openDelay = 0
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { true }
+        watcher.onChange = { changes.append($0) }
+        watcher.closeRect = CGRect(x: -300, y: -330, width: 600, height: 340)
+        watcher.setInside(true)
+        watcher.closeRect = CGRect(x: -200, y: -230, width: 400, height: 240)
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [])
+
+        point = CGPoint(x: 0, y: -1_000)
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false])
+    }
+
+    /// A pointer that was not on the old body is not held by it: a shrink is
+    /// not a way of reaching the panel.
+    func testAShrinkHoldsOnlyAPointerThatWasOnTheBody() {
+        let watcher = PointerWatcher()
+        defer { watcher.stop() }
+        var changes: [Bool] = []
+        let point = CGPoint(x: 0, y: -1_000)
+        watcher.location = { point }
+        watcher.openDelay = 0
+        watcher.closeDelay = 0
+        watcher.isPanelOpen = { true }
+        watcher.onChange = { changes.append($0) }
+        watcher.closeRect = CGRect(x: -300, y: -330, width: 600, height: 340)
+        watcher.setInside(true)
+        watcher.closeRect = CGRect(x: -200, y: -230, width: 400, height: 240)
+        sample(watcher, times: 2)
+        XCTAssertEqual(changes, [false])
+    }
+
+    /// The whole route at the controller: on Clipboard, the pointer presses
+    /// Music's dot, 306 pt down; Music's body ends at 214. The panel used to
+    /// fold `closeDelay` after the press.
+    func testADotToAShorterPageLeavesThePanelOpenUnderThePointer() throws {
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
+        let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
+        let controller = NotchController()
+        controller.attachForTesting(viewModel: vm, rootView: root)
+        vm.isOpen = true
+        vm.turnPage(to: .clipboard)
+        controller.refreshOpenRects(bodySettled: true, animated: false)
+
+        let body = vm.openBodySize
+        let dot = PageDotsLayout.centres(bodySize: body)[0]
+        let content = vm.geometry.contentScreenRect(for: body)
+        let point = CGPoint(x: content.minX + dot.x, y: content.maxY - dot.y)
+        controller.pointer.location = { point }
+        controller.pointerLocation = { point }
+        var changes: [Bool] = []
+        controller.pointer.onChange = { changes.append($0) }
+        controller.pointer.openDelay = 0
+        controller.pointer.closeDelay = 0
+        defer { controller.pointer.stop() }
+        controller.pointer.setInside(true)
+        for _ in 0..<2 { controller.pointer.start() }
+        XCTAssertEqual(changes, [], "the pointer is on Music's dot")
+
+        vm.travel(to: .player, reduceMotion: true)
+        controller.refreshOpenRects(bodySettled: true, animated: false)
+        XCTAssertFalse(
+            vm.geometry.hoverRect(for: vm.openBodySize).contains(point),
+            "the case at hand: Music ends above the dots it was turned from"
+        )
+        for _ in 0..<3 { controller.pointer.start() }
+        XCTAssertEqual(changes, [], "the panel stays open under the pointer that pressed the dot")
+        XCTAssertTrue(vm.isOpen)
+    }
+
+    // MARK: - One size for the three tools
+
+    /// Shelf, Clipboard and Translate share one body at every width and
+    /// notch: the panel's width and Clipboard's height. Music keeps its own;
+    /// the stage and Settings stay 400.
+    func testTheThreeToolsShareOneSize() {
+        for bodyWidth in [CGFloat(480), 560, 620] {
+            for notchWidth in [CGFloat(180), 185, 200, 220, 240] {
+                for notchHeight in [CGFloat(24), 32, 38] {
+                    let notch = CGSize(width: notchWidth, height: notchHeight)
+                    func size(_ surface: Surface) -> CGSize {
+                        SurfaceLayout.bodySize(for: surface, bodyWidth: bodyWidth, notch: notch)
+                    }
+                    let at = "\(bodyWidth), notch \(notchWidth) × \(notchHeight)"
+                    let shared = CGSize(width: bodyWidth, height: SurfaceLayout.y(316, notchHeight: notchHeight))
+                    XCTAssertEqual(size(.tray), shared, at)
+                    XCTAssertEqual(size(.clipboard), shared, at)
+                    XCTAssertEqual(size(.translate), shared, at)
+                    XCTAssertEqual(size(.player).height, SurfaceLayout.y(214, notchHeight: notchHeight), at)
+                    XCTAssertEqual(size(.settings).height, SurfaceLayout.y(400, notchHeight: notchHeight), at)
+                    // In English the tray's header fits beside every notch at
+                    // the narrowest panel (Russian's one exception is held in
+                    // `HeaderNotchBandTests.testTheTrayIsThePanelsWidth`).
+                    XCTAssertGreaterThanOrEqual(bodyWidth, ShelfLayout.bodyWidth(notchWidth: notchWidth), at)
+                }
+            }
+        }
+    }
+
+    /// Translate's two cards grow to fill the taller body, keeping the 24 pt
+    /// under them they had.
+    func testTranslatesCardsFillTheSharedHeight() {
+        XCTAssertEqual(TranslateLayout.contentHeight, 262)
+        XCTAssertEqual(TranslateLayout.cardHeight, 192)
+        XCTAssertEqual(TranslateLayout.contentHeight - TranslateLayout.cardTop - TranslateLayout.cardHeight, 24)
+    }
+
+    // MARK: - Sideways always turns the page
+
+    /// A full Shelf no longer scrolls sideways first: a sideways swipe over it
+    /// turns the page from the first event that decides.
+    func testASidewaysSwipeOnAFullShelfTurnsThePage() throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        vm.pageTravel.clock = ManualPageClock()
+        vm.isOpen = true
+        vm.open(.tray)
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("isla-pages-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let shelf = isolated.stores.shelf
+        shelf.requestThumbnail = { _, done in done(nil) }
+        shelf.makeBookmark = { _ in nil }
+        let files = (0..<12).map { folder.appendingPathComponent("capture-\($0).png") }
+        for file in files { FileManager.default.createFile(atPath: file.path, contents: Data("x".utf8)) }
+        shelf.add(files)
+        XCTAssertEqual(shelf.items.count, 12, "the case at hand: more than a row")
+        func scroll(_ dx: CGFloat, _ phase: ScrollSample.Phase, at time: TimeInterval) -> PageScroll {
+            PageScroll(deltaX: dx, deltaY: 0, phase: phase, time: time)
+        }
+        XCTAssertFalse(vm.pageScroll(scroll(-6, .began, at: 0), over: true), "the first 6 pt decide nothing yet")
+        XCTAssertTrue(vm.pageScroll(scroll(-6, .changed, at: 0.01), over: true), "toward Clipboard: the pages take it")
+        XCTAssertNotNil(vm.pageTravel.leg)
+    }
+
+    // MARK: - The gear and its way back
+
+    /// On a page the gear is Settings; on Settings it is a close button that
+    /// goes back, unlit and without the update badge Settings shows itself.
+    func testOnSettingsTheGearIsACloseButton() {
+        let page = HeaderGear(onSettings: false, hasUpdate: true)
+        XCTAssertEqual(page.symbol, "gearshape")
+        XCTAssertEqual(page.label, "Settings")
+        XCTAssertTrue(page.badge)
+
+        let settings = HeaderGear(onSettings: true, hasUpdate: true)
+        XCTAssertEqual(settings.symbol, "xmark")
+        XCTAssertEqual(settings.label, "Close Settings")
+        XCTAssertFalse(settings.badge, "Settings shows the update itself")
+
+        LabLocalization.use("ru")
+        XCTAssertEqual(HeaderGear(onSettings: true, hasUpdate: false).label, "Закрыть настройки")
+        XCTAssertEqual(HeaderGear(onSettings: false, hasUpdate: false).label, "Настройки")
+    }
+}

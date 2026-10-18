@@ -1893,7 +1893,7 @@ ask:
   R10 merges.
 
 Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
-R8-H1…H8, R8b-H1…H8, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+R8-H1…H8, R8b-H1…H10, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
 
@@ -2067,7 +2067,8 @@ Accepted lows (each owed a look on hardware, none blocks the release):
   strip rather than the row, so one swipe can land two places along the row
   (R8b review N4; already true of the pair legs before the joins).
 - Whether a swallowed `.ended` leaves the Shelf's strip mid-gesture is
-  unmeasured off hardware (P3, now part of R8b-H4); P5 likewise.
+  unmeasured off hardware (P3); P5 likewise. Moot since the strip became a
+  grid that scrolls down (owner's review, below).
 - The press-conversion test builds its window points with the controller's
   own formula: it catches a flipped axis, not a `contentRect` that differs
   from where SwiftUI draws (F10).
@@ -2101,10 +2102,12 @@ Owed on hardware (record the Mac model and macOS version when run):
 - [ ] **R8b-H2** The same on a Magic Mouse.
 - [ ] **R8b-H3** A wheel mouse: the wheel scrolls the page under it and never
   turns one; the dots turn them.
-- [ ] **R8b-H4** The tray with eight files: a swipe scrolls the strip first,
-  and turns the page only once it began at the strip's end. With nine, a dot
-  pressed mid-swipe over the strip leaves the strip able to scroll on the
-  next gesture (a swallowed `.ended`, R8b review P3).
+- [ ] **R8b-H4** The tray with fourteen files: tiles in rows (six at Panel
+  Width 560, five at 480), two rows and part of a third showing; two fingers
+  up and down, and a wheel, scroll the grid with fades at a cut top and
+  bottom; a quick sideways swipe over the tiles turns the page at once and
+  never moves the grid. Shelf, Clipboard and Translate are one size: turning
+  between them moves neither the outline nor the dots.
 - [ ] **R8b-H5** VoiceOver: the dots read after the page as "Pages, Page n of
   4, name", and VO-⇧-↑/↓ (increment, decrement) turn one page and stop at the
   ends. Opened by VoiceOver onto Translate, moving into the editor takes the
@@ -2120,3 +2123,26 @@ Owed on hardware (record the Mac model and macOS version when run):
 - [ ] **R8b-H8** Every page in Russian at Panel Width 480 and 620: the dots
   and the gear clear the content, and the tooltips read Музыка, Полка, Буфер
   обмена, Перевод.
+- [ ] **R8b-H9** On Clipboard, press Music's dot and leave the pointer where
+  it is: the panel shrinks to Music and stays open; move up onto Music and
+  back down past it, and it folds. From Settings, the X at the top right goes
+  back to the page Settings came from, and the gear returns ("Закрыть
+  настройки" under VoiceOver in Russian).
+- [ ] **R8b-H10** A song with timed lyrics and pauses of a second or more
+  (an LRC with end stamps), Lyric Band on: in every pause the line under the
+  title holds the coming line, dim, and the artist shows only after the
+  title; when the voice returns the line fills in place without a turn.
+
+**Owner's first review on hardware (2026-10-18), answered.** Five changes, each
+a dated amendment in spec §19.6, §19.7 and §19.16, each held by tests in
+`PagesOnHardwareTests`, `PlayerPaneTests`, `ShelfLayoutTests` and
+`ShelfPaneTests`: (1) a quick sideways swipe on a full Shelf scrolled its
+strip — the tray is now a grid that scrolls down, and sideways always turns the
+page; (2) a dot to a shorter page folded the panel under the pointer — the body
+the panel shrank out of holds it until the pointer reaches the new body or
+leaves the old; (3) the gear on Settings is now a close button (`xmark`, "Close
+Settings"); (4) between lyric lines the player showed the artist twice — it now
+holds the coming line, unswept; (5) Shelf, Clipboard and Translate share one
+size, `bw` × 316 (Translate's cards grow to 192; Music and Settings unchanged).
+One exception is kept on purpose: Russian beside a 240 pt notch at Panel Width
+480 keeps the tray 8 wider (488) rather than run Remove All into the notch.

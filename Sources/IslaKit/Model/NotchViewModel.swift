@@ -314,10 +314,6 @@ final class NotchViewModel: ObservableObject {
     /// Set while ⌃Tab turns the page, which keeps the keyboard where a swipe
     /// or a dot gives it back.
     private var isTurningByKey = false
-    /// How far the tray's strip is scrolled: it scrolls first, and a swipe
-    /// pages from the tray only when it began at the strip's end.
-    let shelfStrip = ShelfStripPosition()
-
     /// The page last shown since launch: what the bare notch with no song, and
     /// ⌃⌥⌘I with nothing live, open (§19.16). Held for the launch only — a
     /// page somebody looked at yesterday is not where they are now.
@@ -2058,13 +2054,6 @@ final class NotchViewModel: ObservableObject {
         PageStrip(pages: Surface.pages, widths: Surface.pages.map { openSize(of: $0).width })
     }
 
-    /// The tray's strip as it stands, for a gesture beginning on the tray.
-    var shelfStripEdge: PageSwipe.StripEdge? {
-        ShelfLayout.stripEdge(
-            offset: shelfStrip.offset, count: shelf.items.count, bodyWidth: openSize(of: .tray).width
-        )
-    }
-
     /// One scroll event over the open island, from `PageSwipeMonitor`:
     /// whether it was the pages' — swallowed — or is handed on to the page
     /// under the pointer. `over` is whether the pointer is over the pages.
@@ -2080,12 +2069,7 @@ final class NotchViewModel: ObservableObject {
         let leg = pageTravel.leg
         let strip = leg?.strip ?? pageStrip()
         let position = leg?.position ?? CGFloat(strip.pages.firstIndex(of: presented) ?? 0)
-        let context = PageSwipe.Context(
-            strip: strip, presented: position, over: over,
-            // The strip scrolls first only while the tray is at rest; a tray
-            // still settling is picked up like any other page.
-            stripEdge: leg == nil && presented == .tray ? shelfStripEdge : nil
-        )
+        let context = PageSwipe.Context(strip: strip, presented: position, over: over)
         switch pageSwipe.handle(event, context) {
         case .pass:
             return false
@@ -2268,8 +2252,9 @@ final class NotchViewModel: ObservableObject {
     }
 
     /// The gear (§19.16): Settings from a page or the stage, and from Settings
-    /// — where it stands lit — back to where Settings was opened from. Going
-    /// back to a page is a page turn, so it does not take the keyboard.
+    /// — where it is the close button — back to where Settings was opened
+    /// from. Going back to a page is a page turn, so it does not take the
+    /// keyboard.
     func pressGear() {
         guard surface == .settings else {
             open(.settings)

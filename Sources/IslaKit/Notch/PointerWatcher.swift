@@ -13,7 +13,12 @@ final class PointerWatcher {
     /// Entering this opens the panel, in screen coordinates.
     var openRect: CGRect = .zero
     /// Leaving this closes the panel, in screen coordinates.
-    var closeRect: CGRect = .zero
+    var closeRect: CGRect = .zero {
+        didSet {
+            guard closeRect != oldValue else { return }
+            noteShrink(from: oldValue)
+        }
+    }
     /// Where the panel takes clicks. Everywhere else the window must let them
     /// through, so this doubles as the `ignoresMouseEvents` trigger.
     var interactiveRect: CGRect = .zero
@@ -41,6 +46,32 @@ final class PointerWatcher {
     /// moment (R8 re-review R-1). Reaching the body, leaving, or a forced
     /// "outside" lets it go.
     private(set) var landingRect: CGRect = .zero
+
+    /// The open body the panel shrank out of, while the pointer that was on it
+    /// still stands in it: counted as part of `closeRect` until the pointer
+    /// reaches the new body or leaves this one.
+    ///
+    /// The open panel changes size under a pointer that has not moved — a dot
+    /// to a shorter page above all. On Clipboard the dots sit 306 pt down;
+    /// pressing Music's left the pointer below Music's 214 pt body, and the
+    /// panel folded `closeDelay` after the press, as if the person had walked
+    /// away (owner, 2026-10-18). Folding is for leaving, never for the content
+    /// changing size. Held like `landingRect`: only while the panel is open,
+    /// and a forced state lets it go.
+    private(set) var shrunkFromRect: CGRect = .zero
+
+    /// A new `closeRect` that no longer holds a pointer the old one held, on
+    /// an open panel the pointer is in: the old one keeps holding it. A shrink
+    /// on top of a shrink keeps everything still held.
+    private func noteShrink(from old: CGRect) {
+        guard isInside, isPanelOpen() else { return }
+        let point = location()
+        if closeRect.contains(point) {
+            shrunkFromRect = .zero
+        } else if old.contains(point) || shrunkFromRect.contains(point) {
+            shrunkFromRect = shrunkFromRect.union(old)
+        }
+    }
 
     /// The closed island as the controller draws it now, in screen
     /// coordinates: every point that takes a click, shoulders and bubble
@@ -181,6 +212,7 @@ final class PointerWatcher {
         // departure owed against the old ones is not owed against the new.
         awaitsDeparture = false
         landingRect = .zero
+        shrunkFromRect = .zero
     }
 
     private func schedule(warm: Bool) {
@@ -246,6 +278,7 @@ final class PointerWatcher {
         // check's resync, a command — the island it was opened from still
         // stands: that check has just counted the pointer on it (R-4).
         landingRect = value ? (isPanelOpen() ? landingRect : islandRect) : .zero
+        shrunkFromRect = value && isPanelOpen() ? shrunkFromRect : .zero
         isInside = value
         graceUntil = grace > 0 ? Date().addingTimeInterval(grace) : nil
         // Whatever forces the state is the newer word on it, so a departure the
@@ -310,11 +343,18 @@ final class PointerWatcher {
         }
 
         // Open, the body holds the panel, and so does the island it opened
-        // from until the pointer first reaches the body (`landingRect`).
+        // from until the pointer first reaches the body (`landingRect`), and
+        // the body it shrank out of until the pointer reaches the new one or
+        // leaves the old (`shrunkFromRect`).
         let onBody = closeRect.contains(point)
-        if isInside, onBody { landingRect = .zero }
+        if isInside, onBody {
+            landingRect = .zero
+            shrunkFromRect = .zero
+        }
         let onLanding = isPanelOpen() && landingRect.contains(point)
-        let inside = isInside ? onBody || onLanding : openRect.contains(point)
+        let onShrunkFrom = isPanelOpen() && shrunkFromRect.contains(point)
+        if isInside, !onShrunkFrom { shrunkFromRect = .zero }
+        let inside = isInside ? onBody || onLanding || onShrunkFrom : openRect.contains(point)
 
         // Whether the panel is open and where the pointer is are two separate
         // facts, and only one of them is tracked here. They are supposed to
@@ -399,6 +439,7 @@ final class PointerWatcher {
         // An arrival at the closed island carries that island into the open
         // panel's close rule; a departure ends it.
         landingRect = inside && !isPanelOpen() ? islandRect : .zero
+        shrunkFromRect = .zero
         isInside = inside
         onChange?(inside)
     }

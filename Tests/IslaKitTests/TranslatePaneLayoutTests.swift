@@ -54,11 +54,11 @@ final class TranslatePaneLayoutTests: XCTestCase {
     func testTheCardsAreTheSpecsAtTheDefaultWidth() {
         let source = TranslateLayout.sourceCard(bodyWidth: 560)
         let result = TranslateLayout.resultCard(bodyWidth: 560)
-        XCTAssertEqual(source, CGRect(x: 16, y: 46, width: 256, height: 160), "(16, 84) less the header row, bw / 2 − 24 wide")
+        XCTAssertEqual(source, CGRect(x: 16, y: 46, width: 256, height: 192), "(16, 84) less the header row, bw / 2 − 24 wide")
         XCTAssertEqual(result.minX, 290, "bw / 2 + 10")
         XCTAssertEqual(result.maxX, 544, "bw − 16")
         XCTAssertEqual(result.minY, 46)
-        XCTAssertEqual(result.height, 160)
+        XCTAssertEqual(result.height, 192)
         XCTAssertEqual(TranslateLayout.cardRadius, 14)
         // The source's text is inset 12 / 14 and leaves room for the Clear ⓧ;
         // the result, which has no plate, insets its text 12 and 4.
@@ -81,17 +81,18 @@ final class TranslatePaneLayoutTests: XCTestCase {
             XCTAssertEqual(result.minX - source.maxX, 18, accuracy: 0.001, "at \(width)")
             XCTAssertEqual(result.maxX, width - 16, "at \(width)")
             XCTAssertGreaterThan(source.width, result.width, "the source plate is the wider, at \(width)")
-            XCTAssertEqual(source.height, 160)
-            XCTAssertEqual(result.height, 160)
+            XCTAssertEqual(source.height, 192, "160 on the board's 268, grown with the shared page")
+            XCTAssertEqual(result.height, 192)
         }
     }
 
     /// One size (§19.11 withdrew Expand): the cards end 24 above the foot of
-    /// the 268 pt body, and the text is 15.
+    /// the three tools' shared 300 pt body (§19.16, amended 2026-10-18), and
+    /// the text is 15.
     func testTheCardsEndAboveTheFootAndTheTextIs15() {
-        XCTAssertEqual(TranslateLayout.contentHeight, 268 - 38)
+        XCTAssertEqual(TranslateLayout.contentHeight, 300 - 38)
         for width in widths {
-            XCTAssertEqual(TranslateLayout.resultCard(bodyWidth: width).maxY, 206)
+            XCTAssertEqual(TranslateLayout.resultCard(bodyWidth: width).maxY, 238)
             XCTAssertLessThanOrEqual(TranslateLayout.resultCard(bodyWidth: width).maxY, TranslateLayout.contentHeight - 24)
         }
         XCTAssertEqual(TranslateLayout.textSize, 15)
@@ -127,8 +128,8 @@ final class TranslatePaneLayoutTests: XCTestCase {
     /// place when Speak is off.
     func testTheFooterLeadsWithSpeakAndCopy() {
         let card = TranslateLayout.resultCard(bodyWidth: 560)
-        XCTAssertEqual(TranslateLayout.speakButton(card: card), CGRect(x: 290, y: 178, width: 26, height: 24))
-        XCTAssertEqual(TranslateLayout.copyButton(card: card, showsSpeak: true), CGRect(x: 320, y: 178, width: 26, height: 24))
+        XCTAssertEqual(TranslateLayout.speakButton(card: card), CGRect(x: 290, y: 210, width: 26, height: 24))
+        XCTAssertEqual(TranslateLayout.copyButton(card: card, showsSpeak: true), CGRect(x: 320, y: 210, width: 26, height: 24))
         XCTAssertEqual(TranslateLayout.copyButton(card: card, showsSpeak: false).minX, 290)
         let source = TranslateLayout.sourceCard(bodyWidth: 560)
         XCTAssertEqual(
@@ -139,8 +140,8 @@ final class TranslatePaneLayoutTests: XCTestCase {
 
     func testPasteAndTheCounterSitAtTheSourceFoot() {
         let card = TranslateLayout.sourceCard(bodyWidth: 560)
-        XCTAssertEqual(TranslateLayout.counter(card: card), CGRect(x: 30, y: 184, width: 228, height: 12), "10 from the card's bottom")
-        XCTAssertEqual(TranslateLayout.paste(card: card), CGRect(x: 30, y: 179, width: 66, height: 22))
+        XCTAssertEqual(TranslateLayout.counter(card: card), CGRect(x: 30, y: 216, width: 228, height: 12), "10 from the card's bottom")
+        XCTAssertEqual(TranslateLayout.paste(card: card), CGRect(x: 30, y: 211, width: 66, height: 22))
     }
 
     // MARK: - The counter and the limit

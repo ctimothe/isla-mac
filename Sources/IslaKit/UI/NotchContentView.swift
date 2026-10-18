@@ -968,14 +968,12 @@ struct NotchContentView: View {
     }
 
     /// The gear (spec §19.16), where the Tools button stood: Settings from a
-    /// page or the stage on the island's spring, and on Settings, lit, the way
-    /// back. It carries the update badge Tools' own gear carried, so an update
-    /// waiting shows on every page.
+    /// page or the stage on the island's spring, and on Settings a close
+    /// button, the way back (`HeaderGear`). It carries the update badge Tools'
+    /// own gear carried, so an update waiting shows on every page.
     private var gearButton: some View {
-        HeaderToolButton(
-            symbol: "gearshape", label: localized("Settings"),
-            isOn: vm.presented == .settings, badge: updates.hasUpdate
-        ) {
+        let gear = HeaderGear(onSettings: vm.presented == .settings, hasUpdate: updates.hasUpdate)
+        return HeaderToolButton(symbol: gear.symbol, label: gear.label, badge: gear.badge) {
             withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.pressGear() }
         }
         .transition(.opacity)
@@ -1349,7 +1347,7 @@ struct NotchContentView: View {
                 coverTint: vm.coverTint.nsColor
             )
         case .tray:
-            ShelfPane(shelf: vm.shelf, clear: vm.shelfClear, bodyWidth: bodyWidth, strip: vm.shelfStrip)
+            ShelfPane(shelf: vm.shelf, clear: vm.shelfClear, bodyWidth: bodyWidth)
         case .drop:
             ShelfDropSurface(bodyWidth: bodyWidth, dropTarget: vm.shelfDropTarget)
         case .clipboard:

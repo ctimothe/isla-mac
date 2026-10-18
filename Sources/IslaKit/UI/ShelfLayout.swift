@@ -2,58 +2,113 @@ import AppKit
 import SwiftUI
 
 /// Where everything on the tray sits (spec §19.7, board `R2-Shelf-Open`), as
-/// values, in the content's coordinates: the board's shape coordinates less
-/// the tray's 24 pt shoulder across, and less the reference notch's 38 down
-/// (`SurfaceLayout.inContent`). A test that holds these numbers holds the
-/// pixels without rendering anything.
+/// values, in the content's coordinates: the body under the header strip, the
+/// board's y less the reference notch's 38 (`SurfaceLayout.inContent`). A test
+/// that holds these numbers holds the pixels without rendering anything.
 ///
-/// The tray replaced §8.1's grid and §8.2's selection bar: one row of tiles,
-/// four in view, scrolling sideways past four — the tray never widens.
+/// The tray replaced §8.1's grid and §8.2's selection bar with the board's
+/// tiles. Until 2026-10-18 they stood in one row, four in view, scrolling
+/// sideways — and a quick sideways swipe on a full Shelf scrolled that row
+/// instead of turning the page (owner, on hardware). They now fill the three
+/// tools' shared page in rows and scroll down, so sideways is always the
+/// pages' (§19.7 and §19.16, amended 2026-10-18).
 enum ShelfLayout {
-    // MARK: - The row (§19.7)
+    // MARK: - The grid (§19.7)
 
-    /// The shoulder the board's x is measured outside of.
+    /// The shoulder the board's x was measured outside of.
     static let shoulder: CGFloat = 24
 
-    /// A tile: 80 × 94, radius 16, on a 90 pitch.
+    /// A tile: 80 × 94, radius 16, on the board's 90 pitch across; rows are
+    /// the same 10 pt apart, so 104 down.
     static let tile = CGSize(width: 80, height: 94)
     static let tileRadius: CGFloat = 16
     static let pitch: CGFloat = 90
+    static var gap: CGFloat { pitch - tile.width }
+    static var rowPitch: CGFloat { tile.height + gap }
 
-    /// The first tile's corner: (41.9, 47.5) on the board.
-    static let firstTile = CGPoint(x: 41.9 - shoulder, y: 47.5 - SurfaceLayout.referenceNotchHeight)
+    /// The first row's top: the board's 47.5, under the 38 pt header strip.
+    static let firstRowTop: CGFloat = 47.5 - SurfaceLayout.referenceNotchHeight
 
-    /// How many tiles the tray shows before it scrolls.
-    static let visibleTiles = 4
+    /// The least room the grid leaves either side. Six tiles fit 560 with 15
+    /// either side; the board's 17.9 would have left five and a 50 pt margin.
+    static let minimumSideMargin: CGFloat = 14
 
-    /// The 16 pt fades at a clipped end of the row.
+    /// The 16 pt fades at a clipped top or bottom of the grid.
     static let edgeFade: CGFloat = 16
 
-    /// A tile's frame inside the row's scrolled content.
-    static func tileFrame(index: Int) -> CGRect {
-        CGRect(
-            x: firstTile.x + CGFloat(index) * pitch, y: firstTile.y,
+    /// How many tiles a row holds at `bodyWidth`: five at 480, six at 560
+    /// and 620.
+    static func columns(bodyWidth: CGFloat) -> Int {
+        max(1, Int((bodyWidth - 2 * minimumSideMargin + gap) / pitch))
+    }
+
+    /// The grid's leading edge: centred in the body, on a whole point.
+    static func gridLeading(bodyWidth: CGFloat) -> CGFloat {
+        let width = CGFloat(columns(bodyWidth: bodyWidth)) * pitch - gap
+        return ((bodyWidth - width) / 2).rounded()
+    }
+
+    /// A tile's frame inside the grid's scrolled content.
+    static func tileFrame(index: Int, bodyWidth: CGFloat) -> CGRect {
+        let columns = columns(bodyWidth: bodyWidth)
+        return CGRect(
+            x: gridLeading(bodyWidth: bodyWidth) + CGFloat(index % columns) * pitch,
+            y: firstRowTop + CGFloat(index / columns) * rowPitch,
             width: tile.width, height: tile.height
         )
     }
 
-    /// The row's scrolled content: the tiles and the same margin after the
-    /// last as before the first.
-    static func contentWidth(count: Int) -> CGFloat {
+    static func rows(count: Int, bodyWidth: CGFloat) -> Int {
         guard count > 0 else { return 0 }
-        return 2 * firstTile.x + CGFloat(count - 1) * pitch + tile.width
+        let columns = columns(bodyWidth: bodyWidth)
+        return (count + columns - 1) / columns
     }
 
-    /// The viewport the row scrolls in: the board's 385.3 across, centred in
-    /// the body — which is that width unless a wide notch widened the tray
-    /// (`bodyWidth(notchWidth:)`) — and the content's whole height below the
-    /// header strip. Four tiles keep the board's margins either way.
+    /// The grid's scrolled content: the rows, and the same margin under the
+    /// last as over the first.
+    static func contentHeight(count: Int, bodyWidth: CGFloat) -> CGFloat {
+        let rows = rows(count: count, bodyWidth: bodyWidth)
+        guard rows > 0 else { return 0 }
+        return 2 * firstRowTop + CGFloat(rows - 1) * rowPitch + tile.height
+    }
+
+    /// The viewport the grid scrolls in: the body's whole width and its
+    /// content between the header strip and the dots — 262 on any notch,
+    /// since both move with it. Two rows and part of a third show, so a cut
+    /// row says there is more.
     static func viewport(bodyWidth: CGFloat) -> CGRect {
-        let width = min(bodyWidth, referenceBodyWidth)
-        return CGRect(
-            x: ((bodyWidth - width) / 2).rounded(), y: 0,
-            width: width, height: SurfaceLayout.trayReference.height - SurfaceLayout.referenceNotchHeight
+        CGRect(
+            x: 0, y: 0, width: bodyWidth,
+            height: SurfaceLayout.toolPageHeight - SurfaceLayout.referenceNotchHeight
         )
+    }
+
+    /// Whether the grid scrolls at all: more rows than the viewport holds.
+    static func scrolls(count: Int, bodyWidth: CGFloat) -> Bool {
+        contentHeight(count: count, bodyWidth: bodyWidth) > viewport(bodyWidth: bodyWidth).height
+    }
+
+    /// The tile under `point`, in the grid's scrolled content, or nil between
+    /// tiles. Decided from the layout, not from each tile's own hover: a tile
+    /// that slides under a pointer that has not moved gets no hover event (the
+    /// reason the grid this replaced worked this way).
+    static func tileIndex(at point: CGPoint, count: Int, bodyWidth: CGFloat) -> Int? {
+        let leading = gridLeading(bodyWidth: bodyWidth)
+        guard point.x >= leading, point.y >= firstRowTop else { return nil }
+        let column = Int((point.x - leading) / pitch)
+        guard column < columns(bodyWidth: bodyWidth) else { return nil }
+        let index = Int((point.y - firstRowTop) / rowPitch) * columns(bodyWidth: bodyWidth) + column
+        guard index < count, tileFrame(index: index, bodyWidth: bodyWidth).contains(point) else { return nil }
+        return index
+    }
+
+    /// The notice line's height and top: under the last row while the grid
+    /// fits, and at the viewport's foot, over the fade, once it scrolls — so a
+    /// notice never covers a tile in full view.
+    static let noticeHeight: CGFloat = 14
+    static func noticeTop(count: Int, bodyWidth: CGFloat) -> CGFloat {
+        let lastRow = firstRowTop + CGFloat(max(rows(count: count, bodyWidth: bodyWidth) - 1, 0)) * rowPitch
+        return min(lastRow + tile.height + 1, viewport(bodyWidth: bodyWidth).height - noticeHeight - 1)
     }
 
     // MARK: - The tray's width (§19.7, amended 2026-10-18)
@@ -61,12 +116,14 @@ enum ShelfLayout {
     /// The board's tray body: 433.3 less its two 24 pt shoulders.
     static let referenceBodyWidth: CGFloat = SurfaceLayout.trayReference.width - 2 * shoulder
 
-    /// The tray's body under a notch `notchWidth` wide. The board's 385.3
-    /// leaves the header about 100 pt either side of a 185 pt notch; under a
-    /// 220 or 240 pt one (§19.12) the count had 17 pt for "60" and Remove All
-    /// ran into the notch (R8 review). So the body is at least the notch plus
-    /// what the header needs on its wider side, on both sides, since the tray
-    /// is centred on the notch. The tiles stay four, centred.
+    /// The narrowest tray the header fits under a notch `notchWidth` wide.
+    /// The board's 385.3 left the header about 100 pt either side of a 185 pt
+    /// notch; under a 220 or 240 pt one (§19.12) the count had 17 pt for "60"
+    /// and Remove All ran into the notch (R8 review). So the body is at least
+    /// the notch plus what the header needs on its wider side, on both sides,
+    /// since the tray is centred on the notch. Since the tray took the panel's
+    /// width this is a floor the narrowest panel already clears; it stays so
+    /// that a wider notch than any §19.12 names still cannot crowd the header.
     static func bodyWidth(notchWidth: CGFloat) -> CGFloat {
         max(referenceBodyWidth, notchWidth + 2 * headerSideRoom())
     }
@@ -113,29 +170,6 @@ enum ShelfLayout {
         return 18 + 5 + text + 12
     }
 
-    /// Whether the row scrolls at all: more than four tiles.
-    static func scrolls(count: Int) -> Bool { count > visibleTiles }
-
-    /// Where the row stands for a swipe (§19.16): at its first tile, at its
-    /// last, or nil when it does not scroll. The row scrolls first; a swipe
-    /// turns the page only from the end it is already at.
-    static func stripEdge(offset: CGFloat, count: Int, bodyWidth: CGFloat) -> PageSwipe.StripEdge? {
-        guard scrolls(count: count) else { return nil }
-        let end = contentWidth(count: count) - viewport(bodyWidth: bodyWidth).width
-        return PageSwipe.StripEdge(atStart: offset <= 0.5, atEnd: offset >= end - 0.5)
-    }
-
-    /// The tile under `point`, in the row's scrolled content, or nil between
-    /// tiles. Decided from the layout, not from each tile's own hover: a tile
-    /// that slides under a pointer that has not moved gets no hover event (the
-    /// reason the grid this replaced worked this way).
-    static func tileIndex(at point: CGPoint, count: Int) -> Int? {
-        guard point.x >= firstTile.x else { return nil }
-        let index = Int((point.x - firstTile.x) / pitch)
-        guard index < count, tileFrame(index: index).contains(point) else { return nil }
-        return index
-    }
-
     // MARK: - A tile (§19.7)
 
     /// The file's thumbnail or icon: 42 × 42 at (19, 9).
@@ -160,11 +194,13 @@ enum ShelfLayout {
 
     // MARK: - The header (§19.7)
 
-    /// `tray.full.fill`, 26 × 20, at the board's x 52.6; the count, SF Pro
-    /// Rounded 15, tabular, at its x 82. Centred in the header strip.
+    /// `tray.full.fill`, 26 × 20, starting at 20 — where every summoned
+    /// surface's title starts, now that the tray is their size — and the
+    /// count, SF Pro Rounded 15, tabular, the board's 29.4 after it (52.6 and
+    /// 82 on the board). Centred in the header strip.
     static let headerGlyph = CGSize(width: 26, height: 20)
-    static let headerGlyphX: CGFloat = 52.6 - shoulder
-    static let headerCountX: CGFloat = 82 - shoulder
+    static let headerGlyphX: CGFloat = SurfaceHeaderLayout.titleLeading
+    static let headerCountX: CGFloat = headerGlyphX + (82 - 52.6)
     static let headerCountSize: CGFloat = 15
     /// Remove All ends `gearClearance` before the gear's well (§19.16). The
     /// board ended it 44 from the shape's right edge, which is where the gear

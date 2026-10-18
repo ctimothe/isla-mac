@@ -15,7 +15,8 @@ enum TranslateLayout {
 
     /// The leading and trailing margin every row keeps (§19.8: x 16 to `bw − 16`).
     static let margin: CGFloat = 16
-    /// The surface's content: 268 tall less the 38 pt header row.
+    /// The surface's content: the three tools' shared 300 less the 38 pt
+    /// header row (§19.16, amended 2026-10-18; it was 268).
     static let contentHeight: CGFloat = SurfaceLayout.translateHeight - SurfaceLayout.referenceNotchHeight
 
     /// The pair row at the reference's y 46, 26 tall.
@@ -24,9 +25,11 @@ enum TranslateLayout {
     /// Swap is 28 wide, its leading edge 14 left of the middle.
     static let swapWidth: CGFloat = 28
 
-    /// The cards at the reference's y 84, 160 tall, radius 14.
+    /// The cards at the reference's y 84, radius 14, keeping the board's 24
+    /// under them: 160 tall on the board's 268, 192 on the shared 300.
     static let cardTop: CGFloat = 46
-    static let cardHeight: CGFloat = 160
+    static let cardBottomRoom: CGFloat = 24
+    static let cardHeight: CGFloat = contentHeight - cardTop - cardBottomRoom
     static let cardRadius: CGFloat = 14
 
     /// The source card's inset, 12 top and bottom and 14 at the sides; the

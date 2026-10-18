@@ -142,16 +142,17 @@ struct PageStrip: Equatable {
 ///
 /// - The first 10 pt decide. More sideways than up or down pages; anything
 ///   else, and a gesture that began off the pages, is the page's for good —
-///   Clipboard's list and Settings scroll as they always have.
-/// - The tray's strip scrolls first: a gesture pages only if the strip was
-///   already at its end, in the direction of travel, when it began.
+///   Clipboard's list, the Shelf's grid and Settings scroll as they always
+///   have. Nothing on a page scrolls sideways: the Shelf's strip did, and
+///   scrolled first, so a quick swipe on a full Shelf moved its tiles rather
+///   than the page (owner, 2026-10-18). Its grid scrolls down now.
 /// - The content follows the fingers one to one, up to one page either side
 ///   of where the gesture began; past that, and past Music and Translate, it
 ///   rubber-bands.
 /// - The release projects the velocity (Apple's deceleration, 0.998) and
 ///   chooses the page nearest the projection, one page away at most.
 /// - The momentum macOS sends once the fingers lift is swallowed: the
-///   projection has spent it, and under the pages it would scroll the strip.
+///   projection has spent it, and under the pages it would scroll the page.
 struct PageSwipe: Equatable {
     static let lockDistance: CGFloat = 10
     static let rubberbandConstant: CGFloat = 0.55
@@ -159,14 +160,6 @@ struct PageSwipe: Equatable {
     /// How far back the release looks for the fingers' speed. A gesture whose
     /// fingers stopped this long before lifting throws nothing.
     static let velocityWindow: TimeInterval = 0.1
-
-    /// The tray's strip, as it stood when a gesture began: whether it is
-    /// scrolled to its first tile and to its last. Nil when it does not
-    /// scroll, or the page is not the tray.
-    struct StripEdge: Equatable {
-        var atStart: Bool
-        var atEnd: Bool
-    }
 
     /// What the pages look like when an event arrives.
     struct Context: Equatable {
@@ -176,7 +169,6 @@ struct PageSwipe: Equatable {
         var presented: CGFloat
         /// Whether the pointer is over the pages.
         var over: Bool
-        var stripEdge: StripEdge?
     }
 
     enum Outcome: Equatable {
@@ -214,7 +206,6 @@ struct PageSwipe: Equatable {
 
     private(set) var stage: Stage = .idle
     private var decided = CGSize.zero
-    private var edgeAtBegin: StripEdge?
     private var strip: PageStrip?
     /// The page the gesture began on: it may go one page either side.
     private var anchor = 0
@@ -271,7 +262,6 @@ struct PageSwipe: Equatable {
     private mutating func begin(_ context: Context) {
         stage = context.over ? .deciding : .refused
         decided = .zero
-        edgeAtBegin = context.stripEdge
         samples = []
     }
 
@@ -282,11 +272,6 @@ struct PageSwipe: Equatable {
         samples.append(Sample(time: event.time, advance: -event.deltaX))
         guard hypot(decided.width, decided.height) >= Self.lockDistance else { return .pass }
         guard abs(decided.width) > abs(decided.height) else {
-            stage = .refused
-            return .pass
-        }
-        let towardLater = decided.width < 0
-        if let edge = edgeAtBegin, !(towardLater ? edge.atEnd : edge.atStart) {
             stage = .refused
             return .pass
         }

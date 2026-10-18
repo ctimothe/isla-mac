@@ -244,11 +244,3 @@ final class DisplayPageClock: NSObject, PageClock {
         tick = nil
     }
 }
-
-/// How far the tray's strip is scrolled, written by the strip and read by the
-/// swipe when a gesture begins. A plain reference, not `@Published`: nothing
-/// is drawn from it.
-@MainActor
-final class ShelfStripPosition {
-    var offset: CGFloat = 0
-}

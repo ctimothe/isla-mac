@@ -27,6 +27,8 @@ final class OpenFromAWiderIslandTests: XCTestCase {
         defer { watcher.stop() }
         var changes: [Bool] = []
         var open = false
+        var point = CGPoint(x: 50, y: 50)
+        watcher.location = { point }
         watcher.openDelay = 0
         watcher.closeDelay = 0
         watcher.isPanelOpen = { open }
@@ -42,10 +44,12 @@ final class OpenFromAWiderIslandTests: XCTestCase {
         XCTAssertEqual(changes, [], "the pointer is still on the island it clicked")
 
         // It reaches the body, and from then the body alone holds the panel:
-        // leaving it is leaving, wherever the island once was.
-        watcher.closeRect = Self.everywhere
+        // leaving it is leaving, wherever the island once was. The pointer
+        // moves off; the body is not taken from under it, which is a shrink
+        // and holds (`PagesOnHardwareTests`).
+        watcher.closeRect = CGRect(x: 0, y: 0, width: 100, height: 100)
         sample(watcher, times: 2)
-        watcher.closeRect = Self.nowhere
+        point = CGPoint(x: 500, y: 500)
         sample(watcher, times: 2)
         XCTAssertEqual(changes, [false], "once on the body, leaving the body closes")
     }

@@ -190,11 +190,10 @@ final class HeaderNotchBandTests: XCTestCase {
     /// the language on screen), at the width the tray really has under each
     /// notch §19.12 names.
     ///
-    /// The tray is not `bw` wide: it is the board's 385.3, widened only as a
-    /// wide notch needs (`ShelfLayout.bodyWidth(notchWidth:)`). This was first
-    /// checked at 480, 560 and 620, widths the tray never has, and passed
-    /// while under a 220 pt notch the real header cut "60" and ran Remove All
-    /// into the notch (R8 review).
+    /// The tray was the board's 385.3, widened only as a wide notch needed,
+    /// and was first checked at widths it never had (R8 review). Since
+    /// 2026-10-18 it is the panel's width like Clipboard and Translate, so it
+    /// is checked at every Panel Width, the narrowest the one that matters.
     func testTheTrayHeaderStaysClearOfTheNotch() {
         let digits = ShelfLayout.maximumCountWidth()
         for language in ["en", "ru"] {
@@ -202,8 +201,9 @@ final class HeaderNotchBandTests: XCTestCase {
             let removeAll = ShelfRemoveAllButton.width()
             for notchWidth in Self.everyNotchWidth {
                 for notchHeight in Self.everyNotchHeight {
+                  for panelWidth in [CGFloat(480), 560, 620] {
                     let notch = CGSize(width: notchWidth, height: notchHeight)
-                    let width = SurfaceLayout.bodySize(for: .tray, bodyWidth: 560, notch: notch).width
+                    let width = SurfaceLayout.bodySize(for: .tray, bodyWidth: panelWidth, notch: notch).width
                     let band = band(bodyWidth: width, notchWidth: notchWidth, notchHeight: notchHeight)
                     let glyph = SurfaceHeaderLayout.trayGlyph(notchHeight: notchHeight)
                     let count = SurfaceHeaderLayout.trayCount(bodyWidth: width, notchWidth: notchWidth, notchHeight: notchHeight)
@@ -217,43 +217,34 @@ final class HeaderNotchBandTests: XCTestCase {
                         remove.maxX, SurfaceHeaderLayout.gear(bodyWidth: width, notchHeight: notchHeight).minX - 8,
                         accuracy: 0.0001, "8 before the gear's well (§19.16), \(at)"
                     )
+                  }
                 }
             }
         }
     }
 
-    /// The tray is never narrower than the board's 385.3, and is otherwise
-    /// exactly what the header's wider side needs, on both sides. Since the
-    /// gear joined the tray's header (§19.16) that side is wider than the
-    /// board left it, so every notch widens the tray a little; the four tiles
-    /// keep the board's margins, centred.
-    func testTheTrayWidensOnlyForAWideNotch() {
+    /// The tray is the panel's width, like Clipboard and Translate (§19.16,
+    /// amended 2026-10-18). The header's floor still stands: one combination
+    /// §19.12 names needs more than the narrowest panel — Russian "Все" beside
+    /// a 240 pt notch at 480, which needs 488 — and there the tray keeps the
+    /// 8 pt rather than run Remove All into the notch. Nowhere else does the
+    /// floor bind.
+    func testTheTrayIsThePanelsWidth() {
         for language in ["en", "ru"] {
             LabLocalization.use(language)
             for notchWidth in Self.everyNotchWidth {
-                let width = SurfaceLayout.bodySize(
-                    for: .tray, bodyWidth: 560, notch: CGSize(width: notchWidth, height: 38)
-                ).width
-                XCTAssertGreaterThanOrEqual(width, ShelfLayout.referenceBodyWidth)
-                XCTAssertEqual(
-                    width, max(ShelfLayout.referenceBodyWidth, notchWidth + 2 * ShelfLayout.headerSideRoom()),
-                    "\(language), notch \(notchWidth)"
-                )
+                for panelWidth in [CGFloat(480), 560, 620] {
+                    let width = SurfaceLayout.bodySize(
+                        for: .tray, bodyWidth: panelWidth, notch: CGSize(width: notchWidth, height: 38)
+                    ).width
+                    let at = "\(language), notch \(notchWidth), panel \(panelWidth)"
+                    XCTAssertEqual(width, max(panelWidth, ShelfLayout.bodyWidth(notchWidth: notchWidth)), at)
+                    if panelWidth > 480 || notchWidth <= 220 {
+                        XCTAssertEqual(width, panelWidth, "the floor does not bind, \(at)")
+                    }
+                }
             }
-            // With the gear on the tray (§19.16) the header's right side needs
-            // more than the board left it, so even the board's own notch
-            // widens the tray past 385.3; the tiles stay the board's, centred.
-            XCTAssertGreaterThan(
-                SurfaceLayout.bodySize(for: .tray, bodyWidth: 560, notch: CGSize(width: 185, height: 38)).width,
-                385.3, "the gear's room under the board's notch (\(language))"
-            )
         }
-        // A widened tray keeps its four tiles on the board's margins, centred.
-        let wide: CGFloat = 420
-        let viewport = ShelfLayout.viewport(bodyWidth: wide)
-        XCTAssertEqual(viewport.width, ShelfLayout.referenceBodyWidth, accuracy: 0.0001)
-        XCTAssertEqual(viewport.midX, wide / 2, accuracy: 0.5)
-        XCTAssertEqual(ShelfLayout.viewport(bodyWidth: ShelfLayout.referenceBodyWidth).minX, 0)
     }
 
     // MARK: Clipboard, Translate, Settings

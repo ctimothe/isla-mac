@@ -1313,7 +1313,7 @@ final class NotchController {
         // only the panel's own state.
         let previousSurface = viewModel?.surface
         // And where the pages were: the page the bare notch opens and where
-        // the lit gear goes back to (R8b review F9).
+        // Settings' close button goes back to (R8b review F9).
         let previousPlace = viewModel?.place
         // The old pages to rest, so their display link stops with them: the
         // link holds its target, and nothing else would ever end it.

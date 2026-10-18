@@ -267,15 +267,21 @@ Translate (`Surface.pages`, spec §19.16) — and four dots under each
 reads the row as one adjustable element, "Pages, Page 2 of 4, Shelf". A
 sideways two-finger swipe over the pages turns them one at a time:
 `PageSwipe` takes precise scroll events only, locks a direction after 10 pt,
-tracks 1:1, rubber-bands past either end and projects the release's momentum;
-the Shelf's strip scrolls first. `PageTravel` draws every frame on the
+tracks 1:1, rubber-bands past either end and projects the release's momentum.
+Nothing on a page scrolls sideways — the Shelf is a grid that scrolls down —
+so sideways is always the pages'. Shelf, Clipboard and Translate share one
+size (`SurfaceLayout.toolPageHeight`, the panel's width); only Music keeps its
+own. `PageTravel` draws every frame on the
 display's own clock, with animations disabled, so no implicit `.animation`
 lays a curve over the fingers; the settle is the island's spring. An ordinary
 wheel never turns a page — the dots are its way — and ⌃Tab and ⌃⇧Tab turn
 them while the panel has the keyboard. The clickable region is cut over every
 page a gesture can reach, once per gesture. The stage and Settings sit a level
 below the pages: every page and the stage carry the **gear**, which opens
-Settings and, lit there, goes back. A click on the notch's own span of the
+Settings; on Settings it is an X (`HeaderGear`) that goes back. When the
+open body shrinks under a pointer that was on it (a dot to a shorter page),
+the body it left holds the panel until the pointer reaches the new one or
+leaves (`PointerWatcher.shrunkFromRect`). A click on the notch's own span of the
 header row closes the panel. A right-click on the island or the header row opens
 `IslandMenu` (Clipboard, Shelf, Translate Clipboard, lyrics, Settings…, Quit);
 it is the app's only menu, since an `.accessory` app has no menu bar.

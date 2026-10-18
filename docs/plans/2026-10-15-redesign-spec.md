@@ -1766,6 +1766,13 @@ VoiceOver adjusting the dots; R8b-H6 Reduce Motion; R8b-H7 Clipboard reached by
 a swipe while typing in Safari — Safari keeps the keyboard; R8b-H8 every page
 in Russian at 480 and 620.
 
+*Amended 2026-10-18 (owner's review on hardware, §19.16's last amendment).*
+R8b-H4 now reads: the tray with fourteen files — the grid scrolls down, a
+sideways swipe turns the page at once, and the three tools turn without
+changing size. Added: R8b-H9 a dot to Music from Clipboard with the pointer
+left where it pressed — the panel stays; Settings' X goes back; R8b-H10 a song
+with timed pauses — the line under the title holds the coming line.
+
 ### R9 — New alerts (`feat/redesign-r9-alerts`)
 
 In: §19.5 a, b, e and f; the headphone battery ring (§19.5 c) if §19.15
@@ -2494,6 +2501,17 @@ grows 16 for the dots (§19.16); with no song it is still drawn, in §4.8's
 Nothing Playing state, and "a click opens Tools" reads "opens the page last
 shown". The stage's Tools button is the gear.
 
+*Amended 2026-10-18 (owner, R8b review).* **Between lines the subtitle shows
+the coming line, not the artist.** On hardware the owner saw the artist twice
+in every pause of a second or two — once after the title, once under it — and
+the line then snapped in when the voice came back. While the band is on, the
+subtitle never falls back to the artist: between lines, before the first and
+after the last it holds the line the voice reaches next (the last line in the
+outro), unswept in white 0.50 — the island caption's rule, `LyricMoment.centre`.
+When the voice arrives, the sweep starts on the line already there, so a pause
+turns nothing; only a change of line turns. Replaces "Between lines and before
+the first, the subtitle is the artist."
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the
@@ -2569,6 +2587,22 @@ stays 16 right of the island's outline; it grows to the right.
 grows 16 for the dots; "opened from Tools" reads "turned to". Remove All ends
 8 before the gear's well, and the tray's minimum width counts the gear
 (§19.16).
+
+*Amended 2026-10-18 (owner, R8b review).* **The tray is a grid that scrolls
+down.** On hardware a quick sideways swipe on a full Shelf scrolled the strip
+of tiles instead of turning the page. The tray is now the shared page size
+of §19.16's amendment (`bw` × 316 at a 38 pt notch, dots included), with the
+summoned surfaces' radii, 34 / 44, so the three shapes are one; and its
+tiles — the same 80 × 94 tiles on the same 90 pt pitch, 10 pt apart across and
+down — fill it in rows, as many to a row as fit with at least 14 pt either side
+(five at 480, six at 560 and 620), the grid centred. The first row's top stays
+9.5 under the header strip. Past what fits the grid scrolls vertically with
+16 pt fades at a clipped top and bottom; two rows and part of a third show,
+so a cut row says there is more. A sideways swipe always turns the page: the
+"strip scrolls first" rule of §19.16 is withdrawn. The header's glyph starts
+at x 20, as every summoned surface's title does, and the count keeps the
+board's 29.4 after it. The empty line, Remove All's question and notices are
+centred in the new body; a notice sits under the grid's last visible row.
 
 ### 19.8 Tools and the summoned surfaces
 
@@ -3004,3 +3038,35 @@ element's label. VoiceOver reads an adjustable element as label then value,
 and without a label the row was announced as its value alone, with nothing
 saying what was being adjusted. With it the row reads "Pages, Page 2 of 4,
 Shelf".
+
+*Amended 2026-10-18 (owner, R8b review).* Four changes after the owner's
+first use on hardware:
+
+- **One size for the three tools.** Shelf, Clipboard and Translate share one
+  body: `bw` × 316 at a 38 pt notch, dots included — Clipboard's size. Turning
+  between them moves nothing but the content; only Music (214) and the levels
+  below (stage and Settings, 400) keep their own. Translate's cards grow by 32
+  to 192 to fill it; the tray is §19.7's amended grid. The dots therefore
+  stand still between the three. "The tallest page is Clipboard at 316" holds.
+  §19.7's header floor stays: the one combination it binds — Russian "Все"
+  beside a 240 pt notch at Panel Width 480 — keeps the tray 8 wider (488)
+  rather than run Remove All into the notch.
+- **A panel that shrinks under the pointer stays open.** A dot to a shorter
+  page — Music's from Clipboard, whose dots sit 306 down where Music's body
+  ends at 214 — left the pointer that pressed it below the new body, and the
+  panel folded `closeDelay` later. Now when the body shrinks out from under a
+  pointer that was on it, the body it left keeps holding the panel until the
+  pointer reaches the new body or leaves the old one. Folding is for leaving,
+  never for the content changing size.
+- **The gear becomes a close button on Settings.** On Settings the gear well
+  shows `xmark` 14, labelled "Close Settings", unlit and without the update
+  badge (Settings shows the update itself); a click goes back to the page or
+  stage Settings came from, where the gear returns. The glyph changes with
+  SF Symbols' replace transition. Replaces "the same gear stands lit".
+- **Sideways always turns the page.** "The tray's strip scrolls first" is
+  withdrawn with the strip (§19.7): the tray scrolls up and down, so a
+  sideways gesture over it is the pages' like anywhere else.
+
+| English (key) | Russian |
+|---|---|
+| Close Settings | Закрыть настройки |

@@ -63,7 +63,7 @@ extension NotchViewModel {
 
         /// The surfaces that carry the gear at (`bw − 46`, 6) (§19.16): every
         /// page and the stage, where the Tools button stood, and Settings,
-        /// where it stands lit and goes back.
+        /// where it is the close button that goes back (`HeaderGear`).
         var hasGear: Bool {
             switch self {
             case .player, .stage, .tray, .clipboard, .translate, .settings: return true
@@ -71,17 +71,20 @@ extension NotchViewModel {
             }
         }
 
-        /// The shoulder: 24 for the Shelf's two, 34 for every other surface.
+        /// The shoulder: 24 for the drop surface, 34 for every other surface.
+        /// The tray had the drop surface's 24 / 34 while it was a strip; at
+        /// the three tools' shared size it takes theirs, so turning between
+        /// them changes no corner either (§19.7, amended 2026-10-18).
         var topRadius: CGFloat {
             switch self {
-            case .tray, .drop: return 24
+            case .drop: return 24
             default: return 34
             }
         }
 
         var bottomRadius: CGFloat {
             switch self {
-            case .tray, .drop: return 34
+            case .drop: return 34
             default: return 44
             }
         }
@@ -146,8 +149,15 @@ enum SurfaceLayout {
     static let trayReference = CGSize(width: 433.3, height: 158)
     static let stageHeight: CGFloat = 400
     static let dropHeight: CGFloat = 176
-    static let clipboardHeight: CGFloat = 300
-    static let translateHeight: CGFloat = 268
+    /// Shelf, Clipboard and Translate share one body: the panel's width and
+    /// this height, Clipboard's (§19.16, amended 2026-10-18). Turning between
+    /// the three changed the outline's size on every turn — the Shelf was a
+    /// 385-wide strip, Translate 32 shorter — and moved the dots under the
+    /// pointer; one size moves nothing but the content. Music keeps its own
+    /// measured shape.
+    static let toolPageHeight: CGFloat = 300
+    static let clipboardHeight: CGFloat = toolPageHeight
+    static let translateHeight: CGFloat = toolPageHeight
     static let settingsHeight: CGFloat = 400
     /// §19.2: an expanded shape is never narrower than the notch plus 20.
     static let widthPastTheNotch: CGFloat = 20
@@ -228,9 +238,12 @@ enum SurfaceLayout {
                 height: y(playerReference.height, notchHeight: h) + band
             )
         case .tray:
+            // The header's minimum (`ShelfLayout.bodyWidth(notchWidth:)`) is
+            // under the narrowest panel on every notch §19.12 names; kept so a
+            // wider notch still cannot run Remove All into it.
             return CGSize(
-                width: max(ShelfLayout.bodyWidth(notchWidth: notch.width), floor),
-                height: y(trayReference.height, notchHeight: h) + band
+                width: max(bw, ShelfLayout.bodyWidth(notchWidth: notch.width)),
+                height: y(toolPageHeight, notchHeight: h) + band
             )
         case .stage: return CGSize(width: bw, height: y(stageHeight, notchHeight: h))
         case .drop: return CGSize(width: bw, height: y(dropHeight, notchHeight: h))

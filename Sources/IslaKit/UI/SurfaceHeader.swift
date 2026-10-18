@@ -77,6 +77,24 @@ enum SurfaceHeaderLayout {
     }
 }
 
+/// The gear on a page and the stage, and on Settings the way back out of it
+/// (spec §19.16, amended 2026-10-18).
+///
+/// It used to stand lit on Settings and go back on a second click, which the
+/// owner read as a gear that did nothing new: a lit gear says "you are in
+/// Settings", not "press to leave". On Settings the well shows `xmark`, labelled
+/// "Close Settings", and goes back to the page or stage Settings came from,
+/// where the gear returns. The X is unlit and carries no update badge:
+/// Settings shows the update itself.
+struct HeaderGear: Equatable {
+    var onSettings: Bool
+    var hasUpdate: Bool
+
+    var symbol: String { onSettings ? "xmark" : "gearshape" }
+    var label: String { onSettings ? localized("Close Settings") : localized("Settings") }
+    var badge: Bool { hasUpdate && !onSettings }
+}
+
 /// A header tool (spec §19.8): a glyph at 14 in a 26 × 26 well, white 0.08
 /// (0.14 under the pointer, white 0.18 behind the filled glyph while it is
 /// on). The gear and Translate's History.
@@ -88,12 +106,17 @@ struct HeaderToolButton: View {
     var badge = false
     var action: () -> Void
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: SurfaceHeaderLayout.titleGlyphSize, weight: .medium))
                 .foregroundStyle(isOn ? Color.white : Theme.secondary)
+                // The gear turning into Settings' close button, and back, is
+                // one glyph replaced in its well rather than two buttons
+                // crossfading.
+                .symbolSwap(value: symbol, reduceMotion: reduceMotion)
                 .frame(width: SurfaceHeaderLayout.toolSide, height: SurfaceHeaderLayout.toolSide)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)

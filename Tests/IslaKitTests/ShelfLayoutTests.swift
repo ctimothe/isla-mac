@@ -6,57 +6,87 @@ import XCTest
 /// The tray (spec §19.7, board `R2-Shelf-Open`): every value, frame and decision
 /// `ShelfLayout` makes, held at 480, 560 and 620 without drawing anything — the
 /// way `PlayerLayoutTests` holds the player. It replaced §8.1's grid of 78 × 100
-/// cards and §8.2's selection bar (§19.11): one row of 80 × 94 tiles, four in
-/// view, scrolling sideways past four; positions are in the content's
-/// coordinates, the board's less the tray's 24 pt shoulder across and the
-/// reference notch's 38 down.
+/// cards and §8.2's selection bar (§19.11) with the board's 80 × 94 tiles, which
+/// since 2026-10-18 fill the shared page in rows and scroll down; positions are
+/// in the content's coordinates, under the header strip.
 @MainActor
 final class ShelfLayoutTests: XCTestCase {
 
-    // MARK: - The row (§19.7)
+    // MARK: - The grid (§19.7, amended 2026-10-18)
 
-    /// A tile is 80 × 94, radius 16, on a 90 pitch from (41.9, 47.5) on the
-    /// board — (17.9, 9.5) in the content. Four are in view and the tray never
-    /// widens: the row scrolls past four.
-    func testTileFramesFollowTheBoard() {
+    /// A tile is 80 × 94, radius 16, on the board's 90 pt pitch across and 104
+    /// down — 10 apart either way. The first row's top is the board's 47.5 less
+    /// the 38 pt header strip.
+    func testTileMetricsFollowTheBoard() {
         XCTAssertEqual(ShelfLayout.tile, CGSize(width: 80, height: 94))
         XCTAssertEqual(ShelfLayout.tileRadius, 16)
         XCTAssertEqual(ShelfLayout.pitch, 90)
-        XCTAssertEqual(ShelfLayout.shoulder, 24)
-        XCTAssertEqual(ShelfLayout.firstTile.x, 17.9, accuracy: 0.0001)
-        XCTAssertEqual(ShelfLayout.firstTile.y, 9.5, accuracy: 0.0001)
-        XCTAssertEqual(ShelfLayout.tileFrame(index: 0), CGRect(x: 17.9, y: 9.5, width: 80, height: 94))
-        XCTAssertEqual(ShelfLayout.tileFrame(index: 1).minX, 107.9, accuracy: 0.0001)
-        XCTAssertEqual(ShelfLayout.tileFrame(index: 3).maxX, 367.9, accuracy: 0.0001)
-        XCTAssertEqual(ShelfLayout.visibleTiles, 4)
+        XCTAssertEqual(ShelfLayout.rowPitch, 104)
+        XCTAssertEqual(ShelfLayout.firstRowTop, 9.5, accuracy: 0.0001)
+        XCTAssertEqual(ShelfLayout.minimumSideMargin, 14)
         XCTAssertEqual(ShelfLayout.edgeFade, 16)
     }
 
-    /// Four tiles fit the viewport whole and the fifth is what makes the row
-    /// scroll; the viewport is the body's whole width and the content below the
-    /// header strip, and the tiles and the notice line under them fit in it.
-    func testFourTilesFitAndAFifthScrolls() {
+    /// As many tiles to a row as fit with 14 pt either side — five at 480, six
+    /// at 560 and 620 — the grid centred on a whole point, each row starting
+    /// under the first.
+    func testTheGridFillsTheWidthCentred() {
+        XCTAssertEqual(ShelfLayout.columns(bodyWidth: 480), 5)
+        XCTAssertEqual(ShelfLayout.columns(bodyWidth: 560), 6)
+        XCTAssertEqual(ShelfLayout.columns(bodyWidth: 620), 6)
+        for width in [CGFloat(480), 560, 620] {
+            let columns = ShelfLayout.columns(bodyWidth: width)
+            let first = ShelfLayout.tileFrame(index: 0, bodyWidth: width)
+            let last = ShelfLayout.tileFrame(index: columns - 1, bodyWidth: width)
+            XCTAssertEqual(first.size, ShelfLayout.tile, "\(width)")
+            XCTAssertEqual(first.minY, 9.5, accuracy: 0.0001, "\(width)")
+            XCTAssertGreaterThanOrEqual(first.minX, 14, "\(width)")
+            XCTAssertLessThanOrEqual(last.maxX, width - 14, "\(width)")
+            XCTAssertEqual(first.minX, width - last.maxX, accuracy: 1, "centred at \(width)")
+            XCTAssertEqual(first.minX, first.minX.rounded(), "on a whole point at \(width)")
+            XCTAssertEqual(last.minY, first.minY, "one row at \(width)")
+            let next = ShelfLayout.tileFrame(index: columns, bodyWidth: width)
+            XCTAssertEqual(next.minX, first.minX, "the next row starts under the first at \(width)")
+            XCTAssertEqual(next.minY, first.minY + 104, accuracy: 0.0001, "\(width)")
+        }
+    }
+
+    /// The viewport is the body's width and the content between the header
+    /// strip and the dots: 262 on any notch. Two rows and part of a third show,
+    /// so a cut row says there is more; past what fits the grid scrolls down.
+    func testTwoRowsAndPartOfAThirdShow() {
         let body = SurfaceLayout.bodySize(for: .tray, bodyWidth: 560, notch: CGSize(width: 185, height: 38))
-        XCTAssertEqual(body.width, ShelfLayout.bodyWidth(notchWidth: 185), accuracy: 0.0001, "the gear's room widens it (§19.16)")
-        let viewport = ShelfLayout.viewport(bodyWidth: body.width)
+        XCTAssertEqual(body, CGSize(width: 560, height: 316), "the three tools' shared size (§19.16)")
+        let viewport = ShelfLayout.viewport(bodyWidth: 560)
+        XCTAssertEqual(viewport, CGRect(x: 0, y: 0, width: 560, height: 262))
+        XCTAssertLessThanOrEqual(ShelfLayout.tileFrame(index: 6, bodyWidth: 560).maxY, viewport.height, "two rows whole")
+        let third = ShelfLayout.tileFrame(index: 12, bodyWidth: 560)
+        XCTAssertLessThan(third.minY, viewport.height, "part of a third")
+        XCTAssertGreaterThan(third.maxY, viewport.height)
+        XCTAssertFalse(ShelfLayout.scrolls(count: 0, bodyWidth: 560))
+        XCTAssertFalse(ShelfLayout.scrolls(count: 12, bodyWidth: 560))
+        XCTAssertTrue(ShelfLayout.scrolls(count: 13, bodyWidth: 560))
+        XCTAssertTrue(ShelfLayout.scrolls(count: 11, bodyWidth: 480), "five to a row: three rows")
+        // The content: the same margin under the last row as over the first.
+        XCTAssertEqual(ShelfLayout.contentHeight(count: 0, bodyWidth: 560), 0)
+        XCTAssertEqual(ShelfLayout.contentHeight(count: 1, bodyWidth: 560), 2 * 9.5 + 94, accuracy: 0.0001)
         XCTAssertEqual(
-            viewport, CGRect(x: ((body.width - (433.3 - 48)) / 2).rounded(), y: 0, width: 433.3 - 48, height: 120),
-            "the board's four tiles, centred on a whole point in the wider tray"
+            ShelfLayout.contentHeight(count: 60, bodyWidth: 560), 2 * 9.5 + 9 * 104 + 94, accuracy: 0.0001,
+            "the Shelf's limit, ten rows"
         )
-        XCTAssertLessThanOrEqual(ShelfLayout.tileFrame(index: ShelfLayout.visibleTiles - 1).maxX, viewport.width)
-        XCTAssertFalse(ShelfLayout.scrolls(count: 4))
-        XCTAssertTrue(ShelfLayout.scrolls(count: 5))
-        XCTAssertFalse(ShelfLayout.scrolls(count: 0))
-        // The row's content: the same margin after the last tile as before the first.
-        XCTAssertEqual(ShelfLayout.contentWidth(count: 0), 0)
-        XCTAssertEqual(ShelfLayout.contentWidth(count: 1), 2 * 17.9 + 80, accuracy: 0.0001)
-        XCTAssertEqual(ShelfLayout.contentWidth(count: 60), 2 * 17.9 + 59 * 90 + 80, accuracy: 0.0001, "the Shelf's limit")
-        // Tiles end 16.5 above the foot; the notice line takes 14 under them.
-        XCTAssertLessThanOrEqual(ShelfLayout.tileFrame(index: 0).maxY + 1 + 14, viewport.height)
-        // The tray's one size and its shoulders (§19.2).
-        XCTAssertEqual(body.height, 158 + 16, "and the dots' band (§19.16)")
-        XCTAssertEqual(NotchViewModel.Surface.tray.topRadius, 24)
-        XCTAssertEqual(NotchViewModel.Surface.tray.bottomRadius, 34)
+        // One shape with Clipboard and Translate (§19.16).
+        XCTAssertEqual(NotchViewModel.Surface.tray.topRadius, NotchViewModel.Surface.clipboard.topRadius)
+        XCTAssertEqual(NotchViewModel.Surface.tray.bottomRadius, NotchViewModel.Surface.clipboard.bottomRadius)
+        XCTAssertEqual(NotchViewModel.Surface.drop.topRadius, 24, "the drop surface keeps its own")
+    }
+
+    /// A notice sits under the last row while the grid fits, and at the foot
+    /// of the viewport, over the fade, once it scrolls: it never covers a tile
+    /// in full view.
+    func testTheNoticeSitsUnderTheGrid() {
+        XCTAssertEqual(ShelfLayout.noticeTop(count: 3, bodyWidth: 560), 9.5 + 94 + 1, accuracy: 0.0001)
+        XCTAssertEqual(ShelfLayout.noticeTop(count: 12, bodyWidth: 560), 9.5 + 104 + 94 + 1, accuracy: 0.0001)
+        XCTAssertEqual(ShelfLayout.noticeTop(count: 30, bodyWidth: 560), 262 - 14 - 1, accuracy: 0.0001)
     }
 
     func testTheIconNameAndBadgeSitWhereTheBoardPutsThem() {
@@ -79,18 +109,25 @@ final class ShelfLayoutTests: XCTestCase {
 
     /// Hover is a decision made from the pointer and the layout, so a tile that
     /// slides under a pointer that has not moved is hovered (the bug the pane's
-    /// comment describes). Between tiles and past the last one there is none.
+    /// comment describes). Between tiles, between rows and past the last
+    /// there is none.
     func testTileIndexAtAPoint() {
-        let first = ShelfLayout.tileFrame(index: 0)
-        XCTAssertEqual(ShelfLayout.tileIndex(at: CGPoint(x: first.midX, y: first.midY), count: 12), 0)
-        XCTAssertEqual(ShelfLayout.tileIndex(at: CGPoint(x: first.midX + 90, y: first.midY), count: 12), 1)
-        XCTAssertEqual(ShelfLayout.tileIndex(at: CGPoint(x: first.midX + 90 * 11, y: first.midY), count: 12), 11)
-        XCTAssertNil(ShelfLayout.tileIndex(at: CGPoint(x: first.maxX + 5, y: first.midY), count: 12), "the 10 pt gap is no tile")
-        XCTAssertNil(ShelfLayout.tileIndex(at: CGPoint(x: first.midX, y: first.maxY + 3), count: 12), "below the tiles")
-        XCTAssertNil(ShelfLayout.tileIndex(at: CGPoint(x: first.midX, y: first.minY - 3), count: 12), "above the tiles")
-        XCTAssertNil(ShelfLayout.tileIndex(at: CGPoint(x: first.midX + 90, y: first.midY), count: 1), "the second tile is not there")
-        XCTAssertNil(ShelfLayout.tileIndex(at: CGPoint(x: 5, y: first.midY), count: 12), "left of the first tile")
-        XCTAssertNil(ShelfLayout.tileIndex(at: CGPoint(x: first.midX + 90 * 12, y: first.midY), count: 12), "past the last")
+        let width: CGFloat = 560
+        let first = ShelfLayout.tileFrame(index: 0, bodyWidth: width)
+        func index(_ x: CGFloat, _ y: CGFloat, count: Int = 20) -> Int? {
+            ShelfLayout.tileIndex(at: CGPoint(x: x, y: y), count: count, bodyWidth: width)
+        }
+        XCTAssertEqual(index(first.midX, first.midY), 0)
+        XCTAssertEqual(index(first.midX + 90, first.midY), 1)
+        XCTAssertEqual(index(first.midX, first.midY + 104), 6, "the second row")
+        XCTAssertEqual(index(first.midX + 90 * 5, first.midY + 104 * 2), 17)
+        XCTAssertNil(index(first.maxX + 5, first.midY), "the 10 pt gap across is no tile")
+        XCTAssertNil(index(first.midX, first.maxY + 5), "nor the 10 pt between rows")
+        XCTAssertNil(index(first.midX, first.minY - 3), "above the first row")
+        XCTAssertNil(index(5, first.midY), "left of the grid")
+        XCTAssertNil(index(first.midX + 90 * 6, first.midY), "right of the last column")
+        XCTAssertNil(index(first.midX + 90 * 2, first.midY + 104 * 3), "past the last tile")
+        XCTAssertNil(index(first.midX + 90, first.midY, count: 1), "the second tile is not there")
     }
 
     /// A thumbnail keeps its own shape, long side 42, and never fills the
@@ -235,13 +272,14 @@ final class ShelfLayoutTests: XCTestCase {
         XCTAssertFalse(ShelfHeader.showsRemoveAll(itemCount: 0), "and nothing to remove")
     }
 
-    /// The glyph (26 × 20 at the board's 52.6) and the count (SF Pro Rounded 15
-    /// at 82) lead the strip; Remove All ends 8 before the gear's well, which
-    /// stands where the board ended Remove All (§19.16).
+    /// The glyph (26 × 20) starts at 20, where every summoned surface's title
+    /// does, and the count (SF Pro Rounded 15) keeps the board's 29.4 after it;
+    /// Remove All ends 8 before the gear's well, which stands where the board
+    /// ended Remove All (§19.16, §19.7 amended 2026-10-18).
     func testTheHeaderIsTheBoards() {
         XCTAssertEqual(ShelfLayout.headerGlyph, CGSize(width: 26, height: 20))
-        XCTAssertEqual(ShelfLayout.headerGlyphX, 28.6, accuracy: 0.0001)
-        XCTAssertEqual(ShelfLayout.headerCountX, 58, accuracy: 0.0001)
+        XCTAssertEqual(ShelfLayout.headerGlyphX, SurfaceHeaderLayout.titleLeading)
+        XCTAssertEqual(ShelfLayout.headerCountX, 20 + 29.4, accuracy: 0.0001)
         XCTAssertEqual(ShelfLayout.headerCountSize, 15)
         XCTAssertEqual(ShelfLayout.removeAllTrailing(bodyWidth: 385.3), 385.3 - 46 - 8, accuracy: 0.0001)
         XCTAssertEqual(ShelfLayout.emptyLineSize, 13)
@@ -252,10 +290,10 @@ final class ShelfLayoutTests: XCTestCase {
     func testTheTrayIsOneSize() throws {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
         vm.open(.tray)
-        XCTAssertEqual(vm.openBodySize.height, 158 + 16 - 38 + vm.geometry.notchSize.height, accuracy: 0.001)
-        XCTAssertEqual(vm.openBodySize.width, ShelfLayout.bodyWidth(notchWidth: vm.geometry.notchSize.width), accuracy: 0.001)
-        XCTAssertEqual(vm.openTopRadius, 24)
-        XCTAssertEqual(vm.openBottomRadius, 34)
+        XCTAssertEqual(vm.openBodySize.height, 316 - 38 + vm.geometry.notchSize.height, accuracy: 0.001)
+        XCTAssertEqual(vm.openBodySize.width, vm.geometry.expandedSize.width, accuracy: 0.001)
+        XCTAssertEqual(vm.openTopRadius, 34)
+        XCTAssertEqual(vm.openBottomRadius, 44)
     }
 
     // MARK: - Dropping in (§19.7)
@@ -370,16 +408,16 @@ final class ShelfLayoutTests: XCTestCase {
     // MARK: - Russian at the narrowest and the widest
 
     /// "No truncation of controls" (spec §13): Remove All's question and its two
-    /// answers, in the real Russian table at the real type, fit the tray's
-    /// 385 pt — the question wraps to two lines at most (the pane allows it),
-    /// and the answers sit on one row beneath it.
+    /// answers, in the real Russian table at the real type, fit the narrowest
+    /// tray, 480 — the question wraps to two lines at most (the pane allows
+    /// it), and the answers sit on one row beneath it.
     func testTheRussianRemoveAllQuestionFitsTheTray() throws {
         let russian = try Self.russianTable()
         func ru(_ key: String) -> String { russian[key] ?? key }
         func plate(_ text: String) -> CGFloat {
             ShelfTileName.measure(text) + 2 * ToolbarPushButtonStyle.horizontalPadding
         }
-        let room = (SurfaceLayout.trayReference.width - 2 * ShelfLayout.shoulder) - 48
+        let room: CGFloat = 480 - 48
         let answers = plate(ru("Cancel")) + 8 + plate(ru("Remove All")) + 16
         XCTAssertLessThanOrEqual(answers, room, "the answers on one row")
         let font = NSFont.systemFont(ofSize: Theme.TypeRole.body.size, weight: .regular)

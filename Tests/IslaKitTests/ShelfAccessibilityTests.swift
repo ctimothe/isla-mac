@@ -18,9 +18,9 @@ import XCTest
 /// store over files in a temporary folder.
 @MainActor
 final class ShelfAccessibilityTests: XCTestCase {
-    /// The tray's content: 385.3 wide and 120 under the 38 pt header row of its
-    /// 158 pt body (`ShelfLayout.viewport`).
-    private let paneSize = ShelfLayout.viewport(bodyWidth: SurfaceLayout.trayReference.width - 48).size
+    /// The tray's content at the panel's default width: 560 wide and 262 under
+    /// the 38 pt header row (`ShelfLayout.viewport`), the pane's own default.
+    private let paneSize = ShelfLayout.viewport(bodyWidth: 560).size
 
     private func tray(_ shelf: ShelfStore, clear: ShelfClearConfirmation = ShelfClearConfirmation()) -> ShelfPane {
         ShelfPane(shelf: shelf, clear: clear)

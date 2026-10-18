@@ -36,7 +36,7 @@ final class ExpandedBodyTests: XCTestCase {
         let notch = vm.geometry.notchSize
         let width = vm.geometry.expandedSize.width
         let heights: [NotchViewModel.Surface: CGFloat] = [
-            .player: 198 + 16, .stage: 400, .tray: 158 + 16, .clipboard: 300 + 16, .translate: 268 + 16, .settings: 400,
+            .player: 198 + 16, .stage: 400, .tray: 300 + 16, .clipboard: 300 + 16, .translate: 300 + 16, .settings: 400,
         ]
         for surface in NotchViewModel.Surface.reachable + NotchViewModel.Surface.reachable.reversed() {
             vm.open(surface)
@@ -158,7 +158,7 @@ final class ExpandedBodyTests: XCTestCase {
         vm.open(.translate)
         vm.isOpen = true
         XCTAssertEqual(vm.bodySize, vm.openBodySize)
-        XCTAssertEqual(vm.bodySize.height, 268 + 16 - 38 + vm.geometry.notchSize.height, accuracy: 0.001)
+        XCTAssertEqual(vm.bodySize.height, 300 + 16 - 38 + vm.geometry.notchSize.height, accuracy: 0.001)
     }
 
     /// The drop surface is drawn over whatever is chosen, at its own size

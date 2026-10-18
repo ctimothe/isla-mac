@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// The tray (spec §19.7, board `R2-Shelf-Open`): one row of tiles under the
-/// header strip, four in view and scrolling sideways past four. More items
-/// never widen the tray (a notch wider than the board's does, for the
-/// header's sake — `ShelfLayout.bodyWidth(notchWidth:)`); the Shelf's limit of
-/// sixty stands.
+/// The tray (spec §19.7, board `R2-Shelf-Open`): the board's tiles in rows
+/// under the header strip, filling the three tools' shared page and scrolling
+/// down past two and a bit rows (§19.7, amended 2026-10-18). Scrolling down
+/// rather than sideways is the point: sideways is always the pages' swipe.
+/// The Shelf's limit of sixty stands.
 ///
 /// Every frame comes from `ShelfLayout` in the content's coordinates, so what a
 /// test holds is what is drawn. It replaced §8.1's grid and §8.2's selection
@@ -17,12 +17,9 @@ struct ShelfPane: View {
     /// Remove All's question, the model's: the header asks it and the tray
     /// says it, in place of the row, with its two answers.
     @ObservedObject var clear: ShelfClearConfirmation
-    var bodyWidth: CGFloat = ShelfLayout.referenceBodyWidth
-    /// Where the strip is scrolled to, for the swipe between pages: the strip
-    /// scrolls first, and a swipe turns the page only from its end (§19.16).
-    var strip: ShelfStripPosition?
+    var bodyWidth: CGFloat = 560
 
-    /// Where the pointer is in the row's viewport, and how far the row is
+    /// Where the pointer is in the grid's viewport, and how far the grid is
     /// scrolled: together they say which tile it is over, *decided* by
     /// `ShelfLayout.tileIndex` on every redraw rather than reported by each
     /// tile's own `onHover`.
@@ -46,7 +43,7 @@ struct ShelfPane: View {
                 emptyLine
                     .transition(.opacity)
             } else {
-                row
+                grid
             }
             noticeLine
         }
@@ -80,18 +77,20 @@ struct ShelfPane: View {
             .frame(width: bodyWidth, height: ShelfLayout.viewport(bodyWidth: bodyWidth).height)
     }
 
-    // MARK: - The row (§19.7)
+    // MARK: - The grid (§19.7)
 
-    private var row: some View {
+    private var grid: some View {
         let items = shelf.items
         let viewport = ShelfLayout.viewport(bodyWidth: bodyWidth)
         let hovered = hoverPoint.flatMap {
-            ShelfLayout.tileIndex(at: CGPoint(x: $0.x + scrollOffset, y: $0.y), count: items.count)
+            ShelfLayout.tileIndex(
+                at: CGPoint(x: $0.x, y: $0.y + scrollOffset), count: items.count, bodyWidth: bodyWidth
+            )
         }
-        return ScrollView(.horizontal, showsIndicators: false) {
+        return ScrollView(.vertical, showsIndicators: false) {
             ZStack(alignment: .topLeading) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    let frame = ShelfLayout.tileFrame(index: index)
+                    let frame = ShelfLayout.tileFrame(index: index, bodyWidth: bodyWidth)
                     ShelfTile(
                         item: item, shelf: shelf,
                         isHovered: hovered == index,
@@ -101,19 +100,18 @@ struct ShelfPane: View {
                 }
             }
             .frame(
-                width: max(viewport.width, ShelfLayout.contentWidth(count: items.count)),
-                height: viewport.height, alignment: .topLeading
+                width: viewport.width,
+                height: max(viewport.height, ShelfLayout.contentHeight(count: items.count, bodyWidth: bodyWidth)),
+                alignment: .topLeading
             )
         }
-        // A clipped end fades over 16 pt instead of ending on a hard edge.
-        .scrollEdgeFade(.horizontal, length: ShelfLayout.edgeFade)
-        .scrollDisabled(!ShelfLayout.scrolls(count: items.count))
-        .onScrollGeometryChange(for: CGFloat.self) { $0.visibleRect.minX } action: { _, offset in
+        // A clipped top or bottom fades over 16 pt instead of ending on a
+        // hard edge.
+        .scrollEdgeFade(.vertical, length: ShelfLayout.edgeFade)
+        .scrollDisabled(!ShelfLayout.scrolls(count: items.count, bodyWidth: bodyWidth))
+        .onScrollGeometryChange(for: CGFloat.self) { $0.visibleRect.minY } action: { _, offset in
             scrollOffset = offset
-            strip?.offset = offset
         }
-        // A new row starts at its first tile, whatever the last one reported.
-        .onAppear { strip?.offset = 0 }
         .frame(width: viewport.width, height: viewport.height)
         .onContinuousHover(coordinateSpace: .local) { phase in
             switch phase {
@@ -121,9 +119,6 @@ struct ShelfPane: View {
             case .ended: hoverPoint = nil
             }
         }
-        // Placed after the hover, so the point it reports is in the row's
-        // own space whatever the margin (a tray widened for a wide notch).
-        .padding(.leading, viewport.minX)
     }
 
     // MARK: - Remove All asks first (§8.4, §19.7)
@@ -160,9 +155,10 @@ struct ShelfPane: View {
     // MARK: - The notice (§8.4)
 
     /// What the Shelf did on its own account — cards pushed past the cap, a
-    /// drop it already held, an AirDrop refusal — in the 16 pt under the
-    /// tiles, for the notice's few seconds. The tray's one inline line, so a
-    /// failure here has one place and no toast.
+    /// drop it already held, an AirDrop refusal — under the last row, or at
+    /// the foot of a grid that scrolls (`ShelfLayout.noticeTop`), for the
+    /// notice's few seconds. The tray's one inline line, so a failure here
+    /// has one place and no toast.
     @ViewBuilder
     private var noticeLine: some View {
         if let notice = shelf.notice {
@@ -174,8 +170,8 @@ struct ShelfPane: View {
                 .minimumScaleFactor(0.85)
                 .help(notice.text)
                 .padding(.horizontal, 18)
-                .frame(width: bodyWidth, height: 14)
-                .offset(y: ShelfLayout.firstTile.y + ShelfLayout.tile.height + 1)
+                .frame(width: bodyWidth, height: ShelfLayout.noticeHeight)
+                .offset(y: ShelfLayout.noticeTop(count: shelf.items.count, bodyWidth: bodyWidth))
                 .transition(.opacity)
                 .accessibilityHidden(true)
         }

@@ -104,12 +104,12 @@ final class SurfaceContractTests: XCTestCase {
         XCTAssertEqual(size(.player).width, 425.4 - 68, accuracy: 0.001, "425.4 with its 34 pt shoulders")
         XCTAssertEqual(size(.player).height, 198 + 16, accuracy: 0.001)
         XCTAssertEqual(size(.stage), CGSize(width: 560, height: 400))
-        XCTAssertEqual(size(.tray).width, ShelfLayout.bodyWidth(notchWidth: 185), accuracy: 0.001, "the gear widens it past 385.3")
-        XCTAssertGreaterThanOrEqual(size(.tray).width, 433.3 - 48)
-        XCTAssertEqual(size(.tray).height, 158 + 16, accuracy: 0.001)
+        // Shelf, Clipboard and Translate share one size (§19.16, amended
+        // 2026-10-18).
+        XCTAssertEqual(size(.tray), CGSize(width: 560, height: 300 + 16))
         XCTAssertEqual(size(.drop), CGSize(width: 560, height: 176))
         XCTAssertEqual(size(.clipboard), CGSize(width: 560, height: 300 + 16))
-        XCTAssertEqual(size(.translate), CGSize(width: 560, height: 268 + 16))
+        XCTAssertEqual(size(.translate), CGSize(width: 560, height: 300 + 16))
         XCTAssertEqual(size(.settings), CGSize(width: 560, height: 400))
         XCTAssertEqual(size(.welcome), CGSize(width: 560, height: NotchMetrics.standardBodyHeight))
 
@@ -137,7 +137,7 @@ final class SurfaceContractTests: XCTestCase {
     func testRadii() {
         for surface in Surface.allCases {
             switch surface {
-            case .tray, .drop:
+            case .drop:
                 XCTAssertEqual(surface.topRadius, 24)
                 XCTAssertEqual(surface.bottomRadius, 34)
             default:

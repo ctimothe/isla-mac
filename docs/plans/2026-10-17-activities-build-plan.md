@@ -390,11 +390,13 @@ with the tested Mac model and macOS version recorded after each run.
 | R8b-H1 | a slow and a flicked swipe through all four pages and back, built-in trackpad |
 | R8b-H2 | the same on a Magic Mouse |
 | R8b-H3 | a wheel mouse: the dots only |
-| R8b-H4 | the tray with eight files: the strip first, then the page |
+| R8b-H4 | the tray with fourteen files: the grid scrolls down, sideways turns the page, one size for the three tools |
 | R8b-H5 | VoiceOver adjusting the dots |
 | R8b-H6 | Reduce Motion |
 | R8b-H7 | Clipboard reached by a swipe while typing in Safari: Safari keeps the keyboard |
 | R8b-H8 | every page in Russian at 480 and 620 |
+| R8b-H9 | Music's dot from Clipboard, pointer left still: the panel stays; Settings' X goes back |
+| R8b-H10 | a song with timed pauses: the coming line holds under the title, never the artist |
 | R9-H1 | Battery Low at 20 % |
 | R9-H2 | Full Battery on MagSafe and on USB-C |
 | R9-H3 | the MagSafe light turning green |

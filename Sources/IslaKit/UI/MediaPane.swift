@@ -283,9 +283,18 @@ struct MediaPane: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// What the subtitle carries: the line being sung, while the song has
-    /// synced lyrics and Lyric Band is on, and the artist otherwise — between
-    /// lines and before the first too.
+    /// What the subtitle carries while the song has synced lyrics and Lyric
+    /// Band is on: the line being sung, and between lines, before the first
+    /// and after the last, the line the voice reaches next, unswept — the
+    /// island caption's rule (`LyricMoment.centre`). The artist only when the
+    /// band is off.
+    ///
+    /// Between lines it used to be the artist, which the title row already
+    /// shows while the band is on: every pause of a second or two read the
+    /// artist twice, and the line then snapped in when the voice came back
+    /// (owner, 2026-10-18). Holding the coming line, its row is the same one
+    /// when the voice reaches it, so a pause turns nothing and the sweep
+    /// simply starts.
     struct SungLine {
         /// Whether the band is on for this song at all, which is what turns
         /// the title into "Title · Artist".
@@ -293,8 +302,10 @@ struct MediaPane: View {
         var lines: [LyricsStore.Line] = []
         var resolution: LyricResolution?
 
-        /// The row being sung, when the voice is in one.
-        var index: Int? { resolution?.current }
+        /// The row the subtitle shows: the sung line, or the one coming.
+        var index: Int? { resolution.map { $0.current ?? $0.centre } }
+        /// Whether the voice is in that row, which is what sweeps it.
+        var isSung: Bool { resolution?.current != nil }
     }
 
     private var sungLine: SungLine {
@@ -353,7 +364,8 @@ struct MediaPane: View {
                 .accessibilityHint(localized("Opens the full lyrics"))
                 // A line change is a turn, not a crossfade (§2.4's
                 // `captionTurnOut` / `captionTurnIn`, through `lyricLine`). By
-                // row, so two lines stamped at one moment still turn.
+                // row, so two lines stamped at one moment still turn, and the
+                // voice reaching the line already shown turns nothing.
                 .id(index)
                 .transition(.lyricLine(reduceMotion: reduceMotion))
             } else {

@@ -374,14 +374,15 @@ final class ClipboardKeyboardTests: XCTestCase {
     }
 
     /// A dot's target is 20 pt tall, taller than the band under the pages:
-    /// on the way onto Translate its source card slides under the top of the
-    /// row, and a press there, on the row, asked for the keyboard — which
-    /// stayed when the dot was Translate's own (R8b re-review P1).
+    /// on the way onto Translate from a shorter page its source card slides
+    /// under the top of the row, and a press there, on the row, asked for the
+    /// keyboard — which stayed when the dot was Translate's own (R8b re-review
+    /// P1). From Music since the Shelf took Translate's height (2026-10-18).
     func testNoPartOfADotAsksForTheKeyboardOnTheWay() throws {
         let clock = ManualPageClock()
         vm.pageTravel.clock = clock
         vm.isOpen = true
-        vm.turnPage(to: .tray)
+        vm.turnPage(to: .player)
         vm.travel(to: .translate, reduceMotion: false)
         while (vm.travellingLeg?.position ?? 1) < 0.65 { clock.advance(1.0 / 120) }
         let leg = try XCTUnwrap(vm.travellingLeg)
