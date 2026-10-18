@@ -183,7 +183,7 @@ enum Diagnostics {
     static func copyToPasteboard(media: MediaController) async {
         var snapshot = current(media: media, includeLog: false)
         snapshot.log = await Task.detached(priority: .userInitiated) { recentLog() }.value
-        let pasteboard = NSPasteboard.general
+        let pasteboard = PasteboardRead.general
         pasteboard.clearContents()
         pasteboard.setString(render(snapshot), forType: .string)
         pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))

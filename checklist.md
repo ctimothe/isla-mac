@@ -1893,7 +1893,7 @@ ask:
   R10 merges.
 
 Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
-R8-H1…H8, R8b-H1…H10, R8c-H1…H7, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+R8-H1…H8, R8b-H1…H10, R8c-H1…H8, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
 
@@ -2244,3 +2244,14 @@ Owed on hardware (record the Mac model and macOS version when run):
 - [ ] **R8c-H7** Copy a 20 MB screenshot ten times with Clipboard on: Activity
   Monitor's memory for Isla returns near where it started, and pasting the
   oldest still gives the full picture.
+- [ ] **R8c-H8** (perf finding #5, spec §19.12) With a lyric playing and the
+  panel open on Clipboard, copy a screenshot taken straight to the clipboard
+  (⌃⌘⇧4) and a picture copied out of a browser or an editor, ten of each, and
+  paste each into an agent window: the lyric sweep and the pointer's hover
+  never stutter at the moment of the copy, every picture is in the history and,
+  with Save Clipboard Screenshots on, on the Shelf. Copy two pictures within a
+  second of each other: the history keeps the second, never only the first.
+  Copy a picture and press ⌘V in the Translate field and ⌥⌘T at once, ten
+  times: no crash (the one reach spec §19.12 says Isla cannot gate). In
+  Instruments, the `pasteboard read` interval (category `clipboard`) sits on a
+  background thread and the main thread shows nothing for it.

@@ -297,6 +297,11 @@ final class ClipboardStore: ObservableObject {
     /// once and keeps its nil, so a provider cannot see a retry.
     private(set) var contentReadCount = 0
 
+    /// How one flavour's bytes are asked for. A seam, like `accessBehavior`,
+    /// because the read runs on `PasteboardRead`'s queue and a test has to see
+    /// which thread it ran on, and hold it open while the pasteboard moves on.
+    var readPasteboardData: @Sendable (NSPasteboard, NSPasteboard.PasteboardType) -> Data? = { $0.data(forType: $1) }
+
     init(pasteboard: NSPasteboard = .general) {
         self.pasteboard = pasteboard
         self.lastChangeCount = pasteboard.changeCount
@@ -327,6 +332,7 @@ final class ClipboardStore: ObservableObject {
         // Don't Allow leaves the poll nothing it may read. A display waking
         // calls this too, and a poll restarted under it would only stop itself
         // again at the next copy; it stays down until the answer changes.
+        PasteboardRead.settle(pasteboard)
         let now = accessBehavior()
         publish(now)
         guard now != .denied else { return }
@@ -383,6 +389,7 @@ final class ClipboardStore: ObservableObject {
     /// tab appears, the moment a user back from System Settings looks.
     func recheckAccess() {
         let wasDenied = access == .denied
+        PasteboardRead.settle(pasteboard)
         let now = accessBehavior()
         publish(now)
         guard wasDenied, now != .denied, recordsHistory() || wantsImages() else { return }
@@ -459,6 +466,7 @@ final class ClipboardStore: ObservableObject {
                 return false
             }
         }
+        PasteboardRead.settle(pasteboard)
         pasteboard.clearContents()
         switch item.payload {
         case .text(let string):
@@ -484,6 +492,7 @@ final class ClipboardStore: ObservableObject {
     @discardableResult
     func copyPlainText(_ item: ClipItem) -> Bool {
         guard let string = item.text else { return false }
+        PasteboardRead.settle(pasteboard)
         pasteboard.clearContents()
         pasteboard.setString(string.trimmingCharacters(in: .whitespacesAndNewlines), forType: .string)
         lastChangeCount = pasteboard.changeCount
@@ -561,6 +570,11 @@ final class ClipboardStore: ObservableObject {
     func pollNow() {
         let changeCount = pasteboard.changeCount
         guard changeCount != lastChangeCount else { return }
+        // A read of the last copy is still running, and the pasteboard may be
+        // asked for its change counter and nothing else until it ends
+        // (`PasteboardRead`). The new copy is not spent: the next tick takes
+        // it, and the running read drops its result as stale.
+        guard !PasteboardRead.isReading(pasteboard) else { return }
 
         // Don't Allow: nothing here may be read, and polling on would only
         // ask again at every copy.
@@ -597,6 +611,14 @@ final class ClipboardStore: ObservableObject {
             // the next tick.
             lastChangeCount = changeCount
             encodeImage(at: changeCount)
+            return
+        }
+
+        if plan == .movieData {
+            // Spent for the same reason as the picture's: the read is on its
+            // way, and its empty answer is handled where it lands.
+            lastChangeCount = changeCount
+            readMovie(at: changeCount)
             return
         }
 
@@ -645,39 +667,75 @@ final class ClipboardStore: ObservableObject {
             // capture switch: nothing is written, only referenced.
             for url in urls where Self.isMovieFile(url) { onMovieFile?(url) }
             return true
-        case .movieData:
-            guard let (data, ext) = movieData() else { return false }
-            onMovieData?(data, ext)
-            return true
         case .text:
             contentReadCount += 1
             guard let string = pasteboard.string(forType: .string) else { return false }
             guard !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
             record(ClipItem(payload: .text(Self.capped(string)), date: Date()))
             return true
-        case .image, .nothing:
+        case .image, .movieData, .nothing:
+            // The two that carry bytes are read off the main actor, from
+            // `pollNow` itself: `encodeImage` and `readMovie`.
             return true
         }
     }
 
-    /// Movie bytes and the container they were copied as, when the pasteboard
-    /// carries a recording. Matched by conformance rather than by a fixed type
-    /// list: copies arrive as `public.mpeg-4`, `com.apple.m4v-video` or plain
-    /// `public.movie` depending on where they were copied from, and a list
-    /// would recognise exactly the sources it was written against. `.movie`
-    /// rather than the wider `.audiovisualContent`, which also claims pure
-    /// audio — a copied song is not a captured recording.
+    /// Reads the recording the pasteboard carries and hands it on with the
+    /// container it was copied as, off the main actor: a recording is tens to
+    /// hundreds of megabytes, and asking for it on the main actor stalled the
+    /// panel for as long as the pasteboard server took. Matched by
+    /// conformance rather than by a fixed type list: copies arrive as
+    /// `public.mpeg-4`, `com.apple.m4v-video` or plain `public.movie` depending
+    /// on where they were copied from, and a list would recognise exactly the
+    /// sources it was written against. `.movie` rather than the wider
+    /// `.audiovisualContent`, which also claims pure audio — a copied song is
+    /// not a captured recording.
     ///
-    /// Single-shot, unlike the image path: pictures arrive over Continuity in
-    /// two parts — the type first, the bytes over the air — while a recording
-    /// is either on the pasteboard whole or not at all.
-    private func movieData() -> (data: Data, ext: String)? {
-        guard let types = pasteboard.types else { return nil }
-        for type in types where Self.isMovieType(type) {
-            guard let data = readData(type) else { continue }
-            return (data, UTType(type.rawValue)?.preferredFilenameExtension ?? "mov")
+    /// Unlike the image path it does not wait: pictures arrive over Continuity
+    /// in two parts — the type first, the bytes over the air — while a
+    /// recording is either on the pasteboard whole or not at all. An empty
+    /// answer is asked about once, as it always was: Allow chosen while the read
+    /// was waiting on the alert is not a refusal, and a second empty answer is.
+    private func readMovie(at changeCount: Int, retried: Bool = false) {
+        let types = (pasteboard.types ?? []).filter(Self.isMovieType)
+        readMovie(from: types[...], at: changeCount) { [weak self] found in
+            guard let self else { return }
+            if let (data, ext) = found {
+                // Image saving can be switched off while the read is in
+                // flight, and an off switch gets nothing.
+                if self.wantsImages() { self.onMovieData?(data, ext) }
+                return
+            }
+            let after = self.accessBehavior()
+            self.publish(after)
+            switch after {
+            case .denied:
+                self.enterDenied()
+            case .allowed:
+                if !retried { self.readMovie(at: changeCount, retried: true) }
+            case .ask, .unknown:
+                break
+            }
         }
-        return nil
+    }
+
+    /// The first of `types` that answers with bytes. One read each, in order,
+    /// as before: a type that answers nil is the next one's turn, not the end.
+    private func readMovie(
+        from types: ArraySlice<NSPasteboard.PasteboardType>, at changeCount: Int,
+        completion: @escaping ((data: Data, ext: String)?) -> Void
+    ) {
+        guard let type = types.first else {
+            completion(nil)
+            return
+        }
+        readData(type, at: changeCount) { [weak self] data in
+            if let data {
+                completion((data, UTType(type.rawValue)?.preferredFilenameExtension ?? "mov"))
+            } else {
+                self?.readMovie(from: types.dropFirst(), at: changeCount, completion: completion)
+            }
+        }
     }
 
     private static func isMovieType(_ type: NSPasteboard.PasteboardType) -> Bool {
@@ -727,12 +785,24 @@ final class ClipboardStore: ObservableObject {
         // asking for the second after the first came back empty was a second
         // read of nothing — and a second alert under Ask.
         let types = pasteboard.types ?? []
-        let flavour = Self.imageFlavour(in: types)
-        if let flavour, let data = readData(flavour) {
-            process(original: data, type: flavour, at: changeCount)
+        guard let flavour = Self.imageFlavour(in: types) else {
+            pictureUnreadable(flavour: nil, at: changeCount, attempt: attempt)
             return
         }
+        // The read is off the main actor (see `readData`); what it found is
+        // dealt with here, back on it.
+        readData(flavour, at: changeCount) { [weak self] data in
+            guard let self else { return }
+            if let data {
+                self.process(original: data, type: flavour, at: changeCount)
+            } else {
+                self.pictureUnreadable(flavour: flavour, at: changeCount, attempt: attempt)
+            }
+        }
+    }
 
+    /// The read came back empty, or the copy offers no picture at all.
+    private func pictureUnreadable(flavour: NSPasteboard.PasteboardType?, at changeCount: Int, attempt: Int) {
         // Nothing readable. Whether that is a picture still in flight or a
         // refusal is the system's answer, so ask it.
         let now = accessBehavior()
@@ -896,9 +966,26 @@ final class ClipboardStore: ObservableObject {
 
     /// Every byte read goes through here, so `contentReadCount` cannot miss
     /// one.
-    private func readData(_ type: NSPasteboard.PasteboardType) -> Data? {
+    ///
+    /// The read runs off the main actor (`PasteboardRead`), and what it found
+    /// comes back to it — unless the pasteboard moved on while it ran, in which
+    /// case it is dropped and the caller is never told: a newer copy is the
+    /// newer intention, and the next poll reads it. A Retina screenshot is
+    /// 10–21 MB, and its first read cost 26–29 ms on the main actor when the
+    /// copying app renders the picture on request (spec §19.12), enough to drop
+    /// frames in the middle of a paste.
+    ///
+    /// The count is taken here, on the main actor, before the read starts: a
+    /// read that is dropped as stale was still a read, and under Ask it was
+    /// still an alert.
+    private func readData(
+        _ type: NSPasteboard.PasteboardType, at changeCount: Int, then completion: @escaping (Data?) -> Void
+    ) {
         contentReadCount += 1
-        return pasteboard.data(forType: type)
+        PasteboardRead.data(of: type, from: pasteboard, using: readPasteboardData) { [weak self] data in
+            guard let self, self.pasteboard.changeCount == changeCount else { return }
+            completion(data)
+        }
     }
 
     private func recordTextFallback(at changeCount: Int) {
