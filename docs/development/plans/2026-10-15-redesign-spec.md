@@ -2136,6 +2136,11 @@ rail on any surface.
   holds) is dropped, except Battery Low and the update choice, which wait
   until the surface closes. Volume and brightness are never queued (R5: while
   a surface is open the key applies and nothing is drawn).
+- **Amended 2026-10-19 (owner, plan `2026-10-19-dev-update-channel.md`) — the
+  update choice is built, ahead of R9.** Rank 9 is live, and
+  `IslandAlertQueue`'s standard policy carries both of its exceptions: it
+  outlives the second, and a higher alert that replaces it sends it back to
+  wait. Battery Low's half of the first exception is still R9's.
 - **Live activities.** When an alert folds, the island returns to the highest
   live activity. When two are live, the second **waits as a bubble** (19.7)
   beside the island; only Music and the Shelf are live, so only the Shelf can
@@ -2460,6 +2465,38 @@ alert dialog to accessibility.
   locked). Install runs `UpdateInstaller` as Settings' Update Now does. Later,
   or 20 s without an answer, folds it; that version is not offered here again
   and the gear on Tools keeps its badge.
+
+*Amended 2026-10-19 (owner: "any new changes … should all be installed through
+Isla's own update"; plan `2026-10-19-dev-update-channel.md`).* **Built ahead of
+R9, with the local update feed.** What this section left open is decided:
+
+- **After Install** the alert stays, untimed, and its first line follows the
+  installer — "Downloading Isla %@…" with a 4 pt bar across the buttons' span,
+  then "Verifying…", "Installing…", "Restarting Isla…" — with no buttons, until
+  Isla restarts. A failure shows the reason Settings gives, with Later and
+  **Try Again**; an update this copy cannot install for itself, Later and
+  **Settings** (the card there has the download page); an update in place that
+  could not restart Isla, Later and **Quit Isla**. Those three say what
+  happened over both lines.
+- **Answers.** Later, the 20 s, Settings and Quit Isla are answers; Install is
+  not until it ends, so a Mac that restarts mid-install is offered the version
+  again. An older version counts as answered with a newer one
+  (`updates.offeredVersion`).
+- **Timing.** The 20 s waits while the pointer rests on the alert, as the
+  headphones' hold does. Under a still pointer where it would grow, over a
+  full-screen app or a talk, and while the displays are dark, it is delayed,
+  never dropped.
+- **Clicks.** A click beside its buttons does nothing, and Open on Hover does
+  not open the panel over it. A surface opened over it takes it down
+  unanswered; it returns when the surface closes, with a fresh 20 s.
+- **VoiceOver.** One container named "Isla %@ is ready" with both buttons
+  inside, and the title announced when it shows. SwiftUI on macOS has no
+  dialog role to give it, so this container and the announcement are what
+  "an alert dialog to accessibility" became.
+- **When**, on the owner's Mac: within a second or two of a build published to
+  the local feed (`UpdateSource.localFeed`, `Scripts/publish-dev-update.sh`).
+  For everyone else nothing changes: Check for Updates or the opt-in daily
+  check.
 
 ### 19.6 The player and the lyrics stage
 

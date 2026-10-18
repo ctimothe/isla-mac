@@ -171,3 +171,34 @@ release's, which the validator would refuse; leaving is one `install.sh`.
   offered again; a newer one is.
 - DU-H4: open the panel while it shows; it returns when the panel closes.
 - DU-H5: what macOS said about App Management on the first update.
+
+## Outcome (2026-10-19)
+
+Built on `feat/dev-update-channel`, test-first where the tests could come
+first, one commit per task:
+
+- `41c2ed2` — tasks 1 and 3. The feed resolution became `UpdateSource`
+  (`Services/UpdateSource.swift`: `.github`, `.rehearsal`, `.localFeed`)
+  rather than the planned `UpdateFeed`, because the check, the downloader and
+  the installer environment all needed one value saying where releases come
+  from, not only a folder. Settings' note became `sourceNote`.
+  `UpdateSourceTests`.
+- `7d1caf2` — task 2. `UpdateFeedWatcher`, the launch check, and
+  `UpdateCheck.checksAgainWhenDone` so a publish that lands during a check of
+  the folder is not lost. `UpdateFeedWatcherTests`.
+- `ad9faa4` — tasks 4 and 5. `UpdateOffer`, `UpdateOfferMemory`,
+  `UpdateAlertStage`, `IslandActivity.update`, the queue policy,
+  `UpdateAlertLayout`, `UpdateAlertView` and the controller's
+  `considerUpdateOffer`. `UpdateOfferTests`; four mutations of its rules were
+  each caught.
+- Task 6, `Scripts/publish-dev-update.sh` and `.gitignore`. It records
+  `isla_build` and `isla_commit` in `release.json` (Isla's decoder ignores
+  them) so the next publish counts from them.
+- Task 7, these docs: spec §19.1 and §19.5 f amended, checklist §"Update Now"
+  and DU-H1…H5, runbook §7a, CLAUDE.md "After each change".
+
+Decided while building, beyond the plan: an offer the island cannot show yet
+under a still pointer, over a quiet moment or a dark display is delayed, not
+dropped (§19.5 f amendment); an older version counts as answered with a newer
+one; and the stages after Install are untimed.
+

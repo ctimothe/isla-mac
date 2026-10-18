@@ -282,6 +282,22 @@ launches, quits or installs anything, and it removes its fake-version build from
 `build/` even when it fails. Go back to the real build with
 `bash Scripts/bundle.sh release && bash Scripts/install.sh`.
 
+**Following every change (the local feed, owner's Mac).** Since 2026-10-19 the
+owner's own Isla takes each committed change through Update Now instead of a
+reinstall. `bash Scripts/publish-dev-update.sh` builds the committed checkout
+as `VERSION.N` (newer than the installed build and the feed's last, older than
+the next real release), signs it with the update key and lands the image, its
+signature and `release.json` in the feed — `$ISLA_DEV_FEED`, or `.dev-updates`
+in the main checkout (git-ignored, 0700). Isla follows the feed while
+`updates.localFeed` in its defaults names it (`--enable` writes it; read at
+launch, so the first time takes one relaunch); it watches the folder and
+offers each new build on the island, where Install runs the same download,
+signature check, validator, swap and restart as a GitHub release.
+`--dry-run` prints the version, build and notes without building. To leave:
+`defaults delete com.ctimothe.isla updates.localFeed`, then `bundle.sh` and
+`install.sh` — a dev build's build number may be above the next public
+release's.
+
 ## 8. Developer ID and notarized release
 
 Local builds default to ad-hoc signing. Publishing requires these values and an

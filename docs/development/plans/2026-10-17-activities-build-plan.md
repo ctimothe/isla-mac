@@ -333,6 +333,9 @@ per version, only at an idle moment, Later and the 20 s timeout both
 remembering the version, Install calling a fake installer, the gear's badge
 staying. Then the alert, wired to `UpdateCheck.hasUpdate` and
 `UpdateInstaller`. Commit.
+*Built early, 2026-10-19,* on `feat/dev-update-channel` with the local update
+feed (plan `2026-10-19-dev-update-channel.md`); its tests are
+`UpdateOfferTests`, and R9 has nothing left to do here.
 
 **Task 5 — the headphone ring**, only if task 1 found a source. Tests first
 over fixture readings (green, red below 20 %, absent with none). Commit.

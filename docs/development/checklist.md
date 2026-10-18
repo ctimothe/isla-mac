@@ -150,6 +150,21 @@ are the exception the design did not anticipate:
   - [ ] Rehearsal run on <Mac model, macOS version>: swapped, relaunched,
     permission kept, nothing left behind (no `.Isla-update-*` beside the app, no
     image in `hdiutil info`), and what macOS said about App Management.
+
+  **The local feed** (added 2026-10-19, the owner's Mac only; plan
+  `2026-10-19-dev-update-channel.md`). With `updates.localFeed` naming an
+  absolute folder that the user owns and nobody else can write, Update Now
+  reads that folder's `release.json` instead of GitHub, with the rehearsal's
+  confinement of `file://` assets to the folder, and installs only what the
+  update key signs, through the same validator, swap and restart. The setting
+  is read once at launch (a rehearsal variable wins over it); the folder is
+  watched and checked 3 s after launch; nothing reaches the network.
+  `Scripts/publish-dev-update.sh` publishes each committed build to it as
+  `VERSION.N`. Off unless the setting is written (`--enable`). Held by
+  `UpdateSourceTests` and `UpdateFeedWatcherTests`. The island's update alert
+  (spec §19.5 f, built ahead of R9) offers each version once:
+  `UpdateOfferTests`. Its hardware checks are DU-H1…H5 below; the first real
+  update through it is also the box above.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain. Since 2026-10-11 the heart asks `GET /me/library/contains` and
@@ -1893,7 +1908,7 @@ ask:
   R10 merges.
 
 Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
-R8-H1…H8, R8b-H1…H10, R8c-H1…H8, R8d-H1…H9, R8e-H1…H6, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+R8-H1…H8, R8b-H1…H10, R8c-H1…H8, R8d-H1…H9, R8e-H1…H6, R9-H1…H5, R10-H1…H5, DU-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
 
@@ -2381,3 +2396,25 @@ Owed on hardware (record the Mac model and macOS version when run):
   navigation; Tab from the header reaches the sidebar. Pressing a section in the
   sidebar changes the form as before (it is not staged).
 - [ ] **R8e-H6** Settings → player, X pressed, twenty times: unchanged from R8d.
+
+### Dev update channel (`feat/dev-update-channel`, 2026-10-19)
+
+The local update feed and the island's update alert (spec §19.5 f, built ahead
+of R9; R9-H5 is this section's DU-H1 and DU-H3). Owed on hardware (record the
+Mac model and macOS version when run):
+
+- [ ] **DU-H1** A build published with `Scripts/publish-dev-update.sh` shows the
+  alert within about two seconds; Install downloads, verifies and restarts Isla
+  as the new version (Settings › About says so); `hdiutil info` shows nothing
+  mounted and there is no `.Isla-update-*` beside the app.
+- [ ] **DU-H2** Accessibility (the Volume and Brightness pop-up), Spotify and
+  the Settings choices survive the update.
+- [ ] **DU-H3** Later folds the alert, the gear keeps its badge, and the same
+  version is not offered again; the next published build is. Left alone, it
+  folds after 20 s, and not while the pointer rests on it.
+- [ ] **DU-H4** Open the panel while the alert shows: it goes with the open and
+  returns when the panel closes. A volume key over it: the pop-up replaces it
+  and it returns after.
+- [ ] **DU-H5** What macOS said about App Management on the first update
+  through the feed (a prompt, a "prevented from modifying apps" notice, or
+  nothing).
