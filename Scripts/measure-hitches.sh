@@ -39,7 +39,13 @@
 # display link; missed is frames of the display's rate (120 Hz where it is
 # ProMotion) the main thread did not deliver; cpu is the main thread's CPU
 # time over the 1 s window; gap is the longest gap between display-link
-# callbacks. The *-stall scenarios block the main thread for 50 ms, 120 ms in,
+# callbacks; worst f is the CPU the costliest single frame took the main
+# thread (ms), heavy is the frames that took more than three quarters of their
+# slot, and overrun is the CPU time past the slot summed over the window (ms).
+# Those three do not depend on what else the Mac is doing, which wall-clock
+# misses do (the load average here is routinely 20-50): judge a change by them,
+# the median of several interleaved runs, with a distinct label for each run.
+# The *-stall scenarios block the main thread for 50 ms, 120 ms in,
 # which costs the frames that wait on it wherever it falls. What the outline
 # itself does meanwhile cannot be read from this process (see the header of
 # OutlineHitchLab.swift); R8d-H1 in checklist.md is that check.

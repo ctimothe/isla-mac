@@ -63,6 +63,9 @@ class VisualLabCase: XCTestCase {
         labTrace("vm made")
         vm.isOpen = true
         vm.surface = surface
+        // A still image of an opening, not of a swap: a swap's pane builds its
+        // content 80 ms in, and a renderer has no clock to wait for.
+        vm.arrivedOverAnOpenSurface = false
         configure(vm)
         return vm
     }

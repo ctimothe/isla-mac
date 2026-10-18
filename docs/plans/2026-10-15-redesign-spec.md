@@ -2296,6 +2296,24 @@ owner's recordings:
   opacity 0 and scale 0.94 about its top edge, with no blur. The island's
   0.5 / 0.75 spring stays for everything else this section lists.
 
+*Amended 2026-10-18 (the Settings morph).* One rule, meant to leave the swap
+looking as it did: **a pane may mount its content as the swap-out ends.**
+Settings' sidebar and form — the heaviest tree any surface builds — are built
+`Theme.swapOutDuration` (0.08 s) after the pane appears: when the old pane has
+gone and the new one, which `Theme.swapIn` delays by the same 0.08 s, is still
+transparent. They were built in the frame the swap begins, which is the frame
+the island's own spring starts in and the old pane leaves in, and that frame
+was the morph's costliest (§19.12). The curves, the 0.97 scale, the order (old
+out, new in), Reduce Motion's plain fade and the pane's frame are as the
+bullets above say. One thing is not proven and is R8e-H1: the build lands a
+task hop and a ~12 ms frame after the 80 ms mark, by which time the arrival has
+begun, so the pane may show its first step at ~15 % opacity and not at zero.
+Only a swap waits: Settings opened from the shut island is built with the
+island, because its content arrives on the open's own `Theme.paneIn`, which is
+already about a third opaque 0.08 s in. No other surface waits.
+(`SettingsPane.mountsAfter`, off unless the shell asks, and the shell asks only
+for a swap, `NotchViewModel.arrivedOverAnOpenSurface`; `SettingsStagedMountTests`.)
+
 ### 19.4 Compact activities
 
 `H` tall. Shoulders 8.67, bottom corners 12.67. Board `R2-Alerts` (top row)
@@ -2982,6 +3000,79 @@ recorded here:
   left. Nor is the shape split into size and radii: a cut mid-flight snaps all
   four numbers, where SwiftUI's separate animations would snap only the one
   that changed (a panel-width change during a morph).
+
+*Amended 2026-10-18 (the Settings morph).* Player ⇄ Settings was the one morph
+that dropped frames (R8d left it). What the profile and the lab said, what was
+done, and what was not shown:
+
+- **Where the time goes.** A player → Settings morph costs the main thread
+  ~150–180 ms of CPU in its first second against ~80 ms for an open, and its
+  costliest single frame takes 18–36 ms of an 8.3 ms slot (the lab's per-frame
+  columns `worst f`, `heavy` and `overrun`, added with this change: a gap on the
+  display link is stretched by every other process on the Mac, the CPU a frame
+  cost is not; the CPU itself runs longer on a Mac whose clocks have not ramped
+  up, so figures compare only within one sitting). Time Profiler (symbolicated)
+  shows the same shape as an open at twice the size: SwiftUI's hosting-view
+  layout, display-list update and graph update scale with the number of nodes in
+  the tree, and Settings' own code is ~1 % of the samples. Without the form
+  mounted the same morph costs ~73 ms and its worst frame is 11 ms: the form is
+  the whole difference. On a quiet Mac with nothing running, the unchanged build
+  already misses only 0.4–3.5 frames a morph; the drops come with load.
+- **What else was tried in the lab, and not done.** Dropping the 0.97 scale:
+  15–25 ms less CPU a morph, a lower worst frame on a quiet Mac and none
+  saturated — and a visible change. Taking the whole transition off: no better.
+  Making the pane non-focusable during the swap: no fewer drops. Mounting the
+  form 280 or 450 ms late with a fade: the largest wall-clock effect of the lot,
+  and a visible change (a blank form for up to half a second).
+- **What changed.** The pane's sidebar and form are built `Theme.swapOutDuration`
+  after the pane appears (§19.3, same date): the one frame that carried the
+  island's first move, the old pane's leaving and the whole form is split in two.
+  Only a swap is staged: Settings opened from the shut island is built with the
+  island (§19.3). `SettingsPane.mountsAfter` (default none, so the layout tests
+  and the visual lab draw it at once); `SettingsStagedMountTests`.
+- **Numbers**, `Scripts/measure-hitches.sh`, `ISLA_HITCH_SCENARIOS=surface-change`,
+  six cycles a run, player → Settings, the three arms from one test bundle (the
+  delay is the only difference), taken in one sitting: three idle runs of each
+  arm (the load average stayed at 3–4), then two saturated rounds (three `yes`
+  per core; the load average rose from 24 to 84 during them, and each round ran
+  the arms in this order, so it favours the first). Idle medians; saturated as
+  round 1, round 2. The wall-clock columns count the gap into a window's first
+  tick, which the lab left out until this date.
+
+  | arm | worst frame | CPU past the slot | frames over ¾ of a slot | main-thread CPU | missed frames | hitch time |
+  |---|---|---|---|---|---|---|
+  | idle, no staging | 28.3 ms | 15.1 ms | 1.3 | 168 ms | 3.5 | 28 ms/s |
+  | idle, 80 ms (shipped) | 22.1 ms | 13.2 ms | 3.0 | 178 ms | 10.5 | 80 ms/s |
+  | idle, 100 ms | 21.7 ms | 10.7 ms | 2.8 | 166 ms | 5.2 | 38 ms/s |
+  | saturated, no staging | 18.0, 19.2 | 7.1, 7.4 | 1.3, 1.2 | 111, 135 | 1.8, 6.0 | 14, 44 |
+  | saturated, 80 ms | 17.5, 12.6 | 3.4, 2.5 | 1.8, 2.3 | 98, 104 | 15.5, 11.3 | 123, 85 |
+  | saturated, 100 ms | 10.7, 9.9 | 1.5, 1.1 | 1.8, 1.7 | 100, 90 | 16.3, 9.3 | 127, 67 |
+
+  An earlier A/B of two bundles (before and after, three idle runs and two
+  saturated pairs, the old wall-clock rule) agreed on the CPU columns and on the
+  wall-clock ones: worst frame 20.7 → 11.9 ms idle, 17 → 10 ms saturated; frames
+  over ¾ of a slot 1.7 → 3.0; missed frames 1.3 → 2.5. A sweep of the delay under
+  heavy load (60, 80, 100 and 120 ms, two rounds, the old rule) put 100 and 120 ms
+  ahead of 60 and 80 ms on CPU past the slot and on frames over ¾ of a slot.
+- **What this does not show.** That the change removes drops. It lowers the
+  costliest frame (idle by 22 %; saturated by 3 % and 34 % at 80 ms, 41 % and
+  48 % at 100 ms) and, saturated, the CPU past the slot, which is what it was
+  built to do; but the frames over three quarters of
+  a slot went *up* (the mount is a frame of ~12 ms now and the frames beside it
+  are no lighter), and the display link's missed frames were no better and
+  mostly worse: on the quiet Mac, where the load was steady, 3.5 → 10.5 (80 ms)
+  and 5.2 (100 ms). Settings → player, which the change does not touch, also
+  showed a higher worst frame in the staged arms (18.5 → 29.7 ms idle) that is
+  unexplained. The saturated rounds' load was rising, which favours the arm
+  that ran first. So the cost is split, not removed, and on this Mac's evidence
+  the 80 ms delay is not an improvement a person would feel; 100 ms is the
+  better candidate and is untested by eye. R8e-H2 is the hardware check that
+  decides whether the change stays, and at which delay.
+- **Held by tests.** `SettingsStagedMountTests`: absent before the delay, present
+  after it, present at once with staging off, the same under Reduce Motion, from
+  the player; from the shut island, and on a reopening after a swap, built with
+  the island; no other surface waits; and the model's word on which arrivals are
+  swaps.
 
 ### 19.13 Settings keys
 

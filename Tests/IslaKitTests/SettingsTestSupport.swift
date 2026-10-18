@@ -21,7 +21,8 @@ enum SettingsFixture {
         automation: AutomationAccess? = nil,
         updates: UpdateCheck? = nil,
         installer: UpdateInstaller? = nil,
-        icons: AppIcons? = nil
+        icons: AppIcons? = nil,
+        mountsAfter: TimeInterval = 0
     ) -> SettingsPane {
         let stores = isolated.stores
         let lyricStore = lyrics ?? LyricsStore(
@@ -38,7 +39,8 @@ enum SettingsFixture {
             automation: automation ?? AutomationAccess(),
             icons: icons ?? Self.macWithApps([:]),
             selection: .constant(section),
-            settingsDefaults: isolated.suite
+            settingsDefaults: isolated.suite,
+            mountsAfter: mountsAfter
         )
     }
 
