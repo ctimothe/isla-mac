@@ -232,6 +232,9 @@
 "Update available" = "Доступно обновление";
 "Rehearsal: update from a local folder" = "Репетиция: обновление из локальной папки";
 "Updates come from a folder on this Mac." = "Обновления берутся из папки на этом Mac.";
+"Isla %@ is ready" = "Isla %@ готова к установке";
+"Isla restarts when it is done." = "Когда всё будет готово, Isla перезапустится.";
+"Install" = "Установить";
 "Software Update" = "Обновление ПО";
 "Isla is up to date" = "Установлена последняя версия Isla";
 "Checking for updates…" = "Поиск обновлений…";

@@ -578,6 +578,11 @@ struct NotchContentView: View {
         .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.ambient)
+        // The update alert grows out of the notch and folds back on the same
+        // spring as the other expanded alerts. Keyed to its version, not to
+        // the offer: the installer's progress redraws inside it and moves no
+        // edge.
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.updateOffer?.version)
         // The pop-up widens and folds on its own quick, critically damped
         // spring (`Theme.hudSpring`, spec §19.3 amended 2026-10-18). Keyed to
         // whether it is up, not to its level: a press only moves the bar,
@@ -650,7 +655,11 @@ struct NotchContentView: View {
                 // removed, so the cover's morph and the fold described above
                 // are exactly as they were when the moment ends.
                 compactMediaHeader(morph: travellingMorph)
-                    .opacity(vm.ambient == nil && vm.hud == nil ? 1 : 0)
+                    .opacity(vm.ambient == nil && vm.hud == nil && vm.updateOffer == nil ? 1 : 0)
+                    // Faded under the update alert, and out of VoiceOver's
+                    // way with it: the alert's container lets its own
+                    // children through, and a song nobody can see is not one.
+                    .accessibilityHidden(vm.updateOffer != nil)
                 // One activity at a time, the highest first (`IslandActivity`):
                 // an alert replaces what it outranks, and the replaced one is
                 // gone, not waiting underneath (spec §19.1).
@@ -661,6 +670,12 @@ struct NotchContentView: View {
                 case .ambient(let ambient):
                     ambientHeader(ambient)
                         .transition(ambientArrival(ambient))
+                case .update(let offer):
+                    UpdateAlertView(
+                        offer: offer, size: size, notchHeight: vm.geometry.notchSize.height,
+                        onAction: { vm.onUpdateAction?($0) }
+                    )
+                    .transition(Theme.expandedArrival(reduceMotion: reduceMotion))
                 case .shelf(let count):
                     shelfHeader(count: count)
                         .transition(Theme.compactArrival(reduceMotion: reduceMotion))
@@ -671,6 +686,7 @@ struct NotchContentView: View {
             // The island to assistive tech, on the stack that holds both the
             // music and the moment, so that a peek or a charger changes this
             // element's value rather than swapping one element for another.
+            // Under the update alert it lets the alert's buttons through.
             .modifier(islandAccessibility(open: false))
             .transition(Theme.scaleIn(0.9, reduceMotion: reduceMotion))
         }
@@ -708,6 +724,7 @@ struct NotchContentView: View {
     /// saw before.
     private func islandAccessibility(open: Bool) -> IslandAccessibility {
         IslandAccessibility(
+            containsControls: !open && !vm.isLockedPresentation && vm.updateOffer != nil,
             value: open ? openIslandValue : closedIslandValue,
             hint: open ? localized("Closes the panel") : localized("Opens the panel"),
             action: {
@@ -730,6 +747,7 @@ struct NotchContentView: View {
     private var closedIslandValue: String {
         if !vm.isLockedPresentation, let hud = vm.hud { return hud.accessibilityLabel }
         if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
+        if !vm.isLockedPresentation, let offer = vm.updateOffer { return localized("Isla %@ is ready", offer.version) }
         if !vm.isLockedPresentation, case .shelf(let count) = vm.activity { return localized("Shelf, %d items", count) }
         return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
     }
@@ -1505,17 +1523,22 @@ private struct PaneClip: Shape {
 /// cover, bars, a charge level — is in the value already, and a folded wing is
 /// drawn at nothing, so combining would describe a pill that is not there.
 private struct IslandAccessibility: ViewModifier {
+    /// The update alert is up, with buttons of its own (spec §19.5 f): the
+    /// island stands aside as a plain container and lets them through.
+    /// Values, not a branch, so the stack under it keeps its identity — the
+    /// music's fold and morph — as the alert comes and goes.
+    var containsControls = false
     let value: String
     let hint: String
     let action: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(ProductIdentity.displayName)
-            .accessibilityValue(value)
-            .accessibilityHint(hint)
-            .accessibilityAddTraits(.isButton)
+            .accessibilityElement(children: containsControls ? .contain : .ignore)
+            .accessibilityLabel(containsControls ? value : ProductIdentity.displayName)
+            .accessibilityValue(containsControls ? "" : value)
+            .accessibilityHint(containsControls ? "" : hint)
+            .accessibilityAddTraits(containsControls ? [] : .isButton)
             .accessibilityAction(.default, action)
     }
 }

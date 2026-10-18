@@ -1138,6 +1138,17 @@ enum Theme {
     /// same value as `SettingsTint.blue`.
     static var shelfBlue: Color { SettingsTint.blue.color }
 
+    // MARK: - The update alert (spec §19.5 f)
+
+    /// The glyph's gradient and Install's capsule (at 0.22): the system's
+    /// blue, as the Shelf's is.
+    static var updateBlue: Color { SettingsTint.blue.color }
+    /// Install's title, `#3E8EF7`: a lighter blue than the capsule's, so the
+    /// default button's word still reads on blue 0.22 over black.
+    static let updateInstallTitle = Color(red: 62.0 / 255, green: 142.0 / 255, blue: 247.0 / 255)
+    /// Later's capsule (at 0.22): the system's grey.
+    static var updateLaterFill: Color { SettingsTint.grey.color }
+
     /// A tile's plate: white 0.10, 0.14 under the pointer; picked, white 0.18
     /// inside a 1.5 pt blue ring (§19.7).
     static let shelfTilePlate = Color.white.opacity(0.10)

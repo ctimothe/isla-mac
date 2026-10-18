@@ -99,6 +99,9 @@ extension NotchViewModel {
         case open(Surface)
         /// An alert folds, and the island returns to what is live.
         case foldAlert
+        /// Nothing: the update alert is answered by its buttons alone
+        /// (§19.1's table), and a click beside them is not an answer.
+        case nothing
     }
 
     /// - Parameter activity: what the island shows.
@@ -112,6 +115,7 @@ extension NotchViewModel {
     ) -> IslandClick {
         switch activity {
         case .hud, .ambient: return .foldAlert
+        case .update: return .nothing
         case .peek: return .open(.player)
         case .music, .shelf, .none: return .open(openTarget(live: live, hasTrack: hasTrack, lastPage: lastPage))
         }
@@ -132,7 +136,7 @@ extension NotchViewModel {
         switch live {
         case .peek, .music: return .player
         case .shelf: return .tray
-        case .hud, .ambient, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
+        case .hud, .ambient, .update, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
         }
     }
 }
