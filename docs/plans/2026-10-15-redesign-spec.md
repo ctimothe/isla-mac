@@ -2983,6 +2983,67 @@ recorded here:
   four numbers, where SwiftUI's separate animations would snap only the one
   that changed (a panel-width change during a morph).
 
+*Amended 2026-10-18 (perf finding #5, still open after R8c: copying a
+screenshot read 10–21 MB from the pasteboard on the main thread).*
+
+- **The picture's and the recording's bytes are read off the main thread.**
+  `ClipboardStore` asks for the type list and the change counter on the main
+  actor, and the bytes through `PasteboardRead` on one serial background queue,
+  which hands them back to the main actor. A copy made while a read runs wins:
+  the older read's result is dropped and never delivered
+  (`pasteboard.changeCount` is compared again on arrival). `contentReadCount`
+  is taken on the main actor when a read starts, so a dropped read still
+  counts, as under Ask it would still have been an alert. The same function
+  serves the picture, its 12 × 0.5 s wait for a Continuity arrival and the
+  recording, whose one retry after an empty answer is unchanged. Signpost
+  `pasteboard read` (subsystem `com.ctimothe.isla`, category `clipboard`) marks
+  the interval and its byte count, on the queue's thread. Cost to the main
+  thread per copy, a 17 MB TIFF from another process, medians of six: an app
+  that has the bytes in the pasteboard server 1.6 ms before and 0.2 ms after;
+  an app that renders its picture when asked 28 ms (26.9–38.2) before and
+  0.2 ms after. A copy made in the same process measures 0.07 ms either way and
+  is not the finding: the read is cheap when the bytes are already in the
+  server and costs what the copying app takes to produce them when they are
+  not. `ClipboardPasteboardReadTests`.
+- **Why a rule, not just a queue.** Apple documents no threading rule for
+  `NSPasteboard`; AppKit's thread-safety notes name `NSView` and `NSCell`
+  only, and the Carbon `PasteboardRef` header says "Not thread safe". Nothing
+  documented reads a pasteboard asynchronously: `NSItemProvider` does not
+  adopt `NSPasteboardReading`, and a screenshot copied to the clipboard carries
+  no file URL to read instead. So it was measured, six seconds a run, on a
+  named pasteboard with a queue reading 16 MB TIFFs in a loop. The main thread
+  calling `changeCount` or `accessBehavior` alongside, about a million calls a
+  run, was fine with the board still and with another process rewriting it
+  every 50 ms. `types`, `availableType(from:)` and `string(forType:)` alongside
+  crashed AppKit (`-[NSPasteboard _updateTypeCacheIfNeeded]`) whenever a new
+  copy had just landed and the type cache was stale for both threads, and
+  survived on a still board: the hazard is the cache's rebuild. Hence:
+  **while a read of a pasteboard is in flight, the main actor asks it for its
+  change counter and nothing else.** The poll that finds a read running
+  returns without spending the new copy, so the next tick takes it (at most
+  one tick after the read ends); `copy`, `copyPlainText`, `start`,
+  `recheckAccess` and every other main-actor use of the general pasteboard in
+  the app (Translate's reads and copy, the Translate hot key, the Shelf's
+  copy, Copy Line, Copy Diagnostics) wait for the read first. Waiting costs no
+  more than the read cost on the main thread before, and only when a copy
+  lands in the milliseconds one is being read; Apple documents that
+  `data(forType:)` gives up with nil when the copying app is too slow, so the
+  wait is bounded. `PasteboardAccessContractTests` fails on any new reach for
+  the general pasteboard outside `PasteboardRead`.
+- **AppKit's own calls.** ⌘V in the Translate field and a menu validating Paste
+  ask the general pasteboard on the main thread without asking Isla, and
+  cannot be made to wait. They happen only while one of Isla's windows holds
+  the keyboard, so then the read stays on the main thread, as it was
+  (`PasteboardRead.readsStayOnMain`: a key window). With none, which is where
+  a screenshot being pasted into another app leaves Isla, the bytes are read
+  on the queue. That reasoning is not measured off hardware; R8c-H8 is where
+  it would show, together with the Paste from Other Apps alert under Ask,
+  whose behaviour with a read on a background thread has only been argued
+  (under Ask the read answers nil while the alert is up; it does not wait for
+  the main thread). Text and file-URL reads stay on the main thread: a string
+  is capped at 256 KB when recorded (read whole first), and a file copy is a
+  list of URLs.
+
 ### 19.13 Settings keys
 
 | Key | Default | Section | Release | Leaves the Mac / system-wide? |

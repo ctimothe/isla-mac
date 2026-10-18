@@ -1106,7 +1106,7 @@ final class ShelfStore: ObservableObject {
     /// Puts the card back on the pasteboard. Images go as image data as well as
     /// a file reference, so pasting works both in Finder and in an editor.
     func copy(_ item: ShelfItem) {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = PasteboardRead.general
         pasteboard.clearContents()
         // The file goes on first and everything below is added to the item it
         // creates. Order is the whole of it: `setData` always writes to the
@@ -1135,7 +1135,7 @@ final class ShelfStore: ObservableObject {
                         // consumers that trust the declared type would save a
                         // "TIFF" with JPEG inside (#9). The UTI is already the
                         // pasteboard type identifier.
-                        let pasteboard = NSPasteboard.general
+                        let pasteboard = PasteboardRead.general
                         guard pasteboard.changeCount == expected else { return }
                         pasteboard.setData(data, forType: pasteboardType)
                     }

@@ -1039,7 +1039,8 @@ final class Translator: ObservableObject {
     /// mere opening of the tab is the very thing that section exists to avoid.
     /// The type list is public to every process.
     var pasteboardOffersText: Bool {
-        pasteboard.availableType(from: [.string]) != nil
+        PasteboardRead.settle(pasteboard)
+        return pasteboard.availableType(from: [.string]) != nil
     }
 
     /// What macOS currently lets Isla read from the pasteboard (Paste from Other
@@ -1047,7 +1048,9 @@ final class Translator: ObservableObject {
     /// Metadata, not content: reading it raises no alert, so the Paste button can
     /// ask it every second beside the type list.
     var pasteboardAccess: ClipboardAccess {
-        pasteboardAccessOverride?() ?? ClipboardStore.systemAccess(of: pasteboard)
+        if let override = pasteboardAccessOverride { return override() }
+        PasteboardRead.settle(pasteboard)
+        return ClipboardStore.systemAccess(of: pasteboard)
     }
 
     /// A seam for a test, which has to play Don't Allow on a Mac where the
@@ -1076,6 +1079,7 @@ final class Translator: ObservableObject {
     /// (`ClipboardStore.pollNow`: types promised content, the read came back nil).
     func textFromPasteboard() -> CommandInput {
         let promised = pasteboardOffersText
+        PasteboardRead.settle(pasteboard)
         let raw = pasteboard.string(forType: .string)
         if raw == nil, promised || pasteboardAccess == .denied {
             return CommandInput(text: nil, notice: Self.pasteRefusedSentence)
@@ -1094,6 +1098,7 @@ final class Translator: ObservableObject {
     @discardableResult
     func copyOutput() -> Bool {
         guard answersInput else { return false }
+        PasteboardRead.settle(pasteboard)
         pasteboard.clearContents()
         pasteboard.setString(output, forType: .string)
         outputCopies += 1

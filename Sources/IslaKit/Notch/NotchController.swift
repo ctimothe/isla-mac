@@ -867,7 +867,7 @@ final class NotchController {
         let pin = !(fromOpenPanel || viewModel?.isOpen == true)
         switch kind {
         case .clipboard: openCommanded(.clipboard, pin: pin)
-        case .translateClipboard: translateCommanded(NSPasteboard.general.string(forType: .string))
+        case .translateClipboard: translateCommanded(PasteboardRead.general.string(forType: .string))
         case .shelf: openCommanded(.tray, pin: pin)
         case .lyrics: showLyrics(pin: pin)
         case .settings: openCommanded(.settings, pin: pin)
