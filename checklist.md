@@ -2196,6 +2196,25 @@ is a dated amendment in spec §19.3, §19.5d, §19.6, §19.7, §19.8 and §19.12
   beat, and copied pictures leave memory. `PaneEqualityTests`,
   `PointerWatcherTests`, `ClipboardImageMemoryTests`.
 
+Reviewed by Codex (`codex exec review --base c73b27f`) and an Opus reviewer.
+Fixed, each with a test: a picture whose file had gone still said Copied
+(`copy` now answers, and the entry leaves); a large TIFF kept as a PNG was
+rebuilt when copied again (matched by digest alone); the vault's double-copy
+check skipped a picture copied again after something else or a settings
+change; the Translate stand-in drew from the first line of a scrolled card
+(`EditorScrollMemory` reads the editor's clip view); opening the panel rebuilt
+the key levels on the main thread (the tap alone is renewed now, and the hold
+check is one step under the gate's lock); the level cache missed the virtual
+main volume AirPlay outputs report on; and the movement monitor woke the main
+thread for every move anywhere on the screen (it stands only near the notch).
+
+Accepted, not fixed: an old tile without a saved date shows its file's
+creation date, and "Today" turns to "Yesterday" on the next redraw after
+midnight rather than at it; the cost of the always-on outline mask is
+unmeasured (R8c-H1 is where it would show); `MotionValuesTests` reads source
+text rather than running the transition, and the Paste test hard-codes the
+font size it measures at.
+
 Owed on hardware (record the Mac model and macOS version when run):
 
 - [ ] **R8c-H1** On Translate with text in the card, swipe past the last page

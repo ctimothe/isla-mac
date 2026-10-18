@@ -2881,12 +2881,22 @@ work").* Measured and cut, each held by a test:
 - **The pointer is answered on the move.** A resting sampler ticks at 8 Hz, and
   a quick flick to the island and click could reach the menu bar behind
   before a tick made the panel take the mouse. While the sampler idles, a
-  move into the top band now ticks at once. `PointerWatcherTests`.
+  move into the top band now ticks at once. The movement monitor that hears
+  it stands only while the pointer was last seen within 300 pt under the
+  band (`NotchGeometry.approachZone`); further down the 8 Hz beat brings it
+  into range in time, and the mouse's moves elsewhere on the screen wake
+  nothing. `PointerWatcherTests`.
 - **The volume and brightness keys** no longer wait on the main thread
-  (19.5d). `MediaKeyHUDTests`, `SystemLevelsTests`.
+  (19.5d). Opening the panel renews a key tap older than five seconds by
+  replacing the tap alone; the levels behind it are not rebuilt in front of
+  the open. `MediaKeyHUDTests`, `SystemLevelsTests`.
 - **Copied pictures** no longer stay in memory: their bytes live in a
-  per-launch file, mapped when pasted back, with a 32 MB resident budget
-  across the history. `ClipboardImageMemoryTests`.
+  per-launch file under `~/Library/Caches/com.ctimothe.isla` (the temporary
+  directory is cleared of files unopened for days), mapped when pasted back,
+  with a 32 MB resident budget across the history. A picture whose file has
+  gone leaves the history instead of claiming it was copied, and the same
+  picture copied again is matched by its bytes and moves up rather than
+  being kept twice. `ClipboardImageMemoryTests`.
 
 Measured and left alone: the app-icon lookups an opening repeats cost 1.5–2.7
 ms warm, and only where icons are drawn; the clipboard's dust clock re-runs no
