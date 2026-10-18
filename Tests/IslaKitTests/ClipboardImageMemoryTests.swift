@@ -192,8 +192,9 @@ final class ClipboardImageMemoryTests: XCTestCase {
         board.clearContents()
         board.setString("kept", forType: .string)
         try FileManager.default.removeItem(at: spool.directory)
-        store.copy(item)
+        XCTAssertFalse(store.copy(item), "nothing was copied, so nobody may say Copied")
         XCTAssertEqual(board.string(forType: .string), "kept")
+        XCTAssertTrue(store.items.isEmpty, "an entry that can never be copied again leaves the history")
     }
 
     // MARK: Stale directories
@@ -277,6 +278,59 @@ final class ClipboardImageMemoryTests: XCTestCase {
         store.pollNow()
         settle { delivered.count == 2 }
         XCTAssertEqual(delivered.count, 2, "a different picture is saved")
+    }
+
+    /// A picture over the byte limit keeps a PNG whatever it was copied as;
+    /// asking for the copied type as well missed it on the second copy, which
+    /// was decoded and spooled again (R8c review, Codex).
+    func testALargePictureCopiedAgainMovesUpInsteadOfBeingRebuilt() throws {
+        store.imageByteLimit = 100_000
+        let data = try tiff(megabytes: 1, fill: 3)
+        board.clearContents()
+        board.setData(data, forType: .tiff)
+        store.pollNow()
+        settle { !self.store.items.isEmpty }
+        guard case .image(let kept) = try XCTUnwrap(store.items.first).payload else { return XCTFail("not a picture") }
+        XCTAssertEqual(kept.type, .png, "kept as a PNG, being over the limit")
+        let firstID = store.items[0].id
+
+        store.record(ClipItem(payload: .text("between"), date: Date()))
+        board.clearContents()
+        board.setData(data, forType: .tiff)
+        store.pollNow()
+        settle { self.store.items.first?.id == firstID }
+        XCTAssertEqual(store.items.first?.id, firstID, "the entry already there came back to the top")
+        XCTAssertEqual(store.items.filter { $0.kind == .image }.count, 1)
+        XCTAssertEqual(filesOnDisk().count, 1, "and nothing was spooled again")
+    }
+
+    /// The vault's double-copy check covers one picture copied twice in a row,
+    /// nothing more: copied again after something else, or after the switch
+    /// was changed, it is a new capture (R8c review, Codex).
+    func testThePictureIsSavedAgainOnceSomethingElseWasCopied() throws {
+        var delivered: [Data] = []
+        store.onImage = { delivered.append($0) }
+        store.wantsImages = { true }
+        let data = png(200, 150, noise: true)
+        func copyPicture() {
+            board.clearContents()
+            board.setData(data, forType: .png)
+            store.pollNow()
+        }
+
+        copyPicture()
+        settle { delivered.count == 1 }
+        board.clearContents()
+        board.setString("something else", forType: .string)
+        store.pollNow()
+        copyPicture()
+        settle { delivered.count == 2 }
+        XCTAssertEqual(delivered.count, 2, "copied again after text: saved again")
+
+        store.forgetVaultCapture()
+        copyPicture()
+        settle { delivered.count == 3 }
+        XCTAssertEqual(delivered.count, 3, "after a switch changed: saved again")
     }
 
     // MARK: Paste-back through the pipeline

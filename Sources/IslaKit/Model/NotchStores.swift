@@ -233,6 +233,9 @@ final class NotchStores {
     ///   because whatever was copied while it was off was copied while the
     ///   user had said not to look.
     func refreshClipboardPolling(settingChanged: Bool = false) {
+        // Save Clipboard Screenshots turned off and on again: the next picture
+        // is saved even if it is the one saved last.
+        if settingChanged { clipboard.forgetVaultCapture() }
         guard Self.clipboardShouldPoll(
             history: NotchViewModel.clipboardHistoryEnabled,
             images: NotchViewModel.saveClipboardImagesEnabled

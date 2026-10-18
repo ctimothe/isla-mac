@@ -740,7 +740,9 @@ struct ClipRow: View {
     /// of two identical sentences inside a second, so a click and the AX
     /// action arriving together are said once.
     private func copy() {
-        clipboard.copy(item)
+        // A picture whose file is gone copies nothing and leaves the list;
+        // "Copied" would be a lie about the pasteboard.
+        guard clipboard.copy(item) else { return }
         confirm()
     }
 
@@ -884,7 +886,7 @@ struct ClipImageTile: View {
     }
 
     private func copy() {
-        clipboard.copy(item)
+        guard clipboard.copy(item) else { return }
         justCopied = true
         DispatchQueue.main.asyncAfter(deadline: .now() + ClipboardLayout.copiedLifetime) { justCopied = false }
         Announcer.shared.announce(localized("Copied"))

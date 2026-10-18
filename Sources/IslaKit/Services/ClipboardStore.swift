@@ -227,6 +227,12 @@ final class ClipboardStore: ObservableObject {
     /// the check is for the double copy, not a second index of the vault.
     private var lastVaultDigest: SHA256.Digest?
 
+    /// A switch changed: whatever picture comes next is a new capture, even
+    /// the one the vault was just handed. See `lastVaultDigest`.
+    func forgetVaultCapture() {
+        lastVaultDigest = nil
+    }
+
     /// Bytes the history's pictures hold in memory right now: the thing
     /// `imageResidentBudget` bounds.
     var residentPictureBytes: Int {
@@ -434,14 +440,24 @@ final class ClipboardStore: ObservableObject {
         items.filter(\.isPinned) + items.filter { !$0.isPinned }
     }
 
-    /// Puts an entry back on the pasteboard without re-recording it.
-    func copy(_ item: ClipItem) {
-        // The picture is fetched before the pasteboard is cleared: a file that
-        // has gone missing must leave what the person copied where it is.
+    /// Puts an entry back on the pasteboard without re-recording it. False
+    /// when it could not: a picture whose file is gone.
+    ///
+    /// The picture is fetched before the pasteboard is cleared: a file that
+    /// has gone missing must leave what the person copied where it is. Such an
+    /// entry can never be copied again, so it leaves the history, and the
+    /// caller says nothing was copied — every caller used to confirm "Copied"
+    /// over a pasteboard it had left alone, and the next paste gave whatever
+    /// was there before (R8c review, M3).
+    @discardableResult
+    func copy(_ item: ClipItem) -> Bool {
         var pictureData: Data?
         if case .image(let image) = item.payload {
             pictureData = image.pasteboardData
-            guard pictureData != nil else { return }
+            guard pictureData != nil else {
+                remove(item)
+                return false
+            }
         }
         pasteboard.clearContents()
         switch item.payload {
@@ -456,6 +472,7 @@ final class ClipboardStore: ObservableObject {
         }
         lastChangeCount = pasteboard.changeCount
         bubble(item)
+        return true
     }
 
     /// Copy as Plain Text (spec §9.2, renamed from Paste as Plain Text in review 2026-10-15): the entry's string alone, with the
@@ -568,6 +585,11 @@ final class ClipboardStore: ObservableObject {
         let plan = Self.readPlan(
             types: types, history: recordsHistory(), images: wantsImages(), keepImages: keepsImages()
         )
+        // The vault's double-copy check is for one picture copied twice in a
+        // row. Anything else copied between, or a copy made with the vault
+        // off, ends the run: the same picture copied later is a new capture,
+        // and skipping it dropped it from the vault (R8c review, Codex).
+        if plan != .image || !wantsImages() { lastVaultDigest = nil }
         if plan == .image {
             // The image path owns this generation from here: a Continuity
             // picture is still on its way, and its wait checks the counter
@@ -782,7 +804,7 @@ final class ClipboardStore: ObservableObject {
                 MainActor.assumeIsolated {
                     // A newer copy is the newer intention.
                     guard self.pasteboard.changeCount == changeCount else { return }
-                    let known = needsEntry ? self.pictureItem(withDigest: digest, type: type) : nil
+                    let known = needsEntry ? self.pictureItem(withDigest: digest) : nil
                     let vaultHasIt = needsPNG && self.lastVaultDigest == digest
                     let buildEntry = needsEntry && known == nil
                     let buildPNG = needsPNG && !vaultHasIt
@@ -824,10 +846,16 @@ final class ClipboardStore: ObservableObject {
     }
 
     /// The picture entry already in the history for these bytes, if any.
-    private func pictureItem(withDigest digest: SHA256.Digest, type: NSPasteboard.PasteboardType) -> ClipItem? {
+    ///
+    /// By the digest alone, which is of the pasteboard's own bytes: the
+    /// entry's `type` is what it *kept*, and a picture over `byteLimit` keeps a
+    /// PNG whatever it was copied as, so asking for the copied type too missed
+    /// every large TIFF copied a second time — it was decoded and spooled again
+    /// and replaced the entry instead of moving it up (R8c review, Codex).
+    private func pictureItem(withDigest digest: SHA256.Digest) -> ClipItem? {
         items.first { item in
             guard case .image(let image) = item.payload else { return false }
-            return image.digest == digest && image.type == type
+            return image.digest == digest
         }
     }
 

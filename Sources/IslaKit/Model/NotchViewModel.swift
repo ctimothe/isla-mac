@@ -2363,7 +2363,9 @@ final class NotchViewModel: ObservableObject {
                   let index = ClipboardBrowser.selectedIndex(in: listing, selection: clipboardBrowser.selection) else {
                 return .handled
             }
-            clipboard.copy(listing.items[index])
+            // A picture whose file is gone copies nothing and leaves the
+            // list: the panel stays, on what is left.
+            guard clipboard.copy(listing.items[index]) else { return .handled }
             Announcer.shared.announce(localized("Copied"))
             return .handledAndClose
         }

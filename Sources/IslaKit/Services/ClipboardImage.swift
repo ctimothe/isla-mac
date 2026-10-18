@@ -258,7 +258,7 @@ final class ClipImageBytes: @unchecked Sendable {
 /// The files behind the picture entries of one launch.
 ///
 /// History is memory-only today, so these files must not outlive the session:
-/// they live in a directory of their own under the temporary directory, named
+/// they live in a directory of their own under Isla's caches folder, named
 /// with the owning process so that a launch can tell a crashed predecessor's
 /// directory (swept) from a second running Isla's (left alone — a development
 /// build beside the installed app is a normal state on this Mac). The
@@ -271,12 +271,23 @@ final class ClipImageSpool: @unchecked Sendable {
     /// picture creates no directory.
     static let session = ClipImageSpool()
 
+    /// `~/Library/Caches/com.ctimothe.isla`, not the temporary directory:
+    /// macOS clears files there that nobody has opened for a few days, and an
+    /// Isla session runs for weeks, so an old entry's picture could vanish
+    /// under it (R8c review, M3). Caches can still be purged when the disk is
+    /// short, which `ClipboardStore.copy` answers by dropping the entry.
+    static let defaultRoot: URL = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return caches.appendingPathComponent("com.ctimothe.isla", isDirectory: true)
+    }()
+
     let root: URL
     let directory: URL
 
-    /// - Parameter root: injectable so a test never writes the real temporary
-    ///   directory.
-    init(root: URL = FileManager.default.temporaryDirectory, processID: Int32 = getpid(), id: UUID = UUID()) {
+    /// - Parameter root: injectable so a test never writes the real caches
+    ///   folder.
+    init(root: URL = ClipImageSpool.defaultRoot, processID: Int32 = getpid(), id: UUID = UUID()) {
         self.root = root
         directory = root.appendingPathComponent(
             "\(Self.directoryPrefix)\(processID)-\(id.uuidString)", isDirectory: true
@@ -309,7 +320,7 @@ final class ClipImageSpool: @unchecked Sendable {
     /// A name that does not carry a process id is stale by definition.
     @discardableResult
     static func sweepStale(
-        in root: URL = FileManager.default.temporaryDirectory, keeping: URL? = nil,
+        in root: URL = ClipImageSpool.defaultRoot, keeping: URL? = nil,
         isAlive: (Int32) -> Bool = ClipImageSpool.processIsAlive
     ) -> Int {
         let fm = FileManager.default
