@@ -22,9 +22,19 @@ struct NotchContentView: View {
     @ObservedObject private var updates = UpdateCheck.shared
     @ObservedObject private var hotKeys = HotKeyCenter.shared
 
-    init(vm: NotchViewModel) {
+    /// The Core Animation outline the panel draws the island's shape with
+    /// (`NotchStage`, spec §19.12), or none. With one, this view draws no fill,
+    /// no shadow, no mask and no line of its own: it only says what the outline
+    /// is (`outlineState`) and on which transaction it changes, and the layers
+    /// do the moving off the main thread. Without one — a preview, a test, the
+    /// visual lab — it draws all of it in SwiftUI, as it did before, and the
+    /// equivalence tests hold the two to one picture.
+    private let outline: IslandOutlineHost?
+
+    init(vm: NotchViewModel, outline: IslandOutlineHost? = nil) {
         _vm = ObservedObject(wrappedValue: vm)
         _travel = ObservedObject(wrappedValue: vm.pageTravel)
+        self.outline = outline
     }
 
     /// Translate's History is offered only while Keep History is on (spec
@@ -163,6 +173,25 @@ struct NotchContentView: View {
         )
     }
 
+    // MARK: - The outline (spec §19.12)
+
+    /// What the outline is right now, for the layers that draw it: the shape's
+    /// size and radii, the fill, the line with whether it is shown folded into
+    /// its alpha (a hidden line is one with none, and fades in as it), and the
+    /// shadow's strength. The same properties that drew the SwiftUI outline,
+    /// so the two cannot say different things.
+    private var outlineState: OutlineState {
+        let height = shapeSize.height
+        return OutlineState(
+            width: Double(shapeSize.width), height: Double(height),
+            topRadius: Double(shapeTopRadius), bottomRadius: Double(shapeBottomRadius),
+            fill: OutlineColor(shapeFill),
+            stroke: OutlineColor(strokeColor).scalingAlpha(by: strokeShown ? 1 : 0),
+            strokeWidth: Double(Theme.islandStrokeWidth),
+            shadowOpacity: IslandStroke.castsShadow(height: height) ? Theme.islandShadowOpacity : 0
+        )
+    }
+
     private var shapeSize: CGSize {
         guard restsInNotch else {
             return CGSize(width: size.width + 2 * topRadius, height: size.height)
@@ -220,33 +249,13 @@ struct NotchContentView: View {
             // them in (spec §19.12).
             ZStack(alignment: .top) {
                 shell
-                bubbleLayer
+                // With the outline on Core Animation the island's content is
+                // cut by its mask, and the bubble lives outside the outline:
+                // it is drawn by a hosting view of its own, above this one
+                // (`IslandBubbleLayer`, `NotchStage`).
+                if outline == nil { IslandBubbleLayer(vm: vm) }
             }
         }
-    }
-
-    // MARK: - The bubble (spec §19.7)
-
-    /// The Shelf waiting beside Music, 16 right of the island's outline. It
-    /// arrives and leaves as compact content does, and follows the island's
-    /// edge on the outline's spring as the island changes width. The rest of
-    /// this window-sized layer is empty and takes no clicks; the bubble's own
-    /// are cut by `NotchRootView.bubbleRect`.
-    private var bubbleLayer: some View {
-        ZStack(alignment: .top) {
-            if let count = vm.bubbleCount {
-                IslandBubble(count: count, height: size.height, increaseContrast: appearance.increaseContrast) {
-                    vm.onBubbleClick?()
-                }
-                .offset(x: IslandBubbleLayout.centreOffset(islandWidth: size.width, count: count))
-                .transition(Theme.compactArrival(reduceMotion: reduceMotion))
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.bubbleCount != nil)
-        .animation(Theme.island(reduceMotion: reduceMotion), value: size.width)
-        // A tenth file widens it by a digit, on the same spring.
-        .animation(Theme.island(reduceMotion: reduceMotion), value: IslandBubbleLayout.digits(vm.bubbleCount ?? 0))
     }
 
     /// The pill over the shield: the same pill, and the same fold.
@@ -368,19 +377,30 @@ struct NotchContentView: View {
         // The shape is wider than the body by `topRadius` on each side: that
         // slack is where the concave shoulders live, so it must not be clipped.
         ZStack(alignment: .top) {
-            NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
-            .fill(shapeFill)
-            .frame(width: shapeSize.width, height: shapeSize.height)
-            // A surface or an alert separates from a busy window under it; a
-            // compact activity sits on the menu bar's strip and casts nothing
-            // (spec §19.2). Faded rather than switched, so it grows with the
-            // shape instead of arriving after it.
-            .shadow(
-                color: .black.opacity(
-                    IslandStroke.castsShadow(height: shapeSize.height) ? Theme.islandShadowOpacity : 0
-                ),
-                radius: Theme.islandShadowRadius
-            )
+            if let outline {
+                // The fill, the shadow, the mask below and the line over it are
+                // layers (`IslandOutlineHost`): this says what they are and on
+                // which transaction they change, and holds no size and takes
+                // no place in the layout.
+                IslandOutlineBridge(host: outline, state: outlineState)
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            } else {
+                NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
+                .fill(shapeFill)
+                .frame(width: shapeSize.width, height: shapeSize.height)
+                // A surface or an alert separates from a busy window under it; a
+                // compact activity sits on the menu bar's strip and casts nothing
+                // (spec §19.2). Faded rather than switched, so it grows with the
+                // shape instead of arriving after it.
+                .shadow(
+                    color: .black.opacity(
+                        IslandStroke.castsShadow(height: shapeSize.height) ? Theme.islandShadowOpacity : 0
+                    ),
+                    radius: Theme.islandShadowRadius
+                )
+            }
 
             // The shape is the only black. A second black layer used to sit
             // over the wings, faded out on its own 0.12 s while the shape
@@ -453,10 +473,12 @@ struct NotchContentView: View {
             // guaranteed to honour as well, so the rule does not depend on how
             // a control happens to be drawn.
             .clipped()
-            .mask(alignment: .top) {
-                NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
-                    .frame(width: shapeSize.width, height: shapeSize.height)
-            }
+            // With the outline on Core Animation its layer mask cuts the hosting
+            // view's whole layer instead, on the render server's clock, so this
+            // cut is not made twice (and not on the main thread).
+            .modifier(OutlineMask(
+                active: outline == nil, topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius, size: shapeSize
+            ))
 
             // Over the black *and over the content*, centred on its edge, so
             // half the line lies outside the shape and half inside. It sat
@@ -468,11 +490,13 @@ struct NotchContentView: View {
             // so it folds and unfolds with the shape instead of arriving after
             // it, and built from the same radii and the same frame, so it
             // follows the outline through every spring.
-            IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
-                .stroke(strokeColor, lineWidth: Theme.islandStrokeWidth)
-                .frame(width: shapeSize.width, height: shapeSize.height)
-                .opacity(strokeShown ? 1 : 0)
-                .allowsHitTesting(false)
+            if outline == nil {
+                IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
+                    .stroke(strokeColor, lineWidth: Theme.islandStrokeWidth)
+                    .frame(width: shapeSize.width, height: shapeSize.height)
+                    .opacity(strokeShown ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(width: size.width + 2 * topRadius, height: size.height, alignment: .top)
         // A click anywhere on the collapsed island opens it. The equalizer
@@ -1431,6 +1455,28 @@ struct NotchContentView: View {
             )
         case .welcome:
             WelcomePane(onDismiss: { vm.dismissWelcome() })
+        }
+    }
+}
+
+/// The SwiftUI cut by the island's outline: the content masked by `NotchShape`
+/// at the shape's own size and radii. Active only for a shell that draws its
+/// own outline; with the outline on Core Animation the mask is a layer's.
+private struct OutlineMask: ViewModifier {
+    let active: Bool
+    let topRadius: CGFloat
+    let bottomRadius: CGFloat
+    let size: CGSize
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if active {
+            content.mask(alignment: .top) {
+                NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)
+                    .frame(width: size.width, height: size.height)
+            }
+        } else {
+            content
         }
     }
 }

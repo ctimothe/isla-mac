@@ -653,7 +653,7 @@ final class NotchController {
                 // looks like when those disagree — the window is right and the
                 // layout is describing a different display.
                 let content = panel.contentView
-                let hosted = content?.subviews.first
+                let hosted = (content as? NotchRootView)?.islandHosting ?? content?.subviews.first
                 let contentFits = content.map {
                     abs($0.bounds.width - have.width) < 1 && abs($0.bounds.height - have.height) < 1
                 } ?? true

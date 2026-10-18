@@ -8,8 +8,8 @@ import os
 // MARK: - The hitch lab
 //
 // How the island's own morphs behave on a real screen, with the Mac idle and
-// with its cores taken, and what its outline does while the main thread is
-// busy or blocked (redesign spec §19.12, "the island lags while I work").
+// with its cores taken, and what a stalled main thread costs them (redesign
+// spec §19.12, "the island lags while I work").
 //
 // This lab is not the visual lab. The visual lab never orders a window in;
 // this one must, because a display link only ticks for a window the window
@@ -32,10 +32,15 @@ import os
 // - The display link's callbacks (one per vsync the main thread was free for,
 //   so a gap is a frame it did not deliver): Apple's hitch time from them.
 // - The main thread's CPU time over the morph.
-// - How long the outline's *presented* width stood still while it was moving,
-//   sampled a thousand times a second from a thread of its own (below). With
-//   a deliberate 50 ms block of the main thread in the middle, that is the
-//   outline's own stall, and what it travelled during the block.
+// A scenario blocks the main thread for 50 ms, 120 ms into a morph, to count
+// what a stall costs the frames the main thread owes. What it cannot say is
+// what the *outline* does meanwhile: that is Core Animation's, in the render
+// server, and nothing in this process can read it. `presentation()` read from
+// a thread of its own returns the value it had when first read and never moves
+// (measured: a path animated from 200 to 600 pt read 200 pt throughout), and
+// walking the layer tree off the main thread crashed the lab; the only honest
+// probe is a captured frame, which needs a Screen Recording grant this lab does
+// not ask for. R8d-H1 in checklist.md is that check, by eye, on hardware.
 //
 // It runs under `NSApplication.run()`, not under the test runner's wait. The
 // runner spins the main run loop by hand, and a hand-spun loop is not the
@@ -94,68 +99,6 @@ private struct MainThreadClock {
         let user = Double(info.user_time.seconds) + Double(info.user_time.microseconds) / 1e6
         let system = Double(info.system_time.seconds) + Double(info.system_time.microseconds) / 1e6
         return user + system
-    }
-}
-
-/// Watches how wide the island's outline is *drawn*, from a thread of its own,
-/// a thousand times a second — and so how long it stands still while it should
-/// be moving.
-///
-/// Read from the layer tree's presentation values, which is what the render
-/// server is last told, not from anything the main thread publishes. A main
-/// thread that is late (or blocked, on purpose) leaves the width where it was
-/// when SwiftUI draws the outline, one commit per frame; it does not when Core
-/// Animation does. Width is the widest of the shape layers and of the layers
-/// hung from the top edge; the outline is the widest thing in the island.
-private final class OutlineProbe: @unchecked Sendable {
-    struct Sample { var time: CFTimeInterval; var width: Double }
-    private let roots: [CALayer]
-    /// Layers as wide as the window are containers, not the island: the
-    /// outline is the widest thing that is not.
-    private let ceiling: Double
-    private let lock = NSLock()
-    private var running = false
-    private var samples: [Sample] = []
-
-    init(roots: [CALayer], windowWidth: CGFloat) {
-        self.roots = roots
-        ceiling = Double(windowWidth) - 2
-    }
-
-    func start() {
-        lock.withLock { running = true; samples = [] }
-        Thread.detachNewThread { [self] in
-            Thread.current.qualityOfService = .userInteractive
-            while lock.withLock({ running }) {
-                let now = CACurrentMediaTime()
-                let width = autoreleasepool { roots.map { Self.extent(of: $0, depth: 0, below: ceiling) }.max() ?? 0 }
-                lock.withLock { samples.append(Sample(time: now, width: width)) }
-                usleep(1000)
-            }
-        }
-    }
-
-    func stop() -> [Sample] {
-        lock.withLock { running = false }
-        usleep(5000)
-        return lock.withLock { samples }
-    }
-
-    private static func extent(of layer: CALayer, depth: Int, below ceiling: Double) -> Double {
-        let shown = layer.presentation() ?? layer
-        var widest = 0.0
-        if let shape = shown as? CAShapeLayer, let path = shape.path {
-            let width = Double(path.boundingBox.width)
-            if width < ceiling, !shown.isHidden { widest = width }
-        } else if depth > 0, shown.frame.minY <= 0.5, shown.frame.height > 8, !shown.isHidden {
-            let width = Double(shown.frame.width)
-            if width < ceiling { widest = width }
-        }
-        guard depth < 5 else { return widest }
-        for child in layer.sublayers ?? [] {
-            widest = max(widest, extent(of: child, depth: depth + 1, below: ceiling))
-        }
-        return widest
     }
 }
 
@@ -347,8 +290,8 @@ final class OutlineHitchLab: VisualLabCase {
                 prepare: { rig in rig.vm.isOpen = false; rig.vm.ambient = nil },
                 steps: [("headphones-in", headphonesIn), ("headphones-out", headphonesOut)]
             ),
-            // The main thread blocked for 50 ms, 120 ms into the morph: what
-            // the outline does while everything on the main thread waits.
+            // The main thread blocked for 50 ms, 120 ms into the morph: the
+            // frames everything that waits on it loses.
             Scenario(
                 name: "open-stall",
                 prepare: { rig in rig.vm.isOpen = false },
@@ -422,6 +365,7 @@ final class OutlineHitchLab: VisualLabCase {
                 await scenario.prepare(rig)
                 try await settle(0.8)
                 let stress = CPUStress(pidFile: out.appendingPathComponent("stress.pids"))
+                defer { stress.stop() }
                 // idle: nothing added. stressed: one `yes` per core, the brief's
                 // recipe. saturated: three per core, so the main thread is one of
                 // forty-odd runnable threads, which is a Mac mid-build.
@@ -430,15 +374,9 @@ final class OutlineHitchLab: VisualLabCase {
                 case "saturated": stress.start(count: cores * 3); try await settle(0.6)
                 default: break
                 }
-                defer { stress.stop() }
 
                 let frames = FrameRecorder()
                 frames.start(on: rig.hosting)
-                let probe = OutlineProbe(
-                    roots: [rig.root.layer, rig.hosting.layer].compactMap { $0 },
-                    windowWidth: rig.panel.frame.width
-                )
-                probe.start()
                 let clock = MainThreadClock()
                 var windows: [HitchWindow] = []
                 // Two cycles are warm-up: first-use costs (fonts, glyph caches,
@@ -463,13 +401,12 @@ final class OutlineHitchLab: VisualLabCase {
                         try await settle(hold)
                     }
                 }
-                let widths = probe.stop()
                 frames.stop()
                 stress.stop()
 
                 report.append(summarise(
                     scenario: scenario.name, load: load, windows: windows,
-                    ticks: frames.ticks, widths: widths
+                    ticks: frames.ticks
                 ))
             }
         }
@@ -486,7 +423,7 @@ final class OutlineHitchLab: VisualLabCase {
 
     private func summarise(
         scenario: String, load: String, windows: [HitchWindow],
-        ticks: [FrameRecorder.Tick], widths: [OutlineProbe.Sample]
+        ticks: [FrameRecorder.Tick]
     ) -> [String: Any] {
         let period = ticks.first.map { $0.target - $0.timestamp } ?? 1.0 / 60
 
@@ -515,7 +452,6 @@ final class OutlineHitchLab: VisualLabCase {
                 "worstCallbackLatenessMs": (lateness.max() ?? 0) * 1000,
                 "mainCPUMs": w.cpu * 1000,
             ]
-            sample.merge(Self.outline(in: w, widths: widths)) { $1 }
             perStep[w.name, default: []].append(sample)
         }
         var steps: [[String: Any]] = []
@@ -532,44 +468,9 @@ final class OutlineHitchLab: VisualLabCase {
                 "meanFrames": mean("frames"),
                 "expectedFrames": mean("expectedFrames"),
                 "meanMainCPUMs": mean("mainCPUMs"),
-                "longestOutlineStillMs": worst("outlineStillMs"),
-                "meanOutlineStillMs": mean("outlineStillMs"),
-                "meanOutlineTravelDuringStallPt": mean("outlineTravelDuringStall"),
-                "stalledSamples": Double(samples.filter { $0["outlineTravelDuringStall"] != nil }.count),
             ])
         }
         return ["scenario": scenario, "load": load, "periodMs": period * 1000, "steps": steps]
-    }
-
-    /// The outline's own stillness in a window: from the probe's samples, the
-    /// longest stretch in which the presented width did not change while it was
-    /// still more than 3 pt from where it ended up — and, when the main
-    /// thread was blocked, how far it travelled during the block.
-    private static func outline(in w: HitchWindow, widths: [OutlineProbe.Sample]) -> [String: Double] {
-        let inside = widths.filter { $0.time >= w.start && $0.time <= w.end }
-        guard let final = inside.last?.width, inside.count > 2 else { return [:] }
-        var changes: [CFTimeInterval] = []
-        var previous = inside[0].width
-        for sample in inside.dropFirst() where abs(sample.width - previous) > 0.02 {
-            changes.append(sample.time)
-            previous = sample.width
-        }
-        var result: [String: Double] = [:]
-        if let first = changes.first {
-            // Until it is within 3 pt of its end: the tail of a spring moves
-            // too slowly to tell standing still from arriving.
-            let arrived = inside.last(where: { abs($0.width - final) > 3 })?.time ?? first
-            var still = 0.0
-            for (a, b) in zip(changes, changes.dropFirst()) where a < arrived { still = max(still, b - a) }
-            result["outlineStillMs"] = still * 1000
-        }
-        if let stall = w.stall {
-            func width(at time: CFTimeInterval) -> Double {
-                inside.min(by: { abs($0.time - time) < abs($1.time - time) })?.width ?? 0
-            }
-            result["outlineTravelDuringStall"] = abs(width(at: stall.upperBound) - width(at: stall.lowerBound))
-        }
-        return result
     }
 
     private static func loadAverage() -> Double {
@@ -579,19 +480,18 @@ final class OutlineHitchLab: VisualLabCase {
     }
 
     private static func table(label: String, results: [[String: Any]]) -> String {
-        var lines = ["", "hitch lab \(label)", String(format: "%-18@ %-9@ %-26@ %8@ %6@ %7@ %9@ %8@ %10@",
+        var lines = ["", "hitch lab \(label)", String(format: "%-18@ %-9@ %-26@ %8@ %6@ %7@ %8@",
                                                     "scenario" as NSString, "load" as NSString, "step" as NSString,
                                                     "hitch/s" as NSString, "missed" as NSString, "cpu ms" as NSString,
-                                                    "still ms" as NSString, "stall pt" as NSString, "gap ms" as NSString)]
+                                                    "gap ms" as NSString)]
         for result in results {
             for step in (result["steps"] as? [[String: Any]]) ?? [] {
                 lines.append(String(
-                    format: "%-18@ %-9@ %-26@ %8.1f %6.1f %7.0f %9.1f %8.1f %10.1f",
+                    format: "%-18@ %-9@ %-26@ %8.1f %6.1f %7.0f %8.1f",
                     (result["scenario"] as? String ?? "") as NSString, (result["load"] as? String ?? "") as NSString,
                     (step["step"] as? String ?? "") as NSString,
                     step["meanHitchMsPerSecond"] as? Double ?? 0, step["meanMissedFrames"] as? Double ?? 0,
-                    step["meanMainCPUMs"] as? Double ?? 0, step["longestOutlineStillMs"] as? Double ?? 0,
-                    step["meanOutlineTravelDuringStallPt"] as? Double ?? 0, step["worstGapMs"] as? Double ?? 0
+                    step["meanMainCPUMs"] as? Double ?? 0, step["worstGapMs"] as? Double ?? 0
                 ))
             }
         }

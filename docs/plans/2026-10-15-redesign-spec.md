@@ -2902,6 +2902,87 @@ Measured and left alone: the app-icon lookups an opening repeats cost 1.5–2.7
 ms warm, and only where icons are drawn; the clipboard's dust clock re-runs no
 row. Opening still commits on release, the order a tap has on the platform.
 
+*Amended 2026-10-18 (owner, second hardware review, finding 4: "the island's
+open, close and pill stutter while the Mac is busy").* The outline left the
+main thread. What was measured first decides what that is worth, so it is
+recorded here:
+
+- **How it was measured.** `Scripts/measure-hitches.sh` (`OutlineHitchLab`)
+  puts the view stack the app ships in a throwaway panel at the notch, drives
+  the morphs from the view model, and records the display link (Apple's hitch
+  time), the main thread's CPU time and the outline's presented width, with
+  the Mac as it was, with one `yes` per core (the brief's recipe) and with
+  three per core. By hand, outside the shell sandbox; the gate skips it. It
+  must run under a real `NSApplication.run()`: under the test runner's own wait
+  one SwiftUI rectangle on a spring made `NSHostingView.layout()` run 27 000
+  times a second and cost 640 ms of CPU a second (81 layouts and 25 ms under
+  `NSApp.run()`), and every figure first taken that way measured the runner.
+- **What it found.** On the owner's Mac (14-inch MacBook Pro, M4 Pro, macOS
+  27.0.1, 120 Hz), with other sessions holding its load average at 40–65:
+  standing still the island costs the main thread 3–5 ms a second. Open,
+  close, the pill, the charger and the alerts deliver every frame — 0–0.4 of
+  about 120 missed — with the Mac as it was, with one `yes` per core (12) and
+  with three per core (36), each morph costing the main thread 60–140 ms of CPU
+  in its first second (6–14 % of a core, 0.5–1 ms a frame). The main thread
+  outranks `yes`: the brief's recipe does not, on its own, make the island
+  drop frames. The one morph that does is player ⇄ Settings, which misses 1–21
+  of ~120 frames depending on what else the Mac is doing, with gaps of 23–159
+  ms. A 50 ms block of the main thread costs six frames wherever it falls.
+- **The outline's share.** Switching the fill, shadow, mask and line off in
+  SwiftUI (a local patch, not kept; each state interleaved twice) took 0–20 %
+  off a morph's main-thread CPU, 0.1–0.4 ms a frame; the shadow, the mask and
+  the line each sat inside the run-to-run noise. SwiftUI already draws the
+  island's shape as a layer (a `ColorShapeLayer` with a 14 pt shadow) whose
+  path it rewrites on every commit, which is cheap. The outline was never the
+  expensive part of a morph.
+- **What changed.** The fill with its shadow, the mask the content is cut by and
+  the 2 pt line are `CAShapeLayer`s (`IslandOutlineHost`), moved by animations the
+  render server runs: the shell says what the outline is (`OutlineState`, from
+  the properties that always drew it) and each change arrives with its
+  transaction (`IslandOutlineBridge`), whose curve is read back from the
+  animation SwiftUI carried (`OutlineCurve`: §19.3's 0.5 / 0.75 spring, `Theme.close`'s
+  30 ms delay, the pop-up's own spring, Reduce Motion's 0.24 ease-in-out; sampled
+  with SwiftUI's own solver at 120 Hz into keyframes shared by every layer, so
+  fill, shadow, mask and line cannot disagree by a frame). A change interrupted
+  mid-flight starts from where the outline is drawn then, and a spring carries
+  its velocity into the next; a part that does not change (the fill under the
+  pointer, mid-open) keeps its own motion, as SwiftUI's per-value animations do.
+  The content's layer is masked by the same outline on every frame (the R8c hard
+  rule holds on the render server's clock, not SwiftUI's), the line is a layer
+  over the content, and the shadow is an explicit `shadowPath` followed by the
+  same keyframes. The Shelf's bubble, which lives outside the outline, draws in a
+  hosting view of its own above the island's. A shell built without a host (a
+  preview, a test) draws everything itself as before, and
+  `IslandOutlineEquivalenceTests` holds the two to one picture.
+- **What it buys.** Not hitches in the lab: open, close, the pill and the alerts
+  missed none before or after, and a 50 ms block of the main thread costs six
+  frames either way (everything that waits on it, the content included). The
+  main thread's CPU for a morph fell by about a sixth — median 0.84–0.85 of what
+  it was across two runs of the same morphs on the same Mac, back to back, idle
+  and under both loads (0.53–1.39 morph by morph; the alerts by a quarter, the
+  lyric caption's open by a fifth) — and standing still cost 3–7 ms a second
+  more (5 → 13 with the Mac as it was, 3 → 5 and 3 → 6 under load: under 1 % of
+  a core; the shell asks the host on every pass, and an unchanged ask returns
+  at once). What it is for is that the outline is no longer held still by a
+  stalled main thread: once a change has begun, its path, colour and shadow
+  move on the render server. No instrument in this process can read that — a
+  layer's presentation values read from another thread do not move (a path
+  animated from 200 to 600 pt read 200 throughout), so the lab does not claim
+  it; it is held by construction (`IslandOutlineHostTests`: the layers carry the
+  animations, sampled from the transaction's own curve) and by R8d-H1, where
+  the owner's eye is the probe.
+- **Held by tests.** `OutlineCurveTests`, `IslandOutlineHostTests`,
+  `IslandOutlineIntegrationTests`, `IslandOutlineEquivalenceTests`,
+  `NotchStageTests`.
+- **Not changed.** The content inside the island is still laid out by SwiftUI on
+  every frame of a morph, so a main thread that is blocked still delays it (the
+  outline no longer waits for it). Player → Settings is the one morph that drops
+  frames on an idle Mac. That is Settings' tree being built and laid out inside
+  the animating frame, not the outline; it is named in `checklist.md` §R8d and
+  left. Nor is the shape split into size and radii: a cut mid-flight snaps all
+  four numbers, where SwiftUI's separate animations would snap only the one
+  that changed (a panel-width change during a morph).
+
 ### 19.13 Settings keys
 
 | Key | Default | Section | Release | Leaves the Mac / system-wide? |

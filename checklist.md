@@ -1893,7 +1893,7 @@ ask:
   R10 merges.
 
 Owed on hardware, by release (spec §16, plan §"Hardware checks"): R7-H1…H5,
-R8-H1…H8, R8b-H1…H10, R8c-H1…H7, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
+R8-H1…H8, R8b-H1…H10, R8c-H1…H7, R8d-H1…H9, R9-H1…H5, R10-H1…H5. Each release copies its rows here, unticked,
 when it is built, and records the tested Mac model and macOS version when they
 are run.
 
@@ -2244,3 +2244,76 @@ Owed on hardware (record the Mac model and macOS version when run):
 - [ ] **R8c-H7** Copy a 20 MB screenshot ten times with Clipboard on: Activity
   Monitor's memory for Isla returns near where it started, and pasting the
   oldest still gives the full picture.
+
+## R8d — the island's outline on Core Animation (2026-10-18)
+
+Built on `feat/redesign-r8d-outline-layer`, cut from `feat/redesign-r8c-polish`
+(43e90e4). Spec §19.12, amended in place. The fill, the shadow, the 2 pt line
+and the mask the content is cut by are `CAShapeLayer`s whose paths, colours and
+shadow move on animations the render server runs (`IslandOutlineHost`), on the
+curve SwiftUI hands each change (`OutlineCurve`); the SwiftUI shell says what
+the outline is and when it changes, and draws none of it. The Shelf's bubble
+moved to a hosting view of its own, above the island's, so the outline's mask
+does not cut it. A shell built without a host (a preview, a test) still draws
+everything itself, and `IslandOutlineEquivalenceTests` holds the two to one
+picture.
+
+What the numbers said, so the next person does not start from the owner's
+hypothesis: the outline was not the expensive part of a morph — see §19.12 for
+the table — and the one morph that drops frames on an idle Mac is player →
+Settings, which is Settings' tree being built, not the outline. Both follow-ups
+are named at the end of this section. `Scripts/measure-hitches.sh` is the
+harness, and the first thing in its header is a trap in measuring SwiftUI
+animation from a test runner.
+
+Owed on hardware (record the Mac model and macOS version when run):
+
+- [ ] **R8d-H1** With the Mac busy (agents compiling; or `yes > /dev/null` once
+  per core in a shell): open and close the panel from the notch, press the gear
+  and the X, and let an alert (headphones, the volume keys) come and go, twenty
+  times each. The edge of the island moves without steps; the content may lag
+  it but is never drawn outside it. Compare with R8c on the same Mac: the owner
+  decides whether finding 4 is closed. (The lab cannot read the outline off the main thread; this row is the check.
+  Watch the island's edge, not its content, while the Mac is as busy as when it
+  lags.)
+- [ ] **R8d-H2** Interrupt it: click to open and click again halfway, a dozen
+  times at different moments; press the gear and press it again before it
+  lands. The outline turns round without a jump or a pause, nothing stays
+  half-drawn, and it ends where the state says.
+- [ ] **R8d-H3** Reduce Motion on: the outline changes size on the 0.24 s
+  ease-in-out with no overshoot, and the line and the shadow fade with it.
+- [ ] **R8d-H4** The look is the look: the player over a busy window has the
+  same soft shadow as R8c (side by side if you can), none under the compact
+  island, the peek or the charger; the line is 2 pt, crisp, on the built-in
+  display and an external one, with no seam along the top edge and no hairline
+  between the black and the line; Increase Contrast raises the line; the charger's
+  line is green.
+- [ ] **R8d-H5** Lock and unlock with the panel shut, with a song playing, and
+  with the panel open: the pill over the shield is the same as in R8c, and on
+  unlock the island comes back once, in place, with no stale outline or mask.
+- [ ] **R8d-H6** A file on the Shelf with a song playing: the bubble beside the
+  island arrives, widens by a digit, and goes, as in R8c; a click on it opens
+  the tray; a click on the island, and on the bare notch, still opens the
+  player; nothing on either is dead.
+- [ ] **R8d-H7** VoiceOver: the island reads first as "Isla", then (with a file
+  on the Shelf) the bubble; Open and Close from VoiceOver still work; the layer
+  views are not announced.
+- [ ] **R8d-H8** Swipe a page and flick back and forth on Translate with text in
+  the card (R8c-H1) and drag a file over the island: nothing crosses the border
+  at any moment of the spring, the Translate stand-in does not flicker, and the
+  drop surface appears in place.
+
+- [ ] **R8d-H9** Activity Monitor → GPU history and Energy for Isla, panel shut
+  with music playing and the lyric caption on, then open on the player for a
+  minute: no higher than R8c on the same Mac. The content's layer is masked by
+  the outline all the time now (the SwiftUI mask covered only the island-sized
+  part), which the lab cannot see: it reads the CPU and the display link, not
+  the GPU. If it costs, the mask can be cut to the island's own rect.
+
+Not done, and why: the content inside the island is still laid out by SwiftUI on
+every frame of a morph, so a main thread that is blocked still delays *it* (the
+outline no longer waits for it); the player ⇄ Settings change drops frames on an
+idle Mac (1–21 of ~120, gaps of 23–159 ms) because Settings' tree is built and
+laid out inside the animating frame. Neither is the outline, and neither is
+changed here; the lab's `surface-change` scenario is the harness for the next
+person (`Scripts/measure-hitches.sh`, `ISLA_HITCH_SCENARIOS=surface-change`).

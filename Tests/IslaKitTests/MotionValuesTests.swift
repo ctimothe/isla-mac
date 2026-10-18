@@ -232,9 +232,16 @@ final class MotionValuesTests: XCTestCase {
         let shell = try String(
             contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
         XCTAssertFalse(shell.contains("vm.travellingLeg == nil ? 0 : shapeBottomRadius"), "the clip is square at rest again")
-        let mask = try XCTUnwrap(shell.range(of: ".mask(alignment: .top) {\n                NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)\n                    .frame(width: shapeSize.width, height: shapeSize.height)"))
+        // The cut is the outline's own shape at the shape's own size: the
+        // SwiftUI mask for a shell that draws its outline, a layer mask on the
+        // hosting view for one with the outline on Core Animation
+        // (`IslandOutlineHostTests`). Either way it is made before the line
+        // is drawn over it.
+        let mask = try XCTUnwrap(shell.range(of: ".modifier(OutlineMask("))
+        let cut = try XCTUnwrap(shell.range(of: "content.mask(alignment: .top) {\n                NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)\n                    .frame(width: size.width, height: size.height)"))
         let stroke = try XCTUnwrap(shell.range(of: "IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)"))
         XCTAssertLessThan(mask.lowerBound, stroke.lowerBound, "the border is drawn under the content")
+        XCTAssertNotNil(cut, "the mask is the outline's shape")
     }
 
     /// Under Reduce Motion the cover and the equalizer do not fly between the

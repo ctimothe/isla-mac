@@ -1,9 +1,8 @@
 #!/bin/bash
 # How the island's own morphs behave on a real screen — open, close, a surface
 # change, an alert folding in — with the Mac idle, with one `yes` per core (the
-# brief's recipe) and with three per core, and what the outline does while the
-# main thread is blocked for 50 ms mid-morph (redesign spec §19.12, "the island
-# lags while I work").
+# brief's recipe) and with three per core, and what a 50 ms block of the main
+# thread costs mid-morph (redesign spec §19.12, "the island lags while I work").
 #
 # Run by hand, never a gate: it needs a window-server session, so it must run
 # outside the shell sandbox, and `./scripts/check` runs the same test class
@@ -12,9 +11,9 @@
 # It never launches, quits, clicks or signals Isla. It builds the same view
 # stack in a throwaway panel at the notch (alpha 0.02, mouse events ignored),
 # drives the morphs from the view model under a real NSApplication.run(), and
-# reads the display link, the main thread's CPU time and the outline's
-# presented width. It starts the `yes` processes itself and ends them: when the
-# case finishes, and here again on any exit, by the pids it wrote down.
+# reads the display link and the main thread's CPU time. It starts the `yes`
+# processes itself and ends them: when the case finishes, and here again on any
+# exit, by the pids it wrote down.
 #
 # Built in release with testing enabled: SwiftUI and AppKit are the system's
 # either way, but the app's own view bodies are not, and a debug build of
@@ -37,11 +36,13 @@
 # the "idle" runs are not idle, and only runs at similar load compare.
 #
 # Columns: hitch/s is Apple's hitch time in ms per second of morph, from the
-# display link; missed is frames of ~60 the main thread did not deliver; cpu is
-# the main thread's CPU time over the 1 s window; still is the longest time the
-# outline's presented width stood still while it was moving; stall pt is how far
-# it travelled during a 50 ms block of the main thread; gap is the longest gap
-# between display-link callbacks.
+# display link; missed is frames of the display's rate (120 Hz where it is
+# ProMotion) the main thread did not deliver; cpu is the main thread's CPU
+# time over the 1 s window; gap is the longest gap between display-link
+# callbacks. The *-stall scenarios block the main thread for 50 ms, 120 ms in,
+# which costs the frames that wait on it wherever it falls. What the outline
+# itself does meanwhile cannot be read from this process (see the header of
+# OutlineHitchLab.swift); R8d-H1 in checklist.md is that check.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LABEL="${1:-}"
