@@ -82,6 +82,7 @@ final class PageDotsTests: XCTestCase {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
+        controller.pointer.buttonsHeld = { false }
         controller.attachForTesting(viewModel: vm, rootView: root)
         vm.isOpen = true
         for page in Surface.pages {

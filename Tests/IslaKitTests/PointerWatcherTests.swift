@@ -11,7 +11,7 @@ final class PointerWatcherTests: XCTestCase {
     /// rebuild. `start()` must sample the pointer synchronously so
     /// interactivity is correct from the first frame.
     func testStartReportsInteractivityImmediatelyWithoutWaitingForTheTimer() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var receivedValues: [Bool] = []
         // Large enough to contain the pointer wherever the test runner's
         // cursor actually sits, so the assertion does not depend on real
@@ -37,7 +37,7 @@ final class PointerWatcherTests: XCTestCase {
     /// roughly 50 ms after the click that closed it — a visible fold and
     /// unfold, and no way to close the island by clicking it.
     func testAPanelClosedByHandIsNotReopenedByThePointerThatClosedIt() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var changes: [Bool] = []
         watcher.openRect = Self.everywhere
         watcher.closeRect = Self.everywhere
@@ -78,7 +78,7 @@ final class PointerWatcherTests: XCTestCase {
     /// it. It was masked while every click pinned the panel — `holdsOpen` refused
     /// the close — and a click leaves the panel unpinned now.
     func testADragOutOfThePanelKeepsItOpenUntilTheDragEnds() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var changes: [Bool] = []
         // Open, with the pointer already off it: the card is on its way to the
         // Desktop.
@@ -109,7 +109,7 @@ final class PointerWatcherTests: XCTestCase {
     /// watcher only ever read where the pointer was, never whether a button
     /// was down, so a press that began in another app counted as a hover.
     func testAHeldButtonDoesNotCountAsArriving() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var changes: [Bool] = []
         watcher.openRect = Self.everywhere
         watcher.closeRect = Self.everywhere
@@ -147,7 +147,7 @@ final class PointerWatcherTests: XCTestCase {
         XCTAssertTrue(panel.isPressLatched)
         XCTAssertTrue(panel.pressIsHeld())
 
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var interactive: [Bool] = []
         var changes: [Bool] = []
         // Open, with the pointer dragged off it and nothing else holding it.
@@ -226,7 +226,70 @@ final class PointerWatcherTests: XCTestCase {
     /// `testStartReportsInteractivityImmediatelyWithoutWaitingForTheTimer`
     /// exists to hold. Two samples make a verdict: the first records that the
     /// pointer is somewhere new, the second finds the dwell elapsed.
+    /// A resting sampler ticks every 125 ms, and only a tick lets the panel
+    /// take the mouse, so a pointer flicked from rest onto the island and
+    /// clicked inside that window clicked the menu bar behind it (review
+    /// 2026-10-18). A move into the band is now a tick of its own — the
+    /// panel answers on the move, not on the next beat — and the monitor
+    /// that reports it stands only while the sampler idles.
+    func testAMoveTowardTheNotchIsAnsweredAtOnce() {
+        let watcher = PointerWatcher.withNoButtonHeld()
+        var installs = 0, removals = 0
+        var moved: (@Sendable () -> Void)?
+        watcher.watchMovement = { handler in
+            installs += 1
+            moved = handler
+            return NSObject()
+        }
+        watcher.stopWatchingMovement = { _ in removals += 1 }
+        watcher.warmZone = CGRect(x: 0, y: 700, width: 1_000, height: 200)
+        watcher.coolZone = CGRect(x: 0, y: 650, width: 1_000, height: 250)
+        watcher.interactiveRect = CGRect(x: 400, y: 850, width: 200, height: 50)
+        var interactive: [Bool] = []
+        watcher.onInteractiveChange = { interactive.append($0) }
+        var point = CGPoint(x: 500, y: 100)
+        watcher.location = { point }
+
+        watcher.start()
+        defer { watcher.stop() }
+        XCTAssertEqual(installs, 1, "idle, so the monitor stands")
+        XCTAssertEqual(interactive, [false])
+
+        // Elsewhere on the screen: no tick, however much the pointer moves.
+        point = CGPoint(x: 900, y: 300)
+        moved?()
+        XCTAssertEqual(interactive, [false])
+        XCTAssertEqual(removals, 0)
+
+        // Onto the island: interactive on the move itself, and the sampler is
+        // warm, so the monitor has nothing left to do.
+        point = CGPoint(x: 500, y: 880)
+        moved?()
+        XCTAssertEqual(interactive, [false, true], "no wait for the timer")
+        XCTAssertEqual(removals, 1, "warm, so the monitor goes")
+
+        watcher.stop()
+        XCTAssertEqual(removals, 1, "nothing left to remove")
+        watcher.start()
+        XCTAssertEqual(installs, 2, "idle again after a restart")
+        watcher.stop()
+        XCTAssertEqual(removals, 2, "and gone with the sampler")
+    }
+
     private func sample(_ watcher: PointerWatcher, times: Int) {
         for _ in 0..<times { watcher.start() }
+    }
+}
+
+extension PointerWatcher {
+    /// A watcher that reads no real mouse button. The default asks
+    /// `NSEvent.pressedMouseButtons`, and a button held anywhere on the Mac
+    /// running the suite turns every arrival a test makes into a drag passing
+    /// through: nineteen arrival tests failed together on 2026-10-18 while the
+    /// owner was clicking, and passed on the rerun.
+    static func withNoButtonHeld() -> PointerWatcher {
+        let watcher = PointerWatcher()
+        watcher.buttonsHeld = { false }
+        return watcher
     }
 }

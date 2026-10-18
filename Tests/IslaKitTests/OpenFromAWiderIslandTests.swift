@@ -23,7 +23,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
     /// The click route: the controller tells the watcher the pointer is inside
     /// before the panel opens, with the collapsed island still cut.
     func testAClickOnTheIslandsFarEndHoldsThePanelUntilThePointerReachesTheBody() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         defer { watcher.stop() }
         var changes: [Bool] = []
         var open = false
@@ -57,7 +57,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
     /// The hover route, Open on Hover on: the arrival on the peek opens the
     /// player, and the narrower player must not fold it again.
     func testAHoverArrivalOnTheIslandsFarEndIsNotUndoneByTheNarrowerBody() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         defer { watcher.stop() }
         var changes: [Bool] = []
         var open = false
@@ -84,7 +84,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
     /// A forced state that is not an arrival from the island — a close, or an
     /// open made while the panel was already open — carries no island with it.
     func testOnlyAnOpenFromTheClosedIslandCarriesTheIsland() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         defer { watcher.stop() }
         var changes: [Bool] = []
         watcher.openDelay = 0
@@ -123,6 +123,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
+        controller.pointer.buttonsHeld = { false }
         controller.attachForTesting(viewModel: vm, rootView: root)
         vm.open(.player)
         vm.isOpen = false
@@ -157,7 +158,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
     /// pointer rests on bare menu bar: the inside flag refuses the next peek
     /// and the charger's moment, and keeps one already showing up (R-1).
     func testOnAClosedPanelTheIslandHoldsNothing() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         defer { watcher.stop() }
         var changes: [Bool] = []
         watcher.openDelay = 0
@@ -178,7 +179,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
     /// must keep the island it just counted as "on the panel", or the next
     /// sample folds what the check had decided to keep (R-4).
     func testAResyncOnTheOpenPanelKeepsTheIsland() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         defer { watcher.stop() }
         var changes: [Bool] = []
         var open = false
@@ -206,6 +207,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
+        controller.pointer.buttonsHeld = { false }
         controller.attachForTesting(viewModel: vm, rootView: root)
         vm.open(.settings)
         vm.isOpen = false

@@ -218,6 +218,7 @@ final class IslandBubbleTests: XCTestCase {
         let vm = NotchViewModel(geometry: try geometry(), stores: isolated.stores)
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
+        controller.pointer.buttonsHeld = { false }
         controller.attachForTesting(viewModel: vm, rootView: root)
 
         keep(2, on: isolated)

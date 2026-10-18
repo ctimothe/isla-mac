@@ -1637,6 +1637,16 @@ final class NotchController {
             }
         }
         pointer.stopWatchingPresses = { NSEvent.removeMonitor($0) }
+        // Only while the sampler idles (`PointerWatcher.updateMovementWatch`):
+        // a move toward the notch ticks at once instead of on the next 125 ms
+        // beat, so a quick flick and click is never a click on the menu bar.
+        // Drags count as moves — a button held does not make the pointer slower.
+        pointer.watchMovement = { handler in
+            NSEvent.addGlobalMonitorForEvents(
+                matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+            ) { _ in handler() }
+        }
+        pointer.stopWatchingMovement = { NSEvent.removeMonitor($0) }
         pointer.onChange = { [weak self] inside in
             guard let self, let vm = self.viewModel else { return }
             // The edge is drawn from the shape's own `.onHover`, not from

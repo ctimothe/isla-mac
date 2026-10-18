@@ -262,7 +262,7 @@ final class ShelfDeleteKeyTests: XCTestCase {
     // MARK: - The pointer, as the sampler reports it
 
     func testThePointerWatcherReportsEnteringAndLeavingTheShelf() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var reports: [Bool] = []
         watcher.onShelfChange = { reports.append($0) }
         // Far from any real pointer: assigning the rect samples where the mouse
@@ -284,7 +284,7 @@ final class ShelfDeleteKeyTests: XCTestCase {
     /// Cutting the rect empty — the tab changed, the panel closed — is "off the
     /// Shelf" at once, not at the next tick.
     func testAnEmptyRectEndsTheClaimAtOnce() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var reports: [Bool] = []
         watcher.onShelfChange = { reports.append($0) }
         watcher.shelfRect = CGRect(x: 1_000_000, y: 1_000_000, width: 400, height: 150)
@@ -296,7 +296,7 @@ final class ShelfDeleteKeyTests: XCTestCase {
 
     /// The sampler stopping — a lock, a sleep, a rebuild — gives Delete back.
     func testStoppingTheSamplerLeavesTheShelf() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var reports: [Bool] = []
         watcher.onShelfChange = { reports.append($0) }
         watcher.shelfRect = CGRect(x: 1_000_000, y: 1_000_000, width: 400, height: 150)

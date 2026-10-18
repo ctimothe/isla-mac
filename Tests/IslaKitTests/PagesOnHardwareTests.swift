@@ -27,7 +27,7 @@ final class PagesOnHardwareTests: XCTestCase {
     /// left holds the panel while the pointer stays in it; once the pointer
     /// reaches the new body, the old one holds nothing.
     func testABodyThatShrinksUnderTheRestingPointerKeepsThePanel() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         defer { watcher.stop() }
         var changes: [Bool] = []
         var point = CGPoint(x: 0, y: -300)
@@ -57,7 +57,7 @@ final class PagesOnHardwareTests: XCTestCase {
 
     /// Leaving the body it shrank from is leaving.
     func testLeavingTheBodyItShrankFromCloses() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         defer { watcher.stop() }
         var changes: [Bool] = []
         var point = CGPoint(x: 0, y: -300)
@@ -80,7 +80,7 @@ final class PagesOnHardwareTests: XCTestCase {
     /// A pointer that was not on the old body is not held by it: a shrink is
     /// not a way of reaching the panel.
     func testAShrinkHoldsOnlyAPointerThatWasOnTheBody() {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         defer { watcher.stop() }
         var changes: [Bool] = []
         let point = CGPoint(x: 0, y: -1_000)
@@ -103,6 +103,7 @@ final class PagesOnHardwareTests: XCTestCase {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
+        controller.pointer.buttonsHeld = { false }
         controller.attachForTesting(viewModel: vm, rootView: root)
         vm.isOpen = true
         vm.turnPage(to: .clipboard)
@@ -140,7 +141,7 @@ final class PagesOnHardwareTests: XCTestCase {
     private func heldWatcher(
         at start: CGPoint, changes: @escaping (Bool) -> Void
     ) -> (PointerWatcher, (CGPoint) -> Void) {
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         var point = start
         watcher.location = { point }
         watcher.openDelay = 0
@@ -242,7 +243,7 @@ final class PagesOnHardwareTests: XCTestCase {
         var installs = 0
         var removals = 0
         var pressed: (@Sendable () -> Void)?
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         watcher.watchPressesElsewhere = { handler in
             installs += 1
             pressed = handler
@@ -286,7 +287,7 @@ final class PagesOnHardwareTests: XCTestCase {
     /// Reaching the new body, or the watcher stopping, takes the monitor away.
     func testTheMonitorStandsOnlyWhileTheHoldDoes() {
         var removals = 0
-        let watcher = PointerWatcher()
+        let watcher = PointerWatcher.withNoButtonHeld()
         watcher.watchPressesElsewhere = { _ in NSObject() }
         watcher.stopWatchingPresses = { _ in removals += 1 }
         var point = CGPoint(x: 800, y: 650)
@@ -326,6 +327,7 @@ final class PagesOnHardwareTests: XCTestCase {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
+        controller.pointer.buttonsHeld = { false }
         controller.attachForTesting(viewModel: vm, rootView: root)
         vm.isOpen = true
         vm.turnPage(to: .clipboard)
@@ -359,6 +361,7 @@ final class PagesOnHardwareTests: XCTestCase {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
+        controller.pointer.buttonsHeld = { false }
         controller.attachForTesting(viewModel: vm, rootView: root)
         vm.isOpen = true
         vm.turnPage(to: .clipboard)

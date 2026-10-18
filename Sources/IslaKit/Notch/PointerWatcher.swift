@@ -75,6 +75,13 @@ final class PointerWatcher {
     var stopWatchingPresses: (Any) -> Void = { _ in }
     private var pressWatch: Any?
 
+    /// Starts watching the pointer move over other apps, returning a token
+    /// for `stopWatchingMovement`. Inert here, like `watchPressesElsewhere`:
+    /// only the controller's `build` gives it a real global monitor.
+    var watchMovement: (@escaping @Sendable () -> Void) -> Any? = { _ in nil }
+    var stopWatchingMovement: (Any) -> Void = { _ in }
+    private var movementWatch: Any?
+
     /// The monitor stands exactly while a hold does. The sampler alone saw a
     /// press only if a tick caught the button down: resting, it ticks every
     /// 125 ms, and a tap to click is over sooner, so a person clicking in the
@@ -280,6 +287,7 @@ final class PointerWatcher {
     func stop() {
         timer?.invalidate()
         timer = nil
+        updateMovementWatch()
         awaitingSince = nil
         graceUntil = nil
         // The last sent interactivity dies with the panel it was sent to. The
@@ -317,6 +325,46 @@ final class PointerWatcher {
         timer.tolerance = warm ? interval / 4 : interval / 2
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        updateMovementWatch()
+    }
+
+    /// The movement monitor stands exactly while the sampler idles.
+    ///
+    /// Resting, the sampler ticks every 125 ms and may drift half that again,
+    /// and only a tick lets the panel take the mouse (`onInteractiveChange`).
+    /// A pointer flicked from rest to the island and clicked inside that
+    /// window clicked the menu bar behind it, and the hover lit up to 190 ms
+    /// after the pointer arrived — the island read as slow to answer under
+    /// exactly the load where the main thread is busiest (review 2026-10-18).
+    /// A move into the band now ticks at once, which also warms the sampler;
+    /// warm, the 60 Hz timer is quicker than anything a monitor adds, so the
+    /// monitor goes and costs nothing while the pointer is near.
+    private func updateMovementWatch() {
+        if timer == nil || isWarm {
+            guard let movementWatch else { return }
+            stopWatchingMovement(movementWatch)
+            self.movementWatch = nil
+        } else if movementWatch == nil {
+            movementWatch = watchMovement { [weak self] in
+                // Main thread in practice, as with the press monitor; the hop
+                // is for the day it is not.
+                let moved: @Sendable () -> Void = {
+                    MainActor.assumeIsolated { self?.pointerMoved() }
+                }
+                if Thread.isMainThread { moved() } else { DispatchQueue.main.async(execute: moved) }
+            }
+        }
+    }
+
+    /// One move reported by the monitor while the sampler idles. Only a move
+    /// into the band, or one made with the pointer counted inside, is worth a
+    /// tick now: anywhere else the idle beat is as good as it ever was, and
+    /// the rest of the screen's movement costs one rect test each. Internal
+    /// so a test can deliver a move without a mouse.
+    func pointerMoved() {
+        guard timer != nil, !isWarm else { return }
+        guard isInside || warmZone.contains(location()) else { return }
+        tick()
     }
 
     /// Full rate only for a pointer that is actually going somewhere near the
@@ -328,9 +376,9 @@ final class PointerWatcher {
     /// its way anywhere, however close to the notch it is parked. The menu
     /// bar, where cursors spend half their lives, lies entirely inside the
     /// band — place alone used to mean full rate for as long as one rested
-    /// there. Movement is noticed on the next idle tick, 125 ms at worst,
-    /// which is less than the dwell a hover has to survive anyway — so
-    /// warming up is never the thing anybody is waiting on.
+    /// there. A move into the band is reported at once by the movement
+    /// monitor (`updateMovementWatch`); the next idle tick, 125 ms at worst,
+    /// is only the fallback for a build without one.
     private func updateRate(for point: CGPoint) {
         if point != lastPoint {
             lastPoint = point
