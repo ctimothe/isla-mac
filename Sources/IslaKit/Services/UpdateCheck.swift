@@ -131,8 +131,18 @@ final class UpdateCheck: ObservableObject {
 
     // MARK: - Checking
 
+    /// A folder changed while a check of it was running: it is read once more
+    /// when that check is done. Only for a folder — the local feed's watcher
+    /// can land a publish mid-check, and dropping it would leave the island
+    /// silent about the build just made; a second press of Check for Updates
+    /// on GitHub is the same question, and asks nothing more of it.
+    private(set) var checksAgainWhenDone = false
+
     func check() {
-        guard state != .checking else { return }
+        guard state != .checking else {
+            if rehearsal != nil { checksAgainWhenDone = true }
+            return
+        }
         state = .checking
         let local = currentVersion()
         var request = URLRequest(url: Self.latestReleaseURL, timeoutInterval: 15)
@@ -175,6 +185,10 @@ final class UpdateCheck: ObservableObject {
         case .idle, .checking, .failed: break
         }
         state = outcome
+        if checksAgainWhenDone {
+            checksAgainWhenDone = false
+            check()
+        }
     }
 
     /// What a non-200 answer means. GitHub answers an exhausted unauthenticated

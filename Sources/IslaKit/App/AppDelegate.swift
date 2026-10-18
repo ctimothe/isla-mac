@@ -6,6 +6,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Readable so `IslaIntents` can reach the live panel the way `SettingsPane`
     /// already reaches this delegate. Still only ever set here.
     private(set) var controller: NotchController?
+    /// The local feed's folder, watched for the next build, while this Mac
+    /// follows one (`UpdateSource.localFeed`); nil on GitHub.
+    private var feedWatcher: UpdateFeedWatcher?
+    /// The first read of the local feed after launch: past the launch's own
+    /// busy second, soon enough that a build published while Isla was
+    /// restarting is offered at once.
+    static let feedLaunchCheckDelay: TimeInterval = 3
 
     /// The browser returns from Spotify's consent page through the app's URL
     /// scheme; the account object finishes the token exchange.
@@ -90,10 +97,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.servicesProvider = self
         // Nothing, unless the user turned the daily check on in Settings.
         UpdateCheck.shared.startAutomaticIfEnabled()
-        if let folder = DebugTrail.updateRehearsal {
+        switch UpdateSource.current {
+        case .rehearsal(let folder):
             // Loud on purpose: in this mode Update Now takes its release from a
             // folder, not from GitHub, and nobody should forget it is on.
             Log.updates.notice("UPDATE REHEARSAL MODE IS ON: releases come from \(folder.path, privacy: .public), not from GitHub")
+        case .localFeed(let folder):
+            // The owner's Mac, following every change as it is published
+            // (plan 2026-10-19): the folder is watched, and read once soon
+            // after launch, so a build published while Isla was restarting is
+            // offered too. Nothing here reaches the network.
+            Log.updates.notice("updates come from the local feed at \(folder.path, privacy: .public)")
+            let watcher = UpdateFeedWatcher(folder: folder) { UpdateCheck.shared.check() }
+            watcher.start()
+            feedWatcher = watcher
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.feedLaunchCheckDelay) {
+                UpdateCheck.shared.check()
+            }
+        case .github:
+            break
         }
         // A failed or refused install belongs to the release it tried: a check
         // that finds Isla current, or a different release, ends it.
