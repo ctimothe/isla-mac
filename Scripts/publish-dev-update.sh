@@ -37,11 +37,19 @@
 # then bundle.sh and install.sh, since a dev build's build number may be above
 # the next public release's, which Update Now would refuse.
 #
-# Versions: VERSION from Scripts/version with a fourth part, one past the
-# fourth part of whichever is later of the installed app and the feed's last
-# release on the same base, so every dev build is newer than the last and older
-# than the next real release (0.3.0.7 < 0.3.1). The build is one past the
-# greater of the installed and last-published builds.
+# Versions: VERSION from Scripts/version (three numbers) with a fourth part
+# added. The fourth part is one past the greater of the installed app's and the
+# feed's last release's fourth parts, each counted as 0 unless its first three
+# numbers are VERSION's, so every dev build is newer than the last and older
+# than the next real release (0.3.0.7 < 0.3.1). An installed app already past
+# VERSION (0.3.1 against 0.3.0) is refused rather than offered an older build.
+# The build is one past the greater of the installed and last-published builds.
+#
+# The feed folder is the script's own: made with a .isla-dev-feed marker, and
+# a folder that already holds other files and no marker is refused, so
+# ISLA_DEV_FEED naming ~/Downloads by mistake neither changes its permissions
+# nor prunes an Isla image that happens to be there. Only four-part dev images
+# are ever pruned.
 #
 # It never launches, quits or installs anything. Whatever happens, it removes
 # the build from build/ and unregisters it, as rehearse-update.sh does: one Isla
@@ -187,10 +195,17 @@ if [ "$DRY_RUN" = 1 ]; then
     exit 0
 fi
 
-# 6. The folder: the user's own, writable by nobody else, or Isla ignores it.
+# 6. The folder: the script's own (the marker), the user's own, writable by
+# nobody else, or Isla ignores it.
+MARKER_NAME=".isla-dev-feed"
 mkdir -p "$FEED"
 FEED="$(cd "$FEED" && pwd -P)"
 [ "$(stat -f %u "$FEED")" = "$(id -u)" ] || fail "$FEED is not owned by $(id -un), so Isla would ignore it"
+if [ ! -e "$FEED/$MARKER_NAME" ]; then
+    [ -z "$(ls -A "$FEED")" ] \
+        || fail "$FEED already holds files and was not made by this script (no $MARKER_NAME); name a new or empty folder in ISLA_DEV_FEED"
+    : > "$FEED/$MARKER_NAME"
+fi
 chmod 700 "$FEED"
 
 [ ! -e "$ROOT/build/Isla-$NEW_VERSION.dmg" ] \
@@ -228,8 +243,11 @@ mv "$STAGE/$IMAGE.sig" "$FEED/$IMAGE.sig"
 mv -f "$STAGE/release.json" "$FEED/release.json"
 
 # 10. Only the newest images stay: the one just published and the one before,
-# which an install already under way may still be reading.
-ls -t "$FEED"/Isla-*.dmg 2>/dev/null | tail -n +$((KEEP_IMAGES + 1)) | while read -r old; do
+# which an install already under way may still be reading. Only dev images
+# (four-part versions) are candidates.
+ls -t "$FEED"/Isla-*.dmg 2>/dev/null \
+    | grep -E '/Isla-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.dmg$' \
+    | tail -n +$((KEEP_IMAGES + 1)) | while read -r old; do
     rm -f "$old" "$old.sig"
 done
 
