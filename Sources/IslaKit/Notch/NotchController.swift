@@ -521,6 +521,10 @@ final class NotchController {
             // rest of the session.
             stores.resumeFromIdleScreen()
         }
+        // An update offer the lock took down, or found while it stood, is
+        // owed now. On the next pass, once the unlock's own cuts have landed;
+        // with the display still dark it waits on for the wake.
+        DispatchQueue.main.async { [weak self] in self?.considerUpdateOffer() }
     }
 
     private func screenParametersChanged() {
@@ -2868,6 +2872,9 @@ final class NotchController {
     /// Whether this is a quiet moment, for a test: the live answer reads the
     /// displays and the battery, which a test must not.
     var updateMomentsQuiet: (() -> Bool)?
+    /// Whether the Mac is locked, for a test: the live answer is the lock
+    /// presence's, which follows the real session.
+    var updateScreenLocked: (() -> Bool)?
     /// How long an unanswered offer stands (§19.1: at most 20 s). A test
     /// shortens it.
     var updateOfferHold: TimeInterval = NotchController.updateOfferHoldDefault
@@ -2884,6 +2891,8 @@ final class NotchController {
         /// The displays are dark: the wake handler asks, and no timer runs
         /// all night for a screen nobody can see.
         case atWake
+        /// The Mac is locked: the unlock asks.
+        case atUnlock
     }
 
     /// Not under a pointer standing where the alert would grow — it would
@@ -2892,8 +2901,17 @@ final class NotchController {
     /// theirs, a refusal here is only a delay: the offer is owed until it is
     /// answered. The pointer moves on in a moment; a film or a talk runs for
     /// an hour, and once a minute is often enough to look.
-    nonisolated static func updateOfferTiming(pointerUnderAlert: Bool, screensAsleep: Bool, quiet: Bool) -> UpdateOfferTiming {
+    ///
+    /// Nor on a locked Mac. With the lock card on, the island is marked locked
+    /// and the queue already holds the offer; with the card off nothing is
+    /// marked, the panel sinks under the shield, and an offer shown there
+    /// folded unseen after its 20 s and was remembered as answered (review,
+    /// 2026-10-19).
+    nonisolated static func updateOfferTiming(
+        pointerUnderAlert: Bool, screensAsleep: Bool, locked: Bool, quiet: Bool
+    ) -> UpdateOfferTiming {
         if screensAsleep { return .atWake }
+        if locked { return .atUnlock }
         if quiet { return .retry(60) }
         if pointerUnderAlert { return .retry(2) }
         return .now
@@ -2946,6 +2964,7 @@ final class NotchController {
                 pointerUnderAlert: pointer.isInside
                     || vm.geometry.grownAlertRect(for: .update(offer), body: grown).contains(pointerLocation()),
                 screensAsleep: screensAreAsleep,
+                locked: updateScreenLocked?() ?? lockPresence.isLocked,
                 quiet: updateMomentsQuiet?() ?? momentsAreQuiet()
             )
             switch timing {
@@ -2953,7 +2972,7 @@ final class NotchController {
             case .retry(let delay):
                 scheduleUpdateRetry(after: delay)
                 return
-            case .atWake:
+            case .atWake, .atUnlock:
                 return
             }
         }

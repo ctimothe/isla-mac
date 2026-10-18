@@ -251,13 +251,16 @@ final class UpdateOfferTests: XCTestCase {
     }
 
     func testWhenAnOwedOfferMayShow() {
-        XCTAssertEqual(NotchController.updateOfferTiming(pointerUnderAlert: false, screensAsleep: false, quiet: false), .now)
-        XCTAssertEqual(NotchController.updateOfferTiming(pointerUnderAlert: true, screensAsleep: false, quiet: false), .retry(2),
-                       "not grown under a still pointer; it moves on in a moment")
-        XCTAssertEqual(NotchController.updateOfferTiming(pointerUnderAlert: false, screensAsleep: false, quiet: true), .retry(60),
-                       "not over a film or a talk")
-        XCTAssertEqual(NotchController.updateOfferTiming(pointerUnderAlert: true, screensAsleep: true, quiet: true), .atWake,
-                       "no timer for a dark display")
+        func timing(pointer: Bool = false, asleep: Bool = false, locked: Bool = false, quiet: Bool = false)
+            -> NotchController.UpdateOfferTiming {
+            NotchController.updateOfferTiming(pointerUnderAlert: pointer, screensAsleep: asleep, locked: locked, quiet: quiet)
+        }
+        XCTAssertEqual(timing(), .now)
+        XCTAssertEqual(timing(pointer: true), .retry(2), "not grown under a still pointer; it moves on in a moment")
+        XCTAssertEqual(timing(quiet: true), .retry(60), "not over a film or a talk")
+        XCTAssertEqual(timing(pointer: true, locked: true, quiet: true), .atUnlock,
+                       "not under the shield, where nobody sees it fold and it would count as answered")
+        XCTAssertEqual(timing(pointer: true, asleep: true, locked: true, quiet: true), .atWake, "no timer for a dark display")
         XCTAssertEqual(NotchController.updateOfferHoldDefault, 20, "at most 20 s unanswered")
     }
 
@@ -279,6 +282,7 @@ final class UpdateOfferTests: XCTestCase {
         // Far from the notch, wherever the real pointer is.
         controller.pointerLocation = { CGPoint(x: -10_000, y: -10_000) }
         controller.updateMomentsQuiet = { false }
+        controller.updateScreenLocked = { false }
         let memory = UpdateOfferMemory(defaults: defaults())
         controller.updateOfferMemory = memory
         controller.availableUpdate = { available }
@@ -374,6 +378,31 @@ final class UpdateOfferTests: XCTestCase {
         h.controller.considerUpdateOffer()
         XCTAssertNil(h.vm.updateOffer)
         XCTAssertNil(h.memory.answered, "taken back, not answered")
+    }
+
+    /// With the lock card off nothing marks the island locked
+    /// (`isLockedPresentation` stays false), so the lock itself is asked: an
+    /// offer shown under the shield folded unseen after 20 s and was
+    /// remembered as answered. It waits for the unlock instead, with no timer
+    /// running through the lock, and the unlock asks for it.
+    func testLockedWithTheCardOffItWaitsForTheUnlock() throws {
+        let h = try harness(available: release())
+        h.controller.updateScreenLocked = { true }
+        h.controller.considerUpdateOffer()
+        XCTAssertNil(h.vm.updateOffer, "not under the shield")
+        XCTAssertTrue(h.memory.isUnanswered("0.3.0.1"), "still owed")
+        h.controller.updateScreenLocked = { false }
+        h.controller.considerUpdateOffer()
+        XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.1", "offered once the Mac is unlocked")
+
+        let source = try String(
+            contentsOf: VisualLab.repositoryRoot.appendingPathComponent("Sources/IslaKit/Notch/NotchController.swift"),
+            encoding: .utf8
+        )
+        let unlock = try XCTUnwrap(source.range(of: "private func screenUnlocked() {"))
+        let body = source[unlock.upperBound...].prefix(4000)
+        let end = body.range(of: "\n    }\n")?.lowerBound ?? body.endIndex
+        XCTAssertTrue(body[..<end].contains("considerUpdateOffer()"), "the unlock asks for what it held back")
     }
 
     func testNothingIsOfferedWithoutAnUpdate() throws {
