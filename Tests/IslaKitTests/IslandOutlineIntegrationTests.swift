@@ -7,6 +7,16 @@ import XCTest
 /// the host for, and on which curve, for the changes the controller makes.
 @MainActor
 final class IslandOutlineIntegrationTests: XCTestCase {
+    /// The Mac's own Reduce Motion must not decide which curve the shell asks
+    /// for. CI's macOS 26 runner reports it on, and there every spring test in
+    /// this file saw the 0.24 ease-in-out instead of the island's spring, while
+    /// they passed on a Mac with it off. Each test starts from full motion; the
+    /// Reduce Motion test turns it on for itself before it builds the shell.
+    override func setUp() {
+        super.setUp()
+        SystemAppearance.shared.overrideForTests(reduceTransparency: false, increaseContrast: false, reduceMotion: false)
+    }
+
     override func tearDown() {
         SystemAppearance.shared.resetForTests()
         super.tearDown()
