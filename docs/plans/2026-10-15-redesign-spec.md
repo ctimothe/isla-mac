@@ -2271,6 +2271,31 @@ A tinted glyph or level is drawn as SwiftUI's `Color.gradient` of its tint
   and headphones, Volume pop-up) now move it on `islandSpring`; their content
   curves stand.
 
+*Amended 2026-10-18 (owner, second hardware review).* Three rules, from the
+owner's recordings:
+
+- **Nothing draws past the outline.** Every surface's content is masked by the
+  outline itself — its top shoulders and its bottom corners — at rest and on
+  every frame of every spring, not only while pages travel; the stroke is
+  drawn after the content, so a pane's edge can never lie over the border. On
+  hardware the Translate card ran over the outline's left edge during a swipe
+  and gained a dark band at its foot when held past the last page. Platform
+  views (the text editor, scroll views, pop-ups) honour the mask, and while
+  pages travel the Translate editor stands down behind a drawn copy of its
+  text, so an AppKit view's own layer never shows through mid-swipe.
+- **A surface change shows one pane at a time.** The old pane leaves in 0.08 s
+  ease-out (`Theme.swapOut`), shrinking to 0.98 about its top edge; the new
+  one arrives after it in 0.20 s ease-out (`Theme.swapIn`), growing from 0.97
+  about its top edge, while the outline springs to the new size underneath on
+  `islandSpring` — the gear's small-to-big change included. Before, the old
+  and the new pane crossfaded together and overlapped on screen.
+  Reduce Motion keeps the plain fade, in the same order.
+- **The pop-up has its own spring** (19.5d): response 0.3, damping 1.0
+  (`Theme.hudSpring`), for its arrival, its fold and the island's size
+  change, in the controller and the shell alike; its content arrives at
+  opacity 0 and scale 0.94 about its top edge, with no blur. The island's
+  0.5 / 0.75 spring stays for everything else this section lists.
+
 ### 19.4 Compact activities
 
 `H` tall. Shoulders 8.67, bottom corners 12.67. Board `R2-Alerts` (top row)
@@ -2367,6 +2392,21 @@ open); only its look is replaced.
   moves on `hudLevel` per press.
 - The level as a number, 0–100, SF Pro Rounded 14, tabular, white 0.80,
   ending right 34.5, centred on the bar.
+
+*Amended 2026-10-18 (owner, second hardware review).* **The pop-up is plain
+white and quick.** The owner found the amber fill and its glow "fake and
+exaggerated" beside the system's own, and the pop-up heavy to arrive. The
+level is filled in white 0.92, flat, with no gradient and no glow; muted, white
+0.32 as before; the track stays white 0.18. The bar follows a press on a
+critically damped spring of response 0.2 (`Theme.hudLevel`), which a held key
+retargets without a seam; Reduce Motion steps it. The arrival and fold are
+§19.3's pop-up spring. **And the key path leaves the main thread:** a press
+is decided on the tap's own thread from a mirror of the setting, the lock and
+the hold table, the level is written on a serial queue from levels kept
+current by CoreAudio and display listeners, and the reading reaches the
+island in one hop. A key Isla takes is therefore decided before the write;
+one whose write the device then refuses shows nothing, where it used to fall
+through to the system.
 
 **e. Translated** — 355.3 × 103, radii 24 / 34, stroke white 0.14.
 
@@ -2513,6 +2553,15 @@ When the voice arrives, the sweep starts on the line already there, so a pause
 turns nothing; only a change of line turns. Replaces "Between lines and before
 the first, the subtitle is the artist."
 
+*Amended 2026-10-18 (owner, second hardware review).* **The header names the
+playing app.** The Music page's leading slot, empty until now, holds the
+source of what is playing — its app icon at 16 pt and its name, 13 semibold
+white, from x 20 — for whichever app the system reports (Spotify, Apple
+Music, Yandex Music, Deezer, Telegram, a browser); with no source known it
+reads "Music" beside `music.note`. The name is left out, and kept as the
+icon's help and accessibility label, when it would not fit whole left of the
+notch; it never truncates.
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the
@@ -2605,6 +2654,20 @@ at x 20, as every summoned surface's title does, and the count keeps the
 board's 29.4 after it. The empty line, Remove All's question and notices are
 centred in the new body; a notice sits under the grid's last visible row.
 
+*Amended 2026-10-18 (owner, second hardware review).* **One header, one
+well.** The tray's header is the same title slot as every page's: the
+`tray.full.fill` glyph at 14 pt in an 18 × 16 box from x 20, and the count in
+13 semibold tabular figures 6 after it (x 44), replacing the board's 29.4.
+Remove All sits in the gear's well — 26 tall, radius 8, white 0.08 (0.14 when
+hovered), padding 9 — with `trash` at 14 medium in a 16 pt column,
+4, then "All" in 13 medium, secondary (white when hovered), so its glyph is
+no bigger than the gear's. **A
+tile says when it was added**, not its file name: the day — "Today",
+"Yesterday", or the date (day and month, the year only when it is not this
+year) — over the time in the system's short style, both secondary and in
+tabular figures; the name stays as the tile's help and accessibility label.
+An item with no date keeps its name.
+
 ### 19.8 Tools and the summoned surfaces
 
 **Tools** — 480 × 204, radii 34 / 44, stroke white 0.14, shadow. `R2-Tools`.
@@ -2690,6 +2753,16 @@ the gear on every page and the stage; on Settings it stands lit and goes
 back. Clipboard and Translate are pages and grow 16 for the dots; reached by a
 swipe or a dot they do not take the keyboard. The welcome's second line
 becomes "Swipe sideways for the Shelf, Clipboard and Translate."
+
+*Amended 2026-10-18 (owner, second hardware review).* **The pages' glyphs are
+Apple's filled set.** Clipboard is `list.clipboard.fill`, Translate
+`character.bubble.fill` and Settings `gearshape.fill`, beside the Shelf's
+`tray.full.fill`, all at 14 pt in the same 18 × 16 box; a title that would not
+fit whole beside the notch is left out and kept as the glyph's help. On
+Clipboard the search field and the filter control are one height, 28, on one
+line at y 46 (`ClipboardHeader.controlHeight`); the field was two points
+shorter. On Translate, Paste takes the counter row's full width and sizes to
+its label, so "Paste" is never cut in either language.
 
 ### 19.9 The right-click menu
 
@@ -2797,6 +2870,27 @@ previews, the Tools button — is withdrawn too (§19.16).
 - Each activity is one accessibility element with the label given; an alert
   posts its label as an announcement (volume at most every 0.25 s, R5). The
   island reads first, then the bubble, then the open surface.
+
+*Amended 2026-10-18 (owner, second hardware review: "the island lags while I
+work").* Measured and cut, each held by a test:
+
+- **A swipe moves the pages, it does not redraw them.** The two pages on screen
+  re-ran on every frame of a swipe (61 pane bodies over a 30-frame swipe,
+  measured with a body counter); they now skip any pass that changes nothing
+  they draw (2 bodies over the same swipe). `PaneEqualityTests`.
+- **The pointer is answered on the move.** A resting sampler ticks at 8 Hz, and
+  a quick flick to the island and click could reach the menu bar behind
+  before a tick made the panel take the mouse. While the sampler idles, a
+  move into the top band now ticks at once. `PointerWatcherTests`.
+- **The volume and brightness keys** no longer wait on the main thread
+  (19.5d). `MediaKeyHUDTests`, `SystemLevelsTests`.
+- **Copied pictures** no longer stay in memory: their bytes live in a
+  per-launch file, mapped when pasted back, with a 32 MB resident budget
+  across the history. `ClipboardImageMemoryTests`.
+
+Measured and left alone: the app-icon lookups an opening repeats cost 1.5–2.7
+ms warm, and only where icons are drawn; the clipboard's dust clock re-runs no
+row. Opening still commits on release, the order a tap has on the platform.
 
 ### 19.13 Settings keys
 

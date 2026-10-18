@@ -397,6 +397,13 @@ with the tested Mac model and macOS version recorded after each run.
 | R8b-H8 | every page in Russian at 480 and 620 |
 | R8b-H9 | Music's dot from Clipboard, pointer left still: the panel stays; Settings' X goes back |
 | R8b-H10 | a song with timed pauses: the coming line holds under the title, never the artist |
+| R8c-H1 | Translate held past the last page and swiped back: no dark band, nothing over the edge |
+| R8c-H2 | the gear, the X and a summoned page: one pane at a time, nothing outside the outline |
+| R8c-H3 | volume and brightness tapped and held on a busy Mac: no lag, no overshoot, system white |
+| R8c-H4 | a flick to the island and an instant click, twenty times: it opens every time |
+| R8c-H5 | Music's header names Spotify, Apple Music, Yandex Music and a browser |
+| R8c-H6 | tile dates, Remove All beside the gear, one Clipboard control height, Paste in full |
+| R8c-H7 | ten 20 MB screenshots copied: memory comes back, the oldest pastes whole |
 | R9-H1 | Battery Low at 20 % |
 | R9-H2 | Full Battery on MagSafe and on USB-C |
 | R9-H3 | the MagSafe light turning green |

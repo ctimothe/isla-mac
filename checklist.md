@@ -2168,3 +2168,60 @@ scrolls so no tile moves as a notice comes and goes, and a `.zero` close rect
 can no longer start a union. Accepted: the notice's text still takes clicks
 over its own glyphs (its `.help` needs hover), and the controller's check can
 be a tick more lenient than the sampler, never stricter (F5).
+
+## R8c — the owner's second review on hardware (2026-10-18)
+
+Built on `feat/redesign-r8c-polish` from `c73b27f`, with
+`feat/r8c-hud-keypath` and `feat/r8c-clipboard-memory` merged in. Each change
+is a dated amendment in spec §19.3, §19.5d, §19.6, §19.7, §19.8 and §19.12:
+
+- **Edges and motion.** Every surface is masked by the outline itself and the
+  stroke drawn over it, so no pane runs past the border on a swipe, an
+  overshoot or a spring; the Translate editor stands down behind a drawn copy
+  of its text while pages travel. A surface change shows one pane at a time
+  (old out in 0.08 s, new in over 0.20 s, each scaled about its top edge).
+  `MotionValuesTests`, `TranslatePaneLayoutTests`.
+- **One header language.** Clipboard, Translate and Settings wear Apple's
+  filled glyphs beside the Shelf's; Music's header names the playing app with
+  its icon; the tray's count and Remove All match the gear's well; Shelf tiles
+  say the day and time they were added; Clipboard's search field matches the
+  filter's 28 pt; Paste is never cut. `HeaderNotchBandTests`,
+  `ShelfLayoutTests`, `ClipboardLayoutTests`, `SurfaceContractTests`.
+- **The pop-up** is flat white 0.92 with no glow, arrives and folds on its own
+  0.3 s critically damped spring, and its keys are decided off the main thread.
+  `ExpandedAlertLayoutTests`, `HUDMomentTests`, `MediaKeyHUDTests`,
+  `SystemLevelsTests`.
+- **Load.** A swipe no longer redraws the pages (61 → 2 pane bodies over 30
+  frames), a move toward the notch is answered without waiting for the 8 Hz
+  beat, and copied pictures leave memory. `PaneEqualityTests`,
+  `PointerWatcherTests`, `ClipboardImageMemoryTests`.
+
+Owed on hardware (record the Mac model and macOS version when run):
+
+- [ ] **R8c-H1** On Translate with text in the card, swipe past the last page
+  and hold, then swipe back toward Clipboard slowly: no dark band at the
+  card's foot, and neither card crosses the outline's edge or its border at
+  any point. The text stays put while the pages move and the caret returns
+  when they rest.
+- [ ] **R8c-H2** From Music, press the gear; from Settings, the X; from
+  Clipboard, ⌃⌥⌘V away and back: one pane at a time, the old one gone before
+  the new arrives, the outline growing and shrinking under them with nothing
+  drawn outside it.
+- [ ] **R8c-H3** Volume up, down and mute, and brightness, tapped and held,
+  with the Mac busy (agents compiling): the pop-up appears with the first
+  press, the bar follows each press with no lag and no overshoot, and the
+  white reads like the system's own. A held key moves smoothly; a refused
+  device (an HDMI output with no volume) shows nothing and macOS answers.
+- [ ] **R8c-H4** From a resting pointer, flick to the island and click at
+  once, twenty times: the panel opens every time, never a click on the menu
+  bar behind it. Hover lights at the moment of arrival.
+- [ ] **R8c-H5** Music's header with Spotify, Apple Music, Yandex Music and a
+  browser playing: the app's icon and name on the left; at Panel Width 480
+  with a wide notch, the icon alone, and its name on hover.
+- [ ] **R8c-H6** The Shelf with files added today, yesterday and last week:
+  each tile shows its day over its time; Remove All's trash is no larger than
+  the gear's; Clipboard's search field and filter are one height; Translate's
+  Paste reads in full in English and Russian.
+- [ ] **R8c-H7** Copy a 20 MB screenshot ten times with Clipboard on: Activity
+  Monitor's memory for Isla returns near where it started, and pasting the
+  oldest still gives the full picture.
