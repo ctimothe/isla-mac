@@ -15,20 +15,39 @@ import Foundation
 /// events are coalesced: the callback runs once, `coalesce` seconds after the
 /// last of them. On the main actor, with nothing to poll and no thread of its
 /// own; with no feed it is never made.
+///
+/// The descriptor follows the folder it was opened on, not its path. When that
+/// folder is removed or renamed — `rm -rf .dev-updates` and a publish that
+/// makes it again — the watcher lets go and opens the path again, after
+/// `reopenDelay`, doubling to at most `reopenLimit`, and checks once it has:
+/// anything may be in the new folder. Before this the feed went unwatched
+/// until Isla next launched (review, 2026-10-19).
 @MainActor
 final class UpdateFeedWatcher {
     private let folder: URL
     private let coalesce: TimeInterval
+    private let firstReopenDelay: TimeInterval
     private let onChange: @MainActor () -> Void
     private var source: DispatchSourceFileSystemObject?
     private var pending: DispatchWorkItem?
+    private var reopenWork: DispatchWorkItem?
 
     /// A publish's burst of writes, gathered into one check.
     nonisolated static let defaultCoalesce: TimeInterval = 0.5
+    /// The first wait before opening a lost folder's path again: a publish
+    /// that removed it makes it again at once.
+    nonisolated static let defaultReopenDelay: TimeInterval = 1
+    /// The longest wait between tries, for a feed that stays gone.
+    nonisolated static let reopenLimit: TimeInterval = 30
 
-    init(folder: URL, coalesce: TimeInterval = UpdateFeedWatcher.defaultCoalesce, onChange: @escaping @MainActor () -> Void) {
+    init(
+        folder: URL, coalesce: TimeInterval = UpdateFeedWatcher.defaultCoalesce,
+        reopenDelay: TimeInterval = UpdateFeedWatcher.defaultReopenDelay,
+        onChange: @escaping @MainActor () -> Void
+    ) {
         self.folder = folder
         self.coalesce = coalesce
+        self.firstReopenDelay = reopenDelay
         self.onChange = onChange
     }
 
@@ -37,18 +56,44 @@ final class UpdateFeedWatcher {
     @discardableResult
     func start() -> Bool {
         stop()
-        // O_EVTONLY: a descriptor for events only, which does not keep the
-        // volume from unmounting or the folder from being removed.
-        let descriptor = open(folder.path, O_EVTONLY)
-        guard descriptor >= 0 else {
+        guard attach() else {
             Log.updates.error("update feed: could not watch the folder")
             return false
         }
+        return true
+    }
+
+    func stop() {
+        pending?.cancel()
+        pending = nil
+        reopenWork?.cancel()
+        reopenWork = nil
+        source?.cancel()
+        source = nil
+    }
+
+    var isWatching: Bool { source != nil }
+
+    /// Opens the folder's path and watches what is there now.
+    private func attach() -> Bool {
+        // O_EVTONLY: a descriptor for events only, which does not keep the
+        // volume from unmounting or the folder from being removed.
+        let descriptor = open(folder.path, O_EVTONLY)
+        guard descriptor >= 0 else { return false }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: descriptor, eventMask: [.write, .rename, .delete, .extend], queue: .main
         )
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.changed() }
+        source.setEventHandler { [weak self, weak source] in
+            MainActor.assumeIsolated {
+                guard let self, let source, source === self.source else { return }
+                // On a folder, a write is an entry added, removed or renamed
+                // inside it; a delete or a rename is the folder itself going.
+                if !source.data.isDisjoint(with: [.delete, .rename]) {
+                    self.lost()
+                } else {
+                    self.changed()
+                }
+            }
         }
         source.setCancelHandler { close(descriptor) }
         source.resume()
@@ -56,14 +101,33 @@ final class UpdateFeedWatcher {
         return true
     }
 
-    func stop() {
+    /// The watched folder was removed or renamed: let it go and look for the
+    /// path again.
+    private func lost() {
+        Log.updates.info("update feed: the folder went away; watching for it again")
         pending?.cancel()
         pending = nil
         source?.cancel()
         source = nil
+        scheduleReopen(after: firstReopenDelay)
     }
 
-    var isWatching: Bool { source != nil }
+    private func scheduleReopen(after delay: TimeInterval) {
+        reopenWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.reopenWork != nil else { return }
+                self.reopenWork = nil
+                if self.attach() {
+                    self.onChange()
+                } else {
+                    self.scheduleReopen(after: min(delay * 2, Self.reopenLimit))
+                }
+            }
+        }
+        reopenWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
 
     private func changed() {
         pending?.cancel()

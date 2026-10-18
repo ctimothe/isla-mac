@@ -66,6 +66,50 @@ final class UpdateFeedWatcherTests: XCTestCase {
         XCTAssertEqual(changes, 0)
     }
 
+    /// The descriptor follows the folder it was opened on. A feed removed and
+    /// made again — `rm -rf .dev-updates`, then a publish — or renamed away and
+    /// replaced was a folder nobody watched any more, and every build after it
+    /// waited for the daily check. The watcher lets go and opens the path
+    /// again, sooner at first and then less often, and checks once it has.
+    func testAFeedRemovedOrRenamedAndMadeAgainIsWatchedAgain() throws {
+        let fm = FileManager.default
+        let folder = try UpdateTestSupport.folder(self).appendingPathComponent("feed", isDirectory: true)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+        var changes = 0
+        let watcher = UpdateFeedWatcher(folder: folder, coalesce: 0.1, reopenDelay: 0.1) { changes += 1 }
+        addTeardownBlock { @MainActor in watcher.stop() }
+        XCTAssertTrue(watcher.start())
+
+        try fm.removeItem(at: folder)
+        spin(until: { !watcher.isWatching })
+        XCTAssertFalse(watcher.isWatching, "let go of the removed folder")
+        spin(0.35)
+        XCTAssertFalse(watcher.isWatching, "nothing there to open yet")
+        try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+        spin(until: { watcher.isWatching && changes > 0 })
+        XCTAssertTrue(watcher.isWatching, "the folder made again is watched")
+        let afterReopen = changes
+        XCTAssertGreaterThan(afterReopen, 0, "and checked, since anything may be in it")
+        try publish("release.json", in: folder)
+        spin(until: { changes > afterReopen })
+        XCTAssertGreaterThan(changes, afterReopen, "a publish into it is heard")
+
+        let moved = folder.deletingLastPathComponent().appendingPathComponent("feed-old")
+        try fm.moveItem(at: folder, to: moved)
+        spin(until: { !watcher.isWatching })
+        try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+        let beforeRename = changes
+        spin(until: { watcher.isWatching && changes > beforeRename })
+        try publish("release.json", in: folder)
+        let afterRename = changes
+        spin(until: { changes > afterRename })
+        XCTAssertGreaterThan(changes, afterRename, "renamed away and replaced, the new folder is the one heard")
+        watcher.stop()
+        try fm.removeItem(at: folder)
+        spin(0.4)
+        XCTAssertFalse(watcher.isWatching, "a stopped watcher reopens nothing")
+    }
+
     func testAFolderThatCannotBeOpenedIsNotWatched() throws {
         let folder = try UpdateTestSupport.folder(self).appendingPathComponent("missing")
         let watcher = UpdateFeedWatcher(folder: folder) {}
