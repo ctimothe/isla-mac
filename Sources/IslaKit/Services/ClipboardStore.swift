@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import UniformTypeIdentifiers
 
 struct ClipItem: Identifiable, Equatable {
@@ -9,7 +10,8 @@ struct ClipItem: Identifiable, Equatable {
         /// as its first file alone, so pasting the entry back silently replaced
         /// the user's selection of twelve with one.
         case files([URL])
-        /// A picture, kept in memory only (redesign spec §9.1, §9.4). Before
+        /// A picture, kept for the session only (redesign spec §9.1, §9.4):
+        /// its bytes in a temporary file, its thumbnail in memory. Before
         /// this a copied picture went to the Shelf's screenshot vault or
         /// nowhere; it is now an entry like any other, under Include Images.
         case image(ClipImage)
@@ -143,7 +145,10 @@ final class ClipboardStore: ObservableObject {
     /// was last used, which is what the 40-entry cap and "freshly used entries
     /// bubble to the top" are about.
     @Published private(set) var items: [ClipItem] = [] {
-        didSet { persistPinsIfWanted() }
+        didSet {
+            discardPictureFiles(leaving: oldValue)
+            persistPinsIfWanted()
+        }
     }
 
     /// Raised for image data on the pasteboard — a screenshot taken straight to
@@ -205,6 +210,31 @@ final class ClipboardStore: ObservableObject {
     /// few kilobytes.
     var imageByteLimit = ClipImage.byteLimit
     var imageMaximumPixels = ClipImage.maximumPixels
+    /// How much of the pictures stays in memory: per picture, and all of them
+    /// together (`ClipImage.residentBudget`). Injectable for the same reason.
+    var imageResidentLimit = ClipImage.residentPictureLimit
+    var imageResidentBudget = ClipImage.residentBudget
+
+    /// Where the pictures' bytes are written. Unset by default, like
+    /// `pinnedFile`: a store built by a test writes nothing to the temporary
+    /// directory unasked, and keeps its pictures in memory under the budget.
+    /// The session wires `ClipImageSpool.session`.
+    var imageSpool: ClipImageSpool?
+
+    /// The digest of the picture the Shelf's vault was last handed. A picture
+    /// copied twice in a row used to be written twice — two vault files of
+    /// 10,201,729 bytes each, byte for byte the same. Only the last is kept:
+    /// the check is for the double copy, not a second index of the vault.
+    private var lastVaultDigest: SHA256.Digest?
+
+    /// Bytes the history's pictures hold in memory right now: the thing
+    /// `imageResidentBudget` bounds.
+    var residentPictureBytes: Int {
+        items.reduce(0) { total, item in
+            guard case .image(let image) = item.payload else { return total }
+            return total + image.bytes.residentByteCount
+        }
+    }
 
     private let pasteboard: NSPasteboard
     private var timer: Timer?
@@ -406,6 +436,13 @@ final class ClipboardStore: ObservableObject {
 
     /// Puts an entry back on the pasteboard without re-recording it.
     func copy(_ item: ClipItem) {
+        // The picture is fetched before the pasteboard is cleared: a file that
+        // has gone missing must leave what the person copied where it is.
+        var pictureData: Data?
+        if case .image(let image) = item.payload {
+            pictureData = image.pasteboardData
+            guard pictureData != nil else { return }
+        }
         pasteboard.clearContents()
         switch item.payload {
         case .text(let string):
@@ -415,7 +452,7 @@ final class ClipboardStore: ObservableObject {
         case .files(let urls):
             pasteboard.writeObjects(urls.map { $0 as NSURL })
         case .image(let image):
-            pasteboard.setData(image.data, forType: image.type)
+            if let pictureData { pasteboard.setData(pictureData, forType: image.type) }
         }
         lastChangeCount = pasteboard.changeCount
         bubble(item)
@@ -439,9 +476,12 @@ final class ClipboardStore: ObservableObject {
 
     /// Freshly used entries bubble to the top.
     private func bubble(_ item: ClipItem) {
+        // One assignment: removing and re-inserting were two changes of
+        // `items`, and the first would have deleted the picture's file.
         if let index = items.firstIndex(where: { $0.id == item.id }), index != 0 {
-            let moved = items.remove(at: index)
-            items.insert(moved, at: 0)
+            var reordered = items
+            reordered.insert(reordered.remove(at: index), at: 0)
+            items = reordered
         }
     }
 
@@ -716,36 +756,84 @@ final class ClipboardStore: ObservableObject {
     /// Save Clipboard Screenshots wants a PNG for the vault — which, for a TIFF,
     /// is the tens-of-megabytes decode and re-encode that once froze the panel,
     /// and is still skipped when only history wants the picture. Include Images
-    /// wants the entry: the original bytes up to 25 MB (else a 2048 px PNG) and
-    /// a thumbnail (`ClipImage.make`). Both come from the same bytes, read once.
+    /// wants the entry: the original bytes up to 25 MB (else a 2048 px PNG) in
+    /// a session file, and a thumbnail (`ClipImage.make`). Both come from the
+    /// same bytes, read once.
+    ///
+    /// Three steps. The bytes are hashed first, once, on a background queue.
+    /// Back on the main actor that digest decides what is not needed: a picture
+    /// the history already holds is moved to the top without decoding it again
+    /// (as the same words copied twice are one entry), and one the vault was
+    /// just handed is not handed over twice. Only then the decode and encode
+    /// run, each in an autorelease pool and each for the switches that still
+    /// want something — a PNG original is both the vault's file and the
+    /// entry's, the same `Data` written once.
     private func process(original: Data, type: NSPasteboard.PasteboardType, at changeCount: Int) {
         let needsPNG = wantsImages()
         let needsEntry = recordsHistory() && keepsImages()
         let source = needsEntry ? sourceApp() : nil
         let byteLimit = imageByteLimit
         let maximumPixels = imageMaximumPixels
+        let residentLimit = imageResidentLimit
+        let spool = imageSpool
         DispatchQueue.global(qos: .userInitiated).async {
-            var png: Data?
-            if needsPNG {
-                png = type == .png
-                    ? original
-                    : NSBitmapImageRep(data: original)?.representation(using: .png, properties: [:])
-            }
-            let image = needsEntry
-                ? ClipImage.make(
-                    data: original, type: type, sourceApp: source,
-                    byteLimit: byteLimit, maximumPixels: maximumPixels
-                )
-                : nil
+            let digest = autoreleasepool { ClipImage.digest(of: original) }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self.deliverImage(png: png, entry: image, at: changeCount)
+                    // A newer copy is the newer intention.
+                    guard self.pasteboard.changeCount == changeCount else { return }
+                    let known = needsEntry ? self.pictureItem(withDigest: digest, type: type) : nil
+                    let vaultHasIt = needsPNG && self.lastVaultDigest == digest
+                    let buildEntry = needsEntry && known == nil
+                    let buildPNG = needsPNG && !vaultHasIt
+                    guard buildEntry || buildPNG else {
+                        self.deliverImage(
+                            png: nil, entry: nil, known: known, vaultHasIt: vaultHasIt, digest: digest, at: changeCount
+                        )
+                        return
+                    }
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let (png, image) = autoreleasepool { () -> (Data?, ClipImage?) in
+                            var png: Data?
+                            if buildPNG {
+                                png = type == .png
+                                    ? original
+                                    : NSBitmapImageRep(data: original)?.representation(using: .png, properties: [:])
+                            }
+                            let image = buildEntry
+                                ? ClipImage.make(
+                                    data: original, type: type, sourceApp: source,
+                                    byteLimit: byteLimit, maximumPixels: maximumPixels,
+                                    spool: spool, residentLimit: residentLimit, digest: digest
+                                )
+                                : nil
+                            return (png, image)
+                        }
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                self.deliverImage(
+                                    png: png, entry: image, known: known, vaultHasIt: vaultHasIt,
+                                    digest: digest, at: changeCount
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    private func deliverImage(png: Data?, entry: ClipImage?, at changeCount: Int) {
+    /// The picture entry already in the history for these bytes, if any.
+    private func pictureItem(withDigest digest: SHA256.Digest, type: NSPasteboard.PasteboardType) -> ClipItem? {
+        items.first { item in
+            guard case .image(let image) = item.payload else { return false }
+            return image.digest == digest && image.type == type
+        }
+    }
+
+    private func deliverImage(
+        png: Data?, entry: ClipImage?, known: ClipItem?, vaultHasIt: Bool, digest: SHA256.Digest, at changeCount: Int
+    ) {
         // The pasteboard may have moved on while the encode was running, and a
         // newer copy is the newer intention.
         guard pasteboard.changeCount == changeCount else { return }
@@ -753,13 +841,23 @@ final class ClipboardStore: ObservableObject {
         // began: either can be turned off while a picture is in flight, and an
         // off switch gets nothing.
         var delivered = false
-        if wantsImages(), let png {
-            onImage?(png)
-            delivered = true
+        if wantsImages() {
+            if vaultHasIt {
+                delivered = true
+            } else if let png {
+                onImage?(png)
+                lastVaultDigest = digest
+                delivered = true
+            }
         }
-        if recordsHistory(), keepsImages(), let entry {
-            record(ClipItem(payload: .image(entry), date: Date()))
-            delivered = true
+        if recordsHistory(), keepsImages() {
+            if let known, let current = items.first(where: { $0.id == known.id }) {
+                bubble(current)
+                delivered = true
+            } else if let entry {
+                record(ClipItem(payload: .image(entry), date: Date()))
+                delivered = true
+            }
         }
         // Nothing took the picture — undecodable data, or the switches went off
         // mid-flight. The copy may still have carried text, and dropping it
@@ -804,9 +902,64 @@ final class ClipboardStore: ObservableObject {
         // one it replaces was pinned, the pin stays: copying a pinned note a
         // second time is not a request to unpin it.
         if let same = items.first(where: { $0 == item }), same.isPinned { item.isPinned = true }
-        items.removeAll { $0 == item }
-        items.insert(item, at: 0)
+        // One assignment, for the same reason as in `bubble`.
+        var updated = items
+        updated.removeAll { $0 == item }
+        updated.insert(item, at: 0)
+        items = updated
         trim()
+        enforceResidentBudget()
+    }
+
+    /// Keeps the pictures' resident bytes within `imageResidentBudget`, oldest
+    /// first. A picture that has a file gives up its copy in memory and is read
+    /// from the file when pasted; one that has none (no spool, or the disk
+    /// refused the write) has nothing to fall back on, so it is the entry that
+    /// goes — unpinned ones first, as for the picture cap.
+    private func enforceResidentBudget() {
+        var total = residentPictureBytes
+        guard total > imageResidentBudget else { return }
+        let pictures = items.reversed().compactMap { item -> (ClipItem, ClipImageBytes)? in
+            guard case .image(let image) = item.payload else { return nil }
+            return (item, image.bytes)
+        }
+        for (_, bytes) in pictures where total > imageResidentBudget {
+            let held = bytes.residentByteCount
+            if held > 0, bytes.dropResident() { total -= held }
+        }
+        guard total > imageResidentBudget else { return }
+        // Never the entry just recorded: a copy that vanishes as it lands is
+        // worse than a history one picture over budget (a 25 MB limit under a
+        // 32 MB budget cannot reach it outside a test).
+        let newest = items.first?.id
+        let memoryOnly = pictures.filter { $0.1.residentByteCount > 0 && $0.0.id != newest }
+        var drop = Set<UUID>()
+        for (item, bytes) in memoryOnly.filter({ !$0.0.isPinned }) + memoryOnly.filter({ $0.0.isPinned })
+        where total > imageResidentBudget {
+            drop.insert(item.id)
+            total -= bytes.residentByteCount
+        }
+        if !drop.isEmpty { items = items.filter { !drop.contains($0.id) } }
+    }
+
+    /// Deletes the file of every picture that is no longer in the history.
+    /// Every way out of the history ends in an assignment to `items` — the
+    /// 12-picture and 40-entry caps, Remove, Clear History, Include Images
+    /// turned off, history turned off, a duplicate copy replacing its twin — so
+    /// this is the one place that has to know, and Privacy Mode, which only
+    /// covers rows, never has to. A file shared with an entry that stays (the
+    /// same `ClipImage` recorded twice) is left alone.
+    private func discardPictureFiles(leaving oldItems: [ClipItem]) {
+        var staying = Set<ObjectIdentifier>()
+        var candidates: [ClipImageBytes] = []
+        for item in oldItems {
+            if case .image(let image) = item.payload { candidates.append(image.bytes) }
+        }
+        guard !candidates.isEmpty else { return }
+        for item in items {
+            if case .image(let image) = item.payload { staying.insert(ObjectIdentifier(image.bytes)) }
+        }
+        for bytes in candidates where !staying.contains(ObjectIdentifier(bytes)) { bytes.discard() }
     }
 
     private func trim() {

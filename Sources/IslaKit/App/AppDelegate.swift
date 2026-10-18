@@ -198,6 +198,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         DistributedNotificationCenter.default().removeObserver(self)
         controller?.teardown()
+        // The clipboard history is memory-only, so the files behind its pictures
+        // end with the session.
+        ClipImageSpool.session.removeAll()
         // Explicitly, because a hot key cannot release itself: the Carbon
         // callback needs a lookup table to find the instance, that table holds
         // the only strong reference, and so `deinit` never runs.
