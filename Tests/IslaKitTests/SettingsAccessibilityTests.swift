@@ -200,7 +200,7 @@ final class SettingsAccessibilityTests: XCTestCase {
         // runner's macOS 26.6 the same call moves the slider by the system's
         // own tenth of the range (0.3 s here) and returns false, which is what
         // a slider did before the custom step existed, so it is not a regression.
-        // Recorded in docs/plans/2026-10-11-needs-continuation.md.
+        // Recorded in docs/development/plans/2026-10-11-needs-continuation.md.
         try XCTSkipUnless(
             ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27,
             "VoiceOver's one-step increment on a SwiftUI slider is only honoured on macOS 27 (the probe sees the system step on 26.6)"

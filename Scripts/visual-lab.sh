@@ -1,7 +1,7 @@
 #!/bin/bash
 # The headless visual lab: every surface Isla draws, rendered to PNG without a
 # running app, plus the animation curves sampled at 1 ms and an accessibility
-# dump per render. See docs/audits/2026-10-11-visual-lab/README.md.
+# dump per render. See docs/development/audits/2026-10-11-visual-lab/README.md.
 #
 # Nothing here touches the desktop. No window is ordered on screen, no event
 # is posted, the screen is never captured, Isla is never launched, and no DI_*

@@ -23,24 +23,31 @@ branch that has already been merged. Compare against `main` before trusting one.
   `ungive/mediaremote-adapter` Perl bridge). **Has no worktree**; add one with
   `git worktree add .worktrees/shell-music-mvp shell-music-mvp` if it is ever
   needed. Kept as historical work per the approved parity design — do not
-  extend it unless asked. Its `checklist.md` and `docs/specs/shell-music-mvp.md`
-  live on that branch and describe that prototype, not this app.
+  extend it unless asked. Its own `checklist.md` lives on that branch; a copy of
+  its spec is kept in `docs/development/specs/shell-music-mvp.md`. Both describe
+  that prototype, not this app.
 
 ## Source-of-truth policy
+
+User-facing documents are `README.md`, `CONTRIBUTING.md` and the files directly
+under `docs/`. How Isla was planned, audited and verified lives under
+`docs/development/`, indexed by its `README.md`. Keep that split: a new plan,
+audit or research note goes under `docs/development/`, never at the root or
+directly under `docs/`.
 
 Binding documents win over status/tracking documents. When behavior changes,
 update the spec/design first, then checklist and code in the same change.
 
-- The app: `docs/plans/2026-08-18-dynamic-island-parity-design.md`
+- The app: `docs/development/plans/2026-08-18-dynamic-island-parity-design.md`
   (approved) is the behavior and performance contract; `docs/runbook.md` and
-  `docs/release-checklist.md` are the execution path; `checklist.md` §"Scope
+  `docs/release-checklist.md` are the execution path; `docs/development/checklist.md` §"Scope
   divergence from Cyclop 0.6.5" is the current record of what the product
   deliberately does *not* match, and its dated sections (v0.2, v0.3, …) record
   what each release closed.
-- shell-music-mvp (that branch only): `docs/specs/shell-music-mvp.md` is the
+- shell-music-mvp (that branch only): `docs/development/specs/shell-music-mvp.md` is the
   binding contract; that branch's `checklist.md` tracks delivery (its D1–D8
   decisions bind *that* branch only — nothing in this app references them);
-  `docs/research/technical-feasibility.md` is non-binding evidence.
+  `docs/development/research/technical-feasibility.md` is non-binding evidence.
 
 **Removed features stay removed.** Snippets and Calendar went on 2026-08-20;
 Notes and the Teleprompter on 2026-08-22 (`57650e0`), taking the second rail and
@@ -327,7 +334,7 @@ so and every row offers Sync Here (`LyricSweep.syncDelay`, per-track range ±45 
   enforces key parity. Use `localized(_:)` for strings needed before they reach
   a `Text`.
 - Capabilities that exceed the parity design's non-goals are recorded in the
-  worktree `checklist.md`: Lyrics (network, default off), Spotify PKCE account
+  `docs/development/checklist.md`: Lyrics (network, default off), Spotify PKCE account
   (keychain), the lock-screen card, system audio-output switching, and output
   volume. Anything new that leaves the machine, touches an account, or changes a
   system-wide setting must be added there and default to off.
@@ -347,7 +354,7 @@ so and every row offers Sync Here (`LyricSweep.syncDelay`, per-track range ±45 
   unclean tree or missing release notes.
 - A green build does not equal done: the checklists require manual validation on
   physical notch hardware. Record the tested Mac model and macOS version in the
-  relevant `checklist.md` after a validation run.
+  `docs/development/checklist.md` after a validation run.
 
 ## Conventions
 
