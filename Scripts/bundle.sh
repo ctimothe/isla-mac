@@ -3,11 +3,11 @@
 # assembles the bundle around it and ad-hoc signs it.
 #
 # ISLA_VERSION_OVERRIDE and ISLA_BUILD_OVERRIDE are for Scripts/rehearse-update.sh
-# ONLY: they build the bundle as a later version than Scripts/version says, so
-# an update can be rehearsed on a real Mac. Both must be set together, the
-# version as dotted numbers and the build as a whole number. Nothing else sets
-# them; a release (Scripts/release.sh) never does, and Scripts/version stays the
-# truth.
+# and Scripts/publish-dev-update.sh ONLY: they build the bundle as a later
+# version than Scripts/version says — a rehearsal's, or a dev build's four-part
+# version for the local update feed. Both must be set together, the version as
+# dotted numbers and the build as a whole number. Nothing else sets them; a
+# release (Scripts/release.sh) never does, and Scripts/version stays the truth.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

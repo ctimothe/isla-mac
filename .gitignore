@@ -7,3 +7,4 @@ build/
 
 # The signing identity's encrypted backup (Scripts/make-signing-identity.sh).
 *.p12
+.dev-updates/

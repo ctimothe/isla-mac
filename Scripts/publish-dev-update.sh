@@ -1,0 +1,255 @@
+#!/bin/bash
+# Publishes the committed checkout as a dev build to the local update feed, so
+# the running Isla offers it on the island and installs it with its own Update
+# Now. Run after a change is committed and green, instead of install.sh. Never
+# a gate.
+#
+#   bash Scripts/publish-dev-update.sh             # build, sign and publish
+#   bash Scripts/publish-dev-update.sh --dry-run   # say what would be published
+#   bash Scripts/publish-dev-update.sh --enable    # also point Isla at the feed
+#
+# The owner asked on 2026-10-19 that every change reach the running app through
+# Isla's own update rather than a reinstall each time (plan
+# docs/development/plans/2026-10-19-dev-update-channel.md). The feed is a folder
+# the installed Isla reads exactly as a rehearsal reads its own
+# (UpdateSource.localFeed): a release.json shaped like GitHub's releases/latest
+# and file:// assets confined to the folder. What may be installed does not
+# change: the image must carry the update key's signature, and the staged app
+# must be Isla, newer, a greater build and signed as the running copy is.
+#
+# The feed is $ISLA_DEV_FEED, or .dev-updates in the main checkout (git-ignored,
+# 0700). Isla follows it once `defaults read com.ctimothe.isla updates.localFeed`
+# names it, which --enable writes; Isla reads the setting at launch, so the
+# first time it takes one relaunch. Leaving the channel:
+#
+#   defaults delete com.ctimothe.isla updates.localFeed
+#
+# then bundle.sh and install.sh, since a dev build's build number may be above
+# the next public release's, which Update Now would refuse.
+#
+# Versions: VERSION from Scripts/version with a fourth part, one past the
+# fourth part of whichever is later of the installed app and the feed's last
+# release on the same base, so every dev build is newer than the last and older
+# than the next real release (0.3.0.7 < 0.3.1). The build is one past the
+# greater of the installed and last-published builds.
+#
+# It never launches, quits or installs anything. Whatever happens, it removes
+# the build from build/ and unregisters it, as rehearse-update.sh does: one Isla
+# on the Mac, the one in /Applications.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INSTALLED="/Applications/Isla.app"
+KEY_FILE="$ROOT/Resources/update-public-key.txt"
+APP="$ROOT/build/app.noindex/Isla.app"
+DOMAIN="com.ctimothe.isla"
+SETTING="updates.localFeed"
+KEEP_IMAGES=2
+NOTES_LIMIT=10
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+fail() { echo "!!! $*" >&2; exit 1; }
+
+DRY_RUN=0
+ENABLE=0
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1 ;;
+        --enable) ENABLE=1 ;;
+        -h|--help) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) fail "unknown argument '$arg' (try --dry-run or --enable)" ;;
+    esac
+done
+
+# Dotted numbers compared as numbers, each part in base 10 so "08" is eight.
+version_greater() {
+    local IFS=.
+    local -a a=($1) b=($2)
+    local i x y n=${#a[@]}
+    [ ${#b[@]} -gt "$n" ] && n=${#b[@]}
+    for ((i = 0; i < n; i++)); do
+        x=$((10#${a[i]:-0})); y=$((10#${b[i]:-0}))
+        [ "$x" -gt "$y" ] && return 0
+        [ "$x" -lt "$y" ] && return 1
+    done
+    return 1
+}
+
+# The fourth part of $1 when its first three are $2, else 0.
+dev_part() {
+    case "$1" in
+        "$2") echo 0 ;;
+        "$2".*) local rest="${1#"$2".}"; case "$rest" in ''|*[!0-9]*) echo 0 ;; *) echo $((10#$rest)) ;; esac ;;
+        *) echo 0 ;;
+    esac
+}
+
+is_dotted() { case "$1" in ''|*[!0-9.]*|.*|*.|*..*) return 1 ;; *) return 0 ;; esac; }
+is_whole() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+
+# 1. What is being published: a committed tree, never work in progress.
+cd "$ROOT"
+[ -z "$(git status --porcelain --untracked-files=normal)" ] \
+    || fail "the checkout has uncommitted changes; commit them (and run the tests) first"
+COMMIT="$(git rev-parse HEAD)"
+BASE="$(sed -n 's/^VERSION=//p' Scripts/version)"
+is_dotted "$BASE" || fail "Scripts/version has no VERSION= line of dotted numbers"
+[ "$(echo "$BASE" | tr -cd . | wc -c | tr -d ' ')" = 2 ] || fail "VERSION=$BASE is not three numbers; a dev build adds the fourth"
+
+# 2. The feed.
+COMMON="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+MAIN_CHECKOUT="$(dirname "$COMMON")"
+FEED="${ISLA_DEV_FEED:-$MAIN_CHECKOUT/.dev-updates}"
+case "$FEED" in /*) ;; *) fail "ISLA_DEV_FEED must be an absolute path, got '$FEED'" ;; esac
+# Links resolved, as Isla resolves the setting: the release's file URLs must
+# name the folder Isla confines them to, not a path that only leads there
+# (/var is /private/var).
+[ -d "$FEED" ] && FEED="$(cd "$FEED" && pwd -P)"
+case "$FEED" in *[!A-Za-z0-9_./-]*) fail "the feed path has characters that do not belong in a file URL: $FEED" ;; esac
+
+# 3. The installed app, which the new build must be newer than.
+PLIST="$INSTALLED/Contents/Info.plist"
+[ -f "$PLIST" ] || fail "Isla is not installed at $INSTALLED; bootstrap once with: bash Scripts/bundle.sh release && bash Scripts/install.sh"
+security find-generic-password -s "Isla Update Signing" -a ed25519 >/dev/null 2>&1 \
+    || fail "the update signing key is not in the login keychain; run: bash Scripts/make-update-key.sh"
+[ -s "$KEY_FILE" ] || fail "$KEY_FILE is missing; run: bash Scripts/make-update-key.sh"
+WANT_KEY="$(tr -d '[:space:]' < "$KEY_FILE")"
+HAVE_KEY="$(/usr/libexec/PlistBuddy -c 'Print :IslaUpdatePublicKey' "$PLIST" 2>/dev/null || true)"
+[ "$HAVE_KEY" = "$WANT_KEY" ] || fail "the installed Isla has no matching IslaUpdatePublicKey, so it cannot accept a dev build; bootstrap with bundle.sh and install.sh"
+HAVE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null || true)"
+HAVE_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" 2>/dev/null || true)"
+is_dotted "$HAVE_VERSION" || fail "the installed Isla's version is '$HAVE_VERSION', not dotted numbers"
+is_whole "$HAVE_BUILD" || fail "the installed Isla's build is '$HAVE_BUILD', not a whole number"
+
+# 4. The feed's last release, if any: its version, build and commit.
+LAST_VERSION=""
+LAST_BUILD=0
+LAST_COMMIT=""
+if [ -f "$FEED/release.json" ]; then
+    read -r LAST_VERSION LAST_BUILD LAST_COMMIT < <(/usr/bin/python3 -I - "$FEED/release.json" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        r = json.load(f)
+    print(str(r.get("tag_name", "")).lstrip("v") or "-", int(r.get("isla_build", 0)), r.get("isla_commit") or "-")
+except Exception:
+    print("- 0 -")
+PY
+)
+    [ "$LAST_VERSION" = "-" ] && LAST_VERSION=""
+    [ "$LAST_COMMIT" = "-" ] && LAST_COMMIT=""
+fi
+
+N_INSTALLED="$(dev_part "$HAVE_VERSION" "$BASE")"
+N_LAST=0
+[ -n "$LAST_VERSION" ] && N_LAST="$(dev_part "$LAST_VERSION" "$BASE")"
+N=$(( (N_INSTALLED > N_LAST ? N_INSTALLED : N_LAST) + 1 ))
+NEW_VERSION="$BASE.$N"
+NEW_BUILD=$(( (10#$HAVE_BUILD > LAST_BUILD ? 10#$HAVE_BUILD : LAST_BUILD) + 1 ))
+version_greater "$NEW_VERSION" "$HAVE_VERSION" \
+    || fail "$NEW_VERSION is not newer than the installed $HAVE_VERSION (Scripts/version is behind the installed app), so Update Now would refuse it"
+
+# 5. The notes: commit subjects since the last published commit, newest first,
+# at most ten, conventional prefixes taken off. The island shows the first.
+if [ -n "$LAST_COMMIT" ] && git merge-base --is-ancestor "$LAST_COMMIT" HEAD 2>/dev/null; then
+    RANGE="$LAST_COMMIT..HEAD"
+else
+    RANGE="$(git merge-base HEAD main 2>/dev/null || echo HEAD~1)..HEAD"
+fi
+SUBJECTS="$(git log --no-merges --format=%s -n "$NOTES_LIMIT" "$RANGE" 2>/dev/null || true)"
+[ -n "$SUBJECTS" ] || SUBJECTS="$(git log --format=%s -n 1 HEAD)"
+NOTES="$(printf '%s\n' "$SUBJECTS" | awk '
+    { sub(/^[a-z]+(\([^)]*\))?!?: +/, ""); if (length($0)) print "- " toupper(substr($0, 1, 1)) substr($0, 2) }
+')"
+
+echo "==> Isla $NEW_VERSION (build $NEW_BUILD) from $(git rev-parse --short HEAD) on $(git rev-parse --abbrev-ref HEAD)"
+echo "    installed: $HAVE_VERSION (build $HAVE_BUILD)${LAST_VERSION:+, last published: $LAST_VERSION (build $LAST_BUILD)}"
+echo "    feed: $FEED"
+echo "    notes:"
+printf '%s\n' "$NOTES" | sed 's/^/      /'
+
+CURRENT_SETTING="$(defaults read "$DOMAIN" "$SETTING" 2>/dev/null || true)"
+if [ "$DRY_RUN" = 1 ]; then
+    [ "$CURRENT_SETTING" = "$FEED" ] || echo "    (Isla is not following this feed yet: --enable writes the setting)"
+    echo "==> dry run: nothing built, nothing written"
+    exit 0
+fi
+
+# 6. The folder: the user's own, writable by nobody else, or Isla ignores it.
+mkdir -p "$FEED"
+FEED="$(cd "$FEED" && pwd -P)"
+[ "$(stat -f %u "$FEED")" = "$(id -u)" ] || fail "$FEED is not owned by $(id -un), so Isla would ignore it"
+chmod 700 "$FEED"
+
+[ ! -e "$ROOT/build/Isla-$NEW_VERSION.dmg" ] \
+    || fail "$ROOT/build/Isla-$NEW_VERSION.dmg already exists and would be overwritten. Move it first."
+
+STAGE="$(mktemp -d "$FEED/.publish-XXXXXX")"
+cleanup() {
+    "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+    rm -rf "$APP" "$ROOT/build/Isla-$NEW_VERSION.dmg" "$STAGE"
+}
+trap cleanup EXIT
+
+# 7. Built and packed as a release is, at the dev version.
+ISLA_VERSION_OVERRIDE="$NEW_VERSION" ISLA_BUILD_OVERRIDE="$NEW_BUILD" bash "$ROOT/Scripts/bundle.sh" release
+[ -d "$APP" ] || fail "the build left no app at $APP"
+ISLA_VERSION_OVERRIDE="$NEW_VERSION" SKIP_BUNDLE=1 bash "$ROOT/Scripts/dmg.sh"
+IMAGE="Isla-$NEW_VERSION.dmg"
+mv "$ROOT/build/$IMAGE" "$STAGE/$IMAGE"
+SIZE="$(stat -f %z "$STAGE/$IMAGE")"
+[ "$SIZE" -le $(( 100 * 1024 * 1024 )) ] || fail "the image is $SIZE bytes; Update Now refuses an image over 100 MB"
+
+# 8. Signed with the update key (macOS may ask once to allow the keychain read),
+# and checked against the committed public key before anything reaches the feed.
+swift "$ROOT/Scripts/update-signing.swift" sign "$STAGE/$IMAGE" > "$STAGE/$IMAGE.sig"
+swift "$ROOT/Scripts/update-signing.swift" verify "$KEY_FILE" "$STAGE/$IMAGE" "$STAGE/$IMAGE.sig" >/dev/null \
+    || fail "the signature does not verify against $KEY_FILE"
+SIG_SIZE="$(stat -f %z "$STAGE/$IMAGE.sig")"
+
+# 9. The image and signature first, then the release renamed in last, so the
+# watching Isla never reads a release whose files are not there yet.
+mv "$STAGE/$IMAGE" "$FEED/$IMAGE"
+mv "$STAGE/$IMAGE.sig" "$FEED/$IMAGE.sig"
+/usr/bin/python3 -I - "$STAGE/release.json" "$FEED" "$NEW_VERSION" "$NEW_BUILD" "$COMMIT" "$SIZE" "$SIG_SIZE" "$NOTES" <<'PY'
+import json, sys
+out, feed, version, build, commit, size, sig_size, notes = sys.argv[1:9]
+image = f"Isla-{version}.dmg"
+release = {
+    "tag_name": f"v{version}",
+    "html_url": f"https://github.com/ctimothe/isla-mac/commit/{commit}",
+    "draft": False,
+    "prerelease": False,
+    "body": notes,
+    "assets": [
+        {"name": image, "size": int(size), "browser_download_url": f"file://{feed}/{image}"},
+        {"name": f"{image}.sig", "size": int(sig_size), "browser_download_url": f"file://{feed}/{image}.sig"},
+    ],
+    # Read back by this script only (Isla's decoder ignores them): the build
+    # and commit the next publish counts from.
+    "isla_build": int(build),
+    "isla_commit": commit,
+}
+with open(out, "w") as f:
+    json.dump(release, f, indent=2)
+    f.write("\n")
+PY
+mv -f "$STAGE/release.json" "$FEED/release.json"
+
+# 10. Only the newest images stay: the one just published and the one before,
+# which an install already under way may still be reading.
+ls -t "$FEED"/Isla-*.dmg 2>/dev/null | tail -n +$((KEEP_IMAGES + 1)) | while read -r old; do
+    rm -f "$old" "$old.sig"
+done
+
+echo "==> published Isla $NEW_VERSION (build $NEW_BUILD) to $FEED"
+
+if [ "$ENABLE" = 1 ] && [ "$CURRENT_SETTING" != "$FEED" ]; then
+    defaults write "$DOMAIN" "$SETTING" -string "$FEED"
+    CURRENT_SETTING="$FEED"
+    echo "==> Isla now follows $FEED. It reads this at launch: quit and reopen Isla once, and it offers this build on the island."
+elif [ "$CURRENT_SETTING" = "$FEED" ]; then
+    echo "    the running Isla offers it on the island within a second or two"
+else
+    echo "    Isla is not following this feed: run again with --enable, then reopen Isla once"
+fi
