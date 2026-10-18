@@ -83,6 +83,55 @@ final class UpdateSourceTests: XCTestCase {
         XCTAssertEqual(resolve(setting: readable.path), .localFeed(readable), "others may read it; only writing is refused")
     }
 
+    /// A folder of ours inside one others can write could be renamed away and
+    /// replaced from beside it. Every folder above the feed is root's or the
+    /// user's, and writable by others only when sticky — as /tmp is, where
+    /// nobody may move what is not theirs.
+    func testAFolderInsideOneOthersCanWriteIsIgnored() throws {
+        let fm = FileManager.default
+        for (mode, expected) in [(0o777, false), (0o770, false), (0o1777, true), (0o755, true)] {
+            let parent = try folder(mode: 0o700)
+            let feed = parent.appendingPathComponent("feed", isDirectory: true)
+            try fm.createDirectory(at: feed, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            try fm.setAttributes([.posixPermissions: mode], ofItemAtPath: parent.path)
+            let resolved = resolve(setting: feed.path)
+            XCTAssertEqual(resolved == .localFeed(feed), expected, String(mode, radix: 8))
+            try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path)
+        }
+    }
+
+    /// The folder is judged at launch, and again before every read: a feed
+    /// that has since become writable by others, or been swapped for a link
+    /// elsewhere, is read no more — not by the check and not by the download.
+    func testTheFeedIsJudgedAgainBeforeEveryRead() async throws {
+        let feed = try folder()
+        try release(in: feed).write(to: feed.appendingPathComponent("release.json"))
+        let image = feed.appendingPathComponent("Isla-0.3.0.1.dmg")
+        try Data("image".utf8).write(to: image)
+        let source = UpdateSource.localFeed(feed)
+        XCTAssertTrue(source.stillHolds())
+        let check = UpdateCheck(fetch: { _ in throw URLError(.notConnectedToInternet) }, currentVersion: { "0.3.0" }, source: source)
+        let downloader = URLSessionUpdateDownloader(source: source)
+        let scratch = try folder()
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o770], ofItemAtPath: feed.path)
+        XCTAssertFalse(source.stillHolds())
+        check.check()
+        for _ in 0..<200 where check.state == .checking { try await Task.sleep(for: .milliseconds(10)) }
+        guard case .failed = check.state else { return XCTFail("read a feed others can write: \(check.state)") }
+        do {
+            _ = try await downloader.download(from: image, into: scratch, as: "Isla.dmg", expectedBytes: 5) { _ in }
+            XCTFail("copied from a feed others can write")
+        } catch {
+            XCTAssertEqual(error as? UpdateDownloadError, .badResponse)
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: feed.path)
+        XCTAssertTrue(source.stillHolds(), "put right, it is read again")
+        XCTAssertTrue(UpdateSource.github.stillHolds())
+        XCTAssertTrue(UpdateSource.rehearsal(feed).stillHolds(), "a rehearsal is by hand, for one launch")
+    }
+
     // MARK: Read once, from one place
 
     /// A test run follows GitHub: no rehearsal variable, and the test host's

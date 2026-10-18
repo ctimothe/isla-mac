@@ -149,10 +149,17 @@ final class UpdateCheck: ObservableObject {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("Isla/\(local)", forHTTPHeaderField: "User-Agent")
         let rehearsal = rehearsal
+        let source = source
         // In a rehearsal the answer is a file in the folder, shaped like
         // GitHub's, and nothing is requested from anywhere.
         let fetch: Fetch = rehearsal.map { folder in
             { request in
+                // The local feed's folder is judged again before every read
+                // (`UpdateSource.stillHolds`).
+                guard source.stillHolds() else {
+                    Log.updates.error("the local feed is no longer a folder only this user can write; not reading it")
+                    throw URLError(.noPermissionsToReadFile)
+                }
                 // A regular file of at most 64 KB: it is read before anything
                 // is trusted, and a FIFO there must not hang the check.
                 guard let data = SafeFile.readRegular(folder.appendingPathComponent("release.json"), limit: Self.rehearsalReleaseLimit)

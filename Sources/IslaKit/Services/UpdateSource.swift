@@ -69,7 +69,8 @@ enum UpdateSource: Equatable, Sendable {
     /// The setting's folder, links resolved, when it is one the local feed may
     /// be: an absolute path to a directory the current user owns and nobody
     /// else may write (no group or other write bit — a sticky world-writable
-    /// folder is still everybody's to fill). Anything else is nil.
+    /// folder is still everybody's to fill), inside folders nobody else could
+    /// rename it out of. Anything else is nil.
     nonisolated static func localFeedFolder(
         _ setting: String?, owner: (URL) -> UInt32? = UpdateInstaller.ownerID, user: UInt32 = getuid()
     ) -> URL? {
@@ -79,6 +80,37 @@ enum UpdateSource: Equatable, Sendable {
         guard lstat(url.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else { return nil }
         guard owner(url) == user else { return nil }
         guard info.st_mode & (S_IWGRP | S_IWOTH) == 0 else { return nil }
+        guard ancestorsHold(url, user: user) else { return nil }
         return url
+    }
+
+    /// Whether every folder above `url` is root's or `user`'s, and writable by
+    /// others only when sticky. A feed of the user's own inside a folder
+    /// others can write could be renamed away and a folder of theirs put in
+    /// its place (review, 2026-10-19); the sticky bit is what keeps that from
+    /// happening in /tmp. Followed with `stat`, not `lstat`: Foundation spells
+    /// a resolved path under /private as /var or /tmp, which are links to it.
+    nonisolated private static func ancestorsHold(_ url: URL, user: UInt32) -> Bool {
+        var folder = url.deletingLastPathComponent()
+        while true {
+            var info = stat()
+            guard stat(folder.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR,
+                  info.st_uid == 0 || info.st_uid == user
+            else { return false }
+            if info.st_mode & (S_IWGRP | S_IWOTH) != 0, info.st_mode & S_ISVTX == 0 { return false }
+            if folder.path == "/" { return true }
+            folder = folder.deletingLastPathComponent()
+        }
+    }
+
+    /// Whether this source may still be read. GitHub and a rehearsal, always.
+    /// The local feed is judged at launch and again before every read — by
+    /// the check and by the download — so a folder that has since become
+    /// writable by others, or been swapped for a link elsewhere, is read no
+    /// more; the signature would refuse what was put there, but a feed nobody
+    /// else can fill is the rule, not the hope.
+    nonisolated func stillHolds(owner: (URL) -> UInt32? = UpdateInstaller.ownerID, user: UInt32 = getuid()) -> Bool {
+        guard case .localFeed(let folder) = self else { return true }
+        return Self.localFeedFolder(folder.path, owner: owner, user: user) == folder
     }
 }
