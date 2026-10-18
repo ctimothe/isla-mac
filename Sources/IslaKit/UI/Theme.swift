@@ -744,7 +744,7 @@ enum Theme {
     // MARK: - The player, activities first (spec §19.6)
 
     /// The title, white 0.80 at 16 medium; the artist under it, white 0.50 at
-    /// 14 regular — and the same 0.50 for the artist after "·" while the sung
+    /// 14 regular — and the same 0.50 for the artist after "–" while the sung
     /// line has the subtitle.
     static let playerTitleOpacity: Double = 0.80
     static let playerArtistOpacity: Double = 0.50

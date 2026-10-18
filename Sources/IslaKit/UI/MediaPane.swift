@@ -262,25 +262,43 @@ struct MediaPane: View {
 
     // MARK: Title and the sung line
 
-    /// "Title", or — while the sung line has the subtitle — "Title · Artist",
-    /// the artist at white 0.50 and the first to give way (§19.6).
-    @ViewBuilder
+    /// "Title", or — while the sung line has the subtitle — "Title – Artist",
+    /// the artist at white 0.50 (§19.6). A line longer than its room scrolls
+    /// to show the rest (`MarqueeLine`); where it may not move, the artist is
+    /// the first to give way, as it always was.
     private func titleRow(for track: MediaController.Track, withArtist: Bool) -> some View {
-        HStack(spacing: 0) {
-            Text(track.title)
-                .foregroundStyle(.white.opacity(Theme.playerTitleOpacity))
-                .layoutPriority(1)
-            if withArtist, !track.artist.isEmpty {
-                Text(" · " + track.artist)
-                    .foregroundStyle(.white.opacity(Theme.playerArtistOpacity))
+        let artist = withArtist && !track.artist.isEmpty ? track.artist : nil
+        let line = Self.titleLine(title: track.title, artist: artist)
+        return MarqueeLine(room: layout.titleWidth, isActive: isLive && !reduceMotion, text: line) {
+            HStack(spacing: 0) {
+                Text(track.title)
+                    .foregroundStyle(.white.opacity(Theme.playerTitleOpacity))
+                    .layoutPriority(1)
+                if let artist {
+                    Text(Self.artistSeparator + artist)
+                        .foregroundStyle(.white.opacity(Theme.playerArtistOpacity))
+                }
             }
         }
         .font(.system(size: PlayerLayout.titleSize, weight: .medium))
         .tracking(Theme.tracking(forSize: PlayerLayout.titleSize))
         .lineLimit(1)
         .truncationMode(.tail)
-        .help(withArtist ? "\(track.title) · \(track.artist)" : track.title)
-        .accessibilityElement(children: .combine)
+        .help(line)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(line)
+    }
+
+    /// Between the title and the artist: a dash, which reads as "by" at a
+    /// glance where the middle dot read as a list (owner, 2026-10-18). An en
+    /// dash, the separator's own glyph, which reads as the plain hyphen asked
+    /// for without the hyphen's join-a-word look.
+    static let artistSeparator = " – "
+
+    /// The title row's words, which are also its tooltip and its label.
+    static func titleLine(title: String, artist: String?) -> String {
+        guard let artist, !artist.isEmpty else { return title }
+        return title + artistSeparator + artist
     }
 
     /// What the subtitle carries while the song has synced lyrics and Lyric
@@ -373,13 +391,19 @@ struct MediaPane: View {
                 .id(index)
                 .transition(.lyricLine(reduceMotion: reduceMotion))
             } else {
-                Text(track.artist)
+                // The artist on its own line scrolls like the title when it
+                // is longer than its room.
+                MarqueeLine(room: layout.subtitleWidth, isActive: isLive && !reduceMotion, text: track.artist) {
+                    Text(track.artist)
+                }
                     .font(.system(size: PlayerLayout.subtitleSize, weight: .regular))
                     .tracking(Theme.tracking(forSize: PlayerLayout.subtitleSize))
                     .foregroundStyle(.white.opacity(Theme.playerArtistOpacity))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(track.artist)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(track.artist)
                     .id(-1)
                     .transition(.lyricLine(reduceMotion: reduceMotion))
             }

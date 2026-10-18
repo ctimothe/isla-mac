@@ -130,7 +130,7 @@ final class PlayerPaneTests: XCTestCase {
                      "the next line is not a second stop for VoiceOver")
         let title = s.root.all { $0.label.contains("Waiting Room") || $0.value.contains("Waiting Room") || $0.title.contains("Waiting Room") }
         XCTAssertTrue(
-            title.contains { ($0.label + $0.value + $0.title).contains("·") },
+            title.contains { ($0.label + $0.value + $0.title).contains(MediaPane.artistSeparator) },
             "the title carries the artist while the sung line has the subtitle\n\(s.root.dump)"
         )
     }
@@ -165,7 +165,7 @@ final class PlayerPaneTests: XCTestCase {
         XCTAssertFalse(saying.isEmpty, "the title carries the artist\n\(s.root.dump)", file: file, line: line)
         for node in saying {
             XCTAssertTrue(
-                (node.label + node.value + node.title).contains("·"),
+                (node.label + node.value + node.title).contains(MediaPane.artistSeparator),
                 "the artist stands only in the title row\n\(s.root.dump)", file: file, line: line
             )
         }

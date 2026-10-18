@@ -46,25 +46,37 @@ struct PlayerLayout: Equatable {
     /// A board y, in the content's coordinates.
     static func y(_ board: CGFloat) -> CGFloat { board - SurfaceLayout.referenceNotchHeight }
 
+    /// How far the cover, the title, the subtitle and the equalizer stand below
+    /// the board, the times, the bar and the controls staying where they are.
+    ///
+    /// The board put the cover straight under the header row, 6 pt below the
+    /// header's 26 pt icons on a 14-inch notch, and left 16 pt under it
+    /// before the times (owner, 2026-10-18: "too close with the top-left and
+    /// top-right icons… cut the free blank spaces under the lyrics part").
+    /// Five points down and the cover sits evenly between them, 11 above and
+    /// 11 below, in the same 160 pt of content; nothing below it moves.
+    static let upperBlockDrop: CGFloat = 5
+    static func upper(_ board: CGFloat) -> CGFloat { y(board) + upperBlockDrop }
+
     // MARK: - Frames, in content coordinates
 
-    /// (54, 38), 60 × 60, radius 10: the cover, and the button the stage opens
-    /// from.
-    var cover: CGRect { CGRect(x: Self.x(54), y: Self.y(38), width: Self.coverSide, height: Self.coverSide) }
+    /// (54, 38), 60 × 60, radius 10, `upperBlockDrop` lower: the cover, and the
+    /// button the stage opens from.
+    var cover: CGRect { CGRect(x: Self.x(54), y: Self.upper(38), width: Self.coverSide, height: Self.coverSide) }
     static let coverSide: CGFloat = 60
     static let coverRadius: CGFloat = 10
 
     /// The title's and the subtitle's leading edge, x 129.2.
     var textLeading: CGFloat { Self.x(129.2) }
     /// The title's baseline, 65; the subtitle's, 84.5.
-    var titleBaseline: CGFloat { Self.y(65) }
-    var subtitleBaseline: CGFloat { Self.y(84.5) }
+    var titleBaseline: CGFloat { Self.upper(65) }
+    var subtitleBaseline: CGFloat { Self.upper(84.5) }
     static let titleSize: CGFloat = 16
     static let subtitleSize: CGFloat = 14
 
     /// 23 × 18 at top 49, ending 54.2 from the shape's right edge.
     var equalizer: CGRect {
-        CGRect(x: right(54.2) - 23, y: Self.y(49), width: 23, height: 18)
+        CGRect(x: right(54.2) - 23, y: Self.upper(49), width: 23, height: 18)
     }
 
     /// The gap the title keeps before the equalizer.

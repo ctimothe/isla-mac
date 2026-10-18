@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import IslaKit
 
@@ -48,15 +49,15 @@ final class PlayerLayoutTests: XCTestCase {
 
     func testTheBoard() {
         let l = layout()
-        XCTAssertEqual(l.cover, CGRect(x: 20, y: 0, width: 60, height: 60), "(54, 38), 60 × 60")
+        XCTAssertEqual(l.cover, CGRect(x: 20, y: 5, width: 60, height: 60), "(54, 38), 60 × 60, 5 lower")
         XCTAssertEqual(PlayerLayout.coverRadius, 10)
         XCTAssertEqual(l.textLeading, 95.2, accuracy: 0.0001, "x 129.2")
-        XCTAssertEqual(l.titleBaseline, 27, accuracy: 0.0001, "baseline 65")
-        XCTAssertEqual(l.subtitleBaseline, 46.5, accuracy: 0.0001, "baseline 84.5")
+        XCTAssertEqual(l.titleBaseline, 32, accuracy: 0.0001, "baseline 65, 5 lower")
+        XCTAssertEqual(l.subtitleBaseline, 51.5, accuracy: 0.0001, "baseline 84.5, 5 lower")
         XCTAssertEqual(PlayerLayout.titleSize, 16)
         XCTAssertEqual(PlayerLayout.subtitleSize, 14)
         XCTAssertEqual(l.equalizer.size, CGSize(width: 23, height: 18))
-        XCTAssertEqual(l.equalizer.minY, 11, accuracy: 0.0001, "top 49")
+        XCTAssertEqual(l.equalizer.minY, 16, accuracy: 0.0001, "top 49, 5 lower")
         XCTAssertEqual(l.equalizer.maxX, 337.2, accuracy: 0.0001, "ending 54.2 from the shape's right edge")
         XCTAssertEqual(l.timesTop, 76, accuracy: 0.0001, "114")
         XCTAssertEqual(l.elapsedLeading, 19.5, accuracy: 0.0001, "53.5")
@@ -68,6 +69,55 @@ final class PlayerLayoutTests: XCTestCase {
         XCTAssertEqual(PlayerLayout.progressRadius, 3.5)
         XCTAssertEqual(l.controlsMidY, 126.6, accuracy: 0.0001, "164.6")
         XCTAssertEqual(PlayerLayout.hitTarget, 42, "every control is a 42 × 42 target")
+    }
+
+    /// The cover sits evenly between the header's 26 pt icons and the times
+    /// row on the reference notch — 11 above and 11 below — and on every
+    /// notch the icons never reach it (owner, 2026-10-18: "too close with the
+    /// top-left and top-right icons").
+    func testTheCoverSitsEvenlyBetweenTheHeaderIconsAndTheTimes() {
+        let l = layout()
+        let notch = SurfaceLayout.referenceNotchHeight
+        let iconBottom = SurfaceHeaderLayout.gear(bodyWidth: 560, notchHeight: notch).maxY - notch
+        XCTAssertEqual(l.cover.minY - iconBottom, 11, accuracy: 0.0001, "above the cover")
+        XCTAssertEqual(l.timesTop - l.cover.maxY, 11, accuracy: 0.0001, "below the cover")
+        for height in [CGFloat(24), 32, 38, 44] {
+            let bottom = SurfaceHeaderLayout.gear(bodyWidth: 560, notchHeight: height).maxY - height
+            XCTAssertGreaterThan(l.cover.minY - bottom, 3, "notch \(height)")
+        }
+        XCTAssertEqual(l.timesTop, 76, accuracy: 0.0001, "the times, the bar and the controls do not move")
+    }
+
+    /// Title and artist are joined by a dash, in the row, its tooltip and its
+    /// label; a song with no artist is its title alone.
+    func testTheTitleAndArtistAreJoinedByADash() {
+        XCTAssertEqual(MediaPane.artistSeparator, " – ")
+        XCTAssertEqual(
+            MediaPane.titleLine(title: "Lover, You Should've Come Over", artist: "Jeff Buckley"),
+            "Lover, You Should've Come Over – Jeff Buckley"
+        )
+        XCTAssertEqual(MediaPane.titleLine(title: "Be a Ghost", artist: nil), "Be a Ghost")
+        XCTAssertEqual(MediaPane.titleLine(title: "Be a Ghost", artist: ""), "Be a Ghost")
+    }
+
+    /// A line that fits stands still; one that does not travels its own width
+    /// and the gap at 30 pt a second, so the copy lands where it began, after
+    /// a 2.5 s rest. "Lover, You Should've Come Over – Jeff Buckley" at 16
+    /// medium is longer than the title's 211 pt at 480 and scrolls.
+    func testALongTitleScrollsAndAShortOneStandsStill() {
+        typealias Line = MarqueeLine<EmptyView>
+        let room = layout().titleWidth
+        XCTAssertFalse(Line.overflows(contentWidth: room, room: room))
+        XCTAssertFalse(Line.overflows(contentWidth: room + 0.4, room: room), "a rounding is not a scroll")
+        XCTAssertTrue(Line.overflows(contentWidth: room + 1, room: room))
+        XCTAssertEqual(Line.travel(contentWidth: 300), 332)
+        XCTAssertEqual(Line.travelTime(contentWidth: 300), 332.0 / 30, accuracy: 0.0001)
+        XCTAssertEqual(Line.rest, 2.5)
+        let font = NSFont.systemFont(ofSize: PlayerLayout.titleSize, weight: .medium)
+        let words = MediaPane.titleLine(title: "Lover, You Should've Come Over", artist: "Jeff Buckley") as NSString
+        XCTAssertTrue(Line.overflows(contentWidth: words.size(withAttributes: [.font: font]).width, room: room))
+        let short = MediaPane.titleLine(title: "Be a Ghost", artist: "M25") as NSString
+        XCTAssertFalse(Line.overflows(contentWidth: short.size(withAttributes: [.font: font]).width, room: room))
     }
 
     /// The title truncates before the equalizer, 8 short of it; the subtitle

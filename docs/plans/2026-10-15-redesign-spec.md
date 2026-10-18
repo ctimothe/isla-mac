@@ -2572,6 +2572,33 @@ the left as the well is 20 in from the right; the name follows 6 pt after it
 squircle on macOS 26 and later, so every player stands the same height.
 `HeaderNotchBandTests.testThePlayersIconIsTheGearsHeight`.
 
+*Amended 2026-10-18 (owner, on hardware, three asks).*
+
+- **A dash, not a dot.** "Title · Artist" is "Title – Artist" (an en dash,
+  spaced), in the row, its tooltip and its label: a dash reads as "by", the
+  dot as a list (`MediaPane.artistSeparator`).
+- **A long line scrolls.** "Lover, You Should've Come Over" was cut to
+  "Lover, You Should've Come…" and its artist dropped. A title row — or the
+  artist on its own line — that is longer than its room now rests at its start
+  for 2.5 s, its far end faded rather than cut by an ellipsis, then travels left
+  at 30 pt/s until a copy 32 pt behind it stands where it began, and rests
+  again; while it travels both ends fade over 14 pt (`MarqueeLine`). The
+  pattern is the iPod's Now Playing screen's, tvOS's marquee text style's and
+  a car display's; Apple's own Now Playing marquee is private and its timing
+  undocumented, so these values are chosen, not copied. Frames are spent only
+  while it travels. It never moves under Reduce Motion or on a page drawn
+  beside the one on screen: there it truncates as before, the artist first.
+  The lyric line never scrolls; it sweeps.
+- **The cover has room under the header.** The board put the cover straight
+  under the header row, 6 pt below the 26 pt icons on a 14-inch notch, with 16
+  pt under it before the times. The cover, the title, the subtitle and the
+  equalizer stand 5 pt lower (`PlayerLayout.upperBlockDrop`): 11 above the
+  cover and 11 below it, in the same 160 pt of content; the times, the bar,
+  the controls and the panel's height do not move.
+
+`PlayerLayoutTests` (`testTheCoverSitsEvenlyBetweenTheHeaderIconsAndTheTimes`,
+`testTheTitleAndArtistAreJoinedByADash`, `testALongTitleScrollsAndAShortOneStandsStill`).
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the
