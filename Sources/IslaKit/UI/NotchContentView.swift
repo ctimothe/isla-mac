@@ -935,29 +935,24 @@ struct NotchContentView: View {
                     ))
                     .transition(.opacity)
             }
-        case .stage:
-            // The playing app's icon: where the words come from, in the place
-            // the board gives it.
-            if let icon = vm.media.sourceIcon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-                    .placedAt(SurfaceHeaderLayout.stageIcon(notchHeight: notch.height))
-                    .accessibilityLabel(vm.media.sourceName ?? "")
-                    .transition(.opacity)
-            }
+        case .player, .stage:
+            // Which app the sound comes from — Spotify, Music, Telegram, a
+            // browser — by its own icon and name, where the other pages name
+            // themselves (owner's review, 2026-10-18). The left of the
+            // player's header was empty while the right held the gear.
+            let source = PlayerSourceTitle(name: vm.media.sourceName, icon: vm.media.sourceIcon)
+            let room = SurfaceHeaderLayout.title(bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height)
+            SurfaceHeaderTitle(glyph: source.glyph, title: source.title, showsName: source.showsName(room: room.width))
+                .placedAt(room)
+                .transition(.opacity)
         case .tray:
             let count = vm.shelf.items.count
-            Image(systemName: "tray.full.fill")
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(Color.white)
+            HeaderGlyphView(glyph: .symbol("tray.full.fill"))
                 .placedAt(SurfaceHeaderLayout.trayGlyph(notchHeight: notch.height))
-                .accessibilityHidden(true)
                 .transition(.opacity)
             if ShelfHeader.showsCount(itemCount: count) {
                 Text(count, format: .number)
-                    .font(.system(size: ShelfLayout.headerCountSize, design: .rounded).monospacedDigit())
+                    .font(.system(size: ShelfLayout.headerCountSize, weight: .semibold).monospacedDigit())
                     .foregroundStyle(Color.white)
                     .contentTransition(.numericText(value: Double(count)))
                     .lineLimit(1)
@@ -967,7 +962,7 @@ struct NotchContentView: View {
                     .accessibilityLabel(ShelfHeader.countText(count))
                     .transition(.opacity)
             }
-        case .player, .drop, .welcome:
+        case .drop, .welcome:
             EmptyView()
         }
     }

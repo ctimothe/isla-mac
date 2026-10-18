@@ -108,6 +108,10 @@ struct ClipboardSearchField: View {
         }
         .padding(.leading, 9)
         .padding(.trailing, 3)
+        // The whole frame, not the text's height: without this the fill hugged
+        // the 16-point line and the field drew shorter than the filter beside
+        // it (owner's review, 2026-10-18).
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(shape.fill(Color.white.opacity(ClipboardHeader.searchFieldFillOpacity)))
         .overlay {
             if focused {

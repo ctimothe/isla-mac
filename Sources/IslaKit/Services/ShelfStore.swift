@@ -71,6 +71,53 @@ struct ShelfItem: Identifiable, Equatable {
         return formatter
     }()
 
+    /// When the card was added, as its tile says it (owner's review,
+    /// 2026-10-18: "show the exact date and the minutes it was added"): the
+    /// day — "Today", "Yesterday", or the date, with the year only when it is
+    /// not this one — over the time to the minute. A shelf of screenshots
+    /// named "Screenshot 2026-10-…" told them apart by nothing a tile could
+    /// fit; the moment is what tells them apart.
+    ///
+    /// The words are in the app's language, as everything else on the card
+    /// is; the time follows the Mac's own 12- or 24-hour setting, which only
+    /// the current locale carries.
+    static func added(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> (day: String, time: String) {
+        let day: String
+        if calendar.isDate(date, inSameDayAs: now) {
+            day = localized("Today")
+        } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+                  calendar.isDate(date, inSameDayAs: yesterday) {
+            day = localized("Yesterday")
+        } else if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
+            day = dayFormatter.string(from: date)
+        } else {
+            day = datedYearFormatter.string(from: date)
+        }
+        return (day, timeFormatter.string(from: date))
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: appLanguage)
+        formatter.setLocalizedDateFormatFromTemplate("dMMM")
+        return formatter
+    }()
+
+    private static let datedYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: appLanguage)
+        formatter.setLocalizedDateFormatFromTemplate("dMMMy")
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     // MARK: The card menu's header
 
     /// The disabled first line of the card's menu: what the file is, how big,

@@ -161,20 +161,25 @@ enum ShelfLayout {
     /// Read and written on the main thread only, where every layout is asked.
     nonisolated(unsafe) private static var keptSideRoom: (all: String, room: CGFloat)?
 
-    /// "60" in the count's 15 pt with tabular digits.
+    /// "60" in the count's 13 semibold with tabular digits.
     static func maximumCountWidth() -> CGFloat {
         ceil(("60" as NSString).size(withAttributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: headerCountSize, weight: .regular),
+            .font: NSFont.monospacedDigitSystemFont(ofSize: headerCountSize, weight: .semibold),
         ]).width)
     }
 
-    /// Remove All as drawn (`ShelfRemoveAllButton`): `trash` 18, 5 apart,
-    /// "All" in 15 regular, and 6 of padding either side.
+    /// Remove All as drawn (`ShelfRemoveAllButton`): the gear's well around
+    /// `trash` at 14 medium in a 16 pt column, 4 apart, "All" in 13 medium,
+    /// and 9 of padding either side.
+    static let removeAllGlyphWidth: CGFloat = 16
+    static let removeAllGap: CGFloat = 4
+    static let removeAllTextSize: CGFloat = 13
+    static let removeAllPadding: CGFloat = 9
     static func removeAllWidth() -> CGFloat {
         let text = ceil((localized("All") as NSString).size(withAttributes: [
-            .font: NSFont.systemFont(ofSize: 15, weight: .regular),
+            .font: NSFont.systemFont(ofSize: removeAllTextSize, weight: .medium),
         ]).width)
-        return 18 + 5 + text + 12
+        return removeAllGlyphWidth + removeAllGap + text + 2 * removeAllPadding
     }
 
     // MARK: - A tile (§19.7)
@@ -201,14 +206,15 @@ enum ShelfLayout {
 
     // MARK: - The header (§19.7)
 
-    /// `tray.full.fill`, 26 × 20, starting at 20 — where every summoned
-    /// surface's title starts, now that the tray is their size — and the
-    /// count, SF Pro Rounded 15, tabular, the board's 29.4 after it (52.6 and
-    /// 82 on the board). Centred in the header strip.
-    static let headerGlyph = CGSize(width: 26, height: 20)
+    /// `tray.full.fill` in the title's glyph box at 20, and the count where
+    /// a title's name starts, in the title's 13 semibold with tabular digits:
+    /// the tray's header is every page's title, its name the count (§19.7,
+    /// amended 2026-10-18 — it was a 26 × 20 glyph and a rounded 15 pt count
+    /// of its own). Centred in the header strip.
+    static let headerGlyph = SurfaceHeaderLayout.titleGlyphBox
     static let headerGlyphX: CGFloat = SurfaceHeaderLayout.titleLeading
-    static let headerCountX: CGFloat = headerGlyphX + (82 - 52.6)
-    static let headerCountSize: CGFloat = 15
+    static let headerCountX: CGFloat = headerGlyphX + SurfaceHeaderLayout.titleGlyphBox.width + SurfaceHeaderLayout.titleGap
+    static let headerCountSize: CGFloat = SurfaceHeaderLayout.titleSize
     /// Remove All ends `gearClearance` before the gear's well (§19.16). The
     /// board ended it 44 from the shape's right edge, which is where the gear
     /// now stands.

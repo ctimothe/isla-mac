@@ -92,12 +92,14 @@ final class ClipboardLayoutTests: XCTestCase {
     // MARK: The search and the Kind filter
 
     /// The search field at (16, 46), 270 × 28, radius 8, white 0.10, and the
-    /// Kind filter from (298, 48) to `bw − 16`, 24 tall (§19.8), both below
-    /// the header strip: the first redesign put them in it and the notch sat
-    /// on them.
+    /// Kind filter from (298, 46) to `bw − 16`, the same 28 tall (§19.8,
+    /// amended 2026-10-18: one row, one height), both below the header strip:
+    /// the first redesign put them in it and the notch sat on them.
     func testTheSearchFieldAndTheFilterAtTheDefaultWidth() {
         XCTAssertEqual(ClipboardHeader.searchField, CGRect(x: 16, y: 8, width: 270, height: 28))
-        XCTAssertEqual(ClipboardHeader.filter(bodyWidth: 560), CGRect(x: 298, y: 10, width: 246, height: 24))
+        XCTAssertEqual(ClipboardHeader.filter(bodyWidth: 560), CGRect(x: 298, y: 8, width: 246, height: 28))
+        XCTAssertEqual(ClipboardHeader.filter(bodyWidth: 560).height, ClipboardHeader.searchField.height)
+        XCTAssertEqual(ClipboardHeader.filter(bodyWidth: 560).midY, ClipboardHeader.searchField.midY)
         XCTAssertEqual(ClipboardHeader.searchFieldRadius, 8)
         XCTAssertEqual(ClipboardHeader.searchFieldFillOpacity, 0.10)
         XCTAssertEqual(ClipboardHeader.searchRingWidth, 1.5)

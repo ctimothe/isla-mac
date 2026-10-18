@@ -49,9 +49,12 @@ extension NotchViewModel {
         /// The glyph its header row leads with, where it has one (§19.8).
         var symbol: String? {
             switch self {
-            case .clipboard: return "doc.on.clipboard"
-            case .translate: return "translate"
-            case .settings: return "gearshape"
+            // Filled, as the Shelf's `tray.full.fill` is: the three outline
+            // symbols beside it read as somebody else's icons (owner's review,
+            // 2026-10-18).
+            case .clipboard: return "list.clipboard.fill"
+            case .translate: return "character.bubble.fill"
+            case .settings: return "gearshape.fill"
             case .tray: return "tray.full.fill"
             case .player, .stage, .drop, .welcome: return nil
             }

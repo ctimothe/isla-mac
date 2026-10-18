@@ -121,11 +121,17 @@ enum ClipboardLayout {
 // MARK: - The search and the Kind filter (§19.8)
 
 /// The row under the header strip: the search field at (16, 46), 270 × 28,
-/// radius 8, and the Kind filter — All, Text, Links, Images — from (298, 48)
-/// to `bw − 16`. Both sit below the strip, so the notch, which occupies its
-/// middle, covers neither (`HeaderNotchBandTests`).
+/// radius 8, and the Kind filter — All, Text, Links, Images — from (298, 46)
+/// to `bw − 16`, the same 28 tall, so the two read as one row of controls.
+/// Both sit below the strip, so the notch, which occupies its middle, covers
+/// neither (`HeaderNotchBandTests`).
+///
+/// One height since 2026-10-18. The filter was 24 at y 48, and the field's
+/// fill hugged its text rather than its 28-point frame, so the field drew
+/// shorter than the filter beside it — "too stuck", in the owner's words.
 enum ClipboardHeader {
-    static let searchField = SurfaceLayout.inContent(CGRect(x: 16, y: 46, width: 270, height: 28))
+    static let controlHeight: CGFloat = 28
+    static let searchField = SurfaceLayout.inContent(CGRect(x: 16, y: 46, width: 270, height: controlHeight))
     static let searchFieldRadius: CGFloat = 8
     static let searchFieldFillOpacity: Double = 0.10
     /// The field's ring while it has the keyboard: 1.5 pt of blue at 0.70.
@@ -134,10 +140,10 @@ enum ClipboardHeader {
     /// The ⓧ inside the field's trailing end: 16 pt.
     static let clearSide: CGFloat = 16
 
-    /// The filter's frame: from x 298 to `bw − 16`, 24 tall at y 48.
-    static let filterHeight: CGFloat = 24
+    /// The filter's frame: from x 298 to `bw − 16`, the field's 28 at its y.
+    static let filterHeight: CGFloat = controlHeight
     static func filter(bodyWidth: CGFloat) -> CGRect {
-        SurfaceLayout.inContent(CGRect(x: 298, y: 48, width: max(0, bodyWidth - 16 - 298), height: filterHeight))
+        SurfaceLayout.inContent(CGRect(x: 298, y: 46, width: max(0, bodyWidth - 16 - 298), height: filterHeight))
     }
 
     /// The widest kind's name at the size it is drawn, plus 8 of air.

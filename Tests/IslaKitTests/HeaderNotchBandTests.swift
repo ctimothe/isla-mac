@@ -159,7 +159,7 @@ final class HeaderNotchBandTests: XCTestCase {
                     for surface in titled {
                         let font = NSFont.systemFont(ofSize: SurfaceHeaderLayout.titleSize, weight: .semibold)
                         let name = (surface.title as NSString).size(withAttributes: [.font: font]).width
-                        let needed = SurfaceHeaderLayout.titleGlyphSize + SurfaceHeaderLayout.titleGap + name * 0.82
+                        let needed = SurfaceHeaderLayout.titleGlyphBox.width + SurfaceHeaderLayout.titleGap + name * 0.82
                         XCTAssertLessThanOrEqual(
                             needed, room,
                             "\(surface.title) (\(language)) needs \(needed) of \(room) at body \(width), notch \(notchWidth)"
@@ -172,14 +172,37 @@ final class HeaderNotchBandTests: XCTestCase {
 
     // MARK: Stage
 
-    func testTheStageIconStaysLeftOfTheNotch() {
-        for height in notchHeights {
-            let icon = SurfaceHeaderLayout.stageIcon(notchHeight: height)
-            XCTAssertEqual(icon.size, CGSize(width: 16, height: 16))
-            XCTAssertEqual(icon.minX, 20)
-        }
-        for width in widths {
-            assertClear(at: width) { _, height in [("Stage icon", SurfaceHeaderLayout.stageIcon(notchHeight: height))] }
+    /// The player and the stage carry a title like every page: the app the
+    /// sound comes from, by its icon and name (owner's review, 2026-10-18),
+    /// or a note and "Music" while none is known. The player is narrow: where
+    /// the name does not fit whole it is not drawn at all, never shrunk or
+    /// cut, and the glyph alone always fits before the notch.
+    func testThePlayersTitleNamesTheAppAndStaysLeftOfTheNotch() {
+        let icon = NSImage(size: NSSize(width: 32, height: 32))
+        let spotify = PlayerSourceTitle(name: "Spotify", icon: icon)
+        XCTAssertEqual(spotify.title, "Spotify")
+        XCTAssertEqual(spotify.glyph, .app(icon))
+        let unknown = PlayerSourceTitle(name: nil, icon: nil)
+        XCTAssertEqual(unknown.title, localized("Music"))
+        XCTAssertEqual(unknown.glyph, .symbol("music.note"))
+        XCTAssertEqual(PlayerSourceTitle(name: "  ", icon: nil).title, localized("Music"))
+        XCTAssertNotNil(NSImage(systemSymbolName: "music.note", accessibilityDescription: nil))
+
+        let font = NSFont.systemFont(ofSize: SurfaceHeaderLayout.titleSize, weight: .semibold)
+        for name in ["Yandex Music", "Google Chrome", "Apple Music", "Telegram", "Deezer", "Music"] {
+            let width = ceil((name as NSString).size(withAttributes: [.font: font]).width)
+            let needed = SurfaceHeaderLayout.titleGlyphBox.width + SurfaceHeaderLayout.titleGap + width
+            for surface: NotchViewModel.Surface in [.player, .stage] {
+                for notchWidth in notchWidths {
+                    let room = SurfaceHeaderLayout.title(
+                        bodyWidth: SurfaceLayout.bodySize(for: surface, bodyWidth: 480, notch: CGSize(width: notchWidth, height: 38)).width,
+                        notchWidth: notchWidth, notchHeight: 38
+                    ).width
+                    let title = PlayerSourceTitle(name: name, icon: nil)
+                    XCTAssertEqual(title.showsName(room: room), needed <= room, "\(name) on \(surface) under \(notchWidth)")
+                    XCTAssertLessThanOrEqual(SurfaceHeaderLayout.titleGlyphBox.width, room, "the glyph always fits")
+                }
+            }
         }
     }
 

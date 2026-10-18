@@ -298,15 +298,36 @@ final class ShelfLayoutTests: XCTestCase {
         XCTAssertFalse(ShelfHeader.showsRemoveAll(itemCount: 0), "and nothing to remove")
     }
 
-    /// The glyph (26 × 20) starts at 20, where every summoned surface's title
-    /// does, and the count (SF Pro Rounded 15) keeps the board's 29.4 after it;
-    /// Remove All ends 8 before the gear's well, which stands where the board
-    /// ended Remove All (§19.16, §19.7 amended 2026-10-18).
-    func testTheHeaderIsTheBoards() {
-        XCTAssertEqual(ShelfLayout.headerGlyph, CGSize(width: 26, height: 20))
+    /// A tile says when its card was added (owner's review, 2026-10-18):
+    /// "Today" or "Yesterday" by the calendar day, not by 24 hours, the date
+    /// before that — with the year only when it is another year — over the
+    /// time to the minute.
+    func testATileSaysWhenItsCardWasAdded() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        func at(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+        let now = at("2026-10-18T00:30:00Z")
+        XCTAssertEqual(ShelfItem.added(at("2026-10-18T00:05:00Z"), now: now, calendar: calendar).day, localized("Today"))
+        XCTAssertEqual(ShelfItem.added(at("2026-10-17T23:55:00Z"), now: now, calendar: calendar).day, localized("Yesterday"),
+                       "ten minutes ago, across midnight, is yesterday")
+        let older = ShelfItem.added(at("2026-10-12T15:12:00Z"), now: now, calendar: calendar).day
+        XCTAssertTrue(older.contains("12"), older)
+        XCTAssertFalse(older.contains("2026"), "this year's date carries no year: \(older)")
+        XCTAssertTrue(ShelfItem.added(at("2025-12-31T10:00:00Z"), now: now, calendar: calendar).day.contains("2025"))
+        let time = ShelfItem.added(at("2026-10-18T00:05:00Z"), now: now, calendar: calendar).time
+        XCTAssertFalse(time.isEmpty)
+        XCTAssertTrue(time.contains(":") || time.contains("."), "to the minute: \(time)")
+    }
+
+    /// The tray's header is a title like every page's (§19.7, amended
+    /// 2026-10-18): the glyph in the title's 18 × 16 box at 20, the count
+    /// where a title's name starts, in the name's 13; Remove All ends 8 before
+    /// the gear's well, which stands where the board ended Remove All.
+    func testTheHeaderIsEveryPagesTitle() {
+        XCTAssertEqual(ShelfLayout.headerGlyph, SurfaceHeaderLayout.titleGlyphBox)
         XCTAssertEqual(ShelfLayout.headerGlyphX, SurfaceHeaderLayout.titleLeading)
-        XCTAssertEqual(ShelfLayout.headerCountX, 20 + 29.4, accuracy: 0.0001)
-        XCTAssertEqual(ShelfLayout.headerCountSize, 15)
+        XCTAssertEqual(ShelfLayout.headerCountX, 20 + 18 + 6, accuracy: 0.0001)
+        XCTAssertEqual(ShelfLayout.headerCountSize, SurfaceHeaderLayout.titleSize)
         XCTAssertEqual(ShelfLayout.removeAllTrailing(bodyWidth: 385.3), 385.3 - 46 - 8, accuracy: 0.0001)
         XCTAssertEqual(ShelfLayout.emptyLineSize, 13)
     }

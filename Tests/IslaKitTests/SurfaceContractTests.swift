@@ -84,9 +84,11 @@ final class SurfaceContractTests: XCTestCase {
             guard let symbol = surface.symbol else { continue }
             XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), "\(symbol) for \(surface)")
         }
-        XCTAssertEqual(Surface.clipboard.symbol, "doc.on.clipboard")
-        XCTAssertEqual(Surface.translate.symbol, "translate")
-        XCTAssertEqual(Surface.settings.symbol, "gearshape")
+        // Filled, like the Shelf's tray (owner's review, 2026-10-18).
+        XCTAssertEqual(Surface.clipboard.symbol, "list.clipboard.fill")
+        XCTAssertEqual(Surface.translate.symbol, "character.bubble.fill")
+        XCTAssertEqual(Surface.settings.symbol, "gearshape.fill")
+        XCTAssertEqual(Surface.tray.symbol, "tray.full.fill")
     }
 
     // MARK: Sizes (§19.6–§19.8)

@@ -311,6 +311,8 @@ private struct ShelfTile: View {
         // overlay, which has no accessibility, so nothing on the Shelf could be
         // used (F-006). `.ignore` swallows that overlay and the badge too; what
         // they do is offered here instead.
+        // The name, now that the tile shows when it was added instead.
+        .help(item.name)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(item.name)
         .accessibilityValue(accessibilityValue)
@@ -389,20 +391,36 @@ private struct ShelfTile: View {
             .accessibilityHidden(true)
     }
 
-    /// The name: two lines at most, centred, the second cut in the middle so
-    /// the extension survives (`ShelfTileName`).
+    /// When the card was added — the day over the time (`ShelfItem.added`),
+    /// in the two lines the name had — and the name itself only for a card
+    /// from before dates were kept. The name is the tile's tooltip and its
+    /// VoiceOver label either way.
+    @ViewBuilder
     private var nameBlock: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(ShelfTileName.drawnLines(item.name, selected: false).enumerated()), id: \.offset) { _, line in
-                Text(line)
-                    .font(.system(size: ShelfLayout.nameSize, weight: .semibold))
-                    .tracking(Theme.tracking(forSize: ShelfLayout.nameSize))
-                    .foregroundStyle(item.isOffline ? Theme.tertiary : Color.white.opacity(Theme.shelfTileNameOpacity))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .frame(height: ShelfLayout.nameLineHeight)
+        if let date = item.date {
+            let added = ShelfItem.added(date)
+            VStack(spacing: 0) {
+                captionLine(added.day, weight: .semibold, color: Color.white.opacity(Theme.shelfTileNameOpacity))
+                captionLine(added.time, weight: .medium, color: Theme.secondary)
+                    .monospacedDigit()
+            }
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(ShelfTileName.drawnLines(item.name, selected: false).enumerated()), id: \.offset) { _, line in
+                    captionLine(line, weight: .semibold, color: Color.white.opacity(Theme.shelfTileNameOpacity))
+                }
             }
         }
+    }
+
+    private func captionLine(_ text: String, weight: Font.Weight, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: ShelfLayout.nameSize, weight: weight))
+            .tracking(Theme.tracking(forSize: ShelfLayout.nameSize))
+            .foregroundStyle(item.isOffline ? Theme.tertiary : color)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(height: ShelfLayout.nameLineHeight)
     }
 
     /// The badge: `xmark.circle.fill` 17 at the tile's (57.75, 5.5), white 0.62

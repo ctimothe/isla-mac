@@ -26,23 +26,30 @@ enum SurfaceHeaderLayout {
         centred(x: bodyWidth - 76, size: CGSize(width: toolSide, height: toolSide), notchHeight: notchHeight)
     }
 
-    /// A summoned surface's title: its glyph at 14 and its name, 13 semibold,
-    /// from (20, 11). Its room ends `notchClearance` before the notch; the
-    /// name shrinks a little before it is cut ("Буфер обмена" at 480 under a
+    /// Every page's title, the player's and the stage's included: what leads
+    /// it in one 18 × 16 box — a filled symbol at 14 medium, white, or the
+    /// playing app's own icon at 16 — and then its name, 13 semibold, from
+    /// (20, 11). Its room ends `notchClearance` before the notch; the name
+    /// shrinks a little before it is cut ("Буфер обмена" at 480 under a
     /// 220 pt notch).
+    ///
+    /// One box for every glyph since 2026-10-18. The Shelf's `tray.full.fill`
+    /// was drawn 26 × 20 in white while Clipboard's and Translate's outline
+    /// symbols were 14 regular in grey, and the owner read the Shelf's as the
+    /// one native-looking icon of the three: "consider the whole app as one
+    /// app rather than something separate for each section".
     static let titleLeading: CGFloat = 20
+    static let titleGlyphBox = CGSize(width: 18, height: 16)
     static let titleGlyphSize: CGFloat = 14
+    static let appIconSide: CGFloat = 16
+    /// The glyph in a header tool's well: the gear, History, Remove All.
+    static let toolGlyphSize: CGFloat = 14
     static let titleSize: CGFloat = 13
     static let titleGap: CGFloat = 6
     static let titleRowHeight: CGFloat = 16
     static func title(bodyWidth: CGFloat, notchWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
         let width = max(0, (bodyWidth - notchWidth) / 2 - notchClearance - titleLeading)
         return centred(x: titleLeading, size: CGSize(width: width, height: titleRowHeight), notchHeight: notchHeight)
-    }
-
-    /// The stage's leading icon: the playing app's, 16 × 16 at (20, 11).
-    static func stageIcon(notchHeight: CGFloat) -> CGRect {
-        centred(x: 20, size: CGSize(width: 16, height: 16), notchHeight: notchHeight)
     }
 
     /// The tray's glyph, 26 × 20, and its count (`ShelfLayout.headerGlyphX`,
@@ -111,7 +118,7 @@ struct HeaderToolButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: SurfaceHeaderLayout.titleGlyphSize, weight: .medium))
+                .font(.system(size: SurfaceHeaderLayout.toolGlyphSize, weight: .medium))
                 .foregroundStyle(isOn ? Color.white : Theme.secondary)
                 // The gear turning into Settings' close button, and back, is
                 // one glyph replaced in its well rather than two buttons
@@ -142,32 +149,121 @@ struct HeaderToolButton: View {
     }
 }
 
-/// A summoned surface's title (spec §19.8): its glyph and its name.
+/// What leads a header's title: a symbol, or the playing app's own icon.
+enum HeaderGlyph: Equatable {
+    case symbol(String)
+    case app(NSImage)
+
+    static func == (lhs: HeaderGlyph, rhs: HeaderGlyph) -> Bool {
+        switch (lhs, rhs) {
+        case (.symbol(let a), .symbol(let b)): return a == b
+        case (.app(let a), .app(let b)): return a === b
+        default: return false
+        }
+    }
+}
+
+/// A page's title (spec §19.8, amended 2026-10-18): its glyph and its name,
+/// on every page — the player and the stage name the app the sound comes
+/// from, the way Clipboard and Translate name themselves.
 struct SurfaceHeaderTitle: View {
-    let symbol: String
+    let glyph: HeaderGlyph
     let title: String
+    /// False where only the glyph fits (`PlayerSourceTitle.showsName`): the
+    /// title is then the element's label and the glyph's tooltip.
+    var showsName = true
+
+    init(glyph: HeaderGlyph, title: String, showsName: Bool = true) {
+        self.glyph = glyph
+        self.title = title
+        self.showsName = showsName
+    }
+
+    init(symbol: String, title: String) {
+        self.init(glyph: .symbol(symbol), title: title)
+    }
 
     var body: some View {
         HStack(spacing: SurfaceHeaderLayout.titleGap) {
-            Image(systemName: symbol)
-                .font(.system(size: SurfaceHeaderLayout.titleGlyphSize, weight: .regular))
-                .foregroundStyle(Theme.secondary)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.system(size: SurfaceHeaderLayout.titleSize, weight: .semibold))
-                .tracking(Theme.tracking(forSize: SurfaceHeaderLayout.titleSize))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .truncationMode(.tail)
+            HeaderGlyphView(glyph: glyph)
+            if showsName {
+                Text(title)
+                    .font(.system(size: SurfaceHeaderLayout.titleSize, weight: .semibold))
+                    .tracking(Theme.tracking(forSize: SurfaceHeaderLayout.titleSize))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .truncationMode(.tail)
+            }
         }
-        .accessibilityElement(children: .combine)
+        .help(showsName ? "" : title)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
         .accessibilityAddTraits(.isHeader)
     }
 }
 
-/// The tray's Remove All (spec §19.7): `trash` 18 × 20 and "All", 5 apart, 15
-/// regular. It asks first: the question stands in the tray, in place of the row.
+/// The player's and the stage's title: the app the sound comes from, by its
+/// own icon and its name — Spotify, Music, Telegram, a browser playing a tab —
+/// taken from the running process, so an app nobody listed is named all the
+/// same. Under a note and "Music" while no app is known.
+///
+/// The player is the narrowest page, and under a wide notch the room left of
+/// it is 40 points: the icon always, the name only where all of it fits —
+/// never shrunk or cut to "Yandex M…". The stage is the panel's width and
+/// names the app in full. The name is the title's accessibility label and
+/// its tooltip either way.
+struct PlayerSourceTitle: Equatable {
+    let glyph: HeaderGlyph
+    let title: String
+
+    init(name: String?, icon: NSImage?) {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        title = trimmed.isEmpty ? localized("Music") : trimmed
+        glyph = icon.map(HeaderGlyph.app) ?? .symbol("music.note")
+    }
+
+    /// Whether the name is drawn beside the glyph in a title `room` wide.
+    func showsName(room: CGFloat) -> Bool {
+        let font = NSFont.systemFont(ofSize: SurfaceHeaderLayout.titleSize, weight: .semibold)
+        let name = ceil((title as NSString).size(withAttributes: [.font: font]).width)
+        return SurfaceHeaderLayout.titleGlyphBox.width + SurfaceHeaderLayout.titleGap + name <= room
+    }
+}
+
+/// A title's glyph in the header's one glyph box: a filled symbol at 14
+/// medium in white, or an app's icon at 16, centred, so a page with an app
+/// and a page with a symbol start their names at the same x.
+struct HeaderGlyphView: View {
+    let glyph: HeaderGlyph
+
+    var body: some View {
+        Group {
+            switch glyph {
+            case .symbol(let name):
+                Image(systemName: name)
+                    .font(.system(size: SurfaceHeaderLayout.titleGlyphSize, weight: .medium))
+                    .foregroundStyle(Color.white)
+            case .app(let icon):
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: SurfaceHeaderLayout.appIconSide, height: SurfaceHeaderLayout.appIconSide)
+            }
+        }
+        .frame(width: SurfaceHeaderLayout.titleGlyphBox.width, height: SurfaceHeaderLayout.titleGlyphBox.height)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The tray's Remove All (spec §19.7, amended 2026-10-18): `trash` and "All"
+/// in a well that is the gear's — 26 tall, radius 8, white 0.08 (0.14 under
+/// the pointer), the glyph at the gear's 14 medium and the word at 13 medium,
+/// both secondary. It was an 18 × 20 glyph stretched to fit and "All" in 15
+/// regular on no plate, standing beside the gear's well as a different kind
+/// of control (owner's review: "too big for its text, not matching the
+/// settings icon next to it"). It asks first: the question stands in the
+/// tray, in place of the row.
 struct ShelfRemoveAllButton: View {
     let action: () -> Void
     @State private var hovering = false
@@ -176,23 +272,27 @@ struct ShelfRemoveAllButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: ShelfLayout.removeAllGap) {
                 Image(systemName: "trash")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 18, height: 20)
+                    .font(.system(size: SurfaceHeaderLayout.toolGlyphSize, weight: .medium))
+                    .frame(width: ShelfLayout.removeAllGlyphWidth)
                 Text(localized("All"))
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.system(size: ShelfLayout.removeAllTextSize, weight: .medium))
                     .lineLimit(1)
                     .fixedSize()
             }
             .foregroundStyle(hovering ? Color.white : Theme.secondary)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, ShelfLayout.removeAllPadding)
             .frame(height: SurfaceHeaderLayout.toolSide)
-            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(hovering ? 0.14 : 0.08))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(PanelButtonStyle())
         .onHover { hovering = $0 }
+        .animation(Theme.contentAnimation, value: hovering)
         .help(localized("Remove All"))
         .accessibilityLabel(localized("Remove All"))
         .accessibilityHint(localized("Asks for confirmation before acting."))
