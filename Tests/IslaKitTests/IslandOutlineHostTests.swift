@@ -343,18 +343,30 @@ final class IslandOutlineHostTests: XCTestCase {
     /// That is the one cost the layers add to the main thread, and it is paid
     /// once per change, not per frame; it has to stay small enough that the
     /// click's own frame is not the one that drops.
+    ///
+    /// It counts this thread's CPU time, not the wall clock. Measured by the
+    /// wall clock, the slowest of forty starts took 19–48 ms on a Mac whose
+    /// load average stood at 73 (other sessions compiling) and passed one run
+    /// in five with the code unchanged: what it measured was the scheduler
+    /// handing the core to someone else mid-start, which is not a cost the
+    /// start puts on the main thread.
     func testStartingAMoveCostsTheMainThreadWellUnderAFrame() {
         let (host, _) = rig()
         host.apply(state(), curve: .instant)
-        let clock = ContinuousClock()
-        var worst = Duration.zero
+        var worst = 0.0
         for index in 0..<40 {
             let target = index.isMultiple(of: 2) ? player : state()
-            let took = clock.measure { host.apply(target, curve: .island) }
-            worst = max(worst, took)
+            let before = Self.threadCPUMilliseconds()
+            host.apply(target, curve: .island)
+            worst = max(worst, Self.threadCPUMilliseconds() - before)
         }
-        let milliseconds = Double(worst.components.seconds) * 1000 + Double(worst.components.attoseconds) / 1e15
-        XCTAssertLessThan(milliseconds, 8, "the slowest of forty starts, in a debug build: \(milliseconds) ms")
+        XCTAssertLessThan(worst, 8, "the slowest of forty starts, in a debug build: \(worst) ms of CPU")
+    }
+
+    private static func threadCPUMilliseconds() -> Double {
+        var now = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now)
+        return Double(now.tv_sec) * 1000 + Double(now.tv_nsec) / 1e6
     }
 
     // MARK: Resize
