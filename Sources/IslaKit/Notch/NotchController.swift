@@ -1406,19 +1406,7 @@ final class NotchController {
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
-        let root = NotchRootView(frame: CGRect(origin: .zero, size: geometry.windowSize))
-        root.autoresizingMask = [.width, .height]
-
-        let hosting = NSHostingView(rootView: NotchContentView(vm: vm))
-        // The pages settle on this view's display link, frame by frame
-        // (§19.16), rather than on a timer that drifts against the display.
-        (vm.pageTravel.clock as? DisplayPageClock)?.view = hosting
-        hosting.frame = root.bounds
-        hosting.autoresizingMask = [.width, .height]
-        if #available(macOS 14.0, *) {
-            hosting.sizingOptions = []
-        }
-        root.addSubview(hosting)
+        let root = NotchStage.make(viewModel: vm, windowSize: geometry.windowSize).root
 
         // Entering draws the edge, leaving takes it away. The shake used to
         // fire here, which spent the refusal on a gesture that had not asked
