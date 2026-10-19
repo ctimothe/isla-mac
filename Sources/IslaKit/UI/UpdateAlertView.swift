@@ -12,9 +12,11 @@ import SwiftUI
 /// alert stays and follows the install, until Isla restarts as the new
 /// version or says why it could not (plan 2026-10-19).
 ///
-/// One container to VoiceOver, named by its title, with its buttons inside:
-/// the island's own "Isla" button would hide them, and an alert that cannot be
-/// answered by someone who cannot see it is not a choice.
+/// To VoiceOver, the island's own container holds it, named by its title
+/// (`IslandAccessibility`, which contains rather than hides it while the alert
+/// is up), with the lines and buttons inside: the island's usual "Isla" button
+/// would hide them, and an alert that cannot be answered by someone who cannot
+/// see it is not a choice.
 @MainActor
 struct UpdateAlertView: View {
     let offer: UpdateOffer
@@ -60,12 +62,13 @@ struct UpdateAlertView: View {
                 .frame(width: textWidth, alignment: .leading)
                 .islandBaseline(Layout.titleBaseline(notchHeight: notchHeight))
                 .offset(x: Layout.textLeading)
+                // The island's container is named by it (`IslandAccessibility`);
+                // read here as well, it was said twice.
+                .accessibilityHidden(true)
             detail(stage)
             controls(stage)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(localized("Isla %@ is ready", offer.version))
     }
 
     private var textWidth: CGFloat { Layout.textWidth(islandWidth: size.width) }

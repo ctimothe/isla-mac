@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import XCTest
 @testable import IslaKit
 
@@ -86,6 +87,19 @@ final class UpdateOfferTests: XCTestCase {
         XCTAssertEqual(stage(.failed(.offline), for: older), .offer, "a failure left from another release is not this one's")
         XCTAssertEqual(stage(.installing, for: older), .working(localized("Installing…"), progress: 1),
                        "busy is busy: Install would be ignored")
+        XCTAssertEqual(stage(.downloading(received: 1, total: 2), for: older),
+                       .working(localized("Downloading Isla %@…", "0.3.0.0"), progress: 0.5),
+                       "and says which version it is downloading, which is not the offer's")
+    }
+
+    /// The controller hears the installer's steps, not every byte of the
+    /// download: a progress tick is the view's to draw.
+    func testTheControllerHearsStepsNotProgress() {
+        let step = NotchController.updateStep
+        XCTAssertEqual(step(.downloading(received: 1, total: 100)), step(.downloading(received: 99, total: 100)))
+        XCTAssertNotEqual(step(.downloading(received: 99, total: 100)), step(.verifying))
+        XCTAssertEqual(step(.failed(.offline)), .failed(.offline))
+        XCTAssertNotEqual(step(.failed(.offline)), step(.failed(.signature)))
     }
 
     func testEachStageHasItsButtonsAndItsLines() {
@@ -405,6 +419,33 @@ final class UpdateOfferTests: XCTestCase {
         XCTAssertTrue(body[..<end].contains("considerUpdateOffer()"), "the unlock asks for what it held back")
     }
 
+    /// The pop-up outranks it (§19.1): the offer gives way unanswered and
+    /// returns, with a fresh hold, when the pop-up folds. A release that
+    /// overtook it meanwhile is what returns — the replaced one is asked again
+    /// before it is shown, and never comes back for a frame first.
+    func testAPopUpReplacesItAndItReturnsWhenThePopUpFolds() throws {
+        let h = try harness(available: release())
+        h.controller.hudFoldDelay = 0.15
+        var shown: [String?] = []
+        let watch = h.vm.$updateOffer.map { $0?.version }.removeDuplicates().sink { shown.append($0) }
+        defer { watch.cancel() }
+        let key = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil)
+
+        h.controller.considerUpdateOffer()
+        h.controller.presentHUD(key)
+        XCTAssertNotNil(h.vm.hud)
+        XCTAssertNil(h.vm.updateOffer, "the pop-up takes its place")
+        XCTAssertTrue(h.memory.isUnanswered("0.3.0.1"), "replaced is not answered")
+        spin(until: { h.vm.hud == nil && h.vm.updateOffer != nil })
+        XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.1", "back when the pop-up folds")
+
+        h.controller.presentHUD(key)
+        h.controller.availableUpdate = { self.release("0.3.0.2") }
+        spin(until: { h.vm.hud == nil && h.vm.updateOffer != nil })
+        XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.2", "the newer release returns")
+        XCTAssertEqual(shown, [nil, "0.3.0.1", nil, "0.3.0.1", nil, "0.3.0.2"], "the overtaken one is never shown again")
+    }
+
     func testNothingIsOfferedWithoutAnUpdate() throws {
         let h = try harness(available: nil)
         h.controller.considerUpdateOffer()
@@ -426,7 +467,7 @@ final class UpdateOfferTests: XCTestCase {
 
         let root = await AXProbe.tree(of: NotchContentView(vm: vm), size: CGSize(width: VisualLab.windowSize.width, height: 200))
         let title = localized("Isla %@ is ready", "0.3.0.1")
-        XCTAssertFalse(root.all { $0.label == title }.isEmpty, root.dump)
+        XCTAssertEqual(root.all { $0.label == title }.count, 1, "named once, not read twice\n\(root.dump)")
         let buttons = root.all(role: "AXButton")
         let later = try XCTUnwrap(buttons.first { $0.label == localized("Later") }, root.dump)
         let install = try XCTUnwrap(buttons.first { $0.label == localized("Install") }, root.dump)

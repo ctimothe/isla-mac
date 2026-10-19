@@ -1811,7 +1811,7 @@ final class NotchController {
         // the island something to offer or take an offer back (spec §19.5 f).
         // A pass later, for the same reason as the queue's sink below.
         UpdateCheck.shared.$lastAvailable.map { $0?.version }.removeDuplicates().map { _ in () }
-            .merge(with: UpdateInstaller.shared.$phase.removeDuplicates().map { _ in () })
+            .merge(with: UpdateInstaller.shared.$phase.map(Self.updateStep).removeDuplicates().map { _ in () })
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.updateStateChanged() }
             }
@@ -2949,6 +2949,12 @@ final class NotchController {
     /// surface, the lock or a higher alert.
     private func presentUpdate(_ offer: UpdateOffer) {
         guard let vm = viewModel, vm.updateOffer == nil else { return }
+        // Asked again here, not only when it was posted: an offer that waited
+        // behind the pop-up or an open panel may since have been answered,
+        // withdrawn or overtaken, and shown for a frame before
+        // `considerUpdateOffer` put it right it was a version announced that
+        // was no longer offered (review, 2026-10-19).
+        guard availableUpdate()?.version == offer.version, updateOfferMemory.isUnanswered(offer.version) else { return }
         updateRetryWork?.cancel()
         updateRetryWork = nil
         let blocked = Self.alertsBlocked(
@@ -3024,6 +3030,14 @@ final class NotchController {
         }
         updateRetryWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// The installer's step, with the download's progress taken out: the
+    /// controller acts on a step changing, and a download reports its bytes
+    /// many times a second — the alert's own view draws those.
+    nonisolated static func updateStep(_ phase: UpdateInstaller.Phase) -> UpdateInstaller.Phase {
+        if case .downloading = phase { return .downloading(received: 0, total: 0) }
+        return phase
     }
 
     /// A check or the installer moved. An offer up and back to being only an

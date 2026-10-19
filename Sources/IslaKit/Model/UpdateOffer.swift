@@ -144,7 +144,9 @@ enum UpdateAlertStage: Equatable {
             return .offer
         case .downloading(let received, let total):
             let fraction = total > 0 ? min(max(Double(received) / Double(total), 0), 1) : 0
-            return .working(localized("Downloading Isla %@…", offer.version), progress: fraction)
+            // The installer's own release: busy with another one, it is that
+            // one being downloaded, whatever the alert offers.
+            return .working(localized("Downloading Isla %@…", installerRelease?.version ?? offer.version), progress: fraction)
         case .verifying:
             return .working(localized("Verifying…"), progress: 1)
         case .installing:
