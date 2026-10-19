@@ -266,6 +266,15 @@ smaller path:
 - **`8a5b970`.** An access-control entry that lets anyone else add to or
   remove from the feed, or a folder above it, counts as a write bit.
 
+A final Codex pass over the finished branch found two more, fixed the same way:
+
+- **`0f4fe7b`.** With one build installing and a newer one published, a
+  pop-up taking the alert's place brought it back as the newer build over the
+  older one's progress. While an install runs the island now owes the release
+  being installed (`owedRelease`).
+- **`a56fb5b`.** The script refused feed paths with a space in them; the
+  writer percent-encodes its file URLs instead.
+
 Left as is: a check that fails while the feed folder is briefly missing keeps
 `lastAvailable` (`UpdateCheck.apply` changes it only on an answer), so a shown
 offer is not withdrawn by it.
