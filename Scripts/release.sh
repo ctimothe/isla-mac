@@ -94,6 +94,9 @@ done
 [ "$BUILD" -gt "$LAST_BUILD" ] || fail "BUILD=$BUILD must be greater than $LAST_TAG's $LAST_BUILD; increment it in Scripts/version"
 
 echo "==> local release gates"
+# A release carries the release key only, never the local feed's: bundle.sh
+# leaves it out and test-package.sh checks that it did.
+export ISLA_OMIT_DEV_UPDATE_KEY=1
 swift test
 bash Scripts/test-provenance.sh
 bash Scripts/test-branding.sh

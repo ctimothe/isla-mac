@@ -14,9 +14,10 @@ if [ -z "$VERSION" ]; then
     echo "!!! в Scripts/version нет строки VERSION=" >&2
     exit 1
 fi
-# ISLA_VERSION_OVERRIDE is Scripts/rehearse-update.sh's, as in bundle.sh: the
-# rehearsal image is packed here, exactly as a release image is, but named for
-# the rehearsal version. Nothing else sets it.
+# ISLA_VERSION_OVERRIDE is Scripts/rehearse-update.sh's and
+# Scripts/publish-dev-update.sh's, as in bundle.sh: their image is packed here,
+# exactly as a release image is, but named for their version. Nothing else
+# sets it.
 if [ -n "${ISLA_VERSION_OVERRIDE:-}" ]; then
     case "$ISLA_VERSION_OVERRIDE" in
         *[!0-9.]*|.*|*.|*..*) echo "!!! ISLA_VERSION_OVERRIDE must be dotted numbers" >&2; exit 1 ;;

@@ -74,7 +74,9 @@ worktree the change lives in).
 swift test                          # unit tests
 swift test --filter <TestName>      # single test or test case
 bash Scripts/bundle.sh release      # assemble + ad-hoc-sign build/app.noindex/Isla.app
-bash Scripts/install.sh             # replace /Applications/Isla.app and open it
+bash Scripts/install.sh             # replace /Applications/Isla.app and open it (bootstrap / fallback)
+bash Scripts/publish-dev-update.sh  # publish the committed build to the local update feed;
+                                    # the running Isla offers it on the island (--dry-run, --enable)
 ```
 
 There is no Xcode project — SwiftPM builds the binary and `Scripts/bundle.sh`
@@ -129,23 +131,31 @@ running app behind the code:
    user-visible result. Only once the change's checks are green — `swift test`
    for code, the full gate order above before a release. A red build is not a
    change to commit.
-2. **Rebuild the app** so the running binary matches what was just committed:
+2. **Publish it to the local update feed** (owner, 2026-10-19: every change
+   reaches the running app through Isla's own update, never a reinstall):
    ```bash
-   bash Scripts/bundle.sh release
+   bash Scripts/publish-dev-update.sh
    ```
-3. **Install and relaunch it** from `/Applications`, replacing the stale
-   instance:
-   ```bash
-   bash Scripts/install.sh
-   ```
-   Never `open` the bundle in `build/`: every launch from there registered a
-   second Isla with LaunchServices — three showed in Spotlight on 2026-09-21,
-   and any of them could catch the Spotify sign-in callback. The build lives in
-   `build/app.noindex/` so Spotlight skips it, and `install.sh` unregisters it.
+   It builds the committed checkout as `VERSION.N`, signs it with the feed's
+   own key ("Isla Dev Update Signing" in the login keychain — never the
+   release key) and lands it in the feed (`.dev-updates` in the main
+   checkout). The running Isla offers it on the island within a second or two.
+3. **The owner presses Install on the island**; Isla replaces itself in
+   `/Applications` and restarts as the new build. Do not install it for them.
 
-Steps 2–3 exist for code changes; a docs-only change has nothing to rebuild or
-relaunch and stops at the commit. The point is that the dev app is never left
-running against superseded code.
+`Scripts/install.sh` (after `bash Scripts/bundle.sh release`) is now the
+bootstrap and the fallback only: the first install of a build that knows the
+feed, a Mac where the update path fails, or leaving the channel
+(`defaults delete com.ctimothe.isla updates.localFeed`). Never `open` the
+bundle in `build/`: every launch from there registered a second Isla with
+LaunchServices — three showed in Spotlight on 2026-09-21, and any of them
+could catch the Spotify sign-in callback. The build lives in
+`build/app.noindex/` so Spotlight skips it; `install.sh` and the publish
+script unregister it.
+
+Steps 2–3 exist for code changes; a docs-only change has nothing to publish
+and stops at the commit. The point is that the dev app is never left running
+against superseded code.
 
 ## Architecture
 

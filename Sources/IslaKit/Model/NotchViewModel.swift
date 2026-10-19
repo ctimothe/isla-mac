@@ -67,6 +67,9 @@ final class NotchViewModel: ObservableObject {
             // pill left standing over a panel that just opened would fold
             // under it with nobody asking (spec §12).
             hud = nil
+            // And the update alert, which is not answered by being opened
+            // over: the controller offers it again once the panel closes.
+            updateOffer = nil
         }
     }
     @Published var isDropTargeted = false {
@@ -110,6 +113,12 @@ final class NotchViewModel: ObservableObject {
     /// The volume or brightness pop-up, while it is up (spec §12). The highest
     /// of the island's alerts: see `IslandActivity`.
     @Published var hud: HUDMoment?
+    /// The update alert, while it is up (spec §19.5 f): rank 9, below the
+    /// pop-up and the charger or headphones, above the peek. The controller
+    /// decides when it shows; its buttons report through `onUpdateAction`.
+    @Published var updateOffer: UpdateOffer?
+    /// A button on the update alert was pressed. The controller's.
+    var onUpdateAction: ((UpdateAlertAction) -> Void)?
     /// A file Isla collected by itself has just landed on the Shelf, and the
     /// Shelf shows itself for `collectedMomentLifetime` from the last one —
     /// compact on the bare notch, the bubble beside a song — then the island
@@ -125,7 +134,7 @@ final class NotchViewModel: ObservableObject {
     /// the Shelf, else the bare notch.
     var activity: IslandActivity {
         IslandActivity.current(
-            hud: hud, ambient: ambient, isPeeking: isPeeking,
+            hud: hud, ambient: ambient, update: updateOffer, isPeeking: isPeeking,
             musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount
         )
     }
@@ -583,6 +592,11 @@ final class NotchViewModel: ObservableObject {
             // returned early and left the pin standing, so a clicked-open panel
             // ignored the pointer leaving and could only be dismissed by
             // clicking somewhere else entirely.
+            //
+            // Over the update alert the pointer is on its way to a button, and
+            // Open on Hover opening the panel would take the alert down under
+            // it (spec §19.5 f).
+            if !isOpen, case .update = activity { return .standsAsItIs }
             return Self.opensOnHoverEnabled ? .opens : .standsAsItIs
         }
         // The one place the pointer does not decide — see `holdsOpen`. Asked
@@ -1455,6 +1469,8 @@ final class NotchViewModel: ObservableObject {
             return Self.hudBodySize(hud, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .ambient(let ambient):
             return Self.ambientBodySize(ambient, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+        case .update:
+            return Self.updateBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .shelf:
             return Self.shelfBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .peek, .music, .none:
@@ -1474,6 +1490,12 @@ final class NotchViewModel: ObservableObject {
     /// Pure, so the arithmetic has tests.
     nonisolated static func hudBodySize(_ hud: HUDMoment, notchSize: CGSize, bodyWidth: CGFloat) -> CGSize {
         ExpandedAlertShape.volume.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
+    }
+
+    /// The update alert: the reference's 335.4 × 158 on a notch of any size
+    /// (spec §19.5 f). Pure, so the arithmetic has tests.
+    nonisolated static func updateBodySize(notchSize: CGSize, bodyWidth: CGFloat) -> CGSize {
+        ExpandedAlertShape.update.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
     }
 
     /// The charger, compact: the notch plus 180 at the notch's height (§19.4).

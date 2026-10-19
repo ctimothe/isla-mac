@@ -387,11 +387,11 @@ final class UpdateRehearsalTests: XCTestCase {
             check: .available(release), known: release, phase: .idle, installerRelease: nil, manualReason: nil,
             runningVersion: "0.3.0", rehearsal: true
         )
-        XCTAssertEqual(on.rehearsalNote, "Rehearsal: update from a local folder")
+        XCTAssertEqual(on.sourceNote, "Rehearsal: update from a local folder")
         let off = UpdatePresentation.make(
             check: .available(release), known: release, phase: .idle, installerRelease: nil, manualReason: nil, runningVersion: "0.3.0"
         )
-        XCTAssertNil(off.rehearsalNote)
+        XCTAssertNil(off.sourceNote)
     }
 
     func testThePaneShowsTheRehearsalLineOnlyDuringARehearsal() async throws {

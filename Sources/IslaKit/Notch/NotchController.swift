@@ -166,6 +166,7 @@ final class NotchController {
                 // percentage still on the island.
                 self.clearAmbient()
                 self.clearHUD()
+                self.clearUpdateOffer()
                 // And anything waiting for the island: nobody will see it, and
                 // the second it may wait is over long before the lid opens.
                 self.alertQueue.removeAll()
@@ -202,6 +203,9 @@ final class NotchController {
                     case .restartPointer: self.pointer.start()
                     }
                 }
+                // An update offer the dark display took down, or found while
+                // it was dark, is owed at the first idle moment after it.
+                self.considerUpdateOffer()
             }
         })
         // Locking replaces the desktop with the shield, and the pill stays on
@@ -211,6 +215,28 @@ final class NotchController {
         lockPresence.onLock = { [weak self] in self?.screenLocked() }
         lockPresence.onUnlock = { [weak self] in self?.screenUnlocked() }
         lockPresence.start()
+        // Two ways nobody sees the island that are not a lock: the screen
+        // saver inside its password grace, and another user switched in. Only
+        // the update alert asks — it is the one alert an unseen fold answers
+        // (spec §19.5 f) — so these are watched for it alone.
+        let distributed = DistributedNotificationCenter.default()
+        for (name, running) in [("com.apple.screensaver.didstart", true), ("com.apple.screensaver.didstop", false)] {
+            observerTokens.append(distributed.addObserver(
+                forName: Notification.Name(name), object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screenSaverChanged(running: running) }
+            })
+        }
+        for (name, active) in [
+            (NSWorkspace.sessionDidResignActiveNotification, false),
+            (NSWorkspace.sessionDidBecomeActiveNotification, true),
+        ] {
+            observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.sessionActiveChanged(active) }
+            })
+        }
         startGeometryWatchdog()
         // Verification hook, environment-gated like the panel's own: the lock
         // card is the one surface that cannot be screenshotted where it lives,
@@ -254,6 +280,9 @@ final class NotchController {
                 vm.isPeeking = false
             }
             if vm.ambient != nil { clearAmbient() }
+            // An offer still unanswered goes too, and comes back once the
+            // quiet ends; an install under way stays, it is the person's.
+            if let offer = vm.updateOffer, updateStage(for: offer).isTimed { clearUpdateOffer() }
         }
         // The pop-up is an answer to a key press and rides no Space into a new
         // one: it ends with the Space it was shown on — and an alert that was
@@ -364,6 +393,9 @@ final class NotchController {
         // which the tap does not even hear while the Mac is locked.
         clearAmbient()
         clearHUD()
+        // Nor the update alert: nothing on the shield takes a click but the
+        // card. It is offered again after the unlock.
+        clearUpdateOffer()
         guard NotchViewModel.showOnLockScreenEnabled else {
             // The card is switched off, but the rest of the lock contract still
             // holds: fold, and stop the sampler. Returning outright left it
@@ -511,6 +543,9 @@ final class NotchController {
             // rest of the session.
             stores.resumeFromIdleScreen()
         }
+        // An update offer the lock took down, or found while it stood, is
+        // owed now; with the display still dark it waits on for the wake.
+        updateScreenSeenAgain()
     }
 
     private func screenParametersChanged() {
@@ -715,6 +750,7 @@ final class NotchController {
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
             NSWorkspace.shared.notificationCenter.removeObserver(token)
+            DistributedNotificationCenter.default().removeObserver(token)
         }
         observerTokens.removeAll()
         cancellables.removeAll()
@@ -1002,6 +1038,9 @@ final class NotchController {
             foldAlert()
             return
         }
+        // The update alert is answered by its buttons alone; a click beside
+        // them is not an answer, and opening the panel would take it down.
+        if surface == nil, vm.islandClick == .nothing { return }
 
         // Everything the hover route used to do, in the same order, so a click
         // opens the panel the way a hover did rather than by a second path that
@@ -1403,6 +1442,7 @@ final class NotchController {
         vm.isShowingWelcome = showingWelcome
         vm.onIslandClick = { [weak self] in self?.islandClicked() }
         vm.onBubbleClick = { [weak self] in self?.islandClicked(opening: .tray) }
+        vm.onUpdateAction = { [weak self] in self?.updateAlertAction($0) }
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
@@ -1779,6 +1819,25 @@ final class NotchController {
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
             }
             .store(in: &cancellables)
+        // And the update alert, the deepest of them: 120 pt below the notch,
+        // with its buttons in that depth, which must be clickable the moment
+        // it shows.
+        vm.$updateOffer
+            .map { $0?.version }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
+        // A check that found an update, or the installer moving on, may give
+        // the island something to offer or take an offer back (spec §19.5 f).
+        // A pass later, for the same reason as the queue's sink below.
+        UpdateCheck.shared.$lastAvailable.map { $0?.version }.removeDuplicates().map { _ in () }
+            .merge(with: UpdateInstaller.shared.$phase.map(Self.updateStep).removeDuplicates().map { _ in () })
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.updateStateChanged() }
+            }
+            .store(in: &cancellables)
         wireShelfIslandCuts(vm)
         wirePageTravelCuts(vm)
 
@@ -1973,6 +2032,9 @@ final class NotchController {
             // the panel opening is one of the moments trust is re-read.
             hudFoldWork?.cancel()
             hudFoldWork = nil
+            // The update alert's hold and retry: the view model takes the alert
+            // down with the open, and the panel closing offers it again.
+            cancelUpdateWork()
             stores.hud.panelOpened()
             withAnimation(Theme.open(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = true }
             // Only for the surfaces that draw the clock. Opening onto Settings
@@ -2507,11 +2569,15 @@ final class NotchController {
               let next = alertQueue.next(at: Date()) {
             switch next {
             case .ambient(let activity): presentAmbient(activity)
+            case .update(let offer): presentUpdate(offer)
             case .peek: sneakPeek()
             // The pop-up never waits, and live activities are never posted.
             case .hud, .music, .shelf, .none: break
             }
         }
+        // The update alert is not only what waited: an offer taken down by an
+        // open, a lock or a dark display was never queued, and is still owed.
+        considerUpdateOffer()
     }
 
     private var ambientWork: DispatchWorkItem?
@@ -2570,10 +2636,15 @@ final class NotchController {
             peekWork = nil
             ambientWork?.cancel()
             ambientWork = nil
+            // The update alert is the one replaced alert that is not dropped:
+            // the queue took it back as this was posted (spec §19.1), and it
+            // returns, with a fresh hold, when this folds.
+            cancelUpdateWork()
             withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
                 vm.isPeeking = false
                 vm.ambient = nil
                 vm.hud = moment
+                vm.updateOffer = nil
             }
         } else {
             // Already up: the bar follows on its own curve; the shape has
@@ -2660,8 +2731,12 @@ final class NotchController {
         peekWork?.cancel()
         peekWork = nil
         ambientWork?.cancel()
+        // Headphones and the charger outrank the update alert, which the
+        // queue took back to return once they fold (spec §19.1).
+        cancelUpdateWork()
         withAnimation(Theme.pill(reduceMotion: reduceMotion)) {
             vm.isPeeking = false
+            vm.updateOffer = nil
             vm.ambient = activity
         }
         // After the guard, never before it: a moment refused — switch off,
@@ -2794,6 +2869,311 @@ final class NotchController {
         ambientWork?.cancel()
         ambientWork = nil
         viewModel?.ambient = nil
+    }
+
+    // MARK: The update alert (spec §19.5 f)
+
+    /// Which versions have had their answer. A test hands in a suite of its
+    /// own, so it never writes the test host's defaults.
+    var updateOfferMemory = UpdateOfferMemory()
+    /// What a check last found: what the island may offer. A test hands in
+    /// its own rather than run a check.
+    var availableUpdate: () -> UpdateCheck.Release? = { UpdateCheck.shared.lastAvailable }
+    /// What Install and Try Again run — the installer Settings' Update Now
+    /// runs, so the two cannot install differently. A test records instead.
+    var installUpdate: (_ release: UpdateCheck.Release, _ retry: Bool) -> Void = { release, retry in
+        if retry { UpdateInstaller.shared.reset() }
+        UpdateInstaller.shared.install(release)
+    }
+    /// Where the install is, for the alert's stage. A test hands in its own.
+    var installerState: () -> (phase: UpdateInstaller.Phase, release: UpdateCheck.Release?) = {
+        (UpdateInstaller.shared.phase, UpdateInstaller.shared.release)
+    }
+    /// Quit Isla, after an update that needs a restart. Never in a test.
+    var quitApp: () -> Void = { NSApp.terminate(nil) }
+    /// Whether this is a quiet moment, for a test: the live answer reads the
+    /// displays and the battery, which a test must not.
+    var updateMomentsQuiet: (() -> Bool)?
+    /// Whether the Mac is locked, for a test: the live answer is the lock
+    /// presence's, which follows the real session.
+    var updateScreenLocked: (() -> Bool)?
+    /// The screen saver is up (`com.apple.screensaver.didstart`), perhaps
+    /// still inside its password grace, so not locked.
+    private var screenSaverRunning = false
+    /// This login session is the one at the screen; false while another user
+    /// is switched in.
+    private var sessionActive = true
+    /// How long an unanswered offer stands (§19.1: at most 20 s). A test
+    /// shortens it.
+    var updateOfferHold: TimeInterval = NotchController.updateOfferHoldDefault
+    nonisolated static let updateOfferHoldDefault: TimeInterval = 20
+    private var updateFoldWork: DispatchWorkItem?
+    private var updateRetryWork: DispatchWorkItem?
+
+    /// When an offer the island owes may show. Pure, so each reason is a
+    /// test.
+    enum UpdateOfferTiming: Equatable {
+        case now
+        /// Ask again after this long.
+        case retry(TimeInterval)
+        /// The displays are dark: the wake handler asks, and no timer runs
+        /// all night for a screen nobody can see.
+        case atWake
+        /// The Mac is locked: the unlock asks.
+        case atUnlock
+    }
+
+    /// Not under a pointer standing where the alert would grow — it would
+    /// take the click meant for whatever is there — and not over a film, a
+    /// talk or a game (K-003), as the charger and headphones are not. Unlike
+    /// theirs, a refusal here is only a delay: the offer is owed until it is
+    /// answered. The pointer moves on in a moment; a film or a talk runs for
+    /// an hour, and once a minute is often enough to look.
+    ///
+    /// Nor on a locked Mac. With the lock card on, the island is marked locked
+    /// and the queue already holds the offer; with the card off nothing is
+    /// marked, the panel sinks under the shield, and an offer shown there
+    /// folded unseen after its 20 s and was remembered as answered (review,
+    /// 2026-10-19).
+    nonisolated static func updateOfferTiming(
+        pointerUnderAlert: Bool, screensAsleep: Bool, locked: Bool, quiet: Bool
+    ) -> UpdateOfferTiming {
+        if screensAsleep { return .atWake }
+        if locked { return .atUnlock }
+        if quiet { return .retry(60) }
+        if pointerUnderAlert { return .retry(2) }
+        return .now
+    }
+
+    /// The island is free, a check found something, or the installer moved
+    /// on: offer what is owed, or take back an offer that is no longer owed.
+    /// Every path that could show the alert comes through here, so the rule
+    /// "once per version, at the first idle moment" lives in one place.
+    func considerUpdateOffer() {
+        guard let vm = viewModel else { return }
+        let available = owedRelease()
+        if let shown = vm.updateOffer {
+            // Up already. While it is only an offer, a newer release takes its
+            // place and a withdrawn one takes it down; once Install is
+            // pressed it is the install's, whatever a check says.
+            guard updateStage(for: shown).isTimed, available?.version != shown.version else { return }
+            if let available {
+                withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                    vm.updateOffer = UpdateOffer(release: available)
+                }
+                Announcer.shared.announce(localized("Isla %@ is ready", available.version))
+                scheduleUpdateFold(after: updateOfferHold)
+            } else {
+                foldUpdate()
+            }
+            return
+        }
+        guard let available else { return }
+        presentUpdate(UpdateOffer(release: available))
+    }
+
+    /// Shows the offer through the queue, as every alert is shown: at once
+    /// on an idle island, or waiting — past the second others get — behind a
+    /// surface, the lock or a higher alert.
+    private func presentUpdate(_ offer: UpdateOffer) {
+        guard let vm = viewModel, vm.updateOffer == nil else { return }
+        // Asked again here, not only when it was posted: an offer that waited
+        // behind the pop-up or an open panel may since have been answered,
+        // withdrawn or overtaken, and shown for a frame before
+        // `considerUpdateOffer` put it right it was a version announced that
+        // was no longer offered (review, 2026-10-19).
+        guard owedRelease()?.version == offer.version else { return }
+        updateRetryWork?.cancel()
+        updateRetryWork = nil
+        let blocked = Self.alertsBlocked(
+            isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+        )
+        // The pointer is asked only once nothing blocks, as for the charger:
+        // over an open panel it is always inside.
+        if !blocked {
+            let grown = NotchViewModel.updateBodySize(
+                notchSize: vm.geometry.notchSize, bodyWidth: vm.geometry.expandedSize.width
+            )
+            let timing = Self.updateOfferTiming(
+                pointerUnderAlert: pointer.isInside
+                    || vm.geometry.grownAlertRect(for: .update(offer), body: grown).contains(pointerLocation()),
+                screensAsleep: screensAreAsleep,
+                locked: updateScreenUnseen,
+                quiet: updateMomentsQuiet?() ?? momentsAreQuiet()
+            )
+            switch timing {
+            case .now: break
+            case .retry(let delay):
+                scheduleUpdateRetry(after: delay)
+                return
+            case .atWake, .atUnlock:
+                return
+            }
+        }
+        guard postAlert(.update(offer), to: vm) == .show else { return }
+
+        peekWork?.cancel()
+        peekWork = nil
+        withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.isPeeking = false
+            vm.updateOffer = offer
+        }
+        // After every refusal, as for the other alerts: a sentence for an
+        // alert nobody can see would be the voice lying.
+        Announcer.shared.announce(localized("Isla %@ is ready", offer.version))
+        scheduleUpdateFold(after: updateOfferHold)
+    }
+
+    /// Nobody can see the island: locked, behind the screen saver, or with
+    /// another user switched in. An offer waits through all three, for the
+    /// same reason — folded unseen, it would count as answered.
+    private var updateScreenUnseen: Bool {
+        (updateScreenLocked?() ?? lockPresence.isLocked) || screenSaverRunning || !sessionActive
+    }
+
+    /// The screen saver started or stopped.
+    func screenSaverChanged(running: Bool) {
+        guard screenSaverRunning != running else { return }
+        screenSaverRunning = running
+        running ? clearUpdateOffer() : updateScreenSeenAgain()
+    }
+
+    /// Another user was switched in, or this one came back.
+    func sessionActiveChanged(_ active: Bool) {
+        guard sessionActive != active else { return }
+        sessionActive = active
+        active ? updateScreenSeenAgain() : clearUpdateOffer()
+    }
+
+    /// The screen is seen again — an unlock, the screen saver's end, the
+    /// session back: what was held back is owed. On the next pass, once
+    /// whatever the moment changed on screen has landed, and through
+    /// `presentUpdate`'s own rules, so a display still dark or a lock still
+    /// standing keeps it waiting.
+    private func updateScreenSeenAgain() {
+        DispatchQueue.main.async { [weak self] in self?.considerUpdateOffer() }
+    }
+
+    /// What the island owes an alert for. While an install runs, the release
+    /// being installed: its alert follows it to the end, whatever a check has
+    /// found since — a newer build that landed meanwhile came back, after a
+    /// pop-up took the alert's place, titled over the older one's progress
+    /// (Codex review, 2026-10-19). Otherwise the newest release not yet
+    /// answered.
+    private func owedRelease() -> UpdateCheck.Release? {
+        let state = installerState()
+        if state.phase.isBusy, let installing = state.release { return installing }
+        return availableUpdate().flatMap { updateOfferMemory.isUnanswered($0.version) ? $0 : nil }
+    }
+
+    /// The stage the alert shows for `offer`, by where the installer is.
+    func updateStage(for offer: UpdateOffer) -> UpdateAlertStage {
+        let state = installerState()
+        return UpdateAlertStage.make(phase: state.phase, installerRelease: state.release, offer: offer)
+    }
+
+    /// Folds an unanswered offer after `delay` and remembers it was offered;
+    /// with the pointer resting on it, asks again a second later
+    /// (`ambientRecheck`), so it never folds under someone reading it. An
+    /// offer that has become an install is not timed, and the alert stays.
+    private func scheduleUpdateFold(after delay: TimeInterval) {
+        updateFoldWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let vm = self.viewModel, let offer = vm.updateOffer else { return }
+            self.updateFoldWork = nil
+            guard self.updateStage(for: offer).isTimed else { return }
+            if let wait = Self.ambientRecheck(pointerInside: self.pointer.isInside) {
+                self.scheduleUpdateFold(after: wait)
+                return
+            }
+            self.answerUpdate(offer)
+        }
+        updateFoldWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func scheduleUpdateRetry(after delay: TimeInterval) {
+        updateRetryWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.updateRetryWork = nil
+            self?.considerUpdateOffer()
+        }
+        updateRetryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// The installer's step, with the download's progress taken out: the
+    /// controller acts on a step changing, and a download reports its bytes
+    /// many times a second — the alert's own view draws those.
+    nonisolated static func updateStep(_ phase: UpdateInstaller.Phase) -> UpdateInstaller.Phase {
+        if case .downloading = phase { return .downloading(received: 0, total: 0) }
+        return phase
+    }
+
+    /// A check or the installer moved. An offer up and back to being only an
+    /// offer — an install reset from Settings — is timed again.
+    private func updateStateChanged() {
+        considerUpdateOffer()
+        guard let vm = viewModel, let offer = vm.updateOffer, updateFoldWork == nil,
+              updateStage(for: offer).isTimed else { return }
+        scheduleUpdateFold(after: updateOfferHold)
+    }
+
+    /// A button on the alert (spec §19.5 f, and plan 2026-10-19 for the
+    /// stages after Install).
+    func updateAlertAction(_ action: UpdateAlertAction) {
+        guard let vm = viewModel, let offer = vm.updateOffer else { return }
+        switch action {
+        case .later:
+            answerUpdate(offer)
+        case .install, .tryAgain:
+            // Not an answer yet: an install that ends with the Mac restarting
+            // midway, or a failure left standing, is offered again. The alert
+            // stays, untimed, and follows the install.
+            updateFoldWork?.cancel()
+            updateFoldWork = nil
+            installUpdate(offer.release, action == .tryAgain)
+        case .settings:
+            // An update this copy cannot install for itself: the card in
+            // Settings has its download page.
+            answerUpdate(offer)
+            islandClicked(opening: .settings)
+        case .quit:
+            updateOfferMemory.remember(offer.version)
+            quitApp()
+        }
+    }
+
+    /// Later, or the hold running out: the version is remembered, and the
+    /// gear keeps its badge (§19.5 f).
+    private func answerUpdate(_ offer: UpdateOffer) {
+        updateOfferMemory.remember(offer.version)
+        foldUpdate()
+    }
+
+    /// The alert folds, and the island returns to what is live or to an
+    /// alert still waiting.
+    private func foldUpdate() {
+        guard let vm = viewModel else { return }
+        cancelUpdateWork()
+        withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.updateOffer = nil
+        }
+        promoteWaitingAlert()
+    }
+
+    /// Takes the alert down unanswered, for a lock, a dark display and a
+    /// quiet Space: it is offered again when the island is free.
+    private func clearUpdateOffer() {
+        cancelUpdateWork()
+        viewModel?.updateOffer = nil
+    }
+
+    private func cancelUpdateWork() {
+        updateFoldWork?.cancel()
+        updateFoldWork = nil
+        updateRetryWork?.cancel()
+        updateRetryWork = nil
     }
 
     func refreshCollapsedRects() {

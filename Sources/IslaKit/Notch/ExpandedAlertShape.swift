@@ -33,6 +33,10 @@ struct ExpandedAlertShape: Equatable {
     static let volume = ExpandedAlertShape(
         reference: CGSize(width: 245.4, height: 103), topRadius: 18.67, bottomRadius: 22.67
     )
+    /// §19.5 f, an update ready to install.
+    static let update = ExpandedAlertShape(
+        reference: CGSize(width: 335.4, height: 158), topRadius: 24, bottomRadius: 36
+    )
 
     /// How far below the notch the shape reaches.
     var depth: CGFloat { reference.height - Self.referenceNotchHeight }
@@ -69,6 +73,8 @@ enum IslandShapeRadii {
             return (ExpandedAlertShape.volume.topRadius, ExpandedAlertShape.volume.bottomRadius)
         case .ambient(.headphones):
             return (ExpandedAlertShape.headphones.topRadius, ExpandedAlertShape.headphones.bottomRadius)
+        case .update:
+            return (ExpandedAlertShape.update.topRadius, ExpandedAlertShape.update.bottomRadius)
         case .peek:
             return (Theme.collapsedTopRadius, Theme.peekBottomRadius)
         case .ambient(.charging), .music, .shelf, .none:
@@ -109,5 +115,78 @@ enum HeadphonesAlertLayout {
     /// show there is no ring, and the name takes its width.
     static func nameWidth(islandWidth: CGFloat) -> CGFloat {
         max(0, islandWidth - textLeading - shape.trailing(37.7))
+    }
+}
+
+/// Where the update alert's parts sit (spec §19.5 f). Body-local, from the
+/// reference's shape-relative numbers. A shape wider than the reference — a
+/// notch that needs more — keeps the glyph, the text and Later where they
+/// were and takes Install with its right edge.
+enum UpdateAlertLayout {
+    static let shape = ExpandedAlertShape.update
+
+    /// `arrow.down.circle.fill`, 38 × 38 at (45.5, 56), in the blue gradient.
+    static let glyphSize = CGSize(width: 38, height: 38)
+    static let glyphSymbol = "arrow.down.circle.fill"
+
+    static func glyphFrame(notchHeight: CGFloat) -> CGRect {
+        CGRect(origin: CGPoint(x: shape.x(45.5), y: shape.y(56, notchHeight: notchHeight)), size: glyphSize)
+    }
+
+    /// The title and the lines under it start at x 105.
+    static var textLeading: CGFloat { shape.x(105) }
+
+    /// The text ends where Install does, right 35, and truncates there.
+    static func textWidth(islandWidth: CGFloat) -> CGFloat {
+        max(0, islandWidth - textLeading - shape.trailing(buttonsRight))
+    }
+
+    /// "Isla %@ is ready", 14 semibold, white, baseline 64.
+    static let titleSize: CGFloat = 14
+    static func titleBaseline(notchHeight: CGFloat) -> CGFloat { shape.y(64, notchHeight: notchHeight) }
+
+    /// 11 medium, white 0.55, a line height of 14 from baseline 81.5: the
+    /// summary, then "Isla restarts when it is done."
+    static let detailSize: CGFloat = 11
+    static let detailOpacity: Double = 0.55
+    static let detailLineHeight: CGFloat = 14
+    static func detailBaseline(line: Int, notchHeight: CGFloat) -> CGFloat {
+        shape.y(81.5, notchHeight: notchHeight) + CGFloat(line) * detailLineHeight
+    }
+
+    /// The buttons: capsules 35 tall at y 113. Later 128 wide at x 35, Install
+    /// 127.4 wide at x 173 — on the reference, right 35.
+    static let buttonHeight: CGFloat = 35
+    static let laterWidth: CGFloat = 128
+    static let installWidth: CGFloat = 127.4
+    static let buttonsRight: CGFloat = 335.4 - 173 - 127.4
+    static let buttonTitleSize: CGFloat = 14
+    /// Later's capsule, grey 0.22; Install's, blue 0.22.
+    static let buttonFillOpacity: Double = 0.22
+
+    static func laterFrame(notchHeight: CGFloat) -> CGRect {
+        CGRect(x: shape.x(35), y: shape.y(113, notchHeight: notchHeight), width: laterWidth, height: buttonHeight)
+    }
+
+    static func installFrame(islandWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: islandWidth - shape.trailing(buttonsRight) - installWidth, y: shape.y(113, notchHeight: notchHeight),
+            width: installWidth, height: buttonHeight
+        )
+    }
+
+    /// While the install runs the buttons give way to its progress: a 4 pt
+    /// bar across the span the two buttons took, on the line through their
+    /// middle (plan 2026-10-19; the spec is silent after Install).
+    static let progressHeight: CGFloat = 4
+    static let progressTrackOpacity: Double = 0.18
+
+    static func progressFrame(islandWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
+        let later = laterFrame(notchHeight: notchHeight)
+        let install = installFrame(islandWidth: islandWidth, notchHeight: notchHeight)
+        return CGRect(
+            x: later.minX, y: later.midY - progressHeight / 2,
+            width: install.maxX - later.minX, height: progressHeight
+        )
     }
 }

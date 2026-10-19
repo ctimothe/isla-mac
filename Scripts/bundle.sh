@@ -3,11 +3,11 @@
 # assembles the bundle around it and ad-hoc signs it.
 #
 # ISLA_VERSION_OVERRIDE and ISLA_BUILD_OVERRIDE are for Scripts/rehearse-update.sh
-# ONLY: they build the bundle as a later version than Scripts/version says, so
-# an update can be rehearsed on a real Mac. Both must be set together, the
-# version as dotted numbers and the build as a whole number. Nothing else sets
-# them; a release (Scripts/release.sh) never does, and Scripts/version stays the
-# truth.
+# and Scripts/publish-dev-update.sh ONLY: they build the bundle as a later
+# version than Scripts/version says — a rehearsal's, or a dev build's four-part
+# version for the local update feed. Both must be set together, the version as
+# dotted numbers and the build as a whole number. Nothing else sets them; a
+# release (Scripts/release.sh) never does, and Scripts/version stays the truth.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -145,6 +145,26 @@ if [ -s "$UPDATE_KEY_FILE" ]; then
     echo "==> update key: $UPDATE_KEY"
 else
     echo "==> no update key (Resources/update-public-key.txt): Update Now offers only the download page" >&2
+fi
+
+# The local update feed's key (publish-dev-update.sh), a pair of its own so dev
+# builds never read the release key. Only a copy following the feed
+# (updates.localFeed) trusts it, and it trusts nothing else there
+# (UpdateSignature.trustedKey). A public release leaves it out
+# (release.sh sets ISLA_OMIT_DEV_UPDATE_KEY=1): no copy anyone downloads should
+# trust a key that signs builds no one else is meant to install (review,
+# 2026-10-19). Local builds carry it, so the bootstrap install can follow the
+# feed.
+DEV_KEY_FILE="$ROOT/Resources/update-dev-public-key.txt"
+if [ "${ISLA_OMIT_DEV_UPDATE_KEY:-0}" = 1 ]; then
+    echo "==> dev update key left out (ISLA_OMIT_DEV_UPDATE_KEY=1)"
+elif [ -s "$DEV_KEY_FILE" ]; then
+    DEV_KEY="$(tr -d '[:space:]' < "$DEV_KEY_FILE")"
+    [ "$(printf '%s' "$DEV_KEY" | base64 -D 2>/dev/null | wc -c | tr -d ' ')" = 32 ] || {
+        echo "!!! $DEV_KEY_FILE is not a 32-byte base64 Ed25519 public key" >&2
+        exit 1
+    }
+    /usr/libexec/PlistBuddy -c "Add :IslaDevUpdatePublicKey string $DEV_KEY" "$APP/Contents/Info.plist" >/dev/null
 fi
 
 for asset in "$ICON" "$ICON_CATALOG"; do

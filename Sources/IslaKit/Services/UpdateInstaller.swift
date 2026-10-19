@@ -70,7 +70,8 @@ protocol UpdateRelaunching {
 struct UpdateEnvironment {
     /// The running app: `Bundle.main.bundleURL`.
     var installedURL: URL
-    /// The base64 public key of this build, if it was built with one.
+    /// The base64 public key updates from this run's source must be signed
+    /// with (`UpdateSignature.trustedKey`), if this build carries it.
     var publicKey: String?
     var processID: Int32
     /// Bytes available for important use on the volume of `url`, nil if unknown.
@@ -88,14 +89,21 @@ struct UpdateEnvironment {
     var scratchRoot: URL
     /// A fresh private folder under `scratchRoot` for one run's download and mount.
     var makeScratchFolder: () throws -> URL
-    /// The rehearsal folder (`DI_UPDATE_REHEARSAL`), whose files the assets may be.
+    /// The folder releases are read from (`UpdateSource`: a rehearsal's or the
+    /// local feed's), whose files the assets may be; nil for GitHub.
     var rehearsal: URL? = nil
+    /// Whether that folder may still be read (`UpdateSource.stillHolds`),
+    /// asked by the download before every copy out of it.
+    var folderStillHolds: @Sendable () -> Bool = { true }
 
     static func live() -> UpdateEnvironment {
         let scratch = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return UpdateEnvironment(
             installedURL: Bundle.main.bundleURL,
-            publicKey: UpdateSignature.bundledPublicKey,
+            publicKey: UpdateSignature.trustedKey(
+                for: UpdateSource.current,
+                release: UpdateSignature.bundledPublicKey, dev: UpdateSignature.bundledDevPublicKey
+            ),
             processID: ProcessInfo.processInfo.processIdentifier,
             availableCapacity: { url in
                 (try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
@@ -116,7 +124,8 @@ struct UpdateEnvironment {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
                 return folder
             },
-            rehearsal: DebugTrail.updateRehearsal
+            rehearsal: UpdateSource.current.folder,
+            folderStillHolds: { UpdateSource.current.stillHolds() }
         )
     }
 }
@@ -261,7 +270,7 @@ final class UpdateInstaller: ObservableObject {
     ) {
         self.stagingActivity = stagingActivity
         self.environment = environment
-        self.downloader = downloader ?? URLSessionUpdateDownloader(rehearsal: environment.rehearsal)
+        self.downloader = downloader ?? Self.defaultDownloader(for: environment)
         self.verifier = verifier ?? Ed25519UpdateVerifier(publicKey: environment.publicKey ?? "")
         self.diskImage = diskImage
         self.stager = stager
@@ -269,6 +278,14 @@ final class UpdateInstaller: ObservableObject {
         self.swapper = swapper
         self.relauncher = relauncher ?? ShellRelauncher()
         self.installTimeout = installTimeout
+    }
+
+    /// The downloader Update Now uses when none is handed in: the
+    /// environment's folder, judged again before every copy out of it.
+    nonisolated static func defaultDownloader(for environment: UpdateEnvironment) -> URLSessionUpdateDownloader {
+        var downloader = URLSessionUpdateDownloader(rehearsal: environment.rehearsal)
+        downloader.folderStillHolds = environment.folderStillHolds
+        return downloader
     }
 
     // MARK: Deciding

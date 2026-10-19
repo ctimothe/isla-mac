@@ -35,11 +35,20 @@ struct URLSessionUpdateDownloader: UpdateDownloading {
     var makeSession: @Sendable (URLSessionDelegate) -> URLSession = {
         PrivateNetwork.makeSession(delegate: $0, requestTimeout: 30, resourceTimeout: 15 * 60)
     }
-    /// The rehearsal folder (`DI_UPDATE_REHEARSAL`), the only place a file URL
-    /// is accepted from; nil, which is every normal run, accepts none.
+    /// The folder releases are read from — a rehearsal's or the local feed's
+    /// (`UpdateSource`) — the only place a file URL is accepted from; nil, which
+    /// is GitHub, accepts none.
     var rehearsal: URL?
+    /// Whether the folder may still be read (`UpdateSource.stillHolds`), asked
+    /// before every copy out of it.
+    var folderStillHolds: @Sendable () -> Bool = { true }
 
-    init(rehearsal: URL? = DebugTrail.updateRehearsal) { self.rehearsal = rehearsal }
+    init(rehearsal: URL?) { self.rehearsal = rehearsal }
+
+    init(source: UpdateSource = .current) {
+        self.rehearsal = source.folder
+        self.folderStillHolds = { source.stillHolds() }
+    }
 
     func download(
         from url: URL, into folder: URL, as fileName: String, expectedBytes: Int64,
@@ -48,7 +57,8 @@ struct URLSessionUpdateDownloader: UpdateDownloading {
         let destination = folder.appendingPathComponent(fileName)
         if url.isFileURL {
             // A file URL is a rehearsal's, and only inside the rehearsal folder.
-            guard let rehearsal, UpdateCheck.isRehearsalFile(url, named: url.lastPathComponent, in: rehearsal) else {
+            guard let rehearsal, folderStillHolds(),
+                  UpdateCheck.isRehearsalFile(url, named: url.lastPathComponent, in: rehearsal) else {
                 throw UpdateDownloadError.badResponse
             }
             return try await copy(url, to: destination, expectedBytes: expectedBytes, progress: progress)

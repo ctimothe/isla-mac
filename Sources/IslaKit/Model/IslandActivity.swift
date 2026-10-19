@@ -11,13 +11,17 @@ import Foundation
 ///
 /// The ranks are §19.1's table. Locked (1) and files dragged to the notch (2)
 /// are presentations of their own — the locked pill and the drop surface —
-/// and never reach this function; Battery Low, Translated, Full Battery and
-/// the update choice (4, 5, 8, 9) are R9's and join it there.
+/// and never reach this function; Battery Low, Translated and Full Battery
+/// (4, 5, 8) are R9's and join it there. The update choice (9) was built
+/// ahead of R9, with the local update feed (plan 2026-10-19).
 enum IslandActivity: Equatable {
     /// Volume or brightness (§19.5 d), rank 3.
     case hud(HUDMoment)
     /// Headphones connected (§19.5 c, rank 6) or the charger (§19.4, rank 7).
     case ambient(AmbientActivity)
+    /// An update Isla can install, with a choice of Later or Install
+    /// (§19.5 f), rank 9.
+    case update(UpdateOffer)
     /// A new track showing itself (§3.5, kept), rank 10.
     case peek
     /// Something playing (§19.4), rank 11: live while `CompactMediaActivity`
@@ -34,6 +38,7 @@ enum IslandActivity: Equatable {
         case .hud: return 3
         case .ambient(.headphones): return 6
         case .ambient(.charging): return 7
+        case .update: return 9
         case .peek: return 10
         case .music: return 11
         case .shelf: return 12
@@ -44,7 +49,7 @@ enum IslandActivity: Equatable {
     /// An alert comes, holds for its time, and folds.
     var isAlert: Bool {
         switch self {
-        case .hud, .ambient, .peek: return true
+        case .hud, .ambient, .update, .peek: return true
         case .music, .shelf, .none: return false
         }
     }
@@ -53,7 +58,7 @@ enum IslandActivity: Equatable {
     var isLive: Bool {
         switch self {
         case .music, .shelf: return true
-        case .hud, .ambient, .peek, .none: return false
+        case .hud, .ambient, .update, .peek, .none: return false
         }
     }
 
@@ -70,10 +75,12 @@ enum IslandActivity: Equatable {
     /// keep one at a time (`IslandAlertQueue`); if more than one is set, the
     /// highest still wins here, so the island never draws two.
     static func current(
-        hud: HUDMoment?, ambient: AmbientActivity?, isPeeking: Bool, musicIsVisible: Bool, shelfCount: Int
+        hud: HUDMoment?, ambient: AmbientActivity?, update: UpdateOffer? = nil,
+        isPeeking: Bool, musicIsVisible: Bool, shelfCount: Int
     ) -> IslandActivity {
         if let hud { return .hud(hud) }
         if let ambient { return .ambient(ambient) }
+        if let update { return .update(update) }
         // A peek widens the music pill to show a new title; with no song to
         // widen there is nothing for it to draw.
         if isPeeking && musicIsVisible { return .peek }
@@ -112,13 +119,20 @@ struct IslandAlertQueue {
 
     /// The two exceptions to the rule. Battery Low and the update choice
     /// outlive the second and wait until the island is free; the update choice
-    /// also returns when a higher alert replaces it. Both are R9's, so R7's
-    /// policy has neither; a test proves the mechanism with stand-ins.
+    /// also returns when a higher alert replaces it. Battery Low is R9's; the
+    /// update choice came ahead of it (plan 2026-10-19), so the standard
+    /// policy names it alone, and a test proves Battery Low's half with a
+    /// stand-in.
     struct Policy {
         var outlivesPatience: (IslandActivity) -> Bool
         var returnsWhenReplaced: (IslandActivity) -> Bool
 
-        static let standard = Policy(outlivesPatience: { _ in false }, returnsWhenReplaced: { _ in false })
+        static let standard = Policy(outlivesPatience: isUpdate, returnsWhenReplaced: isUpdate)
+
+        private static func isUpdate(_ alert: IslandActivity) -> Bool {
+            if case .update = alert { return true }
+            return false
+        }
     }
 
     enum Verdict: Equatable {

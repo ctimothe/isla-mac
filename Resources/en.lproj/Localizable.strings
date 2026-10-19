@@ -225,6 +225,10 @@
 "Asks GitHub once a day for the latest version. It sends nothing about you." = "Asks GitHub once a day for the latest version. It sends nothing about you.";
 "Update available" = "Update available";
 "Rehearsal: update from a local folder" = "Rehearsal: update from a local folder";
+"Updates come from a folder on this Mac." = "Updates come from a folder on this Mac.";
+"Isla %@ is ready" = "Isla %@ is ready";
+"Isla restarts when it is done." = "Isla restarts when it is done.";
+"Install" = "Install";
 "Software Update" = "Software Update";
 "Isla is up to date" = "Isla is up to date";
 "Checking for updates…" = "Checking for updates…";
