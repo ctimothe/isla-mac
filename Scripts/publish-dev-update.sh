@@ -7,6 +7,8 @@
 #   bash Scripts/publish-dev-update.sh             # build, sign and publish
 #   bash Scripts/publish-dev-update.sh --dry-run   # say what would be published
 #   bash Scripts/publish-dev-update.sh --enable    # also point Isla at the feed
+#   bash Scripts/publish-dev-update.sh --replace   # publish over a build this
+#                                                  # checkout does not contain
 #
 # The owner asked on 2026-10-19 that every change reach the running app through
 # Isla's own update rather than a reinstall each time (plan
@@ -71,12 +73,14 @@ fail() { echo "!!! $*" >&2; exit 1; }
 
 DRY_RUN=0
 ENABLE=0
+REPLACE=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
         --enable) ENABLE=1 ;;
-        -h|--help) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) fail "unknown argument '$arg' (try --dry-run or --enable)" ;;
+        --replace) REPLACE=1 ;;
+        -h|--help) sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) fail "unknown argument '$arg' (try --dry-run, --enable or --replace)" ;;
     esac
 done
 
@@ -126,22 +130,7 @@ case "$FEED" in /*) ;; *) fail "ISLA_DEV_FEED must be an absolute path, got '$FE
 [ -d "$FEED" ] && FEED="$(cd "$FEED" && pwd -P)"
 case "$FEED" in *[!A-Za-z0-9_./-]*) fail "the feed path has characters that do not belong in a file URL: $FEED" ;; esac
 
-# 3. The installed app, which the new build must be newer than.
-PLIST="$INSTALLED/Contents/Info.plist"
-[ -f "$PLIST" ] || fail "Isla is not installed at $INSTALLED; bootstrap once with: bash Scripts/bundle.sh release && bash Scripts/install.sh"
-MAKE_KEY="swift Scripts/update-signing.swift create-key --dev Resources/update-dev-public-key.txt"
-[ -s "$KEY_FILE" ] || fail "$KEY_FILE is missing; make the feed's key pair with: $MAKE_KEY, commit it, then bootstrap with bundle.sh and install.sh"
-security find-generic-password -s "$KEY_SERVICE" -a ed25519 >/dev/null 2>&1 \
-    || fail "the login keychain has no \"$KEY_SERVICE\" key for $KEY_FILE; restore it, or make a new pair (remove the file, run: $MAKE_KEY), commit it and reinstall once"
-WANT_KEY="$(tr -d '[:space:]' < "$KEY_FILE")"
-HAVE_KEY="$(/usr/libexec/PlistBuddy -c 'Print :IslaDevUpdatePublicKey' "$PLIST" 2>/dev/null || true)"
-[ "$HAVE_KEY" = "$WANT_KEY" ] || fail "the installed Isla has no matching IslaDevUpdatePublicKey, so it cannot accept a dev build; bootstrap with bundle.sh and install.sh"
-HAVE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null || true)"
-HAVE_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" 2>/dev/null || true)"
-is_dotted "$HAVE_VERSION" || fail "the installed Isla's version is '$HAVE_VERSION', not dotted numbers"
-is_whole "$HAVE_BUILD" || fail "the installed Isla's build is '$HAVE_BUILD', not a whole number"
-
-# 4. The feed's last release, if any: its version, build and commit.
+# 3. The feed's last release, if any: its version, build and commit.
 LAST_VERSION=""
 LAST_BUILD=0
 LAST_COMMIT=""
@@ -159,6 +148,35 @@ PY
     [ "$LAST_VERSION" = "-" ] && LAST_VERSION=""
     [ "$LAST_COMMIT" = "-" ] && LAST_COMMIT=""
 fi
+
+# A checkout that does not contain the last published commit — another
+# worktree's branch, or one cut before it — would replace the running app with
+# code that lacks what the owner installed last, under a higher version, with
+# nothing on the island to say so (Codex review, 2026-10-19). Refused unless
+# --replace says that is the point.
+if [ -n "$LAST_COMMIT" ] && ! git merge-base --is-ancestor "$LAST_COMMIT" HEAD 2>/dev/null; then
+    LAST_WHERE="$(git name-rev --name-only --no-undefined "$LAST_COMMIT" 2>/dev/null || echo "a commit no branch here contains")"
+    if [ "$REPLACE" = 1 ]; then
+        echo "    replacing the last published build ($LAST_VERSION, ${LAST_COMMIT:0:7} on $LAST_WHERE), which this checkout does not contain"
+    else
+        fail "the last published build ($LAST_VERSION, ${LAST_COMMIT:0:7} on $LAST_WHERE) is not in this checkout, so installing this one would take its changes away. Merge it in first, or run again with --replace if that is the point"
+    fi
+fi
+
+# 4. The installed app, which the new build must be newer than.
+PLIST="$INSTALLED/Contents/Info.plist"
+[ -f "$PLIST" ] || fail "Isla is not installed at $INSTALLED; bootstrap once with: bash Scripts/bundle.sh release && bash Scripts/install.sh"
+MAKE_KEY="swift Scripts/update-signing.swift create-key --dev Resources/update-dev-public-key.txt"
+[ -s "$KEY_FILE" ] || fail "$KEY_FILE is missing; make the feed's key pair with: $MAKE_KEY, commit it, then bootstrap with bundle.sh and install.sh"
+security find-generic-password -s "$KEY_SERVICE" -a ed25519 >/dev/null 2>&1 \
+    || fail "the login keychain has no \"$KEY_SERVICE\" key for $KEY_FILE; restore it, or make a new pair (remove the file, run: $MAKE_KEY), commit it and reinstall once"
+WANT_KEY="$(tr -d '[:space:]' < "$KEY_FILE")"
+HAVE_KEY="$(/usr/libexec/PlistBuddy -c 'Print :IslaDevUpdatePublicKey' "$PLIST" 2>/dev/null || true)"
+[ "$HAVE_KEY" = "$WANT_KEY" ] || fail "the installed Isla has no matching IslaDevUpdatePublicKey, so it cannot accept a dev build; bootstrap with bundle.sh and install.sh"
+HAVE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null || true)"
+HAVE_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" 2>/dev/null || true)"
+is_dotted "$HAVE_VERSION" || fail "the installed Isla's version is '$HAVE_VERSION', not dotted numbers"
+is_whole "$HAVE_BUILD" || fail "the installed Isla's build is '$HAVE_BUILD', not a whole number"
 
 N_INSTALLED="$(dev_part "$HAVE_VERSION" "$BASE")"
 N_LAST=0
@@ -245,11 +263,13 @@ mv -f "$STAGE/release.json" "$FEED/release.json"
 # 10. Only the newest images stay: the one just published and the one before,
 # which an install already under way may still be reading. Only dev images
 # (four-part versions) are candidates.
-ls -t "$FEED"/Isla-*.dmg 2>/dev/null \
+# Never fatal: release.json is already live, and under pipefail a grep that
+# matched nothing would report a publish that happened as a failure.
+{ ls -t "$FEED"/Isla-*.dmg 2>/dev/null \
     | grep -E '/Isla-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.dmg$' \
     | tail -n +$((KEEP_IMAGES + 1)) | while read -r old; do
     rm -f "$old" "$old.sig"
-done
+done; } || true
 
 echo "==> published Isla $NEW_VERSION (build $NEW_BUILD) to $FEED"
 

@@ -240,4 +240,3 @@ each fixed test-first in its own commit:
 Not changed: the island's press highlight over the alert, which the review
 asked to drop — it is the hover's colour, which the alert under the pointer
 already shows, so there is nothing to see.
-
