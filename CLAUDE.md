@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Is this checkout the shipped app? — run this first
+
+```bash
+./scripts/source-fresh.sh      # 0 fresh · 1 stale or unrelated · 2 origin is not GitHub
+```
+
+Run it before reading `Sources/` to design, document, measure or rebuild the app
+anywhere else (a canvas, a spec, a film, a landing page), and say its one-line
+answer in your first reply. On anything but `FRESH`, stop: the code in front of
+you is not what ships. On 2026-10-19 a canvas of the whole island was rebuilt
+from a worktree cut on 2026-09-22 — 852 commits and a full redesign behind
+`main`, with no shared history — because `origin` pointed at a frozen local
+backup instead of GitHub, and the app cuts every new worktree from `origin`.
+`origin` is GitHub (`ctimothe/isla-mac`); the old backup is the `backup` remote.
+Cut new worktrees from `origin/main`, never from the folder you happen to be in.
+
 ## Repository layout — read this first
 
 `main` carries the **code** — it has since the parity foundation was imported
