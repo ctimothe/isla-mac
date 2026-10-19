@@ -300,7 +300,10 @@ commit it, and reinstall once. Isla follows the feed while
 launch, so the first time takes one relaunch); it watches the folder and
 offers each new build on the island, where Install runs the same download,
 signature check, validator, swap and restart as a GitHub release.
-`--dry-run` prints the version, build and notes without building. To leave:
+`--dry-run` prints the version, build and notes without building. It refuses
+a checkout that does not contain the feed's last published commit (another
+worktree's branch would take those changes out of the running app); merge it
+in, or pass `--replace` when that is the point. To leave:
 `defaults delete com.ctimothe.isla updates.localFeed`, then `bundle.sh` and
 `install.sh` — a dev build's build number may be above the next public
 release's.

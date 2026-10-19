@@ -159,9 +159,10 @@ are the exception the design did not anticipate:
   feed's own key signs ("Isla Dev Update Signing", `IslaDevUpdatePublicKey`;
   never the release key), through the same validator, swap and restart. The
   setting is read once at launch (a rehearsal variable wins over it), and the
-  folder is judged again before every read; it is watched, a folder removed
-  and made again included, and checked 3 s after launch; nothing reaches the
-  network.
+  folder — mode, owner and access entries, the folders above it included — is
+  judged again before every read; it is watched, a folder removed and made
+  again included, and checked 3 s after launch; nothing reaches the network. A
+  public release carries no feed key (`ISLA_OMIT_DEV_UPDATE_KEY`).
   `Scripts/publish-dev-update.sh` publishes each committed build to it as
   `VERSION.N`. Off unless the setting is written (`--enable`). Held by
   `UpdateSourceTests` and `UpdateFeedWatcherTests`. The island's update alert
@@ -2424,4 +2425,7 @@ Mac model and macOS version when run):
   keychain read of "Isla Dev Update Signing".
 - [ ] **DU-H6** With Show on Lock Screen off, publish a build and lock the
   Mac before it is offered: nothing shows under the shield, and the alert
-  appears after the unlock.
+  appears after the unlock. The same with the screen saver running (inside its
+  password grace) and with another user switched in.
+- [ ] **DU-H7** `rm -rf .dev-updates`, then publish: the new folder is found and
+  the build offered within a few seconds, without relaunching Isla.

@@ -240,3 +240,32 @@ each fixed test-first in its own commit:
 Not changed: the island's press highlight over the alert, which the review
 asked to drop — it is the hover's colour, which the alert under the pointer
 already shows, so there is nothing to see.
+
+### Second round (2026-10-19)
+
+Codex reviewed the whole branch and an Opus reviewer tried to refute the fixes
+above; it confirmed the blocker, the dev key, the folder re-checks, the script
+marker and the nits, and found the rest each closed for its case but leaving a
+smaller path:
+
+- **`f7b2025` (Codex P1).** A checkout that does not contain the feed's last
+  published commit — another worktree's branch — was published over it, and
+  installing it took those changes out of the running app. The script now
+  refuses unless that commit is an ancestor of HEAD; `--replace` publishes over
+  it on purpose. The prune can no longer fail a finished publish under
+  `pipefail`.
+- **`66b98ab`.** Behind the screen saver inside its password grace, or with
+  another user switched in, the Mac is not locked but nobody sees the island;
+  the offer now waits through both, as through a lock.
+- **`39ef761`.** While the feed is gone the watcher watches the folder above
+  it instead of retrying every 30 s all night; the timer remains only as a net,
+  at up to five minutes.
+- **`ea2e49d`.** A public release leaves `IslaDevUpdatePublicKey` out
+  (`release.sh` sets `ISLA_OMIT_DEV_UPDATE_KEY=1`); `test-package.sh` checks
+  both ways.
+- **`8a5b970`.** An access-control entry that lets anyone else add to or
+  remove from the feed, or a folder above it, counts as a write bit.
+
+Left as is: a check that fails while the feed folder is briefly missing keeps
+`lastAvailable` (`UpdateCheck.apply` changes it only on an answer), so a shown
+offer is not withdrawn by it.
