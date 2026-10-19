@@ -416,7 +416,38 @@ final class UpdateOfferTests: XCTestCase {
         let unlock = try XCTUnwrap(source.range(of: "private func screenUnlocked() {"))
         let body = source[unlock.upperBound...].prefix(4000)
         let end = body.range(of: "\n    }\n")?.lowerBound ?? body.endIndex
-        XCTAssertTrue(body[..<end].contains("considerUpdateOffer()"), "the unlock asks for what it held back")
+        XCTAssertTrue(body[..<end].contains("updateScreenSeenAgain()"),
+                      "the unlock asks for what it held back, on the path the screen saver's end takes")
+    }
+
+    /// Behind the screen saver inside its password grace, or with another
+    /// user switched in, the Mac is not locked but nobody sees the island: an
+    /// offer shown there folded unseen and was remembered as answered (review,
+    /// 2026-10-19). It is taken down unanswered when either begins, waits, and
+    /// is offered again a pass after the screen is seen.
+    func testBehindTheScreenSaverOrAnotherUserItWaitsUntilTheScreenIsSeen() throws {
+        let h = try harness(available: release())
+        h.controller.considerUpdateOffer()
+        XCTAssertNotNil(h.vm.updateOffer)
+
+        h.controller.screenSaverChanged(running: true)
+        XCTAssertNil(h.vm.updateOffer, "taken down when the screen saver starts")
+        h.controller.considerUpdateOffer()
+        XCTAssertNil(h.vm.updateOffer, "not shown behind it")
+        XCTAssertTrue(h.memory.isUnanswered("0.3.0.1"), "and not answered")
+        h.controller.screenSaverChanged(running: false)
+        XCTAssertNil(h.vm.updateOffer, "a pass later, not inside the notification")
+        spin(until: { h.vm.updateOffer != nil })
+        XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.1", "offered again once it stops")
+
+        h.controller.sessionActiveChanged(false)
+        XCTAssertNil(h.vm.updateOffer, "taken down when another user is switched in")
+        h.controller.considerUpdateOffer()
+        XCTAssertNil(h.vm.updateOffer, "not shown in a session nobody is at")
+        h.controller.sessionActiveChanged(true)
+        spin(until: { h.vm.updateOffer != nil })
+        XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.1", "offered again on the way back")
+        XCTAssertTrue(h.memory.isUnanswered("0.3.0.1"))
     }
 
     /// The pop-up outranks it (§19.1): the offer gives way unanswered and

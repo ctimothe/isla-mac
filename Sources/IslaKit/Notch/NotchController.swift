@@ -215,6 +215,28 @@ final class NotchController {
         lockPresence.onLock = { [weak self] in self?.screenLocked() }
         lockPresence.onUnlock = { [weak self] in self?.screenUnlocked() }
         lockPresence.start()
+        // Two ways nobody sees the island that are not a lock: the screen
+        // saver inside its password grace, and another user switched in. Only
+        // the update alert asks — it is the one alert an unseen fold answers
+        // (spec §19.5 f) — so these are watched for it alone.
+        let distributed = DistributedNotificationCenter.default()
+        for (name, running) in [("com.apple.screensaver.didstart", true), ("com.apple.screensaver.didstop", false)] {
+            observerTokens.append(distributed.addObserver(
+                forName: Notification.Name(name), object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screenSaverChanged(running: running) }
+            })
+        }
+        for (name, active) in [
+            (NSWorkspace.sessionDidResignActiveNotification, false),
+            (NSWorkspace.sessionDidBecomeActiveNotification, true),
+        ] {
+            observerTokens.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.sessionActiveChanged(active) }
+            })
+        }
         startGeometryWatchdog()
         // Verification hook, environment-gated like the panel's own: the lock
         // card is the one surface that cannot be screenshotted where it lives,
@@ -522,9 +544,8 @@ final class NotchController {
             stores.resumeFromIdleScreen()
         }
         // An update offer the lock took down, or found while it stood, is
-        // owed now. On the next pass, once the unlock's own cuts have landed;
-        // with the display still dark it waits on for the wake.
-        DispatchQueue.main.async { [weak self] in self?.considerUpdateOffer() }
+        // owed now; with the display still dark it waits on for the wake.
+        updateScreenSeenAgain()
     }
 
     private func screenParametersChanged() {
@@ -729,6 +750,7 @@ final class NotchController {
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
             NSWorkspace.shared.notificationCenter.removeObserver(token)
+            DistributedNotificationCenter.default().removeObserver(token)
         }
         observerTokens.removeAll()
         cancellables.removeAll()
@@ -2875,6 +2897,12 @@ final class NotchController {
     /// Whether the Mac is locked, for a test: the live answer is the lock
     /// presence's, which follows the real session.
     var updateScreenLocked: (() -> Bool)?
+    /// The screen saver is up (`com.apple.screensaver.didstart`), perhaps
+    /// still inside its password grace, so not locked.
+    private var screenSaverRunning = false
+    /// This login session is the one at the screen; false while another user
+    /// is switched in.
+    private var sessionActive = true
     /// How long an unanswered offer stands (§19.1: at most 20 s). A test
     /// shortens it.
     var updateOfferHold: TimeInterval = NotchController.updateOfferHoldDefault
@@ -2970,7 +2998,7 @@ final class NotchController {
                 pointerUnderAlert: pointer.isInside
                     || vm.geometry.grownAlertRect(for: .update(offer), body: grown).contains(pointerLocation()),
                 screensAsleep: screensAreAsleep,
-                locked: updateScreenLocked?() ?? lockPresence.isLocked,
+                locked: updateScreenUnseen,
                 quiet: updateMomentsQuiet?() ?? momentsAreQuiet()
             )
             switch timing {
@@ -2994,6 +3022,36 @@ final class NotchController {
         // alert nobody can see would be the voice lying.
         Announcer.shared.announce(localized("Isla %@ is ready", offer.version))
         scheduleUpdateFold(after: updateOfferHold)
+    }
+
+    /// Nobody can see the island: locked, behind the screen saver, or with
+    /// another user switched in. An offer waits through all three, for the
+    /// same reason — folded unseen, it would count as answered.
+    private var updateScreenUnseen: Bool {
+        (updateScreenLocked?() ?? lockPresence.isLocked) || screenSaverRunning || !sessionActive
+    }
+
+    /// The screen saver started or stopped.
+    func screenSaverChanged(running: Bool) {
+        guard screenSaverRunning != running else { return }
+        screenSaverRunning = running
+        running ? clearUpdateOffer() : updateScreenSeenAgain()
+    }
+
+    /// Another user was switched in, or this one came back.
+    func sessionActiveChanged(_ active: Bool) {
+        guard sessionActive != active else { return }
+        sessionActive = active
+        active ? updateScreenSeenAgain() : clearUpdateOffer()
+    }
+
+    /// The screen is seen again — an unlock, the screen saver's end, the
+    /// session back: what was held back is owed. On the next pass, once
+    /// whatever the moment changed on screen has landed, and through
+    /// `presentUpdate`'s own rules, so a display still dark or a lock still
+    /// standing keeps it waiting.
+    private func updateScreenSeenAgain() {
+        DispatchQueue.main.async { [weak self] in self?.considerUpdateOffer() }
     }
 
     /// The stage the alert shows for `offer`, by where the installer is.
