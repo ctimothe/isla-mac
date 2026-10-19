@@ -150,9 +150,15 @@ fi
 # The local update feed's key (publish-dev-update.sh), a pair of its own so dev
 # builds never read the release key. Only a copy following the feed
 # (updates.localFeed) trusts it, and it trusts nothing else there
-# (UpdateSignature.trustedKey).
+# (UpdateSignature.trustedKey). A public release leaves it out
+# (release.sh sets ISLA_OMIT_DEV_UPDATE_KEY=1): no copy anyone downloads should
+# trust a key that signs builds no one else is meant to install (review,
+# 2026-10-19). Local builds carry it, so the bootstrap install can follow the
+# feed.
 DEV_KEY_FILE="$ROOT/Resources/update-dev-public-key.txt"
-if [ -s "$DEV_KEY_FILE" ]; then
+if [ "${ISLA_OMIT_DEV_UPDATE_KEY:-0}" = 1 ]; then
+    echo "==> dev update key left out (ISLA_OMIT_DEV_UPDATE_KEY=1)"
+elif [ -s "$DEV_KEY_FILE" ]; then
     DEV_KEY="$(tr -d '[:space:]' < "$DEV_KEY_FILE")"
     [ "$(printf '%s' "$DEV_KEY" | base64 -D 2>/dev/null | wc -c | tr -d ' ')" = 32 ] || {
         echo "!!! $DEV_KEY_FILE is not a 32-byte base64 Ed25519 public key" >&2

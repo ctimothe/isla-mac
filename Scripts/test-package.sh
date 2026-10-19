@@ -79,6 +79,18 @@ if ! grep -q 'autoShortcuts' "$INTENTS/extract.actionsdata"; then
     exit 1
 fi
 
+# The local update feed's key: a local build carries the committed one, so the
+# owner's bootstrap install can follow the feed; a release (release.sh sets
+# ISLA_OMIT_DEV_UPDATE_KEY=1) carries none, so no downloaded copy trusts it.
+DEV_KEY_FILE="$ROOT/Resources/update-dev-public-key.txt"
+HAVE_DEV_KEY="$(/usr/libexec/PlistBuddy -c 'Print :IslaDevUpdatePublicKey' "$PLIST" 2>/dev/null || true)"
+if [ "${ISLA_OMIT_DEV_UPDATE_KEY:-0}" = 1 ]; then
+    [ -z "$HAVE_DEV_KEY" ] || { echo "a release bundle carries IslaDevUpdatePublicKey" >&2; exit 1; }
+elif [ -s "$DEV_KEY_FILE" ]; then
+    [ "$HAVE_DEV_KEY" = "$(tr -d '[:space:]' < "$DEV_KEY_FILE")" ] \
+        || { echo "IslaDevUpdatePublicKey is not Resources/update-dev-public-key.txt" >&2; exit 1; }
+fi
+
 echo "  ✓ Isla bundle contract is complete"
 
 # Both architectures, in the app and in the helper perl loads. An Intel Mac
