@@ -128,7 +128,9 @@ case "$FEED" in /*) ;; *) fail "ISLA_DEV_FEED must be an absolute path, got '$FE
 # name the folder Isla confines them to, not a path that only leads there
 # (/var is /private/var).
 [ -d "$FEED" ] && FEED="$(cd "$FEED" && pwd -P)"
-case "$FEED" in *[!A-Za-z0-9_./-]*) fail "the feed path has characters that do not belong in a file URL: $FEED" ;; esac
+# Spaces and the like are fine: dev-feed-release.py percent-encodes the file
+# URLs. A control character is not a path anyone means.
+case "$FEED" in *[[:cntrl:]]*) fail "the feed path has a control character in it" ;; esac
 
 # 3. The feed's last release, if any: its version, build and commit.
 LAST_VERSION=""

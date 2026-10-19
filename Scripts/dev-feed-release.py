@@ -15,9 +15,18 @@
 # not update itself.
 import json
 import sys
+from pathlib import Path
 
 out, feed, version, build, commit, size, sig_size, notes = sys.argv[1:9]
 image = f"Isla-{version}.dmg"
+
+
+def file_url(name):
+    # Percent-encoded, so a folder with a space or a "#" in its path is a
+    # file URL Isla reads as that path, not a fragment or nothing.
+    return Path(feed, name).as_uri()
+
+
 release = {
     "tag_name": f"v{version}",
     "html_url": f"https://github.com/ctimothe/isla-mac/releases/tag/v{version}",
@@ -25,8 +34,8 @@ release = {
     "prerelease": False,
     "body": notes,
     "assets": [
-        {"name": image, "size": int(size), "browser_download_url": f"file://{feed}/{image}"},
-        {"name": f"{image}.sig", "size": int(sig_size), "browser_download_url": f"file://{feed}/{image}.sig"},
+        {"name": image, "size": int(size), "browser_download_url": file_url(image)},
+        {"name": f"{image}.sig", "size": int(sig_size), "browser_download_url": file_url(f"{image}.sig")},
     ],
     # Read back by the publish script only (Isla's decoder ignores them): the
     # build and commit the next publish counts from.

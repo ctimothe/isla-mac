@@ -240,8 +240,14 @@ final class UpdateSourceTests: XCTestCase {
     /// release's, which the page rule refuses (G-027), so the feed never
     /// offered anything; the hand-built answer above did not catch it because
     /// it was not the script's.
+    ///
+    /// The feed may sit on a path with a space in it ("Macintosh HD"), or a
+    /// `#`, which unencoded would start a fragment: the writer percent-encodes
+    /// its file URLs rather than the script refusing the folder (Codex review,
+    /// 2026-10-19).
     func testTheReleaseThePublishScriptWritesIsOffered() throws {
-        let feed = try folder()
+        let feed = try folder().appendingPathComponent("feed #1 with space", isDirectory: true)
+        try FileManager.default.createDirectory(at: feed, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let out = feed.appendingPathComponent("release.json")
         let writer = VisualLab.repositoryRoot.appendingPathComponent("Scripts/dev-feed-release.py")
         let (status, output) = UpdateTestSupport.run("/usr/bin/python3", [
