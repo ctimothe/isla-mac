@@ -100,6 +100,39 @@ final class UpdateSourceTests: XCTestCase {
         }
     }
 
+    /// An access-control entry can give another account what the mode bits
+    /// do not: one allowing anyone else to add to or remove from the feed, or
+    /// from a folder above it, opens it as a write bit would. A deny entry —
+    /// a home folder carries "everyone deny delete" — and an entry for the
+    /// user themselves open nothing.
+    func testAFolderAnAccessEntryOpensToOthersIsIgnored() throws {
+        let fm = FileManager.default
+        func entry(_ text: String, on url: URL) throws {
+            let (status, output) = UpdateTestSupport.run("/bin/chmod", ["+a", text, url.path])
+            XCTAssertEqual(status, 0, output)
+            // Before the folder's own teardown, which an entry may forbid.
+            addTeardownBlock { UpdateTestSupport.run("/bin/chmod", ["-N", url.path]) }
+        }
+        let opened = try folder()
+        XCTAssertEqual(resolve(setting: opened.path), .localFeed(opened))
+        try entry("everyone allow add_file,add_subdirectory,delete_child", on: opened)
+        XCTAssertEqual(resolve(setting: opened.path), .github, "anyone may add to it")
+
+        let parent = try folder()
+        let inner = parent.appendingPathComponent("feed", isDirectory: true)
+        try fm.createDirectory(at: inner, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        try entry("everyone allow delete_child", on: parent)
+        XCTAssertEqual(resolve(setting: inner.path), .github, "anyone may move it out of the folder above")
+
+        let denied = try folder()
+        try entry("everyone deny delete", on: denied)
+        XCTAssertEqual(resolve(setting: denied.path), .localFeed(denied), "a deny entry opens nothing")
+
+        let own = try folder()
+        try entry("\(NSUserName()) allow add_file,delete_child", on: own)
+        XCTAssertEqual(resolve(setting: own.path), .localFeed(own), "the user's own entry is theirs")
+    }
+
     /// The folder is judged at launch, and again before every read: a feed
     /// that has since become writable by others, or been swapped for a link
     /// elsewhere, is read no more — not by the check and not by the download.

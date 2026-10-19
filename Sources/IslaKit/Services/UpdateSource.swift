@@ -79,13 +79,61 @@ enum UpdateSource: Equatable, Sendable {
         var info = stat()
         guard lstat(url.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else { return nil }
         guard owner(url) == user else { return nil }
-        guard info.st_mode & (S_IWGRP | S_IWOTH) == 0 else { return nil }
+        guard info.st_mode & (S_IWGRP | S_IWOTH) == 0, !accessEntriesOpen(url, user: user) else { return nil }
         guard ancestorsHold(url, user: user) else { return nil }
         return url
     }
 
+    /// Whether an access-control entry on `url` allows anyone but `user` to
+    /// change it or what is in it — the write bits' rule, for what the mode
+    /// does not show (review, 2026-10-19). Deny entries open nothing: a home
+    /// folder carries "everyone deny delete". An entry that cannot be read is
+    /// taken as open; a folder with no entries is not.
+    nonisolated static func accessEntriesOpen(_ url: URL, user: UInt32) -> Bool {
+        guard let acl = acl_get_file(url.path, ACL_TYPE_EXTENDED) else { return false }
+        defer { acl_free(UnsafeMutableRawPointer(acl)) }
+        let writes: [acl_perm_t] = [
+            ACL_ADD_FILE, ACL_ADD_SUBDIRECTORY, ACL_DELETE_CHILD, ACL_DELETE, ACL_WRITE_DATA, ACL_APPEND_DATA,
+            ACL_WRITE_ATTRIBUTES, ACL_WRITE_EXTATTRIBUTES, ACL_WRITE_SECURITY, ACL_CHANGE_OWNER,
+        ]
+        var which = Int32(ACL_FIRST_ENTRY.rawValue)
+        var entry: acl_entry_t?
+        while acl_get_entry(acl, which, &entry) == 0, let current = entry {
+            which = Int32(ACL_NEXT_ENTRY.rawValue)
+            var tag = ACL_UNDEFINED_TAG
+            guard acl_get_tag_type(current, &tag) == 0 else { return true }
+            guard tag == ACL_EXTENDED_ALLOW else { continue }
+            var permissions: acl_permset_t?
+            guard acl_get_permset(current, &permissions) == 0, let permissions else { return true }
+            guard writes.contains(where: { acl_get_perm_np(permissions, $0) == 1 }) else { continue }
+            // Whose entry: the user's own is theirs.
+            guard let qualifier = acl_get_qualifier(current) else { return true }
+            defer { acl_free(qualifier) }
+            if userID(of: qualifier) == user { continue }
+            return true
+        }
+        return false
+    }
+
+    /// The user an entry's qualifier names, or nil for a group, someone this
+    /// Mac cannot resolve, or no resolver. `mbr_uuid_to_id` is libSystem's
+    /// but `membership.h` is not in Swift's Darwin module, so it is looked up
+    /// by name, as the lock path looks up SkyLight; without it every allow
+    /// entry counts as open.
+    nonisolated private static func userID(of qualifier: UnsafeMutableRawPointer) -> UInt32? {
+        typealias UUIDToID = @convention(c) (UnsafeRawPointer, UnsafeMutablePointer<id_t>, UnsafeMutablePointer<Int32>) -> Int32
+        // RTLD_DEFAULT: every image already loaded.
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "mbr_uuid_to_id") else { return nil }
+        let resolve = unsafeBitCast(symbol, to: UUIDToID.self)
+        var id = id_t()
+        var kind: Int32 = -1
+        // ID_TYPE_UID is 0 in membership.h.
+        guard resolve(UnsafeRawPointer(qualifier), &id, &kind) == 0, kind == 0 else { return nil }
+        return id
+    }
+
     /// Whether every folder above `url` is root's or `user`'s, and writable by
-    /// others only when sticky. A feed of the user's own inside a folder
+    /// others — by its mode or an access entry — only when sticky. A feed of the user's own inside a folder
     /// others can write could be renamed away and a folder of theirs put in
     /// its place (review, 2026-10-19); the sticky bit is what keeps that from
     /// happening in /tmp. Followed with `stat`, not `lstat`: Foundation spells
@@ -98,6 +146,7 @@ enum UpdateSource: Equatable, Sendable {
                   info.st_uid == 0 || info.st_uid == user
             else { return false }
             if info.st_mode & (S_IWGRP | S_IWOTH) != 0, info.st_mode & S_ISVTX == 0 { return false }
+            if accessEntriesOpen(folder, user: user) { return false }
             if folder.path == "/" { return true }
             folder = folder.deletingLastPathComponent()
         }
