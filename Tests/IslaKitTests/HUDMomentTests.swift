@@ -184,20 +184,37 @@ final class HUDMomentTests: XCTestCase {
         return (controller, vm, isolated)
     }
 
+    /// Measured against the clock, not against sleeps: the CI runner stalls
+    /// for a few hundred milliseconds now and then, and with sleeps 50 ms
+    /// either side of a 150 ms linger this failed on main and on two branches
+    /// in a row (2026-10-18/19) for a fold that was on time. A stall now makes
+    /// the middle check say nothing rather than fail; the last check — the
+    /// fold comes no sooner than the last press's linger — holds the restart
+    /// whatever the runner does.
     func testThePopUpFoldsAfterTheLingerAndEachPressRestartsIt() async throws {
         XCTAssertEqual(NotchController().hudFoldDelay, 1.5, "the spec's linger")
         let (controller, vm, isolated) = try rig()
         defer { isolated.release() }
+        let linger: TimeInterval = 0.6
+        controller.hudFoldDelay = linger
 
         controller.presentHUD(reading(.volume, 0.5))
+        let first = Date()
         XCTAssertEqual(vm.hud?.level, 0.5)
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(400))
         controller.presentHUD(reading(.volume, 0.5625))   // a press restarts the wait
+        let last = Date()
         XCTAssertEqual(vm.hud?.level, 0.5625, "the bar follows each press")
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertNotNil(vm.hud, "200 ms after the first press but 100 ms after the last")
-        try await Task.sleep(for: .milliseconds(150))
+
+        while Date().timeIntervalSince(first) < linger + 0.05 { try await Task.sleep(for: .milliseconds(10)) }
+        if Date().timeIntervalSince(last) < linger - 0.05 {
+            XCTAssertNotNil(vm.hud, "past the first press's linger but inside the last one's")
+        }
+        let deadline = Date().addingTimeInterval(3)
+        while vm.hud != nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertNil(vm.hud, "folded after the last press's linger")
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(last), linger - 0.02,
+                                    "and not before it: the last press restarted the wait")
     }
 
     /// Spec §19.1: a replaced alert is dropped. The charger used to wait
