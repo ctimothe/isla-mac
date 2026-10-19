@@ -110,6 +110,29 @@ final class UpdateFeedWatcherTests: XCTestCase {
         XCTAssertFalse(watcher.isWatching, "a stopped watcher reopens nothing")
     }
 
+    /// While the feed is gone the folder above it is watched, so the feed
+    /// made again is found at once and not at the next try of a timer — a
+    /// timer that, with the feed left gone, woke the Mac every 30 s all night
+    /// (review, 2026-10-19). The timer is only the net for a folder above
+    /// that cannot be watched, at minutes, not seconds.
+    func testWhileTheFeedIsGoneTheFolderAboveSaysWhenItIsBack() throws {
+        let fm = FileManager.default
+        let folder = try UpdateTestSupport.folder(self).appendingPathComponent("feed", isDirectory: true)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+        var changes = 0
+        let watcher = UpdateFeedWatcher(folder: folder, coalesce: 0.1, reopenDelay: 120) { changes += 1 }
+        addTeardownBlock { @MainActor in watcher.stop() }
+        XCTAssertTrue(watcher.start())
+        try fm.removeItem(at: folder)
+        spin(until: { !watcher.isWatching })
+        XCTAssertFalse(watcher.isWatching)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+        spin(until: { watcher.isWatching && changes > 0 })
+        XCTAssertTrue(watcher.isWatching, "found within moments, with the timer's first try two minutes away")
+        XCTAssertGreaterThan(changes, 0)
+        XCTAssertGreaterThanOrEqual(UpdateFeedWatcher.reopenLimit, 300, "the net runs at minutes")
+    }
+
     func testAFolderThatCannotBeOpenedIsNotWatched() throws {
         let folder = try UpdateTestSupport.folder(self).appendingPathComponent("missing")
         let watcher = UpdateFeedWatcher(folder: folder) {}

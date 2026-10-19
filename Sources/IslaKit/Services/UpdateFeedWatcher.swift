@@ -18,10 +18,12 @@ import Foundation
 ///
 /// The descriptor follows the folder it was opened on, not its path. When that
 /// folder is removed or renamed — `rm -rf .dev-updates` and a publish that
-/// makes it again — the watcher lets go and opens the path again, after
-/// `reopenDelay`, doubling to at most `reopenLimit`, and checks once it has:
+/// makes it again — the watcher lets go, watches the folder above it, and
+/// opens the path again when an entry there changes, checking once it has:
 /// anything may be in the new folder. Before this the feed went unwatched
-/// until Isla next launched (review, 2026-10-19).
+/// until Isla next launched (review, 2026-10-19). A timer, from `reopenDelay`
+/// doubling to `reopenLimit`, is only the net for a folder above that cannot
+/// be watched; at seconds it woke the Mac all night for a feed left gone.
 @MainActor
 final class UpdateFeedWatcher {
     private let folder: URL
@@ -31,14 +33,16 @@ final class UpdateFeedWatcher {
     private var source: DispatchSourceFileSystemObject?
     private var pending: DispatchWorkItem?
     private var reopenWork: DispatchWorkItem?
+    /// The folder above, watched while the feed is gone.
+    private var parentSource: DispatchSourceFileSystemObject?
 
     /// A publish's burst of writes, gathered into one check.
     nonisolated static let defaultCoalesce: TimeInterval = 0.5
     /// The first wait before opening a lost folder's path again: a publish
     /// that removed it makes it again at once.
     nonisolated static let defaultReopenDelay: TimeInterval = 1
-    /// The longest wait between tries, for a feed that stays gone.
-    nonisolated static let reopenLimit: TimeInterval = 30
+    /// The longest wait between the net's tries, for a feed that stays gone.
+    nonisolated static let reopenLimit: TimeInterval = 300
 
     init(
         folder: URL, coalesce: TimeInterval = UpdateFeedWatcher.defaultCoalesce,
@@ -68,6 +72,8 @@ final class UpdateFeedWatcher {
         pending = nil
         reopenWork?.cancel()
         reopenWork = nil
+        parentSource?.cancel()
+        parentSource = nil
         source?.cancel()
         source = nil
     }
@@ -109,7 +115,41 @@ final class UpdateFeedWatcher {
         pending = nil
         source?.cancel()
         source = nil
+        watchParent()
         scheduleReopen(after: firstReopenDelay)
+    }
+
+    /// Watches the folder above the lost feed: an entry added, removed or
+    /// renamed there is the moment to look for the feed again.
+    private func watchParent() {
+        parentSource?.cancel()
+        parentSource = nil
+        let descriptor = open(folder.deletingLastPathComponent().path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let parent = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main
+        )
+        parent.setEventHandler { [weak self, weak parent] in
+            MainActor.assumeIsolated {
+                guard let self, let parent, parent === self.parentSource else { return }
+                self.tryReopen()
+            }
+        }
+        parent.setCancelHandler { close(descriptor) }
+        parent.resume()
+        parentSource = parent
+    }
+
+    /// Opens the feed's path if it is there again: stops looking, and checks.
+    @discardableResult
+    private func tryReopen() -> Bool {
+        guard source == nil, attach() else { return false }
+        reopenWork?.cancel()
+        reopenWork = nil
+        parentSource?.cancel()
+        parentSource = nil
+        onChange()
+        return true
     }
 
     private func scheduleReopen(after delay: TimeInterval) {
@@ -118,9 +158,7 @@ final class UpdateFeedWatcher {
             MainActor.assumeIsolated {
                 guard let self, self.reopenWork != nil else { return }
                 self.reopenWork = nil
-                if self.attach() {
-                    self.onChange()
-                } else {
+                if !self.tryReopen() {
                     self.scheduleReopen(after: min(delay * 2, Self.reopenLimit))
                 }
             }
