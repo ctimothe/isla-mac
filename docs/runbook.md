@@ -286,9 +286,16 @@ launches, quits or installs anything, and it removes its fake-version build from
 owner's own Isla takes each committed change through Update Now instead of a
 reinstall. `bash Scripts/publish-dev-update.sh` builds the committed checkout
 as `VERSION.N` (newer than the installed build and the feed's last, older than
-the next real release), signs it with the update key and lands the image, its
-signature and `release.json` in the feed — `$ISLA_DEV_FEED`, or `.dev-updates`
-in the main checkout (git-ignored, 0700). Isla follows the feed while
+the next real release), signs it with the feed's own key and lands the image,
+its signature and `release.json` in the feed — `$ISLA_DEV_FEED`, or
+`.dev-updates` in the main checkout (git-ignored, 0700, marked
+`.isla-dev-feed`). The feed's key is not the release key: its private half is
+"Isla Dev Update Signing" in the login keychain, its public half
+`Resources/update-dev-public-key.txt`, which every build carries as
+`IslaDevUpdatePublicKey`; a copy following the feed trusts that key and only
+that key. If it is lost, make a new pair with
+`swift Scripts/update-signing.swift create-key --dev Resources/update-dev-public-key.txt`,
+commit it, and reinstall once. Isla follows the feed while
 `updates.localFeed` in its defaults names it (`--enable` writes it; read at
 launch, so the first time takes one relaunch); it watches the folder and
 offers each new build on the island, where Install runs the same download,

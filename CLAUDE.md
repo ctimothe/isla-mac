@@ -136,9 +136,10 @@ running app behind the code:
    ```bash
    bash Scripts/publish-dev-update.sh
    ```
-   It builds the committed checkout as `VERSION.N`, signs it with the update
-   key and lands it in the feed (`.dev-updates` in the main checkout). The
-   running Isla offers it on the island within a second or two.
+   It builds the committed checkout as `VERSION.N`, signs it with the feed's
+   own key ("Isla Dev Update Signing" in the login keychain — never the
+   release key) and lands it in the feed (`.dev-updates` in the main
+   checkout). The running Isla offers it on the island within a second or two.
 3. **The owner presses Install on the island**; Isla replaces itself in
    `/Applications` and restarts as the new build. Do not install it for them.
 

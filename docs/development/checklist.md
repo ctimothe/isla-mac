@@ -156,9 +156,12 @@ are the exception the design did not anticipate:
   absolute folder that the user owns and nobody else can write, Update Now
   reads that folder's `release.json` instead of GitHub, with the rehearsal's
   confinement of `file://` assets to the folder, and installs only what the
-  update key signs, through the same validator, swap and restart. The setting
-  is read once at launch (a rehearsal variable wins over it); the folder is
-  watched and checked 3 s after launch; nothing reaches the network.
+  feed's own key signs ("Isla Dev Update Signing", `IslaDevUpdatePublicKey`;
+  never the release key), through the same validator, swap and restart. The
+  setting is read once at launch (a rehearsal variable wins over it), and the
+  folder is judged again before every read; it is watched, a folder removed
+  and made again included, and checked 3 s after launch; nothing reaches the
+  network.
   `Scripts/publish-dev-update.sh` publishes each committed build to it as
   `VERSION.N`. Off unless the setting is written (`--enable`). Held by
   `UpdateSourceTests` and `UpdateFeedWatcherTests`. The island's update alert
@@ -2417,4 +2420,8 @@ Mac model and macOS version when run):
   and it returns after.
 - [ ] **DU-H5** What macOS said about App Management on the first update
   through the feed (a prompt, a "prevented from modifying apps" notice, or
-  nothing).
+  nothing), and whether the first `publish-dev-update.sh` asked to allow the
+  keychain read of "Isla Dev Update Signing".
+- [ ] **DU-H6** With Show on Lock Screen off, publish a build and lock the
+  Mac before it is offered: nothing shows under the shield, and the alert
+  appears after the unlock.

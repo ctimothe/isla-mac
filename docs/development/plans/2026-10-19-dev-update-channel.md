@@ -74,7 +74,8 @@ gate. It:
 3. Builds with `bundle.sh` (the existing version overrides), packs with
    `dmg.sh`, signs with `update-signing.swift sign` (the key in the login
    keychain; macOS may ask once to allow the read), verifies against the
-   committed public key.
+   committed public key. *Amended 2026-10-19, after review:* the feed's own
+   key, `sign --dev`, never the release key — see "After review" below.
 4. Writes the image and signature into the feed, then `release.json` last
    (written beside and renamed in), so the watcher never reads half a file.
    Notes are the commit subjects since the last published commit (at most ten),
@@ -201,4 +202,42 @@ Decided while building, beyond the plan: an offer the island cannot show yet
 under a still pointer, over a quiet moment or a dark display is delayed, not
 dropped (§19.5 f amendment); an older version counts as answered with a newer
 one; and the stages after Install are untimed.
+
+### After review (2026-10-19)
+
+An Opus review of the branch found one blocker and several should-fix items,
+each fixed test-first in its own commit:
+
+- **Blocker, `b2b8a71`.** The script named the commit's page as the
+  release's `html_url`; `UpdateCheck.isTrustedReleasePage` (G-027) refuses
+  anything off Isla's GitHub releases, so the feed never offered a build. The
+  writer is now `Scripts/dev-feed-release.py` (page `releases/tag/v<version>`),
+  and `testTheReleaseThePublishScriptWritesIsOffered` runs it through the check.
+- **`798dbaf`.** With the lock card off nothing marks the island locked, and
+  an offer shown under the shield folded unseen and counted as answered. The
+  timing now answers `atUnlock`, and the unlock asks again.
+- **`0db85bf`, beyond the plan.** Dev builds are signed with a key pair of
+  their own — "Isla Dev Update Signing" in the login keychain,
+  `Resources/update-dev-public-key.txt`, `IslaDevUpdatePublicKey` in every
+  build — not the release key. `UpdateSignature.trustedKey` gives the feed
+  that key and nothing else; GitHub and a rehearsal keep the release key. Made
+  on the owner's Mac on 2026-10-19; losing it costs one `install.sh` after a
+  new pair.
+- **`95e45a5`, `01a7fcf`.** The feed folder is judged again before every read
+  (`UpdateSource.stillHolds`), by the check and by Update Now's own download,
+  and every folder above it must be root's or the user's and writable by
+  others only when sticky.
+- **`a2befa3`.** A feed folder removed or renamed is watched again
+  (`UpdateFeedWatcher` reopens the path, 1 s doubling to 30 s).
+- **`e8af354`.** The script makes the feed with a `.isla-dev-feed` marker,
+  refuses a folder that already holds other files, and prunes only four-part
+  dev images.
+- **`1c79dec`.** An offer that waited behind the pop-up or an open panel is
+  asked again before it shows, so an overtaken release never flashes back; the
+  download line names the release actually downloading; VoiceOver reads the
+  title once; the controller hears installer steps, not progress ticks.
+
+Not changed: the island's press highlight over the alert, which the review
+asked to drop — it is the hover's colour, which the alert under the pointer
+already shows, so there is nothing to see.
 
