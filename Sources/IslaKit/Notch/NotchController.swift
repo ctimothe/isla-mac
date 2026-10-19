@@ -2951,7 +2951,7 @@ final class NotchController {
     /// "once per version, at the first idle moment" lives in one place.
     func considerUpdateOffer() {
         guard let vm = viewModel else { return }
-        let available = availableUpdate().flatMap { updateOfferMemory.isUnanswered($0.version) ? $0 : nil }
+        let available = owedRelease()
         if let shown = vm.updateOffer {
             // Up already. While it is only an offer, a newer release takes its
             // place and a withdrawn one takes it down; once Install is
@@ -2982,7 +2982,7 @@ final class NotchController {
         // withdrawn or overtaken, and shown for a frame before
         // `considerUpdateOffer` put it right it was a version announced that
         // was no longer offered (review, 2026-10-19).
-        guard availableUpdate()?.version == offer.version, updateOfferMemory.isUnanswered(offer.version) else { return }
+        guard owedRelease()?.version == offer.version else { return }
         updateRetryWork?.cancel()
         updateRetryWork = nil
         let blocked = Self.alertsBlocked(
@@ -3052,6 +3052,18 @@ final class NotchController {
     /// standing keeps it waiting.
     private func updateScreenSeenAgain() {
         DispatchQueue.main.async { [weak self] in self?.considerUpdateOffer() }
+    }
+
+    /// What the island owes an alert for. While an install runs, the release
+    /// being installed: its alert follows it to the end, whatever a check has
+    /// found since — a newer build that landed meanwhile came back, after a
+    /// pop-up took the alert's place, titled over the older one's progress
+    /// (Codex review, 2026-10-19). Otherwise the newest release not yet
+    /// answered.
+    private func owedRelease() -> UpdateCheck.Release? {
+        let state = installerState()
+        if state.phase.isBusy, let installing = state.release { return installing }
+        return availableUpdate().flatMap { updateOfferMemory.isUnanswered($0.version) ? $0 : nil }
     }
 
     /// The stage the alert shows for `offer`, by where the installer is.

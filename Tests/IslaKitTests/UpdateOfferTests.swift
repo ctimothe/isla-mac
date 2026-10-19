@@ -477,6 +477,37 @@ final class UpdateOfferTests: XCTestCase {
         XCTAssertEqual(shown, [nil, "0.3.0.1", nil, "0.3.0.1", nil, "0.3.0.2"], "the overtaken one is never shown again")
     }
 
+    /// Once Install is pressed the alert belongs to that install until it
+    /// ends. A newer build landing meanwhile, and a pop-up taking the alert's
+    /// place for a moment, brought the alert back titled as the newer build
+    /// over the older one's progress (Codex review, 2026-10-19). It comes back
+    /// as the release being installed; the newer one waits for the install to
+    /// end.
+    func testAnInstallUnderWayKeepsItsAlertWhateverLandsMeanwhile() throws {
+        let h = try harness(available: release())
+        h.controller.hudFoldDelay = 0.15
+        var shown: [String?] = []
+        let watch = h.vm.$updateOffer.map { $0?.version }.removeDuplicates().sink { shown.append($0) }
+        defer { watch.cancel() }
+
+        h.controller.considerUpdateOffer()
+        h.controller.updateAlertAction(.install)
+        h.controller.installerState = { (.downloading(received: 10, total: 100), self.release()) }
+        h.controller.availableUpdate = { self.release("0.3.0.2") }
+        h.controller.considerUpdateOffer()
+        XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.1", "up, it stays the install's")
+
+        h.controller.presentHUD(HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil))
+        XCTAssertNil(h.vm.updateOffer)
+        spin(until: { h.vm.hud == nil && h.vm.updateOffer != nil })
+        XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.1", "back as the release being installed")
+        XCTAssertFalse(shown.contains("0.3.0.2"), "the newer build is not offered over an install: \(shown)")
+
+        h.controller.installerState = { (.failed(.offline), self.release()) }
+        h.controller.considerUpdateOffer()
+        XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.1", "its failure stays up for an answer")
+    }
+
     func testNothingIsOfferedWithoutAnUpdate() throws {
         let h = try harness(available: nil)
         h.controller.considerUpdateOffer()
