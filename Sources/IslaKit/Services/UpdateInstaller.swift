@@ -161,7 +161,7 @@ struct UpdateEnvironment {
 ///    ends in a failure with Try Again, not in a card that never changes.
 ///
 /// One install runs at a time. Nothing starts it but `install(_:)`, and the
-/// only caller is the Update Now button: the daily check only reports.
+/// only caller is the Update Now button: the automatic check only reports.
 @MainActor
 final class UpdateInstaller: ObservableObject {
     static var shared: UpdateInstaller { sharedOverride ?? live }

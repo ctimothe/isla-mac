@@ -1045,6 +1045,10 @@ before controls, and sliders shrink first (`Stress-Settings-RU-480`).
 | Screenshots | `photo.on.rectangle` (`#8E8E93`) | Save Clipboard Screenshots [off] · Show Screen Captures [on] · Show Screenshots Folder · Clear Screenshots Folder |
 | About | Isla's icon | name and version · "Isla %@ is the latest version." with Check for Updates · Check for Updates Automatically [off] · Copy Diagnostics · Report a Problem… · Acknowledgements… · "Nothing leaves your Mac unless you turn it on." and Quit Isla |
 
+> **Amended 2026-10-20 (owner).** Check for Updates Automatically is **[on]**,
+> hourly, so every release reaches the island within the hour, and About's
+> privacy line reads "Nothing but update checks leaves your Mac unasked." (plan 2026-10-20-updates-for-everyone).
+
 > **Amended 2026-10-16 (owner).** About's update row is Software Update. The
 > "is the latest version" line with its one Check for Updates button became a
 > card in the form's own style, with the buttons that fit its state under it at

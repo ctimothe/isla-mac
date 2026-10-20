@@ -2,7 +2,7 @@ import Foundation
 
 /// Watches the local feed's folder and says when it changed, so a build
 /// published there reaches the island within a second or two instead of at the
-/// next daily check — the point of the feed is that the owner sees each change
+/// next hourly check — the point of the feed is that the owner sees each change
 /// as it is made (plan 2026-10-19).
 ///
 /// A `DispatchSource` on the folder itself: the kernel reports a write to a

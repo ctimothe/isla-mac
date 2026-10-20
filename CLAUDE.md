@@ -371,7 +371,11 @@ so and every row offers Sync Here (`LyricSweep.syncDelay`, per-track range ±45 
   `docs/development/checklist.md`: Lyrics (network, default off), Spotify PKCE account
   (keychain), the lock-screen card, system audio-output switching, and output
   volume. Anything new that leaves the machine, touches an account, or changes a
-  system-wide setting must be added there and default to off.
+  system-wide setting must be added there and default to off. The one named
+  exception is the update check, on and hourly since 2026-10-20 (owner: every
+  merge to `main` must reach every user's island; plan
+  `2026-10-20-updates-for-everyone`). It sends one request to GitHub naming
+  Isla's version, and the switch in Settings › About turns it off.
 - The design doc is amended in place, dated, never rewritten. The panel width
   (`480…620`, default `560`), the click-to-open model, and the removals all
   carry amendments; the status item, its menu and a short-lived main window were

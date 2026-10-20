@@ -496,7 +496,7 @@ final class SettingsTableTests: XCTestCase {
             .showOnLockScreen: .on, .restAsBanner: .on,
             .translateOnline: .off, .keepHistory: .off, .speakButton: .on,
             .saveClipboardScreenshots: .off, .showScreenCaptures: .on,
-            .checkForUpdatesAutomatically: .off,
+            .checkForUpdatesAutomatically: .on,
             .panelWidth: .number(560),
             .lyricDelay: .number(0),
             .showNextLineEarly: .text("auto"),

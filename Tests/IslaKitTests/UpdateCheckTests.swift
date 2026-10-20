@@ -180,8 +180,10 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertEqual(forbidden, .failed(.server), "a 403 without the exhausted-quota header is not a rate limit")
     }
 
-    /// It reaches the network, so it is off until the user turns it on.
-    func testTheAutomaticCheckIsOffByDefault() {
+    /// On by default since 2026-10-20 (plan 2026-10-20-updates-for-everyone):
+    /// every merge to main is released, and a copy that never asks never
+    /// hears of one. A user who turned it off stays off.
+    func testTheAutomaticCheckIsOnByDefaultAndStaysOffWhenTurnedOff() {
         let defaults = UserDefaults.standard
         let had = defaults.object(forKey: UpdateCheck.automaticKey)
         defer {
@@ -189,7 +191,16 @@ final class UpdateCheckTests: XCTestCase {
             else { defaults.removeObject(forKey: UpdateCheck.automaticKey) }
         }
         defaults.removeObject(forKey: UpdateCheck.automaticKey)
-        XCTAssertFalse(UpdateCheck.automaticEnabled)
+        XCTAssertTrue(UpdateCheck.automaticEnabled, "absent means on")
+        defaults.set(false, forKey: UpdateCheck.automaticKey)
+        XCTAssertFalse(UpdateCheck.automaticEnabled, "the user's off is kept")
+    }
+
+    /// Hourly: a release reaches the island within the hour, at 24 requests a
+    /// day, well under GitHub's 60 an hour for an address without a token.
+    func testTheAutomaticCheckRunsHourly() {
+        XCTAssertEqual(UpdateCheck.automaticInterval, 60 * 60)
+        XCTAssertLessThanOrEqual(UpdateCheck.automaticTolerance, 10 * 60)
     }
 }
 

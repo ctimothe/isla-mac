@@ -901,7 +901,7 @@ struct SettingsPane: View {
             // so it is a button in the last section of the pane the welcome page
             // points at, not a footer to scroll to (H-003).
             HStack(alignment: .center, spacing: 8) {
-                Text(localized("Nothing leaves your Mac unless you turn it on."))
+                Text(localized("Nothing but update checks leaves your Mac unasked."))
                     .islandFont(.caption, weight: .regular)
                     .foregroundStyle(Theme.tertiary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -27,11 +27,12 @@ notch to open it on the player; swipe sideways, or click the dots at the foot,
 for the Shelf, Clipboard and Translate. The gear opens **Settings**, which has
 Launch at Login, About and Quit.
 
-To update, go to **Settings → Application → Check for Updates**. Releases after 0.3.0
-install themselves with **Update Now** and relaunch, with no download or `xattr` step. Turn on
-**Check for Updates Automatically** to be told once a day; it is off by default. Isla 0.3.0
-and earlier can only open the download page: repeat the steps above once, and Update Now
-takes it from there.
+Isla checks for a new release once an hour and shows it on the island; press
+**Install** and it replaces itself and relaunches, with no download or `xattr` step. Every
+change merged to `main` is released this way. **Settings → About → Check for Updates** asks at
+once, and **Check for Updates Automatically** turns the hourly check off. Isla 0.3.0 and
+earlier can only open the download page: repeat the steps above once, and the island takes it
+from there.
 
 ## Features
 
@@ -65,14 +66,16 @@ takes it from there.
 ## Privacy
 
 Nothing about you leaves the Mac unless you turn it on in Settings. Each of
-these is off by default, except the cover row, which has no setting:
+these is off by default, except the update check, which is on so that fixes
+reach you (turn it off in Settings → About), and the cover row, which has no
+setting:
 
 | Setting | What is sent | Where |
 | --- | --- | --- |
 | Look Up Lyrics Online | Track title, artist, album and length | [LRCLIB](https://lrclib.net) |
 | Translate Online | The text and its two languages, only for languages the Mac cannot translate itself | [MyMemory](https://mymemory.translated.net) |
 | Connect Spotify Account | Spotify sign-in, to read and change Liked Songs | Spotify |
-| Check for Updates Automatically | A request for the latest version, naming Isla's version | [GitHub](https://github.com) |
+| Check for Updates Automatically (on) | Once an hour, a request for the latest version, naming Isla's version | [GitHub](https://github.com) |
 | Spotify covers (no setting) | The cover's address, only when Spotify is playing and Now Playing cannot describe it | Spotify's image server |
 
 Isla keeps no web cache and no cookies from any of these requests.

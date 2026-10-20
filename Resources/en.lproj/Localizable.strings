@@ -380,7 +380,7 @@
 "Isla %@" = "Isla %@";
 "No Dock or menu-bar icon. Click the notch or press %@ to come back." = "No Dock or menu-bar icon. Click the notch or press %@ to come back.";
 "No Dock or menu-bar icon. Click the notch to come back." = "No Dock or menu-bar icon. Click the notch to come back.";
-"Nothing leaves your Mac unless you turn it on." = "Nothing leaves your Mac unless you turn it on.";
+"Nothing but update checks leaves your Mac unasked." = "Nothing but update checks leaves your Mac unasked.";
 "Needs your approval in Login Items." = "Needs your approval in Login Items.";
 "Open Login Items…" = "Open Login Items…";
 "Launch at Login failed: %@" = "Launch at Login failed: %@";

@@ -9,11 +9,14 @@ import AppKit
 /// one: it asks GitHub for the latest release and, if it is newer, links to
 /// its page.
 ///
-/// It reaches the network, so the automatic check is **off by default**, per
-/// the rule in `CLAUDE.md`, and recorded in `checklist.md` and the README's
-/// privacy table. Pressing Check for Updates is itself the consent for that
-/// one request. What leaves the Mac is the request: GitHub sees an IP address
-/// and a User-Agent naming the Isla version, and nothing else.
+/// It reaches the network. The automatic check was off by default under the
+/// rule in `CLAUDE.md`, until the owner made it the rule's one named exception
+/// on 2026-10-20: every merge to `main` is released from then on, and a copy
+/// that never asks never hears of one (plan 2026-10-20-updates-for-everyone).
+/// It is on, hourly, and the switch in Settings turns it off; `checklist.md`
+/// and the README's privacy table say so. What leaves the Mac is the request:
+/// GitHub sees an IP address and a User-Agent naming the Isla version, and
+/// nothing else.
 @MainActor
 final class UpdateCheck: ObservableObject {
     static var shared: UpdateCheck { sharedOverride ?? live }
@@ -74,15 +77,20 @@ final class UpdateCheck: ObservableObject {
 
     static let automaticKey = "updates.checkAutomatically"
 
+    /// An absent key is on (the default since 2026-10-20); a user's off stays
+    /// off. `bool(forKey:)` would read absent as off, which was the old default.
     static var automaticEnabled: Bool {
-        UserDefaults.standard.bool(forKey: automaticKey)
+        UserDefaults.standard.object(forKey: automaticKey) as? Bool ?? true
     }
 
     nonisolated static let latestReleaseURL = URL(string: "https://api.github.com/repos/ctimothe/isla-mac/releases/latest")!
 
-    /// Once a day is enough for an app that releases every few weeks, and the
-    /// tolerance lets the system fold it into another wake-up.
-    static let automaticInterval: TimeInterval = 24 * 60 * 60
+    /// Hourly since 2026-10-20, when every merge to `main` became a release:
+    /// a daily check left a fix off the island for up to a day. 24 requests a
+    /// day is well inside GitHub's 60 an hour for an address without a token.
+    /// The tolerance lets the system fold it into another wake-up.
+    static let automaticInterval: TimeInterval = 60 * 60
+    static let automaticTolerance: TimeInterval = 10 * 60
 
     typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
@@ -418,7 +426,7 @@ final class UpdateCheck: ObservableObject {
 
     // MARK: - Automatic
 
-    /// Starts the daily check when the user has turned it on. Called at launch
+    /// Starts the hourly check unless the user has turned it off. Called at launch
     /// and from the Settings switch.
     func startAutomaticIfEnabled() {
         stopAutomatic()
@@ -432,7 +440,7 @@ final class UpdateCheck: ObservableObject {
         let timer = Timer(timeInterval: Self.automaticInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.check() }
         }
-        timer.tolerance = 60 * 60
+        timer.tolerance = Self.automaticTolerance
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
