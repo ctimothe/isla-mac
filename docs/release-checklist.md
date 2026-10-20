@@ -9,6 +9,12 @@
 Complete the commands and manual flows in [runbook.md](runbook.md). Add a short
 result, evidence path, or issue link to every gate.
 
+> 2026-10-20: the gates and the verdict below are the 0.6.5 parity RC's record,
+> dated 2026-08-18. Since then 0.1.0, 0.2.0 and 0.3.0 have shipped without the
+> gates being refreshed. The controls under "Final release controls" apply to
+> every release. How a release reaches users, and what keeps Update Now working,
+> is in [runbook.md §8](runbook.md#8-releasing).
+
 1. [x] **Unit and service tests** — every test passes (29 on the day this line was first
    written; 520 or so as of 2026-09-23 — trust the run, not this number). Evidence:
    [release-candidate report](development/verification/2026-08-18-release-candidate.md)
@@ -60,7 +66,16 @@ result, evidence path, or issue link to every gate.
 
 - [ ] Release notes exist at `docs/releases/<version>.md` and describe user-visible
   changes.
-- [ ] Developer ID certificate and Apple notarization credentials are configured.
+- [ ] Developer ID certificate and Apple notarization credentials are configured,
+  or the release is `ISLA_ADHOC=1` and says so (see below).
+- [ ] The update key ("Isla Update Signing") and the pinned certificate
+  (`~/Isla Code Signing.p12`) are the same ones the last release used, and both
+  are backed up in the password manager. A new key or certificate makes every
+  installed copy fall back to the download page.
+- [ ] The release carries `Isla-<version>.dmg.sig` beside the image.
+- [ ] A copy of the previous release, on a real Mac, took this one through
+  Check for Updates → Update Now, kept its Accessibility permission, and
+  relaunched as the new version. Added 2026-10-20.
 - [ ] The release commit is clean, reviewed, pushed, and has no existing version
   tag.
 - [ ] The stapled DMG passes final Gatekeeper validation on a second clean Mac.

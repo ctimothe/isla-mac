@@ -113,7 +113,8 @@ are the exception the design did not anticipate:
   running one, offers its release page. It sends the request and nothing else:
   GitHub sees an IP address and a User-Agent naming the Isla version. Pressing
   the row is the consent for one request. **Check for Updates Automatically**
-  (default off) asks once a day and marks the Settings tab when there is
+  (default off until 2026-10-20, now **on, hourly** — see the amendment below)
+  asks on its timer and marks the Settings tab when there is
   something new. It exists because nothing else could tell a 0.1.0 user that
   0.2.0 was out. Sparkle replaces it once there is a Developer ID to sign the
   feed with. `UpdateCheckTests` holds the default and the request.
@@ -169,6 +170,18 @@ are the exception the design did not anticipate:
   (spec §19.5 f, built ahead of R9) offers each version once:
   `UpdateOfferTests`. Its hardware checks are DU-H1…H5 below; the first real
   update through it is also the box above.
+- **Updates for everyone** (owner, 2026-10-20; plan
+  `docs/development/plans/2026-10-20-updates-for-everyone.md`). Every merge to
+  `main` that changes the app is released by CI (`.github/workflows/release.yml`),
+  and **Check for Updates Automatically is now on by default and hourly**: the
+  one named exception to "anything that leaves the machine defaults to off". It
+  sends the same one request as the button, and a user's off is kept. The
+  Welcome and About privacy line now names it ("Nothing but update checks leaves your Mac unasked."). A copy signed
+  with Isla's own certificate also accepts a Developer ID Application build of
+  `com.ctimothe.isla` (`BundleUpdateValidator.developerIDRequirement`), so the
+  move to a Developer ID is an ordinary update; Accessibility is asked for once
+  more after it. Held by `UpdateCheckTests`, `SettingsTableTests`,
+  `UpdateValidatorTests` and `Scripts/test-next-release.sh`.
 - **Spotify account** (Settings) authorizes through Spotify's PKCE flow
   for Liked Songs, the one feature with no local API. Tokens live in the
   keychain. Since 2026-10-11 the heart asks `GET /me/library/contains` and

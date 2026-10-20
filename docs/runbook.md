@@ -308,7 +308,124 @@ in, or pass `--replace` when that is the point. To leave:
 `install.sh` — a dev build's build number may be above the next public
 release's.
 
-## 8. Developer ID and notarized release
+## 8. Releasing
+
+### How a change reaches users
+
+Added 2026-10-20. Isla is an open-source app that anyone can download, and it
+has exactly two update channels:
+
+| Channel | Who receives it | How |
+|---|---|---|
+| Local feed (§7a) | The owner's Mac only | `Scripts/publish-dev-update.sh`, after every change |
+| GitHub Releases | Everyone else | `.github/workflows/release.yml`, on every merge to `main` that changes the app |
+
+Every other copy of Isla asks
+`api.github.com/repos/ctimothe/isla-mac/releases/latest` 20 s after launch and
+then once an hour (**Check for Updates Automatically**, on by default since
+2026-10-20 — the one named exception to "anything that leaves the machine
+defaults to off"), and offers what it finds on the island. So a merge to
+`main` that changes the app reaches every user's island within about the
+release job's run time plus an hour.
+
+What an installed copy can do with a new release depends on its version:
+
+- **0.3.0 and earlier** have no installer. Check for Updates says that a new
+  version is out and opens the download page. Each of these users installs the
+  first release after 0.3.0 by hand, once.
+- **Every build since `0a534f4` and `0bfe820` (2026-10-16 and 2026-10-17)** has
+  Update Now. It downloads `Isla-<version>.dmg`, checks it against the
+  `Isla-<version>.dmg.sig` that `release.sh` uploads (using the Ed25519 key in
+  `IslaUpdatePublicKey`), checks that the new app satisfies the running app's
+  designated requirement, swaps it in place and relaunches. An update
+  downloaded this way carries no quarantine, so Gatekeeper never sees it.
+
+What decides whether that keeps working, release after release:
+
+1. **The same update key, forever.** The private half lives in the login
+   keychain ("Isla Update Signing" / `ed25519`) on the Mac that releases, and
+   in the owner's password manager. If it is lost, every installed copy refuses
+   the next release and falls back to the download page.
+2. **The same signing identity, forever.** A copy signed with the pinned
+   "Isla Code Signing" certificate (`Scripts/signing-identity.sha1`) accepts
+   updates signed with that certificate, and since 2026-10-20 also a Developer
+   ID Application build of `com.ctimothe.isla` (the bridge,
+   `BundleUpdateValidator.developerIDRequirement`). So the move to a Developer
+   ID is an ordinary Update Now. It still changes the identity macOS knows:
+   - The old Accessibility entry can look switched on while it does nothing.
+     Isla's permission repair asks again; if it doesn't, remove Isla from the
+     list and add it back.
+   - A Spotify token saved under the old identity may need Connect Spotify
+     Account once more, because a Developer ID build keeps tokens in the
+     data-protection keychain.
+
+   Rehearse both before the first Developer ID release. Any other signer is
+   `identityChanged`: the copy shows the download page.
+   The bridge accepts any team, because these builds ship before the Team ID
+   exists. That makes the update key the only secret between an attacker and
+   every self-signed copy. **As soon as the Team ID is known, ship one
+   self-signed release whose bridge adds
+   `certificate leaf[subject.OU] = "<TEAM>"`, before the first Developer ID
+   release.** Keep the backup at `~/Isla Code Signing.p12` in the password manager
+   too. Copies built before the bridge (0.3.0 and the owner's dev builds
+   before it) never had it.
+3. **A Developer ID for first installs.** Without one (`ISLA_ADHOC=1`), a
+   downloaded copy is unnotarized. The user has to run the `xattr` command in
+   the README before the first launch; if they don't, macOS rejects the media
+   helper (`libislamedia.dylib`) under quarantine, and its alert's default
+   button moves it to the Trash. Homebrew no longer accepts unsigned casks
+   (2026-09-01). Updates are not affected; only the first install is. Removing
+   this step takes Apple Developer Program membership ($99 a year), a
+   Developer ID Application certificate and the four variables below.
+
+### Cutting a release: CI does it
+
+Since 2026-10-20 nobody runs `release.sh` by hand for a normal release
+(plan `docs/development/plans/2026-10-20-updates-for-everyone.md`).
+
+1. Merge to `main` through a pull request whose CI is green. That is the
+   whole human step.
+2. "Build and verify" passes on the push. `release.yml` then starts, in the
+   `release` environment (secrets readable only from `main`), and acts only if
+   that commit is still the tip of `main`.
+3. `Scripts/next-release.sh` decides. If nothing the app is built from changed
+   since the newest tag, there is no release. Otherwise the version is the
+   next patch, or an untagged, higher VERSION that a pull request put in
+   `Scripts/version` (this is how to pick 0.4.0). The build is above every
+   tag's. Notes are `docs/releases/<version>.md` if a person wrote it, or are
+   made from the `feat`/`fix`/`perf` subjects since the tag.
+4. The job commits `chore: release <version>` to `main` as `ctimothe`, signs
+   in a throwaway keychain, and runs `release.sh`. That script re-runs every
+   gate, signs the image with the update key, and tags and uploads the image
+   and its `.sig`. Without the Developer ID secrets it runs with
+   `ISLA_ADHOC=1`: the pinned certificate, no notarization, and the `xattr`
+   step in the notes. With them, it notarizes.
+5. Check it from a copy of the previous release: the island offers it within
+   the hour (or press Check for Updates), Install, and it relaunches as the new
+   version with Accessibility kept.
+
+**A failed release** is retried with **Actions → Release → Run workflow** on
+`main`, which always releases main's tip. A re-run also works, because the tip
+check accepts the run's own `chore: release` commit. **Run workflow with "dry
+run" ticked** builds, gates and signs with the real secrets, and commits, tags
+and uploads nothing. Run it once after setting the secrets, before relying on
+the job.
+
+**Once, before the first CI release:** the owner runs
+`bash Scripts/setup-release-secrets.sh`. It creates the environment and pipes
+the update key, the `.p12` and its passphrase into GitHub secrets without
+printing them. **With a Developer ID:** export the Developer ID Application
+identity as a `.p12`, then run
+`DEVELOPER_ID_P12=<file> bash Scripts/setup-release-secrets.sh --developer-id`.
+From the next merge on, releases are notarized and the `xattr` step is gone.
+
+By hand, only when CI cannot: from a clean checkout of `main` with the keys in
+the login keychain, run `ISLA_ADHOC=1 bash Scripts/next-release.sh --write`
+(without `ISLA_ADHOC=1` once there is a Developer ID), commit and push,
+then run `ISLA_ADHOC=1 bash Scripts/release.sh`, or `bash Scripts/release.sh`
+with the variables below.
+
+### Developer ID and notarized release
 
 Local builds default to ad-hoc signing. Publishing requires these values and an
 installed Developer ID Application certificate:

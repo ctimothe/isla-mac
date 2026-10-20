@@ -85,7 +85,7 @@ All commands below run from the repository root (or the root of whichever
 worktree the change lives in).
 
 ```bash
-./scripts/check                     # the gate — all eleven release steps, exactly what CI runs
+./scripts/check                     # the gate — all twelve steps, exactly what CI runs
 ./scripts/check test                # just the unit tests, for a quick pass while iterating
 swift test                          # unit tests
 swift test --filter <TestName>      # single test or test case
@@ -119,6 +119,11 @@ bash Scripts/test-gatekeeper.sh    # the outside view: Developer ID on the bundl
 bash Scripts/test-lifecycle.sh     # no helper survives the app
 bash Scripts/dmg.sh
 ```
+
+`./scripts/check` runs one more step after these, `Scripts/test-next-release.sh`.
+It checks the release job's version, build and notes rules in a scratch
+repository. `release.sh` does not re-run it: the job has already called
+`next-release.sh`.
 
 Two harnesses are run by hand, never as gates:
 `Scripts/measure-performance.sh` (against a Cyclop build from
@@ -172,6 +177,15 @@ script unregister it.
 Steps 2–3 exist for code changes; a docs-only change has nothing to publish
 and stops at the commit. The point is that the dev app is never left running
 against superseded code.
+
+**The local feed reaches the owner's Mac and nobody else's.** Isla is an
+open-source app for everyone; every other copy follows GitHub Releases. Since
+2026-10-20 every merge to `main` that changes the app is released by CI
+(`.github/workflows/release.yml`, `docs/runbook.md` §8): versioned, signed,
+uploaded, and offered on every user's island within the hour. So **merging to
+`main` is shipping to every user**. A change that is committed, published to
+the feed and installed here is still not shipped; say so in the hold line,
+and ask once per working session whether to merge the batch.
 
 ## Architecture
 
@@ -363,7 +377,11 @@ so and every row offers Sync Here (`LyricSweep.syncDelay`, per-track range ±45 
   `docs/development/checklist.md`: Lyrics (network, default off), Spotify PKCE account
   (keychain), the lock-screen card, system audio-output switching, and output
   volume. Anything new that leaves the machine, touches an account, or changes a
-  system-wide setting must be added there and default to off.
+  system-wide setting must be added there and default to off. The one named
+  exception is the update check, on and hourly since 2026-10-20 (owner: every
+  merge to `main` must reach every user's island; plan
+  `2026-10-20-updates-for-everyone`). It sends one request to GitHub naming
+  Isla's version, and the switch in Settings › About turns it off.
 - The design doc is amended in place, dated, never rewritten. The panel width
   (`480…620`, default `560`), the click-to-open model, and the removals all
   carry amendments; the status item, its menu and a short-lived main window were

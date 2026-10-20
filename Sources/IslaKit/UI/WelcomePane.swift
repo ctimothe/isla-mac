@@ -74,15 +74,17 @@ struct WelcomePane: View {
         /// English — and therefore also the keys, since in this project the keys
         /// *are* the English text.
         ///
-        /// "Nothing leaves your Mac unless you turn it on" is a claim, so it is
-        /// worth saying what makes it true: online lyrics, online translation,
-        /// the update check and the Spotify account all default to off, and the
-        /// clipboard history is held in memory and never written out.
+        /// The privacy line is a claim, so it is worth saying what makes it
+        /// true: online lyrics, online translation and the Spotify account all
+        /// default to off, and the clipboard history is held in memory and never
+        /// written out. The update check is the one exception, on and hourly
+        /// since 2026-10-20 (plan 2026-10-20-updates-for-everyone), so the line
+        /// names it rather than claiming that nothing leaves.
         static let english = Copy(
             running: "Isla is running.",
             comeBack: "No Dock or menu-bar icon. Click the notch or press %@ to come back.",
             comeBackUnbound: "No Dock or menu-bar icon. Click the notch to come back.",
-            staysOnMac: "Nothing leaves your Mac unless you turn it on.",
+            staysOnMac: "Nothing but update checks leaves your Mac unasked.",
             click: "Click the island to open what’s playing.",
             swipe: "Swipe sideways for the Shelf, Clipboard and Translate.",
             drag: "Drag files to the notch to keep them.",

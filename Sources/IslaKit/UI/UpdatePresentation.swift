@@ -13,7 +13,7 @@ import Foundation
 /// visual lab can show each without a download.
 ///
 /// What outranks what: an install in progress (or failed, or refused) is about
-/// the release it started with, and a check that lands meanwhile — the daily
+/// the release it started with, and a check that lands meanwhile — the hourly
 /// one — does not change what the panel says about it. Without one, a release a
 /// check has found is on offer, as the rail dot already says, through a failed
 /// or in-flight recheck (J-019).

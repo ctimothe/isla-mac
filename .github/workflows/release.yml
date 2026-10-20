@@ -1,0 +1,241 @@
+name: Release
+
+# Every merge to main that changes the app is released to everyone (owner,
+# 2026-10-20: "whatever we ship to main should instantly give the Update
+# activity on the island every time"; plan 2026-10-20-updates-for-everyone).
+# Installed copies ask GitHub's releases/latest once an hour and offer what they
+# find on the island, so this workflow is the whole road from a merge to a
+# user's Install button.
+#
+# It starts after "Build and verify" has passed on a push to main, never on a
+# pull request, and releases that run's commit only while it is still the tip
+# of main: a newer merge's own run releases everything up to it, and two
+# releases racing would ship the older one last.
+#
+# To retry a failed release, use "Run workflow" on main, not "Re-run": a re-run
+# replays the old event. That is still handled (the tip check accepts the run's
+# own release commit), but "Run workflow" always releases main's tip.
+on:
+  workflow_run:
+    workflows: ["Build and verify"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, gate and sign, but commit, tag and upload nothing"
+        type: boolean
+        default: false
+
+# Never cancelled. A release cut off between pushing its tag and uploading its
+# image leaves a tag with no release behind it; release.sh removes the tag on
+# a failure it sees, but not on a kill. Queued runs wait their turn instead.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+# bash with pipefail for every step. GitHub's default for `run` is `bash -e`
+# without pipefail, under which `next-release.sh | tee` hid a failing
+# next-release.sh and the run went green having released nothing (review,
+# 2026-10-20).
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: macos-26
+    # The signing secrets live in this environment, which only main may use.
+    environment: release
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WANT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          # Every tag and branch: next-release.sh reads every tag's build, and
+          # release.sh asks which remote branches contain HEAD.
+          fetch-depth: 0
+
+      - name: Still the tip of main
+        id: tip
+        run: |
+          have="$(git rev-parse HEAD)"
+          if [ "$have" = "$WANT_SHA" ]; then
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          elif [ "$(git rev-parse HEAD~1 2>/dev/null)" = "$WANT_SHA" ] \
+               && git log -1 --format=%s HEAD | grep -q '^chore: release '; then
+            # This run's own release commit, pushed by an attempt that then
+            # failed: a re-run carries on from it rather than going green.
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "main is at $have now, not $WANT_SHA; that commit's own run releases both"
+            echo "go=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: What to release
+        id: next
+        if: steps.tip.outputs.go == 'yes'
+        env:
+          HAS_DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_P12_BASE64 != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$HAS_DEVELOPER_ID" = true ]; then echo "adhoc=0" >> "$GITHUB_OUTPUT"; else echo "adhoc=1" >> "$GITHUB_OUTPUT"; fi
+          # A tag left with no release behind it (a killed run, a rollback that
+          # could not delete it) would make every later run answer "nothing to
+          # release" and go green (re-review, 2026-10-20).
+          LAST_TAG="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)"
+          if [ -n "$LAST_TAG" ] && ! gh release view "$LAST_TAG" >/dev/null 2>&1; then
+            echo "::error::tag $LAST_TAG has no GitHub release; delete the tag (git push --delete origin $LAST_TAG) and run again"
+            exit 1
+          fi
+          bash Scripts/next-release.sh | tee -a "$GITHUB_OUTPUT"
+          # A dry run with nothing to release would skip the keychain and the
+          # gates and still go green, proving nothing.
+          if [ "$DRY_RUN" = 1 ] && ! grep -qx 'release=yes' "$GITHUB_OUTPUT"; then
+            echo "::error::dry run: main's tip has nothing to release, so there is nothing to rehearse; run it on a tip with an app change"
+            exit 1
+          fi
+
+      - name: Keychain
+        # Before anything is pushed: a missing secret or an unreadable key
+        # fails here, with main untouched (re-review, 2026-10-20).
+        if: steps.next.outputs.release == 'yes'
+        env:
+          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
+          ISLA_SIGNING_P12_BASE64: ${{ secrets.ISLA_SIGNING_P12_BASE64 }}
+          ISLA_SIGNING_P12_PASSWORD: ${{ secrets.ISLA_SIGNING_P12_PASSWORD }}
+          ISLA_UPDATE_SIGNING_KEY: ${{ secrets.ISLA_UPDATE_SIGNING_KEY }}
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          required=(ISLA_SIGNING_P12_BASE64 ISLA_SIGNING_P12_PASSWORD ISLA_UPDATE_SIGNING_KEY)
+          # A Developer ID is all six secrets or none: one missing would fail
+          # in release.sh after the release commit is already on main.
+          developer_id=(DEVELOPER_ID_P12_PASSWORD DEVELOPER_ID_APPLICATION APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD)
+          if [ "$ISLA_ADHOC" = 0 ]; then
+            required+=("${developer_id[@]}")
+          else
+            for name in "${developer_id[@]}"; do
+              [ -z "${!name}" ] || { echo "::error::$name is set but DEVELOPER_ID_P12_BASE64 is not; a Developer ID is all six secrets or none"; exit 1; }
+            done
+          fi
+          for name in "${required[@]}"; do
+            [ -n "${!name}" ] || { echo "::error::secret $name is not set in the release environment; run Scripts/setup-release-secrets.sh"; exit 1; }
+          done
+          UPDATE_KEY="$(printf '%s' "$ISLA_UPDATE_SIGNING_KEY" | tr -d '[:space:]')"
+          # The trimmed value is not the secret byte for byte, so GitHub would
+          # not mask it on its own.
+          echo "::add-mask::$UPDATE_KEY"
+          # A keychain of this run's own, deleted at the end. It is first in
+          # the search list and the default, so codesign, `security` and
+          # Scripts/update-signing.swift find the identity and the key exactly
+          # where they find them on the owner's Mac.
+          KEYCHAIN="$RUNNER_TEMP/isla-release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -d user -s "$KEYCHAIN"
+          import_p12() { # base64, password
+            local file="$RUNNER_TEMP/identity.p12"
+            printf '%s' "$1" | base64 --decode > "$file"
+            security import "$file" -k "$KEYCHAIN" -P "$2" -T /usr/bin/codesign
+            rm -f "$file"
+          }
+          # Isla's own certificate, the one Scripts/signing-identity.sha1 pins:
+          # every installed copy accepts only updates signed with it.
+          import_p12 "$ISLA_SIGNING_P12_BASE64" "$ISLA_SIGNING_P12_PASSWORD"
+          if [ "$ISLA_ADHOC" = 0 ]; then
+            import_p12 "$DEVELOPER_ID_P12_BASE64" "$DEVELOPER_ID_P12_PASSWORD"
+          fi
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # The Ed25519 key every installed copy checks an update against,
+          # under the name release.sh and update-signing.swift look for. Its
+          # partition list is opened as well: `-A` covers the access list, not
+          # the partition a headless read by the swift toolchain is checked
+          # against (review, 2026-10-20).
+          security add-generic-password -s "Isla Update Signing" -a ed25519 -A -w "$UPDATE_KEY" "$KEYCHAIN"
+          security set-generic-password-partition-list -S apple-tool:,apple: -s "Isla Update Signing" -a ed25519 \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # Proved here, before any gate runs: a key that cannot be read would
+          # otherwise fail only at the very end of release.sh.
+          echo probe > "$RUNNER_TEMP/probe"
+          swift Scripts/update-signing.swift sign "$RUNNER_TEMP/probe" > "$RUNNER_TEMP/probe.sig"
+          swift Scripts/update-signing.swift verify Resources/update-public-key.txt "$RUNNER_TEMP/probe" "$RUNNER_TEMP/probe.sig" >/dev/null \
+            || { echo "::error::ISLA_UPDATE_SIGNING_KEY does not match Resources/update-public-key.txt"; exit 1; }
+          rm -f "$RUNNER_TEMP/probe" "$RUNNER_TEMP/probe.sig"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Version and notes
+        if: steps.next.outputs.release == 'yes'
+        env:
+          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash Scripts/next-release.sh --write
+          if [ "$DRY_RUN" = 1 ]; then
+            echo "dry run: Scripts/version and the notes are written here and committed nowhere"
+            git diff --stat
+            exit 0
+          fi
+          # The owner's identity: this is a personal repository, and its
+          # history carries only that one (global AGENTS.md).
+          git config user.name ctimothe
+          git config user.email 119429310+ctimothe@users.noreply.github.com
+          git add Scripts/version docs/releases
+          if ! git diff --cached --quiet; then
+            git commit -q -m "chore: release $VERSION"
+          fi
+          # A push from this token starts no workflow, so this cannot loop.
+          if ! git push origin HEAD:main; then
+            # Skipped only when main really moved: the newer merge's run
+            # releases it. Any other refusal (the network, a 5xx, a rule) is a
+            # failure, never a green run that released nothing (review, 2026-10-20).
+            git fetch --quiet origin main
+            if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD~1)" ] \
+               && [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD)" ]; then
+              echo "::warning::main moved while this run prepared $VERSION; the newer run releases it"
+              echo "SKIP_RELEASE=1" >> "$GITHUB_ENV"
+            else
+              echo "::error::could not push the release commit for $VERSION"
+              exit 1
+            fi
+          fi
+
+      - name: Release
+        if: steps.next.outputs.release == 'yes' && env.SKIP_RELEASE != '1'
+        env:
+          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
+          ISLA_RELEASE_DRY_RUN: ${{ env.DRY_RUN }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: bash Scripts/release.sh
+
+      - name: Failing test lines
+        if: failure()
+        run: grep -hE "error:|' failed \(" .check-logs/*.log 2>/dev/null | head -80 || true
+
+      - name: Remove the keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi

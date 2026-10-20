@@ -156,6 +156,35 @@ final class UpdateValidatorTests: XCTestCase {
         XCTAssertFalse(BundleUpdateValidator.identityCheck(adHoc: false, requirementText: #"identifier "com.example.other""#)(app))
     }
 
+    /// The bridge to a Developer ID (plan 2026-10-20-updates-for-everyone, T2).
+    /// A copy signed with Isla's own certificate also accepts a Developer ID
+    /// Application build of com.ctimothe.isla, so the move to a Developer ID is
+    /// an ordinary Update Now for everyone who installed in between. A copy that
+    /// is already Developer ID gets no bridge: its own requirement names its
+    /// team, and that is the only one it is held to.
+    func testASelfSignedCopyAlsoAcceptsADeveloperIDBuildAndNothingElse() throws {
+        let pinned = #"identifier "com.ctimothe.isla" and certificate leaf = H"adcca2e30377affc9f7796ced0ef7f2afd56eb22""#
+        XCTAssertEqual(BundleUpdateValidator.acceptedRequirements(for: pinned),
+                       [pinned, BundleUpdateValidator.developerIDRequirement])
+        let developerID = #"identifier "com.ctimothe.isla" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "AAAAAAAAAA""#
+        XCTAssertEqual(BundleUpdateValidator.acceptedRequirements(for: developerID), [developerID],
+                       "a Developer ID copy is held to its own team")
+
+        // The bridge is a real requirement, names Isla and nothing wider, and
+        // an ad-hoc copy does not satisfy it.
+        let bridge = BundleUpdateValidator.developerIDRequirement
+        XCTAssertTrue(bridge.contains(#"identifier "com.ctimothe.isla""#))
+        XCTAssertTrue(bridge.contains("anchor apple generic"))
+        XCTAssertTrue(bridge.contains("field.1.2.840.113635.100.6.1.13"), "the Developer ID Application marker")
+        XCTAssertTrue(bridge.contains("field.1.2.840.113635.100.6.2.6"), "the Developer ID CA marker")
+        var parsed: SecRequirement?
+        XCTAssertEqual(SecRequirementCreateWithString(bridge as CFString, [], &parsed), errSecSuccess)
+        let folder = try UpdateTestSupport.folder(self)
+        let app = try UpdateTestSupport.tinyApp(in: folder, version: "1.1", build: "2")
+        XCTAssertFalse(BundleUpdateValidator.identityCheck(adHoc: false, requirementText: pinned)(app),
+                       "an ad-hoc copy satisfies neither the certificate nor the bridge")
+    }
+
     /// Signing information that cannot be read is not ad-hoc either: an unsigned
     /// running app has no requirement, so its update is the download page.
     func testARunningAppWithNoSignatureAcceptsNothing() throws {

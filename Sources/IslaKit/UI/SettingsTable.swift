@@ -352,7 +352,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .speakButton: return .on
         case .saveClipboardScreenshots: return .off
         case .showScreenCaptures: return .on
-        case .checkForUpdatesAutomatically: return .off
+        case .checkForUpdatesAutomatically: return .on
         default: return nil
         }
     }

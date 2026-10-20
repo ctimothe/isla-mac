@@ -697,6 +697,20 @@ enum UpdateValidationError: Error, Equatable {
 /// keep — its designated requirement is just the hash of one build, which no
 /// update can share — so it accepts any valid signature, and the Ed25519
 /// signature over the image, verified before the image was mounted, is the gate.
+///
+/// **The bridge to a Developer ID** (plan 2026-10-20-updates-for-everyone, T2).
+/// Builds signed with Isla's own self-signed certificate ship before the
+/// Developer ID exists, so they cannot name its team. Held only to their own
+/// requirement, every one of them would answer `identityChanged` to the first
+/// Developer ID release and send its user to the download page. So a running
+/// app whose requirement is not anchored at Apple also accepts a Developer ID
+/// Application build of Isla's identifier (`developerIDRequirement`), from any
+/// team. That widens nothing the image signature does not already gate: only
+/// the holder of the update key can produce an image that gets this far. What
+/// the requirement still refuses is a copy signed outside Apple's program, or
+/// as another app. macOS asks for Accessibility once more after that one
+/// update, because the identity it was granted to has changed. A running
+/// Developer ID app gets no bridge: its own requirement names its team.
 struct BundleUpdateValidator: UpdateValidating {
     var runningVersion: String
     var runningBuild: String
@@ -785,7 +799,26 @@ struct BundleUpdateValidator: UpdateValidating {
     static func identityCheck(adHoc: Bool, requirementText: String?) -> @Sendable (URL) -> Bool {
         if adHoc { return { _ in true } }
         guard let requirementText else { return { _ in false } }
-        return identityCheck(requirementText: requirementText)
+        let checks = acceptedRequirements(for: requirementText).map { identityCheck(requirementText: $0) }
+        return { app in checks.contains { $0(app) } }
+    }
+
+    /// Developer ID Application, for Isla's identifier, from any team: Apple's
+    /// anchor, the Developer ID intermediate's marker (1.2.840.113635.100.6.2.6)
+    /// and the Developer ID Application leaf marker (1.2.840.113635.100.6.1.13).
+    /// The form `codesign -d -r-` prints for a Developer ID app, minus its team.
+    static var developerIDRequirement: String {
+        #"identifier "\#(ProductIdentity.bundleIdentifier)" and anchor apple generic"#
+            + " and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */"
+            + " and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */"
+    }
+
+    /// The requirements a staged app may satisfy, for a running app whose own
+    /// requirement is `requirementText`: that one, and the Developer ID bridge
+    /// while the running app is not yet anchored at Apple.
+    static func acceptedRequirements(for requirementText: String) -> [String] {
+        if requirementText.contains("anchor apple") { return [requirementText] }
+        return [requirementText, developerIDRequirement]
     }
 
     /// The check that a staged app satisfies `requirementText`.
