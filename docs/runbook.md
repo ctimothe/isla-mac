@@ -308,7 +308,78 @@ in, or pass `--replace` when that is the point. To leave:
 `install.sh` — a dev build's build number may be above the next public
 release's.
 
-## 8. Developer ID and notarized release
+## 8. Releasing
+
+### How a change reaches users
+
+Added 2026-10-20. Isla is an open-source app that anyone can download, and it
+has exactly two update channels:
+
+| Channel | Who receives it | How |
+|---|---|---|
+| Local feed (§7a) | The owner's Mac only | `Scripts/publish-dev-update.sh`, after every change |
+| GitHub Releases | Everyone else | `Scripts/release.sh`, once per batch merged to `main` |
+
+Every other copy of Isla asks
+`api.github.com/repos/ctimothe/isla-mac/releases/latest`. It asks when the user
+presses Check for Updates, and once a day if they have turned on **Check for
+Updates Automatically**. That setting is off by default, because anything that
+leaves the machine defaults to off (CLAUDE.md, Hard constraints). So a user
+who never presses the button never hears about a release. A copy sees nothing
+until a release is published there: a change that is merged to `main` but not
+released has not reached any user.
+
+What an installed copy can do with a new release depends on its version:
+
+- **0.3.0 and earlier** have no installer. Check for Updates says that a new
+  version is out and opens the download page. Each of these users installs the
+  first release after 0.3.0 by hand, once.
+- **Every build since `0a534f4` and `0bfe820` (2026-10-16 and 2026-10-17)** has
+  Update Now. It downloads `Isla-<version>.dmg`, checks it against the
+  `Isla-<version>.dmg.sig` that `release.sh` uploads (using the Ed25519 key in
+  `IslaUpdatePublicKey`), checks that the new app satisfies the running app's
+  designated requirement, swaps it in place and relaunches. An update
+  downloaded this way carries no quarantine, so Gatekeeper never sees it.
+
+What decides whether that keeps working, release after release:
+
+1. **The same update key, forever.** The private half lives in the login
+   keychain ("Isla Update Signing" / `ed25519`) on the Mac that releases, and
+   in the owner's password manager. If it is lost, every installed copy refuses
+   the next release and falls back to the download page.
+2. **The same signing identity, forever.** A copy signed with the pinned
+   "Isla Code Signing" certificate (`Scripts/signing-identity.sha1`) accepts
+   only updates signed with that certificate. If the signer changes, every
+   copy answers `identityChanged`, shows the download page once, and loses
+   Isla's Accessibility permission. Keep the backup at `~/Isla Code
+   Signing.p12` in the password manager too. Moving to a Developer ID is a
+   signer change like any other, so make it as early as possible: every
+   release shipped under the self-signed certificate adds users who will have
+   to reinstall by hand.
+3. **A Developer ID for first installs.** Without one (`ISLA_ADHOC=1`), a
+   downloaded copy is unnotarized. The user has to run the `xattr` command in
+   the README before the first launch; if they don't, macOS rejects the media
+   helper (`libislamedia.dylib`) under quarantine, and its alert's default
+   button moves it to the Trash. Homebrew no longer accepts unsigned casks
+   (2026-09-01). Updates are not affected; only the first install is. Removing
+   this step takes Apple Developer Program membership ($99 a year), a
+   Developer ID Application certificate and the four variables below.
+
+### Cutting a release
+
+1. Merge the batch to `main` through a pull request whose CI is green.
+2. Bump `Scripts/version`: VERSION, and BUILD above every released tag's.
+   Write `docs/releases/<version>.md`, then commit and push.
+3. From a clean checkout of `main`, run one of these. `release.sh` re-runs
+   every gate and uploads the image and its `.sig`.
+   - With a Developer ID: `bash Scripts/release.sh`, with the variables below.
+   - Without one: `ISLA_ADHOC=1 bash Scripts/release.sh`. In that case the
+     release notes must carry the `xattr` step and the permissions line from
+     `release-checklist.md`.
+4. Check the release from a copy of the previous version: Check for Updates,
+   then Update Now. A release that this check has not passed is not done.
+
+### Developer ID and notarized release
 
 Local builds default to ad-hoc signing. Publishing requires these values and an
 installed Developer ID Application certificate:

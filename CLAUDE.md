@@ -173,6 +173,14 @@ Steps 2–3 exist for code changes; a docs-only change has nothing to publish
 and stops at the commit. The point is that the dev app is never left running
 against superseded code.
 
+**The local feed reaches the owner's Mac and nobody else's.** Isla is an
+open-source app for everyone; every other copy follows GitHub Releases, and a
+change reaches those users only when a batch is merged to `main` and released
+with `Scripts/release.sh` (`docs/runbook.md` §8, "How a change reaches users").
+A change that is committed, published to the feed and installed here is still
+not shipped. Say so in the hold line, and ask once per working session whether
+to cut the release.
+
 ## Architecture
 
 **Shell.** A borderless, non-activating `NSPanel` (`NotchPanel`) hosts SwiftUI

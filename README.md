@@ -27,8 +27,11 @@ notch to open it on the player; swipe sideways, or click the dots at the foot,
 for the Shelf, Clipboard and Translate. The gear opens **Settings**, which has
 Launch at Login, About and Quit.
 
-To update, repeat the steps with the new release. **Settings → Application → Check for Updates**
-says whether there is one.
+To update, go to **Settings → Application → Check for Updates**. Releases after 0.3.0
+install themselves with **Update Now** and relaunch, with no download or `xattr` step. Turn on
+**Check for Updates Automatically** to be told once a day; it is off by default. Isla 0.3.0
+and earlier can only open the download page: repeat the steps above once, and Update Now
+takes it from there.
 
 ## Features
 
