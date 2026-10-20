@@ -1464,6 +1464,18 @@ so).
 > **Amended 2026-10-17 (owner: activities first, §19).** §19.14 adds round
 > two's rows and changes "Charging" to «Зарядка».
 
+> **Amended 2026-10-20 (measured).** "Settings › Music says why, with Try
+> Again." is «Почему и как повторить — в Настройках › Музыка.» The row's
+> wording below needed 379 pt in the empty player's 317.7 pt footer, which is
+> one line by design, so the app cut it with "…"; it also named a button
+> «Повторить» that Settings labels «Повторить попытку», and no wording that
+> quotes the real label fits with room to spare. The existing key "Something
+> is playing that Music Only keeps off the island." drops «Сейчас» —
+> «Играет то, что «Только музыка» не показывает на острове.» — because it
+> wrapped to three lines in its two-line column and lost the word that says
+> where to look. `PlayerLayoutTests.testTheEmptyPlayerCutsNothingInEnglishOrRussian`
+> measures every empty-state line with SwiftUI's own layout in both languages.
+
 Existing keys reused by this spec are not listed. Format specifiers keep their
 order in Russian.
 

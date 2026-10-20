@@ -337,7 +337,7 @@
 "Open Privacy Settings" = "Открыть настройки конфиденциальности";
 "Nothing copied yet" = "Пока ничего не скопировано";
 "Turn On" = "Включить";
-"Something is playing that Music Only keeps off the island." = "Сейчас играет то, что «Только музыка» не показывает на острове.";
+"Something is playing that Music Only keeps off the island." = "Играет то, что «Только музыка» не показывает на острове.";
 "Open Settings" = "Открыть настройки";
 "Isla's Now Playing reader answered with nothing while a player was playing. Only Music and Spotify can be seen." = "Модуль Isla для чтения Now Playing ничего не сообщал, хотя плеер играл. Видны только Музыка и Spotify.";
 "Couldn't read this file as text." = "Не удалось прочитать этот файл как текст.";
@@ -423,7 +423,7 @@
 "Sound Settings…" = "Настройки звука…";
 "Start a song in Music or Spotify, or open one here." = "Включите песню в Музыке или Spotify либо откройте одно из приложений здесь.";
 "Videos and films stay off the island." = "Видео и фильмы на острове не показываются.";
-"Settings › Music says why, with Try Again." = "Причина — в Настройках › Музыка, там же кнопка «Повторить».";
+"Settings › Music says why, with Try Again." = "Почему и как повторить — в Настройках › Музыка.";
 "In the player" = "В плеере";
 "Output Button" = "Кнопка выхода звука";
 "Lyric Band" = "Строка текста";

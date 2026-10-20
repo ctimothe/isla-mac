@@ -397,4 +397,68 @@ final class PlayerLayoutTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Nothing playing, in Russian (spec §13)
+
+    /// The height SwiftUI gives `text` wrapped at `width` in the empty player's
+    /// fonts — the real layout, measured the way the pane draws it, so a line
+    /// the view would wrap or cut is one here.
+    private func wrappedHeight(_ text: String, size: CGFloat, weight: Font.Weight, width: CGFloat) -> CGFloat {
+        let view = Text(text).islandFont(size, weight: weight)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: width, alignment: .topLeading)
+        return NSHostingView(rootView: view).fittingSize.height
+    }
+
+    private func lineCount(_ text: String, size: CGFloat, weight: Font.Weight, width: CGFloat) -> Int {
+        let one = wrappedHeight("Ag", size: size, weight: weight, width: width)
+        return Int((wrappedHeight(text, size: size, weight: weight, width: width) / one).rounded())
+    }
+
+    /// The reader-down pointer's natural width: the symbol, 6, the words, in
+    /// the body role, as `MediaPane.emptyState` lays out its footer.
+    private func footnoteWidth(_ text: String) -> CGFloat {
+        let view = HStack(spacing: 6) {
+            Image(systemName: "info.circle")
+            Text(text)
+        }
+        .islandFont(.body, weight: .regular)
+        .fixedSize()
+        return NSHostingView(rootView: view).fittingSize.width
+    }
+
+    /// "Every layout must hold at 480 and 620 and in Russian" (spec §13). The
+    /// player is the same 357.4 at every panel width, so its empty state is
+    /// one layout; in both languages the headline must fit its two lines, the
+    /// line of why its three, the pointer its one, and the column must end
+    /// above the buttons. The Russian pointer used to need 379 pt of a 317.7 pt
+    /// row and end in "…", and the Music Only headline wrapped to three lines
+    /// and lost its last word, the very word that says where to look.
+    func testTheEmptyPlayerCutsNothingInEnglishOrRussian() {
+        let notch = CGSize(width: 185, height: 38)
+        for panel in [CGFloat(480), 560, 620] {
+            XCTAssertEqual(SurfaceLayout.bodySize(for: .player, bodyWidth: panel, notch: notch).width,
+                           PlayerLayout.referenceBodyWidth, accuracy: 0.0001, "the player is one width at \(panel)")
+        }
+        defer { LabLocalization.use("en") }
+        for language in ["en", "ru"] {
+            LabLocalization.use(language)
+            for message in [MediaPane.EmptyStateMessage.nothingPlaying, .readerDown, .hiddenByMusicOnly] {
+                let frames = PlayerLayout.emptyFrames(for: message)
+                let column = frames.text.width
+                let headline = lineCount(message.headline, size: frames.headlineSize, weight: .semibold, width: column)
+                XCTAssertLessThanOrEqual(headline, 2, "\(language) \(message): «\(message.headline)» wraps to \(headline) lines in \(column)")
+                let caption = lineCount(message.caption, size: Theme.TypeRole.reading.size, weight: .regular, width: column)
+                XCTAssertLessThanOrEqual(caption, 3, "\(language) \(message): «\(message.caption)» wraps to \(caption) lines in \(column)")
+                let tall = wrappedHeight(message.headline, size: frames.headlineSize, weight: .semibold, width: column) + 3
+                    + wrappedHeight(message.caption, size: Theme.TypeRole.reading.size, weight: .regular, width: column)
+                XCTAssertLessThanOrEqual(frames.text.minY + tall, frames.buttons.minY,
+                                         "\(language) \(message): the column (\(tall) tall) runs into the buttons")
+                if let footnote = message.footnote, let footer = frames.footer {
+                    let width = footnoteWidth(footnote)
+                    XCTAssertLessThanOrEqual(width, footer.width, "\(language): «\(footnote)» needs \(width) of \(footer.width)")
+                }
+            }
+        }
+    }
 }
