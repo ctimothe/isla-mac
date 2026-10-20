@@ -33,6 +33,28 @@ final class RestingNotchTests: XCTestCase {
         XCTAssertLessThan(awake.width, notch.width + NotchMetrics.compactMediaExtension)
     }
 
+    /// A pill out of the notch that is only as tall as it — the song, the
+    /// Shelf, charging — put the inner half of its 2 pt bottom line inside the
+    /// camera cutout, where no pixel exists, so the line was 1 pt under the
+    /// camera and 2 pt beside it (owner, 2026-10-20; measured on the M4 Pro
+    /// 14": the line's four rows were 74–77 of a cutout ending at row 76). The
+    /// outline drops by half the stroke so all of it lands below the cutout,
+    /// on every notch size, and nothing taller or notchless changes.
+    func testTheBottomLineOfAPillAsTallAsTheNotchClearsTheCutout() {
+        let half = Theme.islandStrokeWidth / 2
+        for notch in [CGSize(width: 185, height: 32), CGSize(width: 220, height: 38)] {
+            let pill = CGSize(width: notch.width + NotchMetrics.compactMediaExtension, height: notch.height)
+            let drawn = NotchContentView.clearingCutout(pill, notchHeight: notch.height, isPhysical: true)
+            XCTAssertEqual(drawn.width, pill.width, "only the height moves")
+            XCTAssertEqual(drawn.height, notch.height + half, "the line's inner edge at the cutout's, and no lower")
+            let peek = CGSize(width: notch.width + 300, height: 50)
+            XCTAssertEqual(NotchContentView.clearingCutout(peek, notchHeight: notch.height, isPhysical: true), peek,
+                           "a shape already past the cutout is drawn as it was")
+            XCTAssertEqual(NotchContentView.clearingCutout(pill, notchHeight: notch.height, isPhysical: false), pill,
+                           "a display with no cutout has nothing to clear")
+        }
+    }
+
     /// The hover bump is the owner-requested exception to "critically damped
     /// unless momentum", and it stays a single bump that settles, not a wobble.
     func testTheHoverNudgeIsOneBumpNotAWobble() {
