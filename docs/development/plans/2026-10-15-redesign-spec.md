@@ -1415,6 +1415,23 @@ until nothing uses them, then go.
 | Increase Contrast: the key line on every wallpaper; text and hairlines step up through `Theme`'s existing contrast functions (secondary 0.75, tertiary 0.65) | `Stress-Increase-Contrast` |
 | Without a notch: a 200 × 24 island at the menu bar's height; the panel hangs from the menu bar | `Stress-No-Notch`, `Stress-No-Notch-Open` |
 
+> **Amended 2026-10-20 (measured).** The menus row does not hold, and never
+> did: the panel's menus are **dark on every Mac**, Light or Dark. An `NSMenu`
+> with no appearance of its own takes the effective appearance of the view it
+> pops up in, and every menu in the app pops up in a `NotchPanel` view —
+> `IslandMenu` in the root view (NotchController.swift:887), the Translate,
+> Lyrics and Output menus in anchors inside the panel, the SwiftUI context
+> menus in its panes, and the lock card's Copy Line in `LockCardWindow`, which
+> is a `NotchPanel` too. `NotchPanel` forces `.darkAqua` (NotchPanel.swift:400)
+> so that text fields stay readable on a Light Mac. Measured on a Dark Mac: a
+> test panel forced to `.aqua` popped a Light menu, the same panel forced to
+> `.darkAqua` a dark one, and Isla's own right-click menu is dark. The island
+> stays black either way. The `Stress-Light-Menus` board is replaced by
+> "Menus: dark on every Mac" on the Full Design canvas
+> (`docs/development/audits/2026-10-20-full-design-canvas-detail-audit.md`,
+> second pass). Making menus follow the system would need an explicit
+> appearance on each menu, which nothing here asks for.
+
 Every layout in this spec must hold at 480 and 620 and in Russian; tests
 render each new view at both widths with the Russian table loaded and assert
 no truncation of controls (text truncation is allowed where this spec says
