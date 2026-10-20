@@ -30,6 +30,7 @@ STEPS=(
   "gatekeeper|bash Scripts/test-gatekeeper.sh"
   "lifecycle|bash Scripts/test-lifecycle.sh"
   "dmg|SKIP_BUNDLE=1 bash Scripts/dmg.sh"
+  "next-release|bash Scripts/test-next-release.sh"
 )
 
 # ---------------------------------------------------------------------------

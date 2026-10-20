@@ -85,7 +85,7 @@ All commands below run from the repository root (or the root of whichever
 worktree the change lives in).
 
 ```bash
-./scripts/check                     # the gate — all eleven release steps, exactly what CI runs
+./scripts/check                     # the gate — all twelve steps, exactly what CI runs
 ./scripts/check test                # just the unit tests, for a quick pass while iterating
 swift test                          # unit tests
 swift test --filter <TestName>      # single test or test case
@@ -118,6 +118,8 @@ bash Scripts/test-gatekeeper.sh    # the outside view: Developer ID on the bundl
                                    # loading under quarantine. Skips itself on an ad-hoc build
 bash Scripts/test-lifecycle.sh     # no helper survives the app
 bash Scripts/dmg.sh
+bash Scripts/test-next-release.sh  # the release job's version, build and notes rules,
+                                   # in a scratch repository
 ```
 
 Two harnesses are run by hand, never as gates:
@@ -174,12 +176,13 @@ and stops at the commit. The point is that the dev app is never left running
 against superseded code.
 
 **The local feed reaches the owner's Mac and nobody else's.** Isla is an
-open-source app for everyone; every other copy follows GitHub Releases, and a
-change reaches those users only when a batch is merged to `main` and released
-with `Scripts/release.sh` (`docs/runbook.md` §8, "How a change reaches users").
-A change that is committed, published to the feed and installed here is still
-not shipped. Say so in the hold line, and ask once per working session whether
-to cut the release.
+open-source app for everyone; every other copy follows GitHub Releases. Since
+2026-10-20 every merge to `main` that changes the app is released by CI
+(`.github/workflows/release.yml`, `docs/runbook.md` §8): versioned, signed,
+uploaded, and offered on every user's island within the hour. So **merging to
+`main` is shipping to every user**. A change that is committed, published to
+the feed and installed here is still not shipped; say so in the hold line,
+and ask once per working session whether to merge the batch.
 
 ## Architecture
 

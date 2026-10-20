@@ -1,0 +1,156 @@
+name: Release
+
+# Every merge to main that changes the app is released to everyone (owner,
+# 2026-10-20: "whatever we ship to main should instantly give the Update
+# activity on the island every time"; plan 2026-10-20-updates-for-everyone).
+# Installed copies ask GitHub's releases/latest once an hour and offer what they
+# find on the island, so this workflow is the whole road from a merge to a
+# user's Install button.
+#
+# It starts after "Build and verify" has passed on a push to main, never on a
+# pull request, and releases that run's commit only while it is still the tip
+# of main: a newer merge's own run releases everything up to it, and two
+# releases racing would ship the older one last.
+on:
+  workflow_run:
+    workflows: ["Build and verify"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Never cancelled. A release cut off between pushing its tag and uploading its
+# image leaves a tag with no release behind it; release.sh removes the tag on
+# a failure it sees, but not on a kill. Queued runs wait their turn instead.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: macos-26
+    # The signing secrets live in this environment, which only main may use.
+    environment: release
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WANT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          # Every tag and branch: next-release.sh reads every tag's build, and
+          # release.sh asks which remote branches contain HEAD.
+          fetch-depth: 0
+
+      - name: Still the tip of main
+        id: tip
+        run: |
+          have="$(git rev-parse HEAD)"
+          if [ "$have" != "$WANT_SHA" ]; then
+            echo "main is at $have now, not $WANT_SHA; that commit's own run releases both"
+            echo "go=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: What to release
+        id: next
+        if: steps.tip.outputs.go == 'yes'
+        env:
+          HAS_DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_P12_BASE64 != '' }}
+        run: |
+          if [ "$HAS_DEVELOPER_ID" = true ]; then echo "adhoc=0" >> "$GITHUB_OUTPUT"; else echo "adhoc=1" >> "$GITHUB_OUTPUT"; fi
+          bash Scripts/next-release.sh | tee -a "$GITHUB_OUTPUT"
+
+      - name: Keychain
+        if: steps.next.outputs.release == 'yes'
+        env:
+          ISLA_SIGNING_P12_BASE64: ${{ secrets.ISLA_SIGNING_P12_BASE64 }}
+          ISLA_SIGNING_P12_PASSWORD: ${{ secrets.ISLA_SIGNING_P12_PASSWORD }}
+          ISLA_UPDATE_SIGNING_KEY: ${{ secrets.ISLA_UPDATE_SIGNING_KEY }}
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ISLA_SIGNING_P12_BASE64 ISLA_SIGNING_P12_PASSWORD ISLA_UPDATE_SIGNING_KEY; do
+            [ -n "${!name}" ] || { echo "::error::secret $name is not set in the release environment; run Scripts/setup-release-secrets.sh"; exit 1; }
+          done
+          # A keychain of this run's own, deleted at the end. It is first in
+          # the search list and the default, so codesign, `security` and
+          # Scripts/update-signing.swift find the identity and the key exactly
+          # where they find them on the owner's Mac.
+          KEYCHAIN="$RUNNER_TEMP/isla-release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -d user -s "$KEYCHAIN"
+          import_p12() { # base64, password
+            local file="$RUNNER_TEMP/identity.p12"
+            printf '%s' "$1" | base64 --decode > "$file"
+            security import "$file" -k "$KEYCHAIN" -P "$2" -T /usr/bin/codesign
+            rm -f "$file"
+          }
+          # Isla's own certificate, the one Scripts/signing-identity.sha1 pins:
+          # every installed copy accepts only updates signed with it.
+          import_p12 "$ISLA_SIGNING_P12_BASE64" "$ISLA_SIGNING_P12_PASSWORD"
+          if [ -n "$DEVELOPER_ID_P12_BASE64" ]; then
+            import_p12 "$DEVELOPER_ID_P12_BASE64" "$DEVELOPER_ID_P12_PASSWORD"
+          fi
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # The Ed25519 key every installed copy checks an update against,
+          # under the name release.sh and update-signing.swift look for.
+          # Whitespace off: the key is base64 text, and a newline a paste or a
+          # pipe left on it would make it unreadable to update-signing.swift.
+          security add-generic-password -s "Isla Update Signing" -a ed25519 -A \
+            -w "$(printf '%s' "$ISLA_UPDATE_SIGNING_KEY" | tr -d '[:space:]')" "$KEYCHAIN"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Version and notes
+        if: steps.next.outputs.release == 'yes'
+        env:
+          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
+        run: |
+          set -euo pipefail
+          bash Scripts/next-release.sh --write
+          # The owner's identity: this is a personal repository, and its
+          # history carries only that one (global AGENTS.md).
+          git config user.name ctimothe
+          git config user.email 119429310+ctimothe@users.noreply.github.com
+          git add Scripts/version docs/releases
+          if ! git diff --cached --quiet; then
+            git commit -q -m "chore: release ${{ steps.next.outputs.version }}"
+          fi
+          # A push from this token starts no workflow, so this cannot loop.
+          # Refused when main moved meanwhile: the newer merge's run releases.
+          if ! git push origin HEAD:main; then
+            echo "::warning::main moved while this run prepared ${{ steps.next.outputs.version }}; the newer run releases it"
+            echo "SKIP_RELEASE=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Release
+        if: steps.next.outputs.release == 'yes' && env.SKIP_RELEASE != '1'
+        env:
+          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: bash Scripts/release.sh
+
+      - name: Failing test lines
+        if: failure()
+        run: grep -hE "error:|' failed \(" .check-logs/*.log 2>/dev/null | head -80 || true
+
+      - name: Remove the keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
