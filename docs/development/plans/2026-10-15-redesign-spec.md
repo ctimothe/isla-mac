@@ -2239,6 +2239,18 @@ Every activity and surface is one black shape hung from the top of the screen.
   wallpaper whenever the shape is wider or taller than the resting notch, and
   never on the bare notch. It replaces §3.3's key line; `WallpaperTone` stays
   for the lock card's Automatic material only.
+
+  > **Amended 2026-10-20 (owner, measured).** On a real notch a compact
+  > activity's *outline* is `H + 1` tall — half the stroke — while its body
+  > and content stay `H`. Centred on an outline `H` tall, the bottom line's
+  > inner half lay inside the camera cutout, where there is no pixel: on the
+  > owner's M4 Pro 14" its four rows were 74–77 of a cutout ending at row 76,
+  > so the line read 1 pt under the camera and 2 pt beside it.
+  > `NotchContentView.clearingCutout`; held by `RestingNotchTests`. The Shelf
+  > bubble's outline and the locked wings drop the same half point, so the
+  > lines beside the pill meet and the lock's cut does not also step it.
+  > Shapes already taller than `H + 1` and displays without a notch are
+  > unchanged.
 - **Shadow.** A shape taller than **68** casts black 0.22, radius 14, no
   offset, so a surface separates from a busy window under it.
 - **Fill.** Black. Content sits on it directly; `glassSurface` stays for menus
