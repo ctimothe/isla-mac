@@ -91,47 +91,26 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$HAS_DEVELOPER_ID" = true ]; then echo "adhoc=0" >> "$GITHUB_OUTPUT"; else echo "adhoc=1" >> "$GITHUB_OUTPUT"; fi
+          # A tag left with no release behind it (a killed run, a rollback that
+          # could not delete it) would make every later run answer "nothing to
+          # release" and go green (re-review, 2026-10-20).
+          LAST_TAG="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)"
+          if [ -n "$LAST_TAG" ] && ! gh release view "$LAST_TAG" >/dev/null 2>&1; then
+            echo "::error::tag $LAST_TAG has no GitHub release; delete the tag (git push --delete origin $LAST_TAG) and run again"
+            exit 1
+          fi
           bash Scripts/next-release.sh | tee -a "$GITHUB_OUTPUT"
-
-      - name: Version and notes
-        if: steps.next.outputs.release == 'yes'
-        env:
-          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
-          VERSION: ${{ steps.next.outputs.version }}
-        run: |
-          set -euo pipefail
-          bash Scripts/next-release.sh --write
-          if [ "$DRY_RUN" = 1 ]; then
-            echo "dry run: Scripts/version and the notes are written here and committed nowhere"
-            git diff --stat
-            exit 0
-          fi
-          # The owner's identity: this is a personal repository, and its
-          # history carries only that one (global AGENTS.md).
-          git config user.name ctimothe
-          git config user.email 119429310+ctimothe@users.noreply.github.com
-          git add Scripts/version docs/releases
-          if ! git diff --cached --quiet; then
-            git commit -q -m "chore: release $VERSION"
-          fi
-          # A push from this token starts no workflow, so this cannot loop.
-          if ! git push origin HEAD:main; then
-            # Skipped only when main really moved: the newer merge's run
-            # releases it. Any other refusal (the network, a 5xx, a rule) is a
-            # failure, never a green run that released nothing (review, 2026-10-20).
-            git fetch --quiet origin main
-            if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD~1)" ] \
-               && [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD)" ]; then
-              echo "::warning::main moved while this run prepared $VERSION; the newer run releases it"
-              echo "SKIP_RELEASE=1" >> "$GITHUB_ENV"
-            else
-              echo "::error::could not push the release commit for $VERSION"
-              exit 1
-            fi
+          # A dry run with nothing to release would skip the keychain and the
+          # gates and still go green, proving nothing.
+          if [ "$DRY_RUN" = 1 ] && ! grep -qx 'release=yes' "$GITHUB_OUTPUT"; then
+            echo "::error::dry run: main's tip has nothing to release, so there is nothing to rehearse; run it on a tip with an app change"
+            exit 1
           fi
 
       - name: Keychain
-        if: steps.next.outputs.release == 'yes' && env.SKIP_RELEASE != '1'
+        # Before anything is pushed: a missing secret or an unreadable key
+        # fails here, with main untouched (re-review, 2026-10-20).
+        if: steps.next.outputs.release == 'yes'
         env:
           ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
           ISLA_SIGNING_P12_BASE64: ${{ secrets.ISLA_SIGNING_P12_BASE64 }}
@@ -148,7 +127,14 @@ jobs:
           required=(ISLA_SIGNING_P12_BASE64 ISLA_SIGNING_P12_PASSWORD ISLA_UPDATE_SIGNING_KEY)
           # A Developer ID is all six secrets or none: one missing would fail
           # in release.sh after the release commit is already on main.
-          [ "$ISLA_ADHOC" = 0 ] && required+=(DEVELOPER_ID_P12_PASSWORD DEVELOPER_ID_APPLICATION APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD)
+          developer_id=(DEVELOPER_ID_P12_PASSWORD DEVELOPER_ID_APPLICATION APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD)
+          if [ "$ISLA_ADHOC" = 0 ]; then
+            required+=("${developer_id[@]}")
+          else
+            for name in "${developer_id[@]}"; do
+              [ -z "${!name}" ] || { echo "::error::$name is set but DEVELOPER_ID_P12_BASE64 is not; a Developer ID is all six secrets or none"; exit 1; }
+            done
+          fi
           for name in "${required[@]}"; do
             [ -n "${!name}" ] || { echo "::error::secret $name is not set in the release environment; run Scripts/setup-release-secrets.sh"; exit 1; }
           done
@@ -196,6 +182,43 @@ jobs:
             || { echo "::error::ISLA_UPDATE_SIGNING_KEY does not match Resources/update-public-key.txt"; exit 1; }
           rm -f "$RUNNER_TEMP/probe" "$RUNNER_TEMP/probe.sig"
           echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Version and notes
+        if: steps.next.outputs.release == 'yes'
+        env:
+          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash Scripts/next-release.sh --write
+          if [ "$DRY_RUN" = 1 ]; then
+            echo "dry run: Scripts/version and the notes are written here and committed nowhere"
+            git diff --stat
+            exit 0
+          fi
+          # The owner's identity: this is a personal repository, and its
+          # history carries only that one (global AGENTS.md).
+          git config user.name ctimothe
+          git config user.email 119429310+ctimothe@users.noreply.github.com
+          git add Scripts/version docs/releases
+          if ! git diff --cached --quiet; then
+            git commit -q -m "chore: release $VERSION"
+          fi
+          # A push from this token starts no workflow, so this cannot loop.
+          if ! git push origin HEAD:main; then
+            # Skipped only when main really moved: the newer merge's run
+            # releases it. Any other refusal (the network, a 5xx, a rule) is a
+            # failure, never a green run that released nothing (review, 2026-10-20).
+            git fetch --quiet origin main
+            if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD~1)" ] \
+               && [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD)" ]; then
+              echo "::warning::main moved while this run prepared $VERSION; the newer run releases it"
+              echo "SKIP_RELEASE=1" >> "$GITHUB_ENV"
+            else
+              echo "::error::could not push the release commit for $VERSION"
+              exit 1
+            fi
+          fi
 
       - name: Release
         if: steps.next.outputs.release == 'yes' && env.SKIP_RELEASE != '1'
