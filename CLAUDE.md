@@ -118,9 +118,12 @@ bash Scripts/test-gatekeeper.sh    # the outside view: Developer ID on the bundl
                                    # loading under quarantine. Skips itself on an ad-hoc build
 bash Scripts/test-lifecycle.sh     # no helper survives the app
 bash Scripts/dmg.sh
-bash Scripts/test-next-release.sh  # the release job's version, build and notes rules,
-                                   # in a scratch repository
 ```
+
+`./scripts/check` runs one more step after these, `Scripts/test-next-release.sh`.
+It checks the release job's version, build and notes rules in a scratch
+repository. `release.sh` does not re-run it: the job has already called
+`next-release.sh`.
 
 Two harnesses are run by hand, never as gates:
 `Scripts/measure-performance.sh` (against a Cyclop build from

@@ -78,6 +78,12 @@ Tests: `UpdateValidatorTests`, through the requirement-text seam.
 **T4. Docs.** Runbook §8 says CI releases, and how to pick a minor version.
 The release checklist and CLAUDE.md "After each change" follow.
 
+**T5. Pin the team (owed, as soon as the Team ID exists).** The bridge accepts
+any team (review, 2026-10-20), so the update key is the only secret between an
+attacker and every self-signed copy. Ship one self-signed release whose
+`developerIDRequirement` adds `certificate leaf[subject.OU] = "<TEAM>"`, then
+the first Developer ID release.
+
 ## Verification
 - `./scripts/check` passes. `next-release.sh` has a shell test against a
   scratch repository (`Scripts/test-next-release.sh`), which joins the gate.

@@ -34,6 +34,10 @@ git tag -a v0.3.0 -m v0.3.0
 echo words > README.md
 git add -A && git commit -qm "docs: a readme"
 check "a docs-only change since the tag is not a release" "no" "$(bash Scripts/next-release.sh | field release)"
+echo "MIT" > LICENSE
+git add -A && git commit -qm "docs: licence year"
+check "a licence change ships in the bundle, so it is a release" "yes" "$(bash Scripts/next-release.sh | field release)"
+git reset -q --hard HEAD~1
 
 echo two > Sources/a.swift
 git add -A && git commit -qm "fix: the island keeps its line"

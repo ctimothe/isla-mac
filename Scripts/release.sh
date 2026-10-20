@@ -24,6 +24,11 @@ if [ -n "${ISLA_VERSION_OVERRIDE:-}" ] || [ -n "${ISLA_BUILD_OVERRIDE:-}" ]; the
     exit 1
 fi
 ADHOC="${ISLA_ADHOC:-0}"
+# ISLA_RELEASE_DRY_RUN=1: every gate, the build, the signing and the update
+# signature, then stop before the tag. The release workflow's dry run uses it
+# to prove the CI keychain and secrets without publishing (review, 2026-10-20).
+# Its tree may differ from HEAD only in what next-release.sh --write changes.
+DRY_RUN="${ISLA_RELEASE_DRY_RUN:-0}"
 REMOTE="${ISLA_RELEASE_REMOTE:-origin}"
 VERSION="$(sed -n 's/^VERSION=//p' "$ROOT/Scripts/version" || true)"
 [ -n "$VERSION" ] || { echo "!!! Scripts/version has no VERSION= line" >&2; exit 1; }
@@ -37,7 +42,12 @@ fail() { echo "!!! $1" >&2; exit 1; }
 require_env() { [ -n "${!1:-}" ] || fail "$1 is required"; }
 
 # A release points at a commit, never at an uncommitted local artifact.
-[ -z "$(git status --porcelain)" ] || fail "working tree is not clean"
+if [ "$DRY_RUN" = 1 ]; then
+    [ -z "$(git status --porcelain -- . ':!Scripts/version' ':!docs/releases')" ] \
+        || fail "working tree is not clean beyond Scripts/version and docs/releases"
+else
+    [ -z "$(git status --porcelain)" ] || fail "working tree is not clean"
+fi
 [ -s "$NOTES" ] || fail "release notes are required at docs/releases/$VERSION.md"
 
 command -v gh >/dev/null || fail "GitHub CLI is required: brew install gh"
@@ -178,6 +188,11 @@ swift "$ROOT/Scripts/update-signing.swift" sign "$DMG" > "$SIG" \
     || fail "could not sign $DMG with the update key"
 swift "$ROOT/Scripts/update-signing.swift" verify "$UPDATE_KEY_FILE" "$DMG" "$SIG" >/dev/null \
     || fail "the update signature does not match Resources/update-public-key.txt"
+
+if [ "$DRY_RUN" = 1 ]; then
+    echo "==> dry run: $DMG and its signature are ready; nothing tagged or uploaded"
+    exit 0
+fi
 
 echo "==> tag $TAG"
 # Tagged here rather than before notarization. The tag used to be pushed first,

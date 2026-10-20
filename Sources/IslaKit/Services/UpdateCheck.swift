@@ -105,6 +105,7 @@ final class UpdateCheck: ObservableObject {
     /// folder rules; the local feed reads its folder by the same ones.
     private var rehearsal: URL? { source.folder }
     private var timer: Timer?
+    private var firstCheck: DispatchWorkItem?
 
     init(
         fetch: @escaping Fetch = { try await PrivateNetwork.session.data(for: $0) },
@@ -433,10 +434,14 @@ final class UpdateCheck: ObservableObject {
         guard Self.automaticEnabled else { return }
         // Not at the launch instant, which is busy enough, and not every
         // launch-at-login morning in the same second as everything else.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+        // Held so a switch turned off and on again within the 20 s does not
+        // leave the first one to fire as a second request (review, 2026-10-20).
+        let first = DispatchWorkItem { [weak self] in
             guard Self.automaticEnabled else { return }
             self?.check()
         }
+        firstCheck = first
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: first)
         let timer = Timer(timeInterval: Self.automaticInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.check() }
         }
@@ -451,6 +456,8 @@ final class UpdateCheck: ObservableObject {
     }
 
     private func stopAutomatic() {
+        firstCheck?.cancel()
+        firstCheck = nil
         timer?.invalidate()
         timer = nil
     }

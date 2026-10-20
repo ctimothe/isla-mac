@@ -65,10 +65,11 @@ from there.
 
 ## Privacy
 
-Nothing about you leaves the Mac unless you turn it on in Settings. Each of
-these is off by default, except the update check, which is on so that fixes
-reach you (turn it off in Settings → About), and the cover row, which has no
-setting:
+Only the update check leaves the Mac on its own: once an hour it asks GitHub
+whether a newer Isla is out, so fixes reach you (turn it off in Settings →
+About). Nothing else about you leaves the Mac unless you turn it on in
+Settings; each row below is off by default, except the cover row, which has
+no setting:
 
 | Setting | What is sent | Where |
 | --- | --- | --- |

@@ -11,12 +11,21 @@ name: Release
 # pull request, and releases that run's commit only while it is still the tip
 # of main: a newer merge's own run releases everything up to it, and two
 # releases racing would ship the older one last.
+#
+# To retry a failed release, use "Run workflow" on main, not "Re-run": a re-run
+# replays the old event. That is still handled (the tip check accepts the run's
+# own release commit), but "Run workflow" always releases main's tip.
 on:
   workflow_run:
     workflows: ["Build and verify"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, gate and sign, but commit, tag and upload nothing"
+        type: boolean
+        default: false
 
 # Never cancelled. A release cut off between pushing its tag and uploading its
 # image leaves a tag with no release behind it; release.sh removes the tag on
@@ -27,6 +36,14 @@ concurrency:
 
 permissions:
   contents: write
+
+# bash with pipefail for every step. GitHub's default for `run` is `bash -e`
+# without pipefail, under which `next-release.sh | tee` hid a failing
+# next-release.sh and the run went green having released nothing (review,
+# 2026-10-20).
+defaults:
+  run:
+    shell: bash
 
 jobs:
   release:
@@ -41,6 +58,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       WANT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -53,11 +71,16 @@ jobs:
         id: tip
         run: |
           have="$(git rev-parse HEAD)"
-          if [ "$have" != "$WANT_SHA" ]; then
+          if [ "$have" = "$WANT_SHA" ]; then
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          elif [ "$(git rev-parse HEAD~1 2>/dev/null)" = "$WANT_SHA" ] \
+               && git log -1 --format=%s HEAD | grep -q '^chore: release '; then
+            # This run's own release commit, pushed by an attempt that then
+            # failed: a re-run carries on from it rather than going green.
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          else
             echo "main is at $have now, not $WANT_SHA; that commit's own run releases both"
             echo "go=no" >> "$GITHUB_OUTPUT"
-          else
-            echo "go=yes" >> "$GITHUB_OUTPUT"
           fi
 
       - name: What to release
@@ -66,22 +89,73 @@ jobs:
         env:
           HAS_DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_P12_BASE64 != '' }}
         run: |
+          set -euo pipefail
           if [ "$HAS_DEVELOPER_ID" = true ]; then echo "adhoc=0" >> "$GITHUB_OUTPUT"; else echo "adhoc=1" >> "$GITHUB_OUTPUT"; fi
           bash Scripts/next-release.sh | tee -a "$GITHUB_OUTPUT"
 
-      - name: Keychain
+      - name: Version and notes
         if: steps.next.outputs.release == 'yes'
         env:
+          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash Scripts/next-release.sh --write
+          if [ "$DRY_RUN" = 1 ]; then
+            echo "dry run: Scripts/version and the notes are written here and committed nowhere"
+            git diff --stat
+            exit 0
+          fi
+          # The owner's identity: this is a personal repository, and its
+          # history carries only that one (global AGENTS.md).
+          git config user.name ctimothe
+          git config user.email 119429310+ctimothe@users.noreply.github.com
+          git add Scripts/version docs/releases
+          if ! git diff --cached --quiet; then
+            git commit -q -m "chore: release $VERSION"
+          fi
+          # A push from this token starts no workflow, so this cannot loop.
+          if ! git push origin HEAD:main; then
+            # Skipped only when main really moved: the newer merge's run
+            # releases it. Any other refusal (the network, a 5xx, a rule) is a
+            # failure, never a green run that released nothing (review, 2026-10-20).
+            git fetch --quiet origin main
+            if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD~1)" ] \
+               && [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD)" ]; then
+              echo "::warning::main moved while this run prepared $VERSION; the newer run releases it"
+              echo "SKIP_RELEASE=1" >> "$GITHUB_ENV"
+            else
+              echo "::error::could not push the release commit for $VERSION"
+              exit 1
+            fi
+          fi
+
+      - name: Keychain
+        if: steps.next.outputs.release == 'yes' && env.SKIP_RELEASE != '1'
+        env:
+          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
           ISLA_SIGNING_P12_BASE64: ${{ secrets.ISLA_SIGNING_P12_BASE64 }}
           ISLA_SIGNING_P12_PASSWORD: ${{ secrets.ISLA_SIGNING_P12_PASSWORD }}
           ISLA_UPDATE_SIGNING_KEY: ${{ secrets.ISLA_UPDATE_SIGNING_KEY }}
           DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
           DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in ISLA_SIGNING_P12_BASE64 ISLA_SIGNING_P12_PASSWORD ISLA_UPDATE_SIGNING_KEY; do
+          required=(ISLA_SIGNING_P12_BASE64 ISLA_SIGNING_P12_PASSWORD ISLA_UPDATE_SIGNING_KEY)
+          # A Developer ID is all six secrets or none: one missing would fail
+          # in release.sh after the release commit is already on main.
+          [ "$ISLA_ADHOC" = 0 ] && required+=(DEVELOPER_ID_P12_PASSWORD DEVELOPER_ID_APPLICATION APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD)
+          for name in "${required[@]}"; do
             [ -n "${!name}" ] || { echo "::error::secret $name is not set in the release environment; run Scripts/setup-release-secrets.sh"; exit 1; }
           done
+          UPDATE_KEY="$(printf '%s' "$ISLA_UPDATE_SIGNING_KEY" | tr -d '[:space:]')"
+          # The trimmed value is not the secret byte for byte, so GitHub would
+          # not mask it on its own.
+          echo "::add-mask::$UPDATE_KEY"
           # A keychain of this run's own, deleted at the end. It is first in
           # the search list and the default, so codesign, `security` and
           # Scripts/update-signing.swift find the identity and the key exactly
@@ -102,44 +176,32 @@ jobs:
           # Isla's own certificate, the one Scripts/signing-identity.sha1 pins:
           # every installed copy accepts only updates signed with it.
           import_p12 "$ISLA_SIGNING_P12_BASE64" "$ISLA_SIGNING_P12_PASSWORD"
-          if [ -n "$DEVELOPER_ID_P12_BASE64" ]; then
+          if [ "$ISLA_ADHOC" = 0 ]; then
             import_p12 "$DEVELOPER_ID_P12_BASE64" "$DEVELOPER_ID_P12_PASSWORD"
           fi
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
           # The Ed25519 key every installed copy checks an update against,
-          # under the name release.sh and update-signing.swift look for.
-          # Whitespace off: the key is base64 text, and a newline a paste or a
-          # pipe left on it would make it unreadable to update-signing.swift.
-          security add-generic-password -s "Isla Update Signing" -a ed25519 -A \
-            -w "$(printf '%s' "$ISLA_UPDATE_SIGNING_KEY" | tr -d '[:space:]')" "$KEYCHAIN"
+          # under the name release.sh and update-signing.swift look for. Its
+          # partition list is opened as well: `-A` covers the access list, not
+          # the partition a headless read by the swift toolchain is checked
+          # against (review, 2026-10-20).
+          security add-generic-password -s "Isla Update Signing" -a ed25519 -A -w "$UPDATE_KEY" "$KEYCHAIN"
+          security set-generic-password-partition-list -S apple-tool:,apple: -s "Isla Update Signing" -a ed25519 \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # Proved here, before any gate runs: a key that cannot be read would
+          # otherwise fail only at the very end of release.sh.
+          echo probe > "$RUNNER_TEMP/probe"
+          swift Scripts/update-signing.swift sign "$RUNNER_TEMP/probe" > "$RUNNER_TEMP/probe.sig"
+          swift Scripts/update-signing.swift verify Resources/update-public-key.txt "$RUNNER_TEMP/probe" "$RUNNER_TEMP/probe.sig" >/dev/null \
+            || { echo "::error::ISLA_UPDATE_SIGNING_KEY does not match Resources/update-public-key.txt"; exit 1; }
+          rm -f "$RUNNER_TEMP/probe" "$RUNNER_TEMP/probe.sig"
           echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
-
-      - name: Version and notes
-        if: steps.next.outputs.release == 'yes'
-        env:
-          ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
-        run: |
-          set -euo pipefail
-          bash Scripts/next-release.sh --write
-          # The owner's identity: this is a personal repository, and its
-          # history carries only that one (global AGENTS.md).
-          git config user.name ctimothe
-          git config user.email 119429310+ctimothe@users.noreply.github.com
-          git add Scripts/version docs/releases
-          if ! git diff --cached --quiet; then
-            git commit -q -m "chore: release ${{ steps.next.outputs.version }}"
-          fi
-          # A push from this token starts no workflow, so this cannot loop.
-          # Refused when main moved meanwhile: the newer merge's run releases.
-          if ! git push origin HEAD:main; then
-            echo "::warning::main moved while this run prepared ${{ steps.next.outputs.version }}; the newer run releases it"
-            echo "SKIP_RELEASE=1" >> "$GITHUB_ENV"
-          fi
 
       - name: Release
         if: steps.next.outputs.release == 'yes' && env.SKIP_RELEASE != '1'
         env:
           ISLA_ADHOC: ${{ steps.next.outputs.adhoc }}
+          ISLA_RELEASE_DRY_RUN: ${{ env.DRY_RUN }}
           DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

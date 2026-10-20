@@ -351,9 +351,22 @@ What decides whether that keeps working, release after release:
    updates signed with that certificate, and since 2026-10-20 also a Developer
    ID Application build of `com.ctimothe.isla` (the bridge,
    `BundleUpdateValidator.developerIDRequirement`). So the move to a Developer
-   ID is an ordinary Update Now, after which macOS asks for Accessibility once
-   more. Any other signer is `identityChanged`: the copy shows the download
-   page. Keep the backup at `~/Isla Code Signing.p12` in the password manager
+   ID is an ordinary Update Now. It still changes the identity macOS knows:
+   - The old Accessibility entry can look switched on while it does nothing.
+     Isla's permission repair asks again; if it doesn't, remove Isla from the
+     list and add it back.
+   - A Spotify token saved under the old identity may need Connect Spotify
+     Account once more, because a Developer ID build keeps tokens in the
+     data-protection keychain.
+
+   Rehearse both before the first Developer ID release. Any other signer is
+   `identityChanged`: the copy shows the download page.
+   The bridge accepts any team, because these builds ship before the Team ID
+   exists. That makes the update key the only secret between an attacker and
+   every self-signed copy. **As soon as the Team ID is known, ship one
+   self-signed release whose bridge adds
+   `certificate leaf[subject.OU] = "<TEAM>"`, before the first Developer ID
+   release.** Keep the backup at `~/Isla Code Signing.p12` in the password manager
    too. Copies built before the bridge (0.3.0 and the owner's dev builds
    before it) never had it.
 3. **A Developer ID for first installs.** Without one (`ISLA_ADHOC=1`), a
@@ -391,6 +404,13 @@ Since 2026-10-20 nobody runs `release.sh` by hand for a normal release
    the hour (or press Check for Updates), Install, and it relaunches as the new
    version with Accessibility kept.
 
+**A failed release** is retried with **Actions → Release → Run workflow** on
+`main`, which always releases main's tip. A re-run also works, because the tip
+check accepts the run's own `chore: release` commit. **Run workflow with "dry
+run" ticked** builds, gates and signs with the real secrets, and commits, tags
+and uploads nothing. Run it once after setting the secrets, before relying on
+the job.
+
 **Once, before the first CI release:** the owner runs
 `bash Scripts/setup-release-secrets.sh`. It creates the environment and pipes
 the update key, the `.p12` and its passphrase into GitHub secrets without
@@ -400,7 +420,8 @@ identity as a `.p12`, then run
 From the next merge on, releases are notarized and the `xattr` step is gone.
 
 By hand, only when CI cannot: from a clean checkout of `main` with the keys in
-the login keychain, run `bash Scripts/next-release.sh --write`, commit and push,
+the login keychain, run `ISLA_ADHOC=1 bash Scripts/next-release.sh --write`
+(without `ISLA_ADHOC=1` once there is a Developer ID), commit and push,
 then run `ISLA_ADHOC=1 bash Scripts/release.sh`, or `bash Scripts/release.sh`
 with the variables below.
 

@@ -35,7 +35,8 @@ cd "$ROOT"
 WRITE=0
 [ "${1:-}" = "--write" ] && WRITE=1
 
-APP_PATHS=(Sources Resources Package.swift Package.resolved Scripts/bundle.sh Scripts/dmg.sh)
+# What the shipped bundle is made of; bundle.sh also copies the two licence files in.
+APP_PATHS=(Sources Resources Package.swift Package.resolved Scripts/bundle.sh Scripts/dmg.sh LICENSE THIRD_PARTY_NOTICES.md)
 MARKER="<!-- written by Scripts/next-release.sh; replace it with your own notes if you like -->"
 
 fail() { echo "next-release: $*" >&2; exit 1; }
