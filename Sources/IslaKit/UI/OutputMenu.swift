@@ -76,8 +76,11 @@ final class OutputMenuController: NSObject {
     /// The menu for the machine as the watch last read it.
     func makeMenu() -> NSMenu {
         let menu = NSMenu(title: localized("Output"))
-        // The system's own appearance, which is what the spec asks of every
-        // menu (§13 "Menus follow the system appearance"): nothing is forced.
+        // Nothing is set on the menu itself. An NSMenu takes the appearance of
+        // the view it pops up in, and NotchPanel forces .darkAqua, so this
+        // menu is dark on every Mac, Light Mode included. That was measured
+        // on 2026-10-20 with a test panel forced to each appearance; spec §13
+        // is amended to match.
         menu.minimumWidth = Self.menuWidth
         menu.autoenablesItems = false
         for entry in OutputMenuModel.entries(outputs: audio.outputs, current: audio.current) {

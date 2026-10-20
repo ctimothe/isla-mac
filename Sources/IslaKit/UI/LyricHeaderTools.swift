@@ -110,7 +110,9 @@ final class LyricsMoreMenuController: NSObject {
         menu.minimumWidth = Self.menuWidth
         menu.autoenablesItems = false
         kinds.removeAll()
-        // The system's own appearance, as every menu in the app: nothing forced.
+        // Nothing forced on the menu: it takes the panel's .darkAqua, as every
+        // menu the panel opens does, so it is dark on every Mac (spec §13,
+        // amended 2026-10-20).
         let items = LyricsMoreMenuModel.items(
             localFileName: state.localFileName, hasBinding: state.hasBinding,
             onlineOn: state.onlineOn, offset: state.offset, canNudge: state.canNudge,
