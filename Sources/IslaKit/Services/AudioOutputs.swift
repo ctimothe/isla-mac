@@ -21,7 +21,7 @@ enum AudioOutputs {
         var dataSource: UInt32?
 
         var symbol: String {
-            AudioOutputs.symbol(forTransport: transport, dataSource: dataSource, name: name)
+            AudioOutputs.symbol(forTransport: transport, dataSource: dataSource, name: name, host: .current)
         }
     }
 
@@ -117,69 +117,40 @@ enum AudioOutputs {
     /// the headphone jack: the transport is still `bltn`, and the card would
     /// keep drawing a laptop while the sound went to headphones. The data
     /// source is the field that knows, so it is asked first.
+    ///
+    /// The choice is Apple's own symbol for the kind of device, as the Sound
+    /// menu draws it (`OutputGlyph.candidates`), taken from a candidate list
+    /// and checked against the running macOS (`OutputGlyph.resolve`): a symbol
+    /// newer than the Mac degrades to the one that always shipped, never to an
+    /// empty glyph. `host` is the Mac the built-in speakers belong to; it
+    /// defaults to a laptop so a caller that does not know draws the same
+    /// glyph the app always has, and the device list passes the real one.
     static func symbol(
-        forTransport transport: UInt32, dataSource: UInt32? = nil, name: String? = nil
+        forTransport transport: UInt32, dataSource: UInt32? = nil, name: String? = nil,
+        host: HostMac = .laptop
     ) -> String {
-        // The device's own name first, because it is the only thing that tells
-        // AirPods Pro from AirPods Max: both arrive over Bluetooth, both publish
-        // no data source, and CoreAudio has no notion of a product family. The
-        // system's own output menu draws the same distinction, and these are the
-        // symbols Apple ships for it — not lookalikes.
-        //
-        // Matching on a product name is a heuristic, and it is used only to pick
-        // a *better* glyph: anything unrecognised falls through to the transport
-        // below and is merely generic, never wrong. Product names are the same
-        // in every language, which is what makes this survive a localised Mac.
-        if let name = name?.lowercased() {
-            if name.contains("airpods max") { return "airpods.max" }
-            if name.contains("airpods pro") { return "airpods.pro" }
-            if name.contains("airpods") { return "airpods" }
-            if name.contains("beats") || name.contains("powerbeats") { return "beats.headphones" }
-            if name.contains("homepod") { return "homepod" }
-            if name.contains("apple tv") { return "appletv" }
-            if name.contains("studio display") || name.contains("pro display") { return "display" }
-            // Wired Apple headphones, and the generic word every third-party
-            // headset puts in its name.
-            if name.contains("earpods") || name.contains("headphone")
-                || name.contains("headset") || name.contains("earbud") {
-                return "headphones"
-            }
-        }
-        switch dataSource {
-        case DataSource.headphones: return "headphones"
-        case DataSource.internalSpeaker: return "laptopcomputer"
-        case DataSource.externalSpeaker: return "hifispeaker"
-        default: break
-        }
-        switch transport {
-        case kAudioDeviceTransportTypeBuiltIn: return "laptopcomputer"
-        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "headphones"
-        case kAudioDeviceTransportTypeAirPlay: return "airplayaudio"
-        case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort: return "tv"
-        // Neutral on purpose. USB is a wire, not a kind of thing: USB-C EarPods
-        // and a pair of studio monitors arrive identically, publish no data
-        // source, and nothing else in CoreAudio distinguishes them. This used
-        // to draw a floor-standing speaker, which is confidently wrong for the
-        // commonest case of the two. A generic output glyph is merely vague.
-        case kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeFireWire: return "speaker.wave.2"
-        case kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeAggregate: return "waveform"
-        default: return "speaker.wave.2"
-        }
+        OutputGlyph.resolve(
+            OutputGlyph.candidates(transport: transport, dataSource: dataSource, name: name, host: host)
+        )
     }
 
     /// The glyph for the device the sound goes to now, or `fallback` when the
     /// list does not hold it (nothing read yet, no default, a device that has
     /// just gone). The one place that turns "which device is current" into a
     /// symbol, so the lock card's foot rail and the island's Output button name
-    /// the same device the same way; each passes the fallback that suits it —
-    /// the card's AirPlay glyph, the island's plain speaker.
+    /// the same device the same way; the fallback is a parameter only so tests can
+    /// tell it from a device glyph:
+    /// the lock card and the island's Output button both pass
+    /// `outputFallbackSymbol`, so the two never disagree about an unknown route.
     static func symbol(outputs: [Output], current: AudioDeviceID?, fallback: String) -> String {
         guard let current, let device = outputs.first(where: { $0.id == current }) else { return fallback }
         return device.symbol
     }
 
-    /// What the island's Output button draws before it knows where the sound
-    /// goes: a speaker says "output" without naming a device it has not seen.
+    /// What the island's Output button and the lock card's foot rail draw
+    /// before they know where the sound goes: a speaker says "output" without
+    /// naming a device it has not seen. The card used to fall back to the
+    /// AirPlay glyph, which claimed a wireless route nobody had picked.
     static let outputFallbackSymbol = "speaker.wave.2"
 
     // MARK: - Output latency

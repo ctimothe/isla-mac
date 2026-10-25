@@ -1492,7 +1492,7 @@ struct LockScreenCard: View {
     }
 
     private var outputSymbol: String {
-        AudioOutputs.symbol(outputs: outputs, current: currentOutput, fallback: "airplayaudio")
+        AudioOutputs.symbol(outputs: outputs, current: currentOutput, fallback: AudioOutputs.outputFallbackSymbol)
     }
 
     /// What the star can do for this song: the player's rule, resolved by the
