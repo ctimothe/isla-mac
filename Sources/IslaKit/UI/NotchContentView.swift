@@ -194,7 +194,10 @@ struct NotchContentView: View {
 
     private var shapeSize: CGSize {
         guard restsInNotch else {
-            return CGSize(width: size.width + 2 * topRadius, height: size.height)
+            return Self.clearingCutout(
+                CGSize(width: size.width + 2 * topRadius, height: size.height),
+                notchHeight: vm.geometry.notchSize.height, isPhysical: vm.geometry.isPhysical
+            )
         }
         return isAwake
             ? Self.awakeShape(notch: size, shoulder: topRadius)
@@ -209,6 +212,20 @@ struct NotchContentView: View {
             width: notch.width - 2 * NotchMetrics.restingInset,
             height: notch.height - NotchMetrics.restingInset
         )
+    }
+
+    /// The outline of a shape out of the notch, dropped by half the stroke
+    /// where it is no taller than the cutout. The 2 pt line is centred on the
+    /// outline, so on a pill as tall as the notch — the song, the Shelf,
+    /// charging — its inner half lay inside the camera housing, where there is
+    /// no pixel to light: the bottom line read 1 pt under the camera and 2 pt
+    /// beside it (owner, 2026-10-20). Only the outline moves; the content keeps
+    /// the body's frame, centred on the notch, and so does the hit region.
+    /// Taller shapes and displays with no cutout are drawn as they were.
+    static func clearingCutout(_ shape: CGSize, notchHeight: CGFloat, isPhysical: Bool) -> CGSize {
+        guard isPhysical else { return shape }
+        let clear = notchHeight + Theme.islandStrokeWidth / 2
+        return CGSize(width: shape.width, height: max(shape.height, clear))
     }
 
     /// Awake under the pointer: out past the notch on both sides and a little
@@ -283,8 +300,13 @@ struct NotchContentView: View {
         let answers = vm.lockSurfacePresentsSong && vm.geometry.isPhysical
         let awake = !shown && answers && vm.isHovering
         let out = shown || awake
+        // The wings are as tall as the unlocked pill's outline, so the lock's
+        // cut does not also step the shape by the half-stroke it drops.
         let shape = shown
-            ? CGSize(width: size.width + 2 * Theme.collapsedTopRadius, height: notch.height)
+            ? Self.clearingCutout(
+                CGSize(width: size.width + 2 * Theme.collapsedTopRadius, height: notch.height),
+                notchHeight: notch.height, isPhysical: vm.geometry.isPhysical
+            )
             : (awake
                 ? Self.awakeShape(notch: notch, shoulder: Theme.collapsedTopRadius)
                 : Self.restingShape(notch: notch))

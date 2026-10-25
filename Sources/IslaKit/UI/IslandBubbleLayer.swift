@@ -22,7 +22,13 @@ struct IslandBubbleLayer: View {
     var body: some View {
         ZStack(alignment: .top) {
             if let count = vm.bubbleCount {
-                IslandBubble(count: count, height: size.height, increaseContrast: appearance.increaseContrast) {
+                IslandBubble(
+                    count: count, height: size.height,
+                    outlineHeight: NotchContentView.clearingCutout(
+                        size, notchHeight: vm.geometry.notchSize.height, isPhysical: vm.geometry.isPhysical
+                    ).height,
+                    increaseContrast: appearance.increaseContrast
+                ) {
                     vm.onBubbleClick?()
                 }
                 .offset(x: IslandBubbleLayout.centreOffset(islandWidth: size.width, count: count))

@@ -53,6 +53,10 @@ enum IslandBubbleLayout {
 struct IslandBubble: View {
     let count: Int
     let height: CGFloat
+    /// The black shape's own height: the pill's beside it, which on a real
+    /// notch drops half the stroke below the body (`NotchContentView.clearingCutout`)
+    /// so the two bottom lines meet. The content and the press keep `height`.
+    var outlineHeight: CGFloat? = nil
     let increaseContrast: Bool
     let action: () -> Void
 
@@ -65,7 +69,8 @@ struct IslandBubble: View {
             content
         }
         .buttonStyle(BubbleStyle(
-            width: IslandBubbleLayout.width(count: count), height: height, increaseContrast: increaseContrast
+            width: IslandBubbleLayout.width(count: count), height: height,
+            outlineHeight: outlineHeight ?? height, increaseContrast: increaseContrast
         ))
         .accessibilityLabel(Self.label(count: count))
     }
@@ -95,21 +100,26 @@ struct IslandBubble: View {
     private struct BubbleStyle: ButtonStyle {
         let width: CGFloat
         let height: CGFloat
+        let outlineHeight: CGFloat
         let increaseContrast: Bool
 
         func makeBody(configuration: Configuration) -> some View {
-            ZStack {
-                NotchShape(topRadius: IslandBubbleLayout.topRadius, bottomRadius: IslandBubbleLayout.bottomRadius)
-                    .fill(configuration.isPressed ? Theme.islandHover : Color.black)
-                IslandStrokeShape(topRadius: IslandBubbleLayout.topRadius, bottomRadius: IslandBubbleLayout.bottomRadius)
-                    .stroke(
-                        IslandStroke.color(tint: nil, increaseContrast: increaseContrast),
-                        lineWidth: Theme.islandStrokeWidth
-                    )
-                    .allowsHitTesting(false)
+            ZStack(alignment: .top) {
+                ZStack {
+                    NotchShape(topRadius: IslandBubbleLayout.topRadius, bottomRadius: IslandBubbleLayout.bottomRadius)
+                        .fill(configuration.isPressed ? Theme.islandHover : Color.black)
+                    IslandStrokeShape(topRadius: IslandBubbleLayout.topRadius, bottomRadius: IslandBubbleLayout.bottomRadius)
+                        .stroke(
+                            IslandStroke.color(tint: nil, increaseContrast: increaseContrast),
+                            lineWidth: Theme.islandStrokeWidth
+                        )
+                        .allowsHitTesting(false)
+                }
+                .frame(width: width, height: outlineHeight)
                 configuration.label
+                    .frame(width: width, height: height)
             }
-            .frame(width: width, height: height)
+            .frame(width: width, height: height, alignment: .top)
             .contentShape(Rectangle())
             .animation(Theme.contentAnimation, value: configuration.isPressed)
         }
