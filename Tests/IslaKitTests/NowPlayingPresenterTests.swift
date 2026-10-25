@@ -381,6 +381,20 @@ final class NowPlayingPresenterTests: XCTestCase {
         XCTAssertFalse(store.holdsPresentation)
     }
 
+    /// A panel rebuilt mid-hold drops its presenter but keeps the session's
+    /// store. The presenter made for the new panel must not leave the store
+    /// holding every later answer (Codex review, 2026-10-25).
+    func testAPresenterMadeAfterARebuildReleasesAHeldStore() {
+        let store = LyricsStore(offsetsDirectory: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true))
+        store.holdPresentation()
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let presenter = NowPlayingPresenter.live(media: media, lyrics: store)
+        XCTAssertFalse(store.holdsPresentation)
+        _ = presenter
+    }
+
     private func snapshot(
         _ title: String, album: String, elapsed: TimeInterval, artwork: Data? = nil
     ) -> NowPlayingFeed.Snapshot {

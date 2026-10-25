@@ -142,6 +142,14 @@ final class NowPlayingPresenter: ObservableObject {
 
     /// The panel's presenter: fed by the controller and gating the store.
     static func live(media: MediaController, lyrics: LyricsStore) -> NowPlayingPresenter {
+        // The store belongs to the session and outlives the panel; a presenter
+        // does not. A display change rebuilds the panel, and one rebuilt in the
+        // middle of a hold dropped the presenter that would have released it —
+        // its wake holds it weakly — so every later answer stayed buffered
+        // until some other skip happened to end a hold (Codex review,
+        // 2026-10-25). A new presenter starts without a hold, so the store
+        // starts without one too.
+        lyrics.releasePresentation()
         let presenter = NowPlayingPresenter(
             clock: { [weak media] in
                 HeldClock(position: media?.extrapolatedPosition() ?? 0, isPlaying: media?.isPlaying ?? false)
