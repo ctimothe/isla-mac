@@ -2442,3 +2442,25 @@ Mac model and macOS version when run):
   password grace) and with another user switched in.
 - [ ] **DU-H7** `rm -rf .dev-updates`, then publish: the new folder is found and
   the build offered within a few seconds, without relaunching Isla.
+
+### Small refinements (`feat/mobbin-refinements`, 2026-10-25)
+
+Rebuilt from a Devin QA, design and Mobbin pass whose branch never left its
+VM; the current layout is the baseline (owner). Owed on hardware (record the
+Mac model and macOS version when run):
+
+- [ ] **MR-H1** Every page shows ⋯ where the gear was, with the update dot when
+  one waits; its menu ends in Settings…, which opens Settings; on the Shelf,
+  Remove All sits beside it with no gap.
+- [ ] **MR-H2** The lyric stage's previous, play and next look like the
+  player's and the lock card's; dragging the stage's bar seeks.
+- [ ] **MR-H3** The star shows for Music and a connected Spotify, on the player
+  and the lock card, and the song really becomes a favourite; it is absent for
+  Yandex Music and a browser.
+- [ ] **MR-H4** The waveform takes the cover's colour; white with no artwork.
+  The header's app icon reads as small as an iPhone Live Activity's.
+- [ ] **MR-H5** "Lyrics imported", "Copied" (Return in Clipboard) and "Added to
+  Shelf" show on the island for about 1.5 s, and never over the open panel.
+- [ ] **MR-H6** Context lyric lines dim faster, and stay legible under
+  Increase Contrast.
+
