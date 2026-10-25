@@ -137,7 +137,7 @@ final class ClipboardPaneTests: XCTestCase {
         let empty = ProbeFixtures.isolatedStores()
         defer { empty.release() }
         let emptyRoot = await AXProbe.tree(of: pane(empty), size: size())
-        XCTAssertTrue(emptyRoot.all(role: "AXStaticText").map { $0.label.isEmpty ? $0.value : $0.label }.contains("Nothing copied yet"), emptyRoot.dump)
+        XCTAssertTrue(emptyRoot.all(role: "AXStaticText").map { $0.label.isEmpty ? $0.value : $0.label }.contains("Copied text and images will appear here."), emptyRoot.dump)
     }
 
     func testTheKindEmptyWordsAreTranslated() {

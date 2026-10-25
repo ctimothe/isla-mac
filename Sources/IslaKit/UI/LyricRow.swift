@@ -371,19 +371,29 @@ struct LyricRow: View {
                         .lineLimit(lineLimit)
                         .truncationMode(.tail)
                         .transition(.opacity)
+                        // Context lines settle in 0.12 s (owner, 2026-10-25),
+                        // not on the 0.42 s spring below: that spring is
+                        // `Theme.lyricScroll`, shared with page travel and the
+                        // lead model's timing, so it stays and only this fade
+                        // is quicker. Reduce Motion gets no fade at all.
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: contextOpacity)
                 }
             }
             .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
         }
     }
 
-    /// The opacity of a line that is not being sung: the board's (raised to the
-    /// ramp's floor, `PlayerLayout.lyricOpacity`) where the row knows its signed
-    /// offset, the symmetric falloff where it does not.
+    /// The opacity of a line that is not being sung: the board's
+    /// (`PlayerLayout.lyricOpacity`, raised to the ramp's floor only under
+    /// Increase Contrast) where the row knows its signed offset, the symmetric
+    /// falloff where it does not.
     @MainActor
     private var contextOpacity: Double {
         if let board {
-            return PlayerLayout.lyricOpacity(offset: board.offset, ramp: ramp, reading: reading)
+            return PlayerLayout.lyricOpacity(
+                offset: board.offset, ramp: ramp, reading: reading,
+                increaseContrast: SystemAppearance.shared.increaseContrast
+            )
         }
         return ramp.context(distance: distance, reading: reading)
     }

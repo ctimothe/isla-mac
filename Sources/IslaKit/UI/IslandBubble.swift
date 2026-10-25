@@ -27,11 +27,11 @@ enum IslandBubbleLayout {
     static let bottomRadius: CGFloat = 14
 
     /// `tray.full.fill` 18 × 14, white; 5 pt; the count, 13 semibold,
-    /// tabular, in the system blue.
+    /// tabular, in white (owner, 2026-10-25: it was the system blue).
     static let glyphSize = CGSize(width: 18, height: 14)
     static let spacing: CGFloat = 5
     static let countSize: CGFloat = 13
-    static var countColor: Color { Theme.SettingsTint.blue.color }
+    static var countColor: Color { Color.white }
 
     /// How far right of the island's centre the bubble's centre sits. The
     /// bubble only ever stands beside Music, a compact activity, so the

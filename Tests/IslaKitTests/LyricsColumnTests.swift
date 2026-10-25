@@ -318,7 +318,7 @@ final class LyricsColumnTests: XCTestCase {
             size: Self.size
         )
         XCTAssertNotNil(
-            root.all { [$0.label, $0.title, $0.value].contains("No lyrics found for this song.") }.first, root.dump
+            root.all { [$0.label, $0.title, $0.value].contains("No lyrics for this song") }.first, root.dump
         )
         let importButton = try XCTUnwrap(root.first(label: "Import LRC…"), root.dump)
         let search = try XCTUnwrap(root.first(label: "Search Online"), root.dump)

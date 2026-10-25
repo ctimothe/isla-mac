@@ -221,7 +221,7 @@ enum ShelfLayout {
     static let removeAllRightRoom: CGFloat = 46 + SurfaceHeaderLayout.gearClearance
     static func removeAllTrailing(bodyWidth: CGFloat) -> CGFloat { bodyWidth - removeAllRightRoom }
 
-    /// The empty tray's line: "Drag files to the notch to keep them here."
+    /// The empty tray's line: "Drop files here to keep them handy."
     static let emptyLineSize: CGFloat = 13
 }
 

@@ -229,20 +229,6 @@ struct LyricsStage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Diagnostic readout, environment-gated like the open hook: says which
-        // branch is live and why, in the corner, only when an agent launched
-        // the binary with the variable set. Never present in a normal run.
-        .overlay(alignment: .bottomLeading) {
-            if DebugTrail.openLyrics {
-                Text(debugStateDescription)
-                    .font(Theme.TypeRole.caption.font().monospacedDigit())
-                    .foregroundStyle(.yellow)
-                    .padding(6)
-                    // A readout is not a control. Left hittable it sat over the
-                    // sync pill and swallowed every tap meant for it.
-                    .allowsHitTesting(false)
-            }
-        }
         .onAppear {
             if DebugTrail.openLyrics {
                 DebugTrail.note("stage appeared: \(debugStateDescription)")
@@ -848,7 +834,10 @@ struct LyricsStage: View {
                 statusLine(sentence)
             case .noneFound(let offersSearchOnline):
                 statusGlyph("quote.bubble")
-                statusLine(LyricsPageState.noneFoundSentence)
+                // The page says it shortly (owner, 2026-10-25: empty states are
+                // a glyph and one sentence, as Apple's are); the compact
+                // caption keeps `noneFoundSentence`, its full-stopped form.
+                statusLine(localized("No lyrics for this song"))
                 HStack(spacing: 8) {
                     offerButton(localized("Import LRC…"), action: importLocalFile)
                     if offersSearchOnline {

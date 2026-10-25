@@ -306,6 +306,7 @@
 /* Lyrics: why a song has none, in plain words */
 "No lyrics on this Mac." = "No lyrics on this Mac.";
 "No lyrics found for this song." = "No lyrics found for this song.";
+"No lyrics for this song" = "No lyrics for this song";
 "Can't read the lyrics file for this song." = "Can't read the lyrics file for this song.";
 "No lyrics for live audio." = "No lyrics for live audio.";
 "This track has no title to look up." = "This track has no title to look up.";
@@ -329,7 +330,6 @@
 "Copied" = "Copied";
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS is not letting Isla read what you copy, so nothing new is kept.";
 "Open Privacy Settings" = "Open Privacy Settings";
-"Nothing copied yet" = "Nothing copied yet";
 "Turn On" = "Turn On";
 "Something is playing that Music Only keeps off the island." = "Something is playing that Music Only keeps off the island.";
 "Open Settings" = "Open Settings";
@@ -494,7 +494,7 @@
 "No Images" = "No Images";
 "No Files" = "No Files";
 "Copies of this kind appear here." = "Copies of this kind appear here.";
-"Text, links, images and files you copy appear here. Copies from password managers are skipped." = "Text, links, images and files you copy appear here. Copies from password managers are skipped.";
+"Copied text and images will appear here." = "Copied text and images will appear here.";
 "Images are kept in memory, like the rest of the history." = "Images are kept in memory, like the rest of the history.";
 "Include Images" = "Include Images";
 "Keep Pinned Items" = "Keep Pinned Items";
@@ -552,7 +552,7 @@
 /* Activities first: the surfaces that replaced the tabs (spec §19.6–§19.8). */
 "Favorite" = "Favorite";
 "Remove from Favorites" = "Remove from Favorites";
-"Drag files to the notch to keep them here." = "Drag files to the notch to keep them here.";
+"Drop files here to keep them handy." = "Drop files here to keep them handy.";
 "Click the island to open what’s playing." = "Click the island to open what’s playing.";
 "Swipe sideways for the Shelf, Clipboard and Translate." = "Swipe sideways for the Shelf, Clipboard and Translate.";
 "Pages" = "Pages";

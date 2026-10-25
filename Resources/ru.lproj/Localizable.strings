@@ -312,6 +312,7 @@
 /* Текст песни: почему его нет, простыми словами */
 "No lyrics on this Mac." = "На этом Mac нет текста этой песни.";
 "No lyrics found for this song." = "Текст этой песни не найден.";
+"No lyrics for this song" = "Нет текста песни";
 "Can't read the lyrics file for this song." = "Не удаётся прочитать файл с текстом этой песни.";
 "No lyrics for live audio." = "Для прямого эфира текста нет.";
 "This track has no title to look up." = "У этого трека нет названия для поиска.";
@@ -335,7 +336,6 @@
 "Copied" = "Скопировано";
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется.";
 "Open Privacy Settings" = "Открыть настройки конфиденциальности";
-"Nothing copied yet" = "Пока ничего не скопировано";
 "Turn On" = "Включить";
 "Something is playing that Music Only keeps off the island." = "Сейчас играет то, что «Только музыка» не показывает на острове.";
 "Open Settings" = "Открыть настройки";
@@ -500,7 +500,7 @@
 "No Images" = "Нет изображений";
 "No Files" = "Нет файлов";
 "Copies of this kind appear here." = "Здесь появятся копии этого типа.";
-"Text, links, images and files you copy appear here. Copies from password managers are skipped." = "Здесь появляются скопированные тексты, ссылки, изображения и файлы. Копии из менеджеров паролей пропускаются.";
+"Copied text and images will appear here." = "Скопированные тексты и изображения появятся здесь.";
 "Images are kept in memory, like the rest of the history." = "Изображения хранятся в памяти, как и вся история.";
 "Include Images" = "Сохранять изображения";
 "Keep Pinned Items" = "Хранить закреплённые";
@@ -558,7 +558,7 @@
 /* Activities first: the surfaces that replaced the tabs (spec §19.6–§19.8). */
 "Favorite" = "В избранное";
 "Remove from Favorites" = "Убрать из избранного";
-"Drag files to the notch to keep them here." = "Перетащите файлы к вырезу, чтобы они хранились здесь.";
+"Drop files here to keep them handy." = "Перетащите сюда файлы, чтобы они были под рукой.";
 "Click the island to open what’s playing." = "Нажмите на остров, чтобы открыть то, что играет.";
 "Swipe sideways for the Shelf, Clipboard and Translate." = "Смахните в сторону, чтобы открыть полку, буфер обмена и перевод.";
 "Pages" = "Страницы";

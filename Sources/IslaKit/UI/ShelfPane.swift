@@ -66,15 +66,28 @@ struct ShelfPane: View {
 
     // MARK: - Empty (§19.7)
 
-    /// One line, centred: what the Shelf is for and how files reach it.
+    /// The `tray` glyph over one sentence, centred (owner, 2026-10-25: empty
+    /// states are a glyph and one sentence, as Apple's are). The glyph is the
+    /// Clipboard's empty one — 26 regular, the tertiary grey — so the pages
+    /// that can be empty look like one family; it is decoration, and the
+    /// sentence says what it means. The sentence says what to do, not where:
+    /// files reach the Shelf by dropping them on the island or on the open
+    /// panel, and "the notch" was true of only one of those.
     private var emptyLine: some View {
-        Text(localized("Drag files to the notch to keep them here."))
-            .font(.system(size: ShelfLayout.emptyLineSize, weight: .regular))
-            .tracking(Theme.tracking(forSize: ShelfLayout.emptyLineSize))
-            .foregroundStyle(.white.opacity(Theme.shelfEmptyLineOpacity))
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 16)
-            .frame(width: bodyWidth, height: ShelfLayout.viewport(bodyWidth: bodyWidth).height)
+        VStack(spacing: 6) {
+            Image(systemName: "tray")
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(Theme.tertiary)
+                .accessibilityHidden(true)
+                .padding(.bottom, 4)
+            Text(localized("Drop files here to keep them handy."))
+                .font(.system(size: ShelfLayout.emptyLineSize, weight: .regular))
+                .tracking(Theme.tracking(forSize: ShelfLayout.emptyLineSize))
+                .foregroundStyle(.white.opacity(Theme.shelfEmptyLineOpacity))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 16)
+        .frame(width: bodyWidth, height: ShelfLayout.viewport(bodyWidth: bodyWidth).height)
     }
 
     // MARK: - The grid (§19.7)

@@ -273,9 +273,11 @@ struct ClipboardPane: View {
 
     // MARK: - Empty, history off, no results (§9.3, §9.4)
 
-    /// The words say what lands here and what never does — concealed copies,
-    /// which is what password managers mark theirs as, are skipped before they
-    /// are read — and the glyph is drawing (F-036, M-08).
+    /// The words say what lands here, in one sentence under the glyph (owner,
+    /// 2026-10-25: an empty state is a glyph and a sentence). Concealed copies,
+    /// which is what password managers mark theirs as, are still skipped
+    /// before they are read; the sentence no longer spells that out, and the
+    /// glyph is drawing (F-036, M-08).
     private func emptyState(in frame: CGRect) -> some View {
         VStack(spacing: 6) {
             Image(systemName: "doc.on.clipboard")
@@ -284,10 +286,7 @@ struct ClipboardPane: View {
                 .accessibilityHidden(true)
                 .padding(.bottom, 4)
             if historyEnabled {
-                Text(localized("Nothing copied yet"))
-                    .islandFont(.subhead, weight: .semibold)
-                    .foregroundStyle(.white)
-                Text(localized("Text, links, images and files you copy appear here. Copies from password managers are skipped."))
+                Text(localized("Copied text and images will appear here."))
                     .islandFont(.body, weight: .regular)
                     .foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
