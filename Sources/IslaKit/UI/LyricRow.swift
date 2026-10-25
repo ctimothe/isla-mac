@@ -375,8 +375,9 @@ struct LyricRow: View {
                         // not on the 0.42 s spring below: that spring is
                         // `Theme.lyricScroll`, shared with page travel and the
                         // lead model's timing, so it stays and only this fade
-                        // is quicker. Reduce Motion gets no fade at all.
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: contextOpacity)
+                        // is quicker. A fade is not motion, so Reduce Motion
+                        // keeps it (ReduceMotionContractTests).
+                        .animation(.easeOut(duration: 0.12), value: contextOpacity)
                 }
             }
             .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)

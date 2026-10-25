@@ -767,8 +767,6 @@ enum Theme {
     static let stageHairline = Color.white.opacity(0.12)
     /// The artist under the title, white 0.55.
     static let stageArtistOpacity: Double = 0.55
-    /// The transport's wells, white 0.10.
-    static let stageTransportFill = Color.white.opacity(0.10)
     /// The progress's track, white 0.18; its fill is the cover's tint.
     static let stageTrack = Color.white.opacity(0.18)
 

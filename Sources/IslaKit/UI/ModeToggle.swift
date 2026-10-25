@@ -52,11 +52,14 @@ struct ModeToggle: View {
 /// which is the sort of difference nobody can name but everybody feels.
 struct TransportGlyphStyle: ButtonStyle {
     var size: CGFloat = 30
+    /// Nil is a square target. The lyrics stage's wells are 32 / 34 wide and
+    /// 30 tall, and its hit targets stay what they were.
+    var height: CGFloat? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(.white)
-            .frame(width: size, height: size)
+            .frame(width: size, height: height ?? size)
             .contentShape(Rectangle())
             .opacity(configuration.isPressed ? 0.55 : 1)
             .scaleEffect(configuration.isPressed ? 0.92 : 1)

@@ -67,20 +67,10 @@ struct MediaPane: View {
         AudioWatch(read: { ([], nil, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {})
     }
 
-    @State private var scrubHover = false
-    /// Set once the pointer has rested on the bar for a moment.
-    ///
-    /// The elapsed label reads the time under the pointer while it is on the
-    /// bar. Filmed on 2026-09-21: a pointer only crossing the bar on its way to
-    /// the skip button flashed 1:42, 1:55, 2:14 over the time playing, and it
-    /// read as the clock jumping about. A crossing is too quick to arm it.
-    @State private var previewArmed = false
-    @State private var previewArmTask: Task<Void, Never>?
-    /// Set while dragging, so the bar follows the finger instead of the clock.
-    @State private var scrubbing: Double?
-    /// Cursor x inside the bar while hovering, so the elapsed label can read
-    /// the time under the pointer.
-    @State private var hoverX: CGFloat?
+    /// The fraction under the pointer or finger while the scrubber previews or
+    /// drags (`PlaybackScrubber.onPreviewChange`); nil when neither is on it,
+    /// which is when the labels go back to saying where the song actually is.
+    @State private var previewFraction: Double?
     /// Set once the current track has waited long enough for artwork that it
     /// is evidently not coming. Some sources never publish a cover, and a
     /// shimmer that promises one forever reads as stuck, not loading.
@@ -90,15 +80,6 @@ struct MediaPane: View {
     @ObservedObject var icons: AppIcons = .shared
 
     private var layout: PlayerLayout { PlayerLayout(hasOutputButton: outputButtonOn) }
-
-    /// Where the pointer (or the finger mid-drag) sits along the bar, 0...1.
-    /// Nil when neither is on it, which is when the label goes back to saying
-    /// where the song actually is.
-    private var previewFraction: Double? {
-        if let scrubbing { return scrubbing }
-        guard scrubHover, previewArmed, let hoverX else { return nil }
-        return ScrubPreview.fraction(x: hoverX, width: layout.progress.width, duration: media.duration)
-    }
 
     var body: some View {
         if let track = media.track {
@@ -449,12 +430,6 @@ struct MediaPane: View {
 
     // MARK: - Times and progress
 
-    private var progress: Double {
-        if let scrubbing { return scrubbing }
-        guard media.duration > 0 else { return 0 }
-        return min(max(media.position / media.duration, 0), 1)
-    }
-
     /// The elapsed and remaining labels' font: SF Pro Rounded 11 medium,
     /// tabular, white 0.40 (§19.6).
     static let timeFont = Font.system(size: 11, weight: .medium, design: .rounded).monospacedDigit()
@@ -483,8 +458,15 @@ struct MediaPane: View {
                 .frame(width: timesBox.width, height: timesBox.height, alignment: .trailing)
                 .offset(x: layout.timesTrailing - timesBox.width, y: layout.timesTop)
                 .accessibilityHidden(true)
-            scrubber
-                .placedAt(layout.progress.insetBy(dx: 0, dy: -8))
+            // 23 pt to grab and 7 to draw (F-014); the stage's foot lays out
+            // the same view in its own 3 pt bar.
+            PlaybackScrubber(
+                media: media, width: layout.progress.width, trackHeight: layout.progress.height,
+                radius: PlayerLayout.progressRadius,
+                track: .white.opacity(Theme.playerTrackOpacity), fill: .white.opacity(Theme.playerFillOpacity),
+                onPreviewChange: { previewFraction = $0 }
+            )
+            .placedAt(layout.progress.insetBy(dx: 0, dy: -8))
         } else {
             Text("LIVE")
                 .font(.system(size: 9, weight: .bold))
@@ -499,77 +481,6 @@ struct MediaPane: View {
                 .placedAt(layout.progress)
                 .accessibilityHidden(true)
         }
-    }
-
-    private var scrubber: some View {
-        let layout = layout
-        let width = layout.progress.width
-        let filled = width * progress
-        return ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: PlayerLayout.progressRadius, style: .continuous)
-                .fill(.white.opacity(Theme.playerTrackOpacity))
-                .frame(height: layout.progress.height)
-            // Deliberately unanimated: a seek has to land under the cursor at
-            // once. Smoothness comes from the tick rate instead.
-            RoundedRectangle(cornerRadius: PlayerLayout.progressRadius, style: .continuous)
-                .fill(.white.opacity(Theme.playerFillOpacity))
-                .frame(width: max(filled, layout.progress.height), height: layout.progress.height)
-                .opacity(filled > 0 ? 1 : 0)
-            if scrubHover {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 11, height: 11)
-                    .offset(x: min(max(filled - 5.5, 0), width - 11))
-                    .shadow(color: .black.opacity(0.4), radius: 3)
-            }
-        }
-        .frame(maxHeight: .infinity)
-        // 23 pt to grab and 7 to draw (F-014): the strip sits near the top of
-        // the screen, and a 7 pt target had to be aimed at.
-        .contentShape(Rectangle())
-        .onHover { inside in
-            scrubHover = inside
-            previewArmTask?.cancel()
-            guard inside else {
-                previewArmed = false
-                return
-            }
-            previewArmTask = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(ScrubPreview.dwell))
-                guard !Task.isCancelled else { return }
-                previewArmed = true
-            }
-        }
-        .onContinuousHover { phase in
-            switch phase {
-            case .active(let location): hoverX = location.x
-            case .ended: hoverX = nil
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    guard width > 0 else { return }
-                    scrubbing = min(max(value.location.x / width, 0), 1)
-                }
-                .onEnded { value in
-                    guard width > 0 else { return }
-                    let target = min(max(value.location.x / width, 0), 1)
-                    // Seek first: clearing `scrubbing` beforehand would drop the
-                    // bar back to the old position for a frame.
-                    media.seek(to: media.duration * target)
-                    scrubbing = nil
-                }
-        )
-        .animation(Theme.contentAnimation, value: scrubHover)
-        // A capsule with a drag gesture is nothing to assistive tech; see
-        // `playbackPositionAccessibility` for why it is a slider.
-        .playbackPositionAccessibility(
-            shown: progress * media.duration,
-            duration: media.duration,
-            position: { media.position },
-            seek: { media.seek(to: $0) }
-        )
     }
 
     /// Kept for the lock card and the tests that measure an hour-long song's
@@ -597,6 +508,13 @@ struct MediaPane: View {
             }
         }
 
+        /// False only while Spotify's library has not said whether the song is
+        /// saved: the star is then dimmed and cannot be pressed.
+        var isAnswered: Bool {
+            if case .spotify(_, nil) = self { return false }
+            return true
+        }
+
         static func resolve(
             musicFavorite: Bool?, spotifyTrackID: String?, spotifyCanSave: Bool, saved: [String: Bool]
         ) -> Favourite? {
@@ -621,21 +539,12 @@ struct MediaPane: View {
             favouriteButton(favourite)
                 .placedAt(layout.target(.favourite), alignment: .center)
         }
-        transportButton(.previous, symbol: "backward.fill", label: localized("Previous Track"), enabled: media.canSkip) {
-            media.previous()
-        }
-        .placedAt(layout.target(.previous), alignment: .center)
-        transportButton(
-            .playPause, symbol: media.isPlaying ? "pause.fill" : "play.fill",
-            label: media.isPlaying ? localized("Pause") : localized("Play"), enabled: true
-        ) {
-            media.togglePlayPause()
-        }
-        .placedAt(layout.target(.playPause), alignment: .center)
-        transportButton(.next, symbol: "forward.fill", label: localized("Next Track"), enabled: media.canSkip) {
-            media.next()
-        }
-        .placedAt(layout.target(.next), alignment: .center)
+        TransportGlyphButton(.previous, enabled: media.canSkip) { media.previous() }
+            .placedAt(layout.target(.previous), alignment: .center)
+        TransportGlyphButton(.playPause, isPlaying: media.isPlaying) { media.togglePlayPause() }
+            .placedAt(layout.target(.playPause), alignment: .center)
+        TransportGlyphButton(.next, enabled: media.canSkip) { media.next() }
+            .placedAt(layout.target(.next), alignment: .center)
         if let output = layout.output {
             PlayerOutputButton(
                 audio: audio, target: PlayerLayout.hitTarget,
@@ -645,34 +554,9 @@ struct MediaPane: View {
         }
     }
 
-    private func transportButton(
-        _ control: PlayerLayout.Control, symbol: String, label: String, enabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: control.glyph.width, height: control.glyph.height)
-                .foregroundStyle(.white.opacity(Theme.playerTransportOpacity))
-                // Replaced, not swapped: a hard cut on the control the eye is
-                // resting on is the most visible non-native moment there is.
-                .symbolSwap(value: symbol, reduceMotion: reduceMotion)
-        }
-        .buttonStyle(TransportGlyphStyle(size: PlayerLayout.hitTarget))
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.35)
-        .animation(Theme.contentAnimation, value: enabled)
-        .help(label)
-        .accessibilityLabel(label)
-    }
-
     private func favouriteButton(_ favourite: Favourite) -> some View {
         let label = favourite.isOn ? localized("Remove from Favorites") : localized("Favorite")
-        let known: Bool = {
-            if case .spotify(_, nil) = favourite { return false }
-            return true
-        }()
+        let known = favourite.isAnswered
         return Button {
             switch favourite {
             case .music: media.toggleMusicFavorite()

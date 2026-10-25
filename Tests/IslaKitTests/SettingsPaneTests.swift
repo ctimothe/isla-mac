@@ -344,7 +344,7 @@ final class SettingsPaneTests: XCTestCase {
     /// The lock-card heart writes to Liked Songs from a locked Mac; Settings
     /// says so while an account is connected, and not otherwise.
     func testTheHeartIsDisclosed() {
-        let heart = SettingsPane.SpotifyRow.note(localized("The heart on the lock screen adds the song to your Liked Songs."))
+        let heart = SettingsPane.SpotifyRow.note(localized("The star on the lock screen adds the song to your Liked Songs."))
         let connected = SettingsPane.spotifyRows(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
         let disconnected = SettingsPane.spotifyRows(connected: false, needsReconnect: false, signIn: nil, apiBlocked: false)
 

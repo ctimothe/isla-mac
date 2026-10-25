@@ -95,7 +95,7 @@ final class LockCardLayoutTests: XCTestCase {
         XCTAssertEqual(header.artist, CGPoint(x: 98, y: 50))
         XCTAssertEqual(header.artistSize, 13)
 
-        XCTAssertEqual(Layout.heart(.standard), CGRect(x: 384, y: 18, width: 28, height: 28))
+        XCTAssertEqual(Layout.favourite(.standard), CGRect(x: 384, y: 18, width: 28, height: 28))
         XCTAssertEqual(Layout.chevron(pane: .player, .standard), CGRect(x: 420, y: 20, width: 24, height: 24))
         XCTAssertEqual(Layout.lyric(.standard), CGPoint(x: 20, y: 104))
         XCTAssertEqual(Layout.translation(.standard), CGPoint(x: 20, y: 125))
@@ -116,23 +116,23 @@ final class LockCardLayoutTests: XCTestCase {
     /// the tail: 240 on the banner, 276 on the card with the heart and 300
     /// without (spec §7.1).
     func testTitleAndArtistStopShortOfTheControlAtTheirRight() {
-        XCTAssertEqual(Layout.titleWidth(.banner, pane: .player, .standard, hasHeart: false), 240)
-        XCTAssertEqual(Layout.titleWidth(.card, pane: .player, .standard, hasHeart: true), 276)
-        XCTAssertEqual(Layout.titleWidth(.card, pane: .player, .standard, hasHeart: false), 300)
-        XCTAssertEqual(Layout.titleWidth(.card, pane: .player, .compact, hasHeart: true), 236, "the compact card is 40 narrower")
-        for hasHeart in [true, false] {
+        XCTAssertEqual(Layout.titleWidth(.banner, pane: .player, .standard, hasFavourite: false), 240)
+        XCTAssertEqual(Layout.titleWidth(.card, pane: .player, .standard, hasFavourite: true), 276)
+        XCTAssertEqual(Layout.titleWidth(.card, pane: .player, .standard, hasFavourite: false), 300)
+        XCTAssertEqual(Layout.titleWidth(.card, pane: .player, .compact, hasFavourite: true), 236, "the compact card is 40 narrower")
+        for hasFavourite in [true, false] {
             for size in NotchViewModel.LockCardSize.allCases {
                 let header = Layout.header(.card, pane: .player, size)
-                let right = header.title.x + Layout.titleWidth(.card, pane: .player, size, hasHeart: hasHeart)
-                let control = hasHeart ? Layout.heart(size).minX : Layout.chevron(pane: .player, size).minX
-                XCTAssertLessThan(right, control, "\(size) heart \(hasHeart): the title runs into its control")
+                let right = header.title.x + Layout.titleWidth(.card, pane: .player, size, hasFavourite: hasFavourite)
+                let control = hasFavourite ? Layout.favourite(size).minX : Layout.chevron(pane: .player, size).minX
+                XCTAssertLessThan(right, control, "\(size) favourite \(hasFavourite): the title runs into its control")
             }
         }
         let banner = Layout.header(.banner, pane: .player, .standard)
         XCTAssertLessThan(banner.title.x + 240, Layout.ring.minX)
         let lyrics = Layout.header(.card, pane: .lyrics, .standard)
         XCTAssertLessThan(
-            lyrics.title.x + Layout.titleWidth(.card, pane: .lyrics, .standard, hasHeart: false),
+            lyrics.title.x + Layout.titleWidth(.card, pane: .lyrics, .standard, hasFavourite: false),
             Layout.chevron(pane: .lyrics, .standard).minX
         )
     }

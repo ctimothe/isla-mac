@@ -208,7 +208,7 @@ final class SettingsTableTests: XCTestCase {
             if case .footnote(let text) = block { return text } else { return nil }
         }
         XCTAssertTrue(notes.contains(localized("Isla forgets the account on this Mac. Your Spotify library stays as it is.")), "\(notes)")
-        XCTAssertTrue(notes.contains(localized("The heart on the lock screen adds the song to your Liked Songs.")), "\(notes)")
+        XCTAssertTrue(notes.contains(localized("The star on the lock screen adds the song to your Liked Songs.")), "\(notes)")
     }
 
     // MARK: - The two failure groups: Music, and only while they hold

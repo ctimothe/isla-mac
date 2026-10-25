@@ -222,7 +222,7 @@ struct SettingsPane: View {
     /// account's one action, happened on a single unconfirmed click.
     ///
     /// Order: what just happened, then the action, then storage, refusal, what
-    /// disconnecting keeps, and what the lock-screen heart does. One event gets
+    /// disconnecting keeps, and what the lock-screen star does. One event gets
     /// one note: an outcome replaces the reconnect note instead of stacking
     /// under it.
     static func spotifyRows(
@@ -263,11 +263,11 @@ struct SettingsPane: View {
             case .file: rows.append(.note(localized("Stored in a file only you can read.")))
             case .unavailable: rows.append(.note(localized("Cannot be stored on this Mac.")))
             }
-            // Said whenever a refusal has hidden the lock-screen heart, with the
+            // Said whenever a refusal has hidden the lock-screen star, with the
             // sentence for what Spotify said: a permission when it named one, the
             // generic "refused this account's library request" when it did not.
             // The generic line was dropped once, on the reasoning that an `.other`
-            // 403 is not known to be about permission, and the heart then
+            // 403 is not known to be about permission, and the star then
             // vanished from the lock screen with no word anywhere — a control
             // that disappears owes a sentence. The sentence claims only what is
             // known (a refusal), which is why `.other` can say it. There is no
@@ -275,7 +275,7 @@ struct SettingsPane: View {
             // before the API had been asked anything.
             if apiBlocked, let refusal { rows.append(.note(refusal.explanation)) }
             rows.append(.note(localized("Isla forgets the account on this Mac. Your Spotify library stays as it is.")))
-            rows.append(.note(localized("The heart on the lock screen adds the song to your Liked Songs.")))
+            rows.append(.note(localized("The star on the lock screen adds the song to your Liked Songs.")))
         }
         return rows
     }
@@ -283,7 +283,7 @@ struct SettingsPane: View {
     /// What the Music section says about Automation, from what
     /// `AutomationAccess` already knows — reading it costs no prompt.
     ///
-    /// Refusing Automation took away shuffle, repeat, the heart and precise
+    /// Refusing Automation took away shuffle, repeat, the star and precise
     /// lyrics without a word, and on the fallback it hid a playing Spotify
     /// behind a paused Music track (J-027): the only sign was a control that
     /// was not there. So each player whose state Isla actually read gets a

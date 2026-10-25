@@ -150,16 +150,16 @@ enum LockCardLayout {
     }
 
     /// Title and artist stop short of the control at their right and truncate at
-    /// the tail: the banner's ring (240 wide), the card's heart (276) or its
+    /// the tail: the banner's ring (240 wide), the card's star (276) or its
     /// chevron alone (300) — the compact card is 40 narrower — and the lyrics
     /// pane's Back chevron.
     static func titleWidth(
-        _ form: Form, pane: LockScreenCard.Pane, _ size: NotchViewModel.LockCardSize, hasHeart: Bool
+        _ form: Form, pane: LockScreenCard.Pane, _ size: NotchViewModel.LockCardSize, hasFavourite: Bool
     ) -> CGFloat {
         if form == .banner { return 240 }
         let narrower: CGFloat = size == .compact ? 40 : 0
         switch pane {
-        case .player, .output: return (hasHeart ? 276 : 300) - narrower
+        case .player, .output: return (hasFavourite ? 276 : 300) - narrower
         case .lyrics: return chevron(pane: .lyrics, size).minX - 64 - 12
         }
     }
@@ -180,8 +180,9 @@ enum LockCardLayout {
         )
     }
 
-    /// The heart, 28 pt, on the title row and 36 left of the chevron (384, 18).
-    static func heart(_ size: NotchViewModel.LockCardSize) -> CGRect {
+    /// The Favourite star, 28 pt, on the title row and 36 left of the chevron
+    /// (384, 18). It was the Spotify heart before it became the player's star.
+    static func favourite(_ size: NotchViewModel.LockCardSize) -> CGRect {
         CGRect(x: chevron(pane: .player, size).minX - 36, y: 18, width: 28, height: 28)
     }
 

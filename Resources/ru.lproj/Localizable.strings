@@ -408,7 +408,7 @@
 "Spotify sign-in did not finish. Try connecting again." = "Вход в Spotify не завершился. Попробуйте подключиться ещё раз.";
 "Disconnect" = "Отключить";
 "Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla забудет аккаунт на этом Mac. Ваша медиатека Spotify останется как есть.";
-"The heart on the lock screen adds the song to your Liked Songs." = "Сердечко на экране блокировки добавляет песню в «Любимые треки».";
+"The star on the lock screen adds the song to your Liked Songs." = "Звёздочка на экране блокировки добавляет песню в «Любимые треки».";
 "Show next line early" = "Следующая строка заранее";
 "Auto" = "Авто";
 "0.5 s" = "0,5 с";

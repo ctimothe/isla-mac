@@ -390,11 +390,11 @@ final class MotionValuesTests: XCTestCase {
 
         // And the sites F-046 named go through it with the value that moves.
         let sites: [(file: String, call: String)] = [
-            ("MediaPane.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
+            // The player, the stage and the lock card's transports are one
+            // control now, so the three sites are one.
+            ("TransportGlyphButton.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
             ("MediaPane.swift", ".symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)"),
-            ("LyricsStageSurface.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
-            ("LockScreenCard.swift", ".symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)"),
-            ("LockScreenCard.swift", ".symbolSwap(value: isSaved, reduceMotion: reduceMotion)"),
+            ("LockScreenCard.swift", ".symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)"),
             ("LockScreenCard.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
             ("ClipboardPane.swift", ".symbolSwap(value: justCopied, reduceMotion: reduceMotion)"),
             ("ModeToggle.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),

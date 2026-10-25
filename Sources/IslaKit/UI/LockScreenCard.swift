@@ -327,6 +327,12 @@ struct LockScreenCard: View {
                 .onAppear {
                     readAudio()
                     presentation.size = cardSize
+                    // Music's favourite is read with shuffle and repeat, which
+                    // the controller re-asks when a surface turns it active and
+                    // on a track change. Asked here too, for the star's sake:
+                    // it is the only thing on the card that reads it, and a
+                    // no-op wherever the bridge cannot answer.
+                    media.refreshPlaybackModes()
                 }
                 .onChange(of: cardSize) { _, now in presentation.size = now }
                 .onChange(of: pane) { _, _ in readAudio() }
@@ -534,7 +540,7 @@ struct LockScreenCard: View {
     /// lyrics. None of them takes a click.
     private func headerLayer(_ track: MediaController.Track) -> some View {
         let header = LockCardLayout.header(form, pane: pane, cardSize)
-        let width = LockCardLayout.titleWidth(form, pane: pane, cardSize, hasHeart: showsHeart)
+        let width = LockCardLayout.titleWidth(form, pane: pane, cardSize, hasFavourite: favourite != nil)
         return ZStack(alignment: .topLeading) {
             cover(side: header.cover.width, radius: header.coverRadius)
                 .offset(x: header.cover.minX, y: header.cover.minY)
@@ -558,18 +564,18 @@ struct LockScreenCard: View {
         // banner button's label ("title, artist"), and the two text elements
         // beside it made VoiceOver read the song twice.
         .accessibilityHidden(!header.visible || form == .banner)
-        // On the header, not the heart. The heart is not drawn while Spotify
+        // On the header, not the star. The star is not drawn while Spotify
         // refuses the account, and while its task was the only thing that
         // asked, nothing ever asked again: one 403 hid it for good. Here the
-        // lookup runs for every Spotify track whether or not the heart shows,
+        // lookup runs for every Spotify track whether or not the star shows,
         // and the account decides whether its cooldown allows a request.
         // Keyed on the connection too, so connecting with the card up asks.
-        .task(id: HeartLookup(trackID: media.spotifyTrackID, connected: spotify.isConnected)) {
+        .task(id: SavedLookup(trackID: media.spotifyTrackID, connected: spotify.isConnected)) {
             if let id = media.spotifyTrackID { spotify.refreshSavedState(trackID: id) }
         }
     }
 
-    private struct HeartLookup: Equatable {
+    private struct SavedLookup: Equatable {
         let trackID: String?
         let connected: Bool
     }
@@ -741,7 +747,7 @@ struct LockScreenCard: View {
                     action: { presentation.collapse() }
                 )
             }
-            heart.placed(LockCardLayout.heart(cardSize))
+            favouriteButton.placed(LockCardLayout.favourite(cardSize))
             sungLine
             // Hidden in place rather than removed: the card's layout is fixed
             // by design, and taking the bar out of the stack would let the
@@ -1014,32 +1020,19 @@ struct LockScreenCard: View {
         }
     }
 
+    /// The lyrics pane's transport: the player's three buttons at 24 pt
+    /// targets, glyphs scaled to them (`TransportGlyphButton`).
     private var smallTransport: some View {
         HStack(spacing: 2) {
-            Button { media.previous() } label: {
-                Image(systemName: "backward.fill").islandFont(.subhead)
+            TransportGlyphButton(.previous, enabled: media.canSkip, hitTarget: CGSize(width: 24, height: 24)) {
+                media.previous()
             }
-            .buttonStyle(TransportGlyphStyle(size: 24))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Previous Track"))
-            .accessibilityLabel(localized("Previous Track"))
-            Button { media.togglePlayPause() } label: {
-                Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .islandFont(.title)
-                    .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
+            TransportGlyphButton(.playPause, isPlaying: media.isPlaying, hitTarget: CGSize(width: 24, height: 24)) {
+                media.togglePlayPause()
             }
-            .buttonStyle(TransportGlyphStyle(size: 24))
-            .help(media.isPlaying ? localized("Pause") : localized("Play"))
-            .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
-            Button { media.next() } label: {
-                Image(systemName: "forward.fill").islandFont(.subhead)
+            TransportGlyphButton(.next, enabled: media.canSkip, hitTarget: CGSize(width: 24, height: 24)) {
+                media.next()
             }
-            .buttonStyle(TransportGlyphStyle(size: 24))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Next Track"))
-            .accessibilityLabel(localized("Next Track"))
         }
     }
 
@@ -1389,37 +1382,23 @@ struct LockScreenCard: View {
     /// they made the row read as an app's toolbar rather than the system's
     /// player. They stay in the panel, where the rest of the app is.
     ///
-    /// 160 x 36 at the board's place: three 36 pt targets with the glyphs at
-    /// 20, 26 and 20 pt (the display and hero roles, the nearest the type scale
-    /// has).
+    /// 160 x 36 at the board's place: three 36 pt targets, each drawn by the
+    /// player's own control (`TransportGlyphButton`) with its glyphs scaled
+    /// from the player's 42 pt targets, so the card's three buttons are the
+    /// island's and not the type scale's nearest size to them.
     private var transport: some View {
         HStack(spacing: 0) {
-            Button { media.previous() } label: {
-                Image(systemName: "backward.fill").islandFont(.display)
+            TransportGlyphButton(.previous, enabled: media.canSkip, hitTarget: CGSize(width: 36, height: 36)) {
+                media.previous()
             }
-            .buttonStyle(TransportGlyphStyle(size: 36))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Previous Track"))
-            .accessibilityLabel(localized("Previous Track"))
             Spacer(minLength: 0)
-            Button { media.togglePlayPause() } label: {
-                Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .islandFont(.hero)
-                    .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
+            TransportGlyphButton(.playPause, isPlaying: media.isPlaying, hitTarget: CGSize(width: 36, height: 36)) {
+                media.togglePlayPause()
             }
-            .buttonStyle(TransportGlyphStyle(size: 36))
-            .help(media.isPlaying ? localized("Pause") : localized("Play"))
-            .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
-            Button { media.next() } label: {
-                Image(systemName: "forward.fill").islandFont(.display)
+            TransportGlyphButton(.next, enabled: media.canSkip, hitTarget: CGSize(width: 36, height: 36)) {
+                media.next()
             }
-            .buttonStyle(TransportGlyphStyle(size: 36))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Next Track"))
-            .accessibilityLabel(localized("Next Track"))
         }
     }
 
@@ -1516,36 +1495,75 @@ struct LockScreenCard: View {
         AudioOutputs.symbol(outputs: outputs, current: currentOutput, fallback: "airplayaudio")
     }
 
-    /// Whether the heart is drawn: Spotify connected, the account answering and
-    /// the song a Spotify one.
-    private var showsHeart: Bool {
-        spotify.isConnected && !spotify.apiBlocked && !spotify.tokenUnavailable && media.spotifyTrackID != nil
+    /// What the star can do for this song: the player's rule, resolved by the
+    /// player's function (`MediaPane.Favourite.resolve`) from the same inputs.
+    /// Music's through the scripting bridge, Spotify's only for a connected
+    /// account that is answering and a Spotify song, nothing otherwise.
+    private var favourite: MediaPane.Favourite? {
+        Self.favourite(
+            musicFavorite: media.musicFavorite, spotifyTrackID: media.spotifyTrackID,
+            spotifyConnected: spotify.isConnected, apiBlocked: spotify.apiBlocked,
+            tokenUnavailable: spotify.tokenUnavailable, saved: spotify.saved
+        )
     }
 
-    private var heart: some View {
-        Group {
-            if showsHeart, let id = media.spotifyTrackID {
-                // Filled means the song is in Liked Songs, hollow means it is
-                // not — and until the library has answered, hollow-but-dimmed
-                // means "asking". A plain hollow heart while the answer was in
-                // flight stated, every time, that a liked song was not liked.
-                let known = spotify.saved[id]
-                let isSaved = known ?? false
-                Button { spotify.toggleSaved(trackID: id) } label: {
-                        Image(systemName: isSaved ? "heart.fill" : "heart")
-                        .islandFont(.title, weight: .medium)
-                        .foregroundStyle(isSaved ? Color.white : Theme.cardSecondary)
-                        .symbolSwap(value: isSaved, reduceMotion: reduceMotion)
-                        .opacity(known == nil ? 0.45 : 1)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
+    /// The card's Favourite, from the account's state spelled out so a test can
+    /// give every combination without a Spotify account. It was a Spotify-only
+    /// heart; the island's player has had one star for Music and Spotify since
+    /// §19.6, and a lock screen that offered a heart for the same song was a
+    /// second control for one thing (owner, 2026-10-24).
+    static func favourite(
+        musicFavorite: Bool?, spotifyTrackID: String?, spotifyConnected: Bool, apiBlocked: Bool,
+        tokenUnavailable: Bool, saved: [String: Bool]
+    ) -> MediaPane.Favourite? {
+        MediaPane.Favourite.resolve(
+            musicFavorite: musicFavorite, spotifyTrackID: spotifyTrackID,
+            spotifyCanSave: spotifyConnected && !apiBlocked && !tokenUnavailable, saved: saved
+        )
+    }
+
+    /// The star's accessibility label. Spotify's keep their own words, since
+    /// what they do is add to Liked Songs and the Settings note says so; Music's
+    /// are the player's.
+    static func favouriteLabel(_ favourite: MediaPane.Favourite) -> String {
+        switch favourite {
+        case .music(let isOn):
+            return isOn ? localized("Remove from Favorites") : localized("Favorite")
+        case .spotify(_, let isOn):
+            return isOn == true ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
+        }
+    }
+
+    @ViewBuilder
+    private var favouriteButton: some View {
+        if let favourite {
+            // Filled means the song is a favourite, hollow means it is not — and
+            // until Spotify's library has answered, hollow-but-dimmed and
+            // disabled means "asking". A plain hollow star while the answer was
+            // in flight stated, every time, that a liked song was not liked.
+            let label = Self.favouriteLabel(favourite)
+            let glyph = PlayerLayout.Control.favourite.glyph
+            let scale = LockCardLayout.favourite(cardSize).height / PlayerLayout.hitTarget
+            Button {
+                switch favourite {
+                case .music: media.toggleMusicFavorite()
+                case .spotify(let id, _): _ = spotify.toggleSaved(trackID: id)
                 }
-                .disabled(known == nil)
-                .buttonStyle(PanelButtonStyle())
-                .accessibilityLabel(
-                    isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
-                )
+            } label: {
+                Image(systemName: favourite.isOn ? "star.fill" : "star")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: glyph.width * scale, height: glyph.height * scale)
+                    .foregroundStyle(.white.opacity(Theme.playerSecondaryControlOpacity))
+                    .symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)
+                    .opacity(favourite.isAnswered ? 1 : 0.45)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
+            .disabled(!favourite.isAnswered)
+            .buttonStyle(PanelButtonStyle())
+            .help(label)
+            .accessibilityLabel(label)
         }
     }
 
