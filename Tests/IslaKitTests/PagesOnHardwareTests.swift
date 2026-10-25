@@ -464,13 +464,10 @@ final class PagesOnHardwareTests: XCTestCase {
         XCTAssertEqual(NotchViewModel.Surface.player.headerCorner, .more)
         XCTAssertEqual(NotchViewModel.Surface.settings.headerCorner, .close)
 
-        let settings = HeaderGear(onSettings: true, hasUpdate: true)
-        XCTAssertEqual(settings.symbol, "xmark")
-        XCTAssertEqual(settings.label, "Close Settings")
-        XCTAssertFalse(settings.badge, "Settings shows the update itself")
+        XCTAssertEqual(localized("Close Settings"), "Close Settings")
 
         LabLocalization.use("ru")
-        XCTAssertEqual(HeaderGear(onSettings: true, hasUpdate: false).label, "Закрыть настройки")
+        XCTAssertEqual(localized("Close Settings"), "Закрыть настройки")
         XCTAssertEqual(localized("More"), "Ещё")
     }
 }

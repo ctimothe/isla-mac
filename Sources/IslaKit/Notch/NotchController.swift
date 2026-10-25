@@ -1853,17 +1853,7 @@ final class NotchController {
         wireShelfIslandCuts(vm)
         wirePageTravelCuts(vm)
 
-        // An alert that had to wait for the island — a surface open, files
-        // dragged over it, the Mac locked — shows if the island comes free
-        // inside its second (spec §19.1). A pass later: `@Published` announces
-        // before it stores, and the queue reads the stored values.
-        vm.$isOpen.removeDuplicates().map { _ in () }
-            .merge(with: vm.$isDropTargeted.removeDuplicates().map { _ in () })
-            .merge(with: vm.$isLockedPresentation.removeDuplicates().map { _ in () })
-            .sink { [weak self] _ in
-                DispatchQueue.main.async { self?.promoteWaitingAlert() }
-            }
-            .store(in: &cancellables)
+        wireAlertPromotion(vm)
 
         // Sneak peek: a new track shows itself, then gets out of the way.
         //
@@ -2404,6 +2394,23 @@ final class NotchController {
         wireShelfClaims(viewModel)
         wireShelfIslandCuts(viewModel)
         wirePageTravelCuts(viewModel)
+        wireAlertPromotion(viewModel)
+    }
+
+    /// An alert that had to wait for the island — a surface open, files
+    /// dragged over it, the Mac locked — shows if the island comes free
+    /// inside its wait (spec §19.1; a confirmation's is five seconds). A pass
+    /// later: `@Published` announces before it stores, and the queue reads the
+    /// stored values. Shared with `attachForTesting`, so a test that closes
+    /// the panel sees the waiting alert follow.
+    private func wireAlertPromotion(_ vm: NotchViewModel) {
+        vm.$isOpen.removeDuplicates().map { _ in () }
+            .merge(with: vm.$isDropTargeted.removeDuplicates().map { _ in () })
+            .merge(with: vm.$isLockedPresentation.removeDuplicates().map { _ in () })
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.promoteWaitingAlert() }
+            }
+            .store(in: &cancellables)
     }
 
     /// Re-cuts both rects for the body currently on screen.
@@ -2712,13 +2719,14 @@ final class NotchController {
     /// Shows "Lyrics imported", "Copied" or "Added to Shelf" on the shut
     /// island for its hold, through `alertQueue` like every alert.
     ///
-    /// It waits its second for an open panel, a drag or the lock and is
-    /// dropped after it — which is the rule that keeps an act to one answer:
-    /// an act made in the open panel is answered there, and only a panel that
-    /// closes inside the second (Return copying and closing, a drag that
-    /// opened the panel folding back) hands the answer to the island. A
-    /// newer confirmation replaces an older one at once (equal rank), and the
-    /// key pop-up replaces it outright.
+    /// Posted while the panel is open or a drag is under way, it waits for the
+    /// panel to close and then shows its usual hold; if the panel is still
+    /// open `IslandAlertQueue.confirmationPatience` (5 s) after the act, it
+    /// lapses. A file dropped onto an already-open panel returns to the player
+    /// (`endDropSurface`), not to the tray, and an LRC import runs from
+    /// Settings: with the old one-second wait neither was ever answered. A
+    /// newer confirmation replaces an older one at once (equal rank), the key
+    /// pop-up replaces it outright, and a lock or a dark display ends it.
     ///
     /// Unlike the charger it is not refused with the pointer on the island:
     /// a drop leaves the pointer exactly there, and the act is the person's
@@ -2760,6 +2768,7 @@ final class NotchController {
     private func clearConfirmation() {
         confirmationWork?.cancel()
         confirmationWork = nil
+        alertQueue.removeConfirmations()
         viewModel?.confirmation = nil
     }
 

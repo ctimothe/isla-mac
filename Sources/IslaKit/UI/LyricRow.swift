@@ -131,8 +131,15 @@ struct LyricRow: View {
         /// (2.89:1), by a recorded preference for depth over contrast; both
         /// were under WCAG's 3:1 even for the large type a lyric is set in
         /// (owner decision 9). They are 0.36 (3.13:1) and 0.42 (3.95:1) now,
-        /// and 0.42 (3.95:1) and 0.46 (4.58:1) under Increase Contrast. Depth
-        /// still reads as four steps — 0.36, 0.42, 0.50, full white — and the
+        /// and 0.42 (3.95:1) and 0.46 (4.58:1) under Increase Contrast.
+        ///
+        /// These steps now bind the stage **only under Increase Contrast**
+        /// (`PlayerLayout.lyricOpacity` raises the board to them there). By
+        /// default the stage draws the board's own 1.0 / 0.45 / 0.30 / 0.20
+        /// (owner's choice, 2026-10-25), under this floor on purpose; the
+        /// panel ramp still serves the stage's reading line, the credit row
+        /// and the contrast tests. Where it does bind, depth still reads as
+        /// four steps — 0.36, 0.42, 0.50, full white — and the
         /// floor and the neighbour stay apart at both settings: the neighbour
         /// once sat *below* the floor under Increase Contrast, the near line
         /// dimmer than the far ones (`testLyricNeighbourSitsAboveTheFalloffFloor`).
@@ -362,9 +369,14 @@ struct LyricRow: View {
                     // Depth through opacity alone. An early cut blurred and
                     // fractionally scaled these, which at reading size is not
                     // depth — it is smeared type, because subpixel scaling
-                    // rasterises every glyph soft. Clamped to the ramp's floor,
-                    // never the bare 0.18: without the clamp the far lines sat
-                    // at 1.54:1, unreadable as text.
+                    // rasterises every glyph soft. Under Increase Contrast the
+                    // opacity is clamped to the ramp's floor, never the bare
+                    // 0.18: without the clamp the far lines sat at 1.54:1,
+                    // unreadable as text. By default the stage takes the
+                    // board's own 1.0 / 0.45 / 0.30 / 0.20 steps
+                    // (`PlayerLayout.lyricOpacity`, owner's choice
+                    // 2026-10-25), deliberately under that floor, the way
+                    // Apple Music's lyrics fall off.
                     Text(displayText ?? line.text)
                         .islandFont(fontSize, weight: contextWeight ?? weight)
                         .foregroundStyle(.white.opacity(contextOpacity))

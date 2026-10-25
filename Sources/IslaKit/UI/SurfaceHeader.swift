@@ -109,26 +109,6 @@ enum SurfaceHeaderLayout {
     }
 }
 
-/// The corner well's two faces before 2026-10-25: the gear on a page and the
-/// stage, and on Settings the way back out of it (spec §19.16, amended
-/// 2026-10-18). The pages and the stage carry the ⋯ now, whose menu ends in
-/// Settings… (`HeaderMoreMenu`); only Settings' X is still drawn from this.
-///
-/// It used to stand lit on Settings and go back on a second click, which the
-/// owner read as a gear that did nothing new: a lit gear says "you are in
-/// Settings", not "press to leave". On Settings the well shows `xmark`, labelled
-/// "Close Settings", and goes back to the page or stage Settings came from,
-/// where the gear returns. The X is unlit and carries no update badge:
-/// Settings shows the update itself.
-struct HeaderGear: Equatable {
-    var onSettings: Bool
-    var hasUpdate: Bool
-
-    var symbol: String { onSettings ? "xmark" : "gearshape" }
-    var label: String { onSettings ? localized("Close Settings") : localized("Settings") }
-    var badge: Bool { hasUpdate && !onSettings }
-}
-
 /// A header tool (spec §19.8): a glyph at 14 in a 26 × 26 well, white 0.08
 /// (0.14 under the pointer, white 0.18 behind the filled glyph while it is
 /// on). The ⋯, Settings' X and Translate's History.

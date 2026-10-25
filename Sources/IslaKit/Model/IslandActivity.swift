@@ -126,6 +126,18 @@ struct IslandAlertQueue {
     /// How long an alert may wait for the island before it is dropped.
     static let patience: TimeInterval = 1
 
+    /// How long a confirmation may wait. It answers an act made inside an open
+    /// panel, so the second would lapse before the panel ever closes: it
+    /// waits for the close instead, and gives up only if the panel is still
+    /// open five seconds after the act — by then the person is working in it
+    /// and the news is old.
+    static let confirmationPatience: TimeInterval = 5
+
+    private static func patience(for alert: IslandActivity) -> TimeInterval {
+        if case .confirmation = alert { return confirmationPatience }
+        return patience
+    }
+
     /// The two exceptions to the rule. Battery Low and the update choice
     /// outlive the second and wait until the island is free; the update choice
     /// also returns when a higher alert replaces it. Battery Low is R9's; the
@@ -202,9 +214,18 @@ struct IslandAlertQueue {
         waiting.removeAll()
     }
 
+    /// Forgets a confirmation that is waiting: a lock, a dark display or a
+    /// Space change ends the answer to an act, shown or not.
+    mutating func removeConfirmations() {
+        waiting.removeAll { entry in
+            if case .confirmation = entry.alert { return true }
+            return false
+        }
+    }
+
     private mutating func expire(at now: Date) {
         waiting.removeAll { entry in
-            !policy.outlivesPatience(entry.alert) && now.timeIntervalSince(entry.cause) > Self.patience
+            !policy.outlivesPatience(entry.alert) && now.timeIntervalSince(entry.cause) > Self.patience(for: entry.alert)
         }
     }
 }

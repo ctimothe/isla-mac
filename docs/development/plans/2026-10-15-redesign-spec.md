@@ -2145,6 +2145,19 @@ rail on any surface.
   `IslandAlertQueue`'s standard policy carries both of its exceptions: it
   outlives the second, and a higher alert that replaces it sends it back to
   wait. Battery Low's half of the first exception is still R9's.
+- **Amended 2026-10-25 (owner, refinement pass MR-7) — the confirmation.**
+  A confirmation of the person's own act joins the table at **rank 5**,
+  beside Translated: "Lyrics imported" (an LRC import), "Copied" (Return in
+  the Clipboard browser) and "Added to Shelf" (a file let go on the notch).
+  Alert, **1.5 s**, a click folds it, and it never speaks (whoever made the
+  act announced it once). Its wait differs from the rule above: posted while
+  a surface is open or a drag is under way, it **waits for the panel to close**
+  and then shows its 1.5 s; if the panel is still open **5 s** after the act
+  it lapses (`IslandAlertQueue.confirmationPatience`). The one-second rule
+  left it unanswered anywhere for a file dropped onto an already-open panel
+  (which returns to the player or Clipboard, not the tray) and for an import
+  run from Settings. A newer confirmation replaces it, the volume pop-up
+  replaces it outright, and a lock, a dark display or a Space change ends it.
 - **Live activities.** When an alert folds, the island returns to the highest
   live activity. When two are live, the second **waits as a bubble** (19.7)
   beside the island; only Music and the Shelf are live, so only the Shelf can
@@ -3493,3 +3506,15 @@ first use on hardware:
 | English (key) | Russian |
 |---|---|
 | Close Settings | Закрыть настройки |
+
+*Amended 2026-10-25 (owner, refinement pass MR-7) — the gear becomes the ⋯
+menu.* **The gear** above and its first amendment are replaced on the pages
+and the stage by a **⋯ (More) button** in the same well, at the same place,
+with the same 5 pt update badge. It opens a menu of the page's own actions
+and, below a separator, **Settings…** (⌘, while the panel has the keyboard):
+the player lists Lyrics; the stage, Hide Lyrics and Lyrics Settings…;
+Clipboard, Clear History…. A menu never repeats a button its header already
+shows, so **Remove All on the tray and History on Translate stay visible
+buttons** and those two menus hold Settings… alone. **Settings keeps its X**
+(`xmark`, "Close Settings", unlit, no badge), which goes back as before.
+Strings: "More" / "Ещё".

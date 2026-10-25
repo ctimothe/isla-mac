@@ -22,7 +22,7 @@ struct HeaderMenuItem: Equatable {
 /// owner's first question was the right one: "how is the settings gonna be
 /// accessed". The answer is the Mac's: a More button in the gear's own spot
 /// and well, holding what the page can do and, below a separator, Settings….
-/// Settings keeps its X (`HeaderGear`), the way back.
+/// Settings keeps its X (`NotchContentView.closeSettingsButton`), the way back.
 ///
 /// A page's menu never repeats a button its header already shows: the Shelf's
 /// Remove All and Translate's History stay buttons where they were — the

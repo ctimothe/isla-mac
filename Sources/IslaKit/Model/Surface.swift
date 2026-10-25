@@ -69,7 +69,7 @@ extension NotchViewModel {
             /// The ⋯ and its menu: the surface's own actions, then Settings…
             /// (`HeaderMoreMenu`).
             case more
-            /// Settings' X, which goes back (`HeaderGear`).
+            /// Settings' X, which goes back (`closeSettingsButton`).
             case close
         }
 

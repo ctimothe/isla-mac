@@ -2531,10 +2531,11 @@ final class NotchViewModel: ObservableObject {
     func acceptDrop(urls: [URL]) -> Bool {
         if ShelfDragSource.isDraggingOut { return false }
         guard accept(urls: urls) else { return false }
-        // Over a drag that opened the panel, the drop surface folds back into
-        // the island and this shows there; over a panel that was already
-        // open, the tray it returns to shows the file, and this lapses in
-        // the queue — one answer to one drop.
+        // The panel is open or a drag is under way, so the confirmation waits
+        // in the alert queue for the panel to close and shows on the island
+        // then, up to five seconds later. Over a panel that was already open
+        // the drop returns to the player or Clipboard, not the tray
+        // (`endDropSurface`), so nothing else answers the drop.
         confirm(.addedToShelf)
         return true
     }

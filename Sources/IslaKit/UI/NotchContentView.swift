@@ -1078,11 +1078,16 @@ struct NotchContentView: View {
         .transition(.opacity)
     }
 
-    /// Settings' X, the way back to the page or stage it was opened from
-    /// (`HeaderGear`), in the same well the ⋯ stands in everywhere else.
+    /// Settings' X, the way back to the page or stage it was opened from, in
+    /// the same well the ⋯ stands in everywhere else.
+    ///
+    /// It used to stand lit on Settings as the gear and go back on a second
+    /// click, which the owner read as a gear that did nothing new: a lit gear
+    /// says "you are in Settings", not "press to leave" (spec §19.16, amended
+    /// 2026-10-18). So the well shows `xmark`, labelled "Close Settings",
+    /// unlit and without the update badge — Settings shows the update itself.
     private var closeSettingsButton: some View {
-        let gear = HeaderGear(onSettings: true, hasUpdate: updates.hasUpdate)
-        return HeaderToolButton(symbol: gear.symbol, label: gear.label, badge: gear.badge) {
+        HeaderToolButton(symbol: "xmark", label: localized("Close Settings")) {
             withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.pressGear() }
         }
         .transition(.opacity)

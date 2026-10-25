@@ -12,12 +12,14 @@ import CoreGraphics
 /// already is.
 ///
 /// It is an alert like the others (`IslandActivity.confirmation`), not an
-/// overlay of its own: it takes its turn by rank, waits its second for an
-/// open panel or a drag like the charger does, and is dropped after it. That
-/// is what keeps it to one surface per event — an act made inside the open
-/// panel is answered there (the Clipboard row's own tick, the stage showing
-/// the lyrics it imported, the tray showing the file), and by the time the
-/// panel closes the second is usually gone.
+/// overlay of its own: it takes its turn by rank. Unlike the charger it does
+/// not give up after a second. Posted while the panel is open or a drag is
+/// under way, it waits for the panel to close and then shows its 1.5 s; it
+/// lapses only if the panel is still open five seconds after the act
+/// (`IslandAlertQueue.confirmationPatience`). A file dropped onto an open
+/// panel returns to the player or Clipboard rather than the tray, and an
+/// import runs from Settings, so with the one-second rule neither was ever
+/// answered anywhere.
 ///
 /// It never speaks. Whoever made the act says it once, at the act, drawn or
 /// not: Return and the Copy buttons already said "Copied", and the import and

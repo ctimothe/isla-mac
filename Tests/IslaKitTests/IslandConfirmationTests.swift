@@ -3,9 +3,9 @@ import XCTest
 @testable import IslaKit
 
 /// The island's confirmations — "Lyrics imported", "Copied", "Added to
-/// Shelf" (2026-10-25, MR-7): an alert at rank 5, held 1.5 s, that waits its
-/// second for an open panel and is dropped after it, so an act made in the
-/// open panel is answered there and only there.
+/// Shelf" (2026-10-25, MR-7): an alert at rank 5, held 1.5 s, that waits for
+/// an open panel to close and lapses if it is still open five seconds after
+/// the act.
 @MainActor
 final class IslandConfirmationTests: XCTestCase {
     private let imported = IslandConfirmation(.lyricsImported)
@@ -95,20 +95,29 @@ final class IslandConfirmationTests: XCTestCase {
 
         let hud = IslandActivity.hud(HUDMoment(HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil)))
         XCTAssertEqual(queue.post(.confirmation(copied), showing: hud, blocked: false, at: t0), .wait)
-        XCTAssertNil(queue.next(at: t0.addingTimeInterval(1.1)), "dropped once its second is gone")
+        XCTAssertEqual(queue.next(at: t0.addingTimeInterval(1.1)), .confirmation(copied),
+                       "behind the pop-up it outlives the charger's second")
+
+        XCTAssertEqual(queue.post(.confirmation(copied), showing: hud, blocked: false, at: t0), .wait)
+        XCTAssertNil(queue.next(at: t0.addingTimeInterval(5.1)), "dropped once its five seconds are gone")
     }
 
-    /// One surface per event: posted over an open panel it waits, and shows
-    /// only if the panel closes inside the second — Return copying and closing,
-    /// a drag-opened panel folding back. A panel that stays open answers for
-    /// itself, and the confirmation lapses.
-    func testOverAnOpenPanelItWaitsASecondThenLapses() {
+    /// Posted over an open panel it waits for the close and shows then, as
+    /// long as that is within five seconds: a file dropped onto an open panel
+    /// and an import from Settings are answered nowhere else. A panel that
+    /// stays open past the five seconds lapses it.
+    func testOverAnOpenPanelItWaitsFiveSecondsThenLapses() {
         var queue = IslandAlertQueue()
+        XCTAssertEqual(IslandAlertQueue.confirmationPatience, 5)
         XCTAssertEqual(queue.post(.confirmation(copied), showing: .music, blocked: true, at: t0), .wait)
-        XCTAssertEqual(queue.next(at: t0.addingTimeInterval(0.3)), .confirmation(copied), "the panel closed in time")
+        XCTAssertEqual(queue.next(at: t0.addingTimeInterval(4.9)), .confirmation(copied), "the panel closed in time")
 
         XCTAssertEqual(queue.post(.confirmation(added), showing: .none, blocked: true, at: t0), .wait)
-        XCTAssertNil(queue.next(at: t0.addingTimeInterval(1.2)), "the panel stayed: nothing later on the island")
+        XCTAssertNil(queue.next(at: t0.addingTimeInterval(5.1)), "the panel stayed: nothing later on the island")
+
+        XCTAssertEqual(queue.post(.confirmation(added), showing: .none, blocked: true, at: t0), .wait)
+        queue.removeConfirmations()
+        XCTAssertNil(queue.next(at: t0.addingTimeInterval(0.1)), "a lock or a dark display ends it")
     }
 
     func testThePillFitsItsWordsBesideTheNotch() {
@@ -187,6 +196,22 @@ final class IslandConfirmationTests: XCTestCase {
         vm.isLockedPresentation = true
         controller.presentConfirmation(added)
         XCTAssertNil(vm.confirmation, "nor over the lock screen")
+    }
+
+    /// A file dropped onto an open panel, or an import from Settings, posts
+    /// while the panel is open: it shows once the panel closes.
+    func testOnePostedWhileOpenShowsAfterTheClose() async throws {
+        let (controller, vm, isolated) = try rig()
+        defer { isolated.release() }
+        vm.isOpen = true
+        controller.presentConfirmation(added)
+        XCTAssertNil(vm.confirmation, "nothing over the open panel")
+        vm.isOpen = false
+        let deadline = Date().addingTimeInterval(3)
+        while vm.confirmation == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(vm.confirmation, added, "shown after the close")
+        while vm.confirmation != nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertNil(vm.confirmation, "and folded after its hold")
     }
 
     func testOpeningThePanelTakesItDown() throws {
