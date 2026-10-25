@@ -1066,7 +1066,7 @@ struct NotchContentView: View {
                     .placedAt(SurfaceHeaderLayout.removeAll(bodyWidth: size.width, width: width, notchHeight: notch.height))
                     .transition(.opacity)
             }
-            moreButton.placedAt(gear)
+            gearButton.placedAt(gear)
         case .translate:
             if translateKeepsHistory {
                 HeaderToolButton(
@@ -1075,41 +1075,21 @@ struct NotchContentView: View {
                 .placedAt(SurfaceHeaderLayout.history(bodyWidth: size.width, notchHeight: notch.height))
                 .transition(.opacity)
             }
-            moreButton.placedAt(gear)
-        case .player, .stage, .clipboard:
-            moreButton.placedAt(gear)
-        case .settings:
-            closeSettingsButton.placedAt(gear)
+            gearButton.placedAt(gear)
+        case .player, .stage, .clipboard, .settings:
+            gearButton.placedAt(gear)
         case .drop, .welcome:
             EmptyView()
         }
     }
 
-    /// The ⋯ on every page and the stage (2026-10-25), in the well the gear
-    /// had (spec §19.16): the page's own actions and Settings…, each on the
-    /// island's spring as the gear's press was. It carries the update badge
-    /// the gear carried, so an update waiting still shows on every page.
-    private var moreButton: some View {
-        HeaderMoreButton(
-            hasUpdate: updates.hasUpdate,
-            items: { vm.moreMenuItems(panelIsKey: $0) },
-            perform: { kind in
-                withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.performMoreMenu(kind) }
-            }
-        )
-        .transition(.opacity)
-    }
-
-    /// Settings' X, the way back to the page or stage it was opened from, in
-    /// the same well the ⋯ stands in everywhere else.
-    ///
-    /// It used to stand lit on Settings as the gear and go back on a second
-    /// click, which the owner read as a gear that did nothing new: a lit gear
-    /// says "you are in Settings", not "press to leave" (spec §19.16, amended
-    /// 2026-10-18). So the well shows `xmark`, labelled "Close Settings",
-    /// unlit and without the update badge — Settings shows the update itself.
-    private var closeSettingsButton: some View {
-        HeaderToolButton(symbol: "xmark", label: localized("Close Settings")) {
+    /// The gear (spec §19.16), where the Tools button stood: Settings from a
+    /// page or the stage on the island's spring, and on Settings a close
+    /// button, the way back (`HeaderGear`). It carries the update badge Tools'
+    /// own gear carried, so an update waiting shows on every page.
+    private var gearButton: some View {
+        let gear = HeaderGear(onSettings: vm.presented == .settings, hasUpdate: updates.hasUpdate)
+        return HeaderToolButton(symbol: gear.symbol, label: gear.label, badge: gear.badge) {
             withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.pressGear() }
         }
         .transition(.opacity)

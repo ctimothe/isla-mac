@@ -493,7 +493,6 @@
 "Clear Everything…" = "Очистить всё…";
 "Clear %d entries? Pinned items stay." = "Очистить записи (%d)? Закреплённые останутся.";
 "Clear History" = "Очистить историю";
-"Clear History…" = "Очистить историю…";
 "Search" = "Поиск";
 "Clear Search" = "Очистить поиск";
 "No Results for “%@”" = "Нет результатов для «%@»";
@@ -573,7 +572,6 @@
 /* The island's right-click menu (spec §19.9). */
 "Translate Clipboard" = "Перевести буфер обмена";
 "Settings…" = "Настройки…";
-"More" = "Ещё";
 
 /* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
 "Show the clipboard" = "Показать буфер обмена";

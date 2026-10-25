@@ -71,7 +71,7 @@ the tall panel body with them. Since R8 (spec §19, 2026-10-18) there are no
 tabs and no rail: the panel shows one surface at a time — the player, the
 lyric stage, the Shelf's tray, the drop surface, Clipboard, Translate,
 Settings and the welcome (`NotchViewModel.Surface`) — reached from the
-island, the pages' dots and swipe, the ⋯ menu's Settings…, the right-click menu and the hot
+island, the pages' dots and swipe, the gear, the right-click menu and the hot
 keys. Tools went with R8b (spec §19.16, 2026-10-18), previews and all, rather
 than staying as a fifth page. `Tests/IslaKitTests/SurfaceContractTests.swift`
 asserts every surface and every road to it, so neither a removed feature nor
@@ -324,10 +324,8 @@ lays a curve over the fingers; the settle is the island's spring. An ordinary
 wheel never turns a page — the dots are its way — and ⌃Tab and ⌃⇧Tab turn
 them while the panel has the keyboard. The clickable region is cut over every
 page a gesture can reach, once per gesture. The stage and Settings sit a level
-below the pages: every page and the stage carry the **⋯ menu** (`HeaderMoreMenu`,
-2026-10-25) — the page's own actions, then Settings… — except that the Shelf's
-Remove All and Translate's History stay visible buttons; on Settings the well
-is an X that goes back (`NotchContentView.closeSettingsButton`). When the
+below the pages: every page and the stage carry the **gear**, which opens
+Settings; on Settings it is an X (`HeaderGear`) that goes back. When the
 open body shrinks under a pointer that was on it (a dot to a shorter page),
 the body it left holds the panel until the pointer reaches the new one,
 leaves, heads away, or presses or scrolls off the panel

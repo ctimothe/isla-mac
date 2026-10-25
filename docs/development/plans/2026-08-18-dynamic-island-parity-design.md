@@ -286,10 +286,10 @@ transitions.
 > R7–R10).
 
 > **Amended 2026-10-25 — small refinements on the current island.** The
-> layout stays; details move closer to Apple's own. Settings is reached from a
-> ⋯ menu at the gear's place on every page (the page's own actions, then
-> Settings…); Settings keeps its X, and the Shelf's Remove All stays a visible
-> button beside the ⋯. The player, the lyric stage and the lock card draw one
+> layout stays; details move closer to Apple's own. A ⋯ menu was tried at the
+> gear's place on every page and withdrawn the same day at the owner's request:
+> the gear stands, Settings keeps its X, and the Shelf's Remove All stays a
+> visible button beside the gear. The player, the lyric stage and the lock card draw one
 > set of transport glyphs, the stage's progress bar seeks as the player's
 > does, and the lock card's star favourites through the player's rule (Music,
 > or a connected Spotify; hidden where nothing can). The waveform takes a

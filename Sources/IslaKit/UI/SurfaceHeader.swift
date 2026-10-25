@@ -11,11 +11,8 @@ enum SurfaceHeaderLayout {
     /// What a header item keeps clear of the notch on each side.
     static let notchClearance: CGFloat = 8
 
-    /// The header's corner well, 26 × 26 at (`bw − 46`, 6) on every page, the
-    /// stage and Settings (§19.16) — where the Tools button stood, then the
-    /// gear. Since 2026-10-25 it holds the ⋯ (`HeaderMoreButton`) on the pages
-    /// and the stage, and Settings' X on Settings. The name stayed `gear`:
-    /// every layout and test that measures the corner measures this one rect.
+    /// The gear, 26 × 26 at (`bw − 46`, 6) on every page, the stage and
+    /// Settings (§19.16) — where the Tools button stood.
     static let toolSide: CGFloat = 26
     static func gear(bodyWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
         centred(x: SurfaceLayout.gearX(bodyWidth: bodyWidth), size: CGSize(width: toolSide, height: toolSide), notchHeight: notchHeight)
@@ -109,9 +106,27 @@ enum SurfaceHeaderLayout {
     }
 }
 
+/// The gear on a page and the stage, and on Settings the way back out of it
+/// (spec §19.16, amended 2026-10-18).
+///
+/// It used to stand lit on Settings and go back on a second click, which the
+/// owner read as a gear that did nothing new: a lit gear says "you are in
+/// Settings", not "press to leave". On Settings the well shows `xmark`, labelled
+/// "Close Settings", and goes back to the page or stage Settings came from,
+/// where the gear returns. The X is unlit and carries no update badge:
+/// Settings shows the update itself.
+struct HeaderGear: Equatable {
+    var onSettings: Bool
+    var hasUpdate: Bool
+
+    var symbol: String { onSettings ? "xmark" : "gearshape" }
+    var label: String { onSettings ? localized("Close Settings") : localized("Settings") }
+    var badge: Bool { hasUpdate && !onSettings }
+}
+
 /// A header tool (spec §19.8): a glyph at 14 in a 26 × 26 well, white 0.08
 /// (0.14 under the pointer, white 0.18 behind the filled glyph while it is
-/// on). The ⋯, Settings' X and Translate's History.
+/// on). The gear and Translate's History.
 struct HeaderToolButton: View {
     let symbol: String
     let label: String

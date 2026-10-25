@@ -2449,9 +2449,10 @@ Rebuilt from a Devin QA, design and Mobbin pass whose branch never left its
 VM; the current layout is the baseline (owner). Owed on hardware (record the
 Mac model and macOS version when run):
 
-- [ ] **MR-H1** Every page shows ⋯ where the gear was, with the update dot when
-  one waits; its menu ends in Settings…, which opens Settings; on the Shelf,
-  Remove All sits beside it with no gap.
+- [ ] **MR-H1** Every page and the lyric stage show the gear, with the update
+  dot when one waits; it opens Settings, and Settings shows the X that goes
+  back (a ⋯ menu was tried and withdrawn the same day, 2026-10-25); on the
+  Shelf, Remove All sits beside the gear with no gap.
 - [ ] **MR-H2** The lyric stage's previous, play and next look like the
   player's and the lock card's; dragging the stage's bar seeks.
 - [ ] **MR-H3** The star shows for Music and a connected Spotify, on the player

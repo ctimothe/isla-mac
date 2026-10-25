@@ -3235,7 +3235,7 @@ final class NotchController {
     }
 
     /// Later, or the hold running out: the version is remembered, and the
-    /// ⋯ on every page keeps its badge (§19.5 f), as the gear did.
+    /// gear keeps its badge (§19.5 f).
     private func answerUpdate(_ offer: UpdateOffer) {
         updateOfferMemory.remember(offer.version)
         foldUpdate()

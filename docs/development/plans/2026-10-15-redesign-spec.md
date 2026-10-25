@@ -3542,3 +3542,15 @@ shows, so **Remove All on the tray and History on Translate stay visible
 buttons** and those two menus hold Settings… alone. **Settings keeps its X**
 (`xmark`, "Close Settings", unlit, no badge), which goes back as before.
 Strings: "More" / "Ещё".
+
+*Amended 2026-10-25, later the same day (owner, after using the build) — the
+⋯ menu is withdrawn and the gear stands.* "I would rather make the settings as
+the icon itself instead of hiding it inside the three dot icon … in the music
+section this three dot icon shows lyrics and settings but lyrics is already
+accessible." The ⋯ (More) button, its menu, and the "More" / "Ещё" and
+"Clear History…" strings are gone. The corner well holds the **gear**
+(`gearshape`, "Settings", the 5 pt update badge) on every page and the stage,
+exactly as the paragraphs above this one drew it, and Settings keeps its X
+("Close Settings"), which goes back. **Remove All** on the tray and **History**
+on Translate stay visible buttons beside the gear, as before. The
+confirmations (§19.1) are unaffected.

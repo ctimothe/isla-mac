@@ -455,19 +455,23 @@ final class PagesOnHardwareTests: XCTestCase {
         XCTAssertNotNil(vm.pageTravel.leg)
     }
 
-    // MARK: - The corner well and its way back
+    // MARK: - The gear and its way back
 
-    /// On a page the well is the ⋯ (`HeaderMoreButton`, which carries the
-    /// update badge, 2026-10-25); on Settings it is a close button that goes
-    /// back, unlit and without the badge Settings shows itself.
-    func testOnSettingsTheCornerIsACloseButton() {
-        XCTAssertEqual(NotchViewModel.Surface.player.headerCorner, .more)
-        XCTAssertEqual(NotchViewModel.Surface.settings.headerCorner, .close)
+    /// On a page the gear is Settings; on Settings it is a close button that
+    /// goes back, unlit and without the update badge Settings shows itself.
+    func testOnSettingsTheGearIsACloseButton() {
+        let page = HeaderGear(onSettings: false, hasUpdate: true)
+        XCTAssertEqual(page.symbol, "gearshape")
+        XCTAssertEqual(page.label, "Settings")
+        XCTAssertTrue(page.badge)
 
-        XCTAssertEqual(localized("Close Settings"), "Close Settings")
+        let settings = HeaderGear(onSettings: true, hasUpdate: true)
+        XCTAssertEqual(settings.symbol, "xmark")
+        XCTAssertEqual(settings.label, "Close Settings")
+        XCTAssertFalse(settings.badge, "Settings shows the update itself")
 
         LabLocalization.use("ru")
-        XCTAssertEqual(localized("Close Settings"), "Закрыть настройки")
-        XCTAssertEqual(localized("More"), "Ещё")
+        XCTAssertEqual(HeaderGear(onSettings: true, hasUpdate: false).label, "Закрыть настройки")
+        XCTAssertEqual(HeaderGear(onSettings: false, hasUpdate: false).label, "Настройки")
     }
 }

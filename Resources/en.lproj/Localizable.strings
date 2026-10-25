@@ -487,7 +487,6 @@
 "Clear Everything…" = "Clear Everything…";
 "Clear %d entries? Pinned items stay." = "Clear %d entries? Pinned items stay.";
 "Clear History" = "Clear History";
-"Clear History…" = "Clear History…";
 "Search" = "Search";
 "Clear Search" = "Clear Search";
 "No Results for “%@”" = "No Results for “%@”";
@@ -567,7 +566,6 @@
 /* The island's right-click menu (spec §19.9). */
 "Translate Clipboard" = "Translate Clipboard";
 "Settings…" = "Settings…";
-"More" = "More";
 
 /* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
 "Show the clipboard" = "Show the clipboard";

@@ -2325,9 +2325,8 @@ final class NotchViewModel: ObservableObject {
         return Surface.pages[next]
     }
 
-    /// The corner well (§19.16): Settings from a page or the stage — the ⋯
-    /// menu's Settings… since 2026-10-25, the gear before it — and from
-    /// Settings, where it is the X, back to where Settings was opened
+    /// The gear (§19.16): Settings from a page or the stage, and from Settings
+    /// — where it is the close button — back to where Settings was opened
     /// from. Going back to a page is a page turn, so it does not take the
     /// keyboard.
     func pressGear() {
