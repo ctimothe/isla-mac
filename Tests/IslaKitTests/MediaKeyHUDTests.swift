@@ -550,7 +550,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(applier.applied[0].1, false)
         XCTAssertEqual(applier.applied[1].1, true)
         await drain()
-        XCTAssertEqual(readings.count, 2)
+        XCTAssertEqual(readings.count, 1, "two presses before the main actor ran: the latest wins")
     }
 
     func testTheHandlerTheTapIsGivenIsTheSameDecision() {
@@ -663,7 +663,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
         for _ in 0..<5 { _ = hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none) }
         await drain()
-        XCTAssertEqual(readings.count, 6, "every step, after a single main-queue turn")
+        XCTAssertEqual(readings.count, 1, "six steps, one main-queue turn, one reading: the latest")
         XCTAssertTrue(readings.allSatisfy { $0.deviceSymbol == "airpods.pro" && $0.deviceName == "AirPods Pro" })
 
         applier.reading = HUDReading(kind: .display, level: 0.5, muted: false, deviceSymbol: nil)

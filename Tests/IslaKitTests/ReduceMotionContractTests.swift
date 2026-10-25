@@ -52,15 +52,6 @@ final class ReduceMotionContractTests: XCTestCase {
                 + "Motion the fill steps to each new length instead of gliding; the card's own "
                 + "change of state is the 0.24 s crossfade."
         ),
-        Allowed(
-            file: "Theme.swift",
-            line: "reduceMotion ? nil : hudLevel",
-            count: 1,
-            reason: "the volume pop-up's level bar, whose fill changes length with each press "
-                + "(redesign 2026-10-15, spec §2.4: \"appears and folds by crossfade; the bar "
-                + "steps\"). A glide is travel, and the presses are what a person counts; the "
-                + "pop-up itself still crossfades in and out."
-        ),
     ]
 
     func testOnlyGeometryCutsUnderReduceMotion() throws {

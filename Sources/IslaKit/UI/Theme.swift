@@ -151,7 +151,7 @@ enum Theme {
     /// something inside a surface.
     static let criticallyDampedSprings: [Animation] = [
         openAnimation, compactAnimation, captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph,
-        hudSpring, hudLevel,
+        hudSpring,
     ]
 
     /// The volume and brightness pop-up (redesign 2026-10-15, spec §2.4, §12)
@@ -175,32 +175,43 @@ enum Theme {
         reduceMotion ? reducedMotion : hudSpring
     }
 
-    /// The pop-up's content arriving and leaving: opacity and 0.94 of its
-    /// size about the top edge, on the transaction's curve — `hudSpring`.
+    /// The pop-up's content arriving and leaving on the shut island: opacity
+    /// alone, over a tenth of a second. The geometry is the outline's — it grows
+    /// out of the notch on `hudSpring` and clips the content as it goes — so the
+    /// content has nothing to travel. It used to start at opacity 0 and 0.94 of
+    /// its size on that same 0.3 s spring, which kept the symbol and the bar
+    /// faint for the first 100 ms of a pop-up the person had asked for with a
+    /// key press (owner, 2026-10-25: "no delaying"). Reduce Motion keeps the
+    /// 0.24 s crossfade.
     static func hudArrival(reduceMotion: Bool) -> AnyTransition {
-        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: hudArrivalScale, anchor: .top))
+        reduceMotion ? .opacity : .opacity.animation(hudContentFade)
+    }
+    /// The capsule under the open panel arriving and leaving: it has no
+    /// outline to grow out of, so its size rides `hudSpring` — 0.94 of itself
+    /// about its top edge — while its opacity is up within a tenth of a second.
+    static func hudStripArrival(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .opacity.animation(hudContentFade).combined(with: .scale(scale: hudArrivalScale, anchor: .top))
     }
     static let hudArrivalScale: CGFloat = 0.94
+    static let hudContentFadeDuration: TimeInterval = 0.1
+    static let hudContentFade = Animation.easeOut(duration: hudContentFadeDuration)
 
-    /// The level bar following each press: a critically damped spring of
-    /// 0.2 s (spec §2.4, amended 2026-10-18). Short, because a held key
-    /// presses again every few tens of milliseconds and a bar still
-    /// travelling when the next step lands would trail the keys; a spring
-    /// rather than the 0.12 s ease-out it was because a spring takes the next
-    /// step from where the bar is and at the speed it has, where each new
-    /// ease-out began from rest and the bar moved in a stutter of restarts.
-    static let hudLevel = Animation.spring(response: 0.2, dampingFraction: 1.0)
+    /// The level bar has no curve. It was a critically damped spring of 0.2 s
+    /// (spec §2.4, 2026-10-18), and a held key presses again every 30 to 35 ms,
+    /// so the bar was always one to two steps behind the number beside it and
+    /// the keys (owner, 2026-10-25: "it kind of lags … no freezing, no
+    /// delaying"). The system's own bar is at the level the instant the key is,
+    /// and a curve of any length, retargeted on every press, keeps SwiftUI
+    /// laying the bar out on every frame of the hold: measured at about a
+    /// quarter of the main thread's time in a held key (`hud-repeat`,
+    /// `Scripts/measure-hitches.sh`). The bar steps, under Reduce Motion too.
 
     /// How long the pop-up stays after the *last* press (spec §2.4: 1.5 s idle)
     /// before it folds on the outline's spring. Each press
     /// restarts it.
     static let hudLinger: TimeInterval = 1.5
-
-    /// The bar's step. Reduce Motion: it steps — a bar that glides is travel,
-    /// and the number of presses is what a person is counting.
-    static func hudLevel(reduceMotion: Bool) -> Animation? {
-        reduceMotion ? nil : hudLevel
-    }
 
     /// The body growing from 208 to 400 and back (spec §2.4, §6): spring 0.40 /
     /// 1.0. A little slower than the open's 0.34 because it moves a body that is

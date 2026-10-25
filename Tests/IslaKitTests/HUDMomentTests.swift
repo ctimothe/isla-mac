@@ -146,17 +146,14 @@ final class HUDMomentTests: XCTestCase {
     // MARK: Motion (spec §2.4)
 
     func testTheMotionValuesAreTheSpecs() {
-        // The bar follows the key on a short critically damped spring, which
-        // a held key retargets without a seam (amended 2026-10-18).
-        XCTAssertEqual(Theme.hudLevel, Animation.spring(response: 0.2, dampingFraction: 1.0))
+        // The bar has no curve (amended 2026-10-25; it was a 0.2 s spring from
+        // 2026-10-18, one or two steps behind a held key).
         XCTAssertEqual(Theme.hudLinger, 1.5)
         // The pop-up widens and folds on its own quick spring (spec §19.3,
         // amended 2026-10-18), in the controller and in the shell alike;
         // Reduce Motion crossfades it, and the bar steps.
         XCTAssertEqual(Theme.hud(reduceMotion: false), Theme.hudSpring)
         XCTAssertEqual(Theme.hud(reduceMotion: true), Theme.reducedMotion)
-        XCTAssertEqual(Theme.hudLevel(reduceMotion: false), Theme.hudLevel)
-        XCTAssertNil(Theme.hudLevel(reduceMotion: true), "no glide")
     }
 
     // MARK: Showing and folding
@@ -168,8 +165,11 @@ final class HUDMomentTests: XCTestCase {
             NotchController.hudAllowed(isOpen: open, isDropTargeted: drop, isLocked: locked, screensAsleep: asleep)
         }
         XCTAssertTrue(allowed())
-        XCTAssertFalse(allowed(open: true), "the player has its own slider")
+        XCTAssertTrue(allowed(open: true), "the capsule under the open panel (2026-10-25)")
+        XCTAssertFalse(allowed(open: true, locked: true), "but not over the lock screen")
+        XCTAssertFalse(allowed(open: true, asleep: true))
         XCTAssertFalse(allowed(drop: true))
+        XCTAssertFalse(allowed(open: true, drop: true), "the drop surface is the whole answer")
         XCTAssertFalse(allowed(locked: true), "not over the lock screen")
         XCTAssertFalse(allowed(asleep: true))
     }
@@ -234,16 +234,19 @@ final class HUDMomentTests: XCTestCase {
         XCTAssertEqual(vm.activity, .none, "nothing comes back: the island returns to what is live")
     }
 
-    func testThePopUpIsNotDrawnOverTheOpenPanelOrTheLockScreen() throws {
+    func testThePopUpIsDrawnUnderTheOpenPanelAndNotOverTheLockScreen() throws {
         let (controller, vm, isolated) = try rig()
         defer { isolated.release() }
         vm.isOpen = true
         controller.presentHUD(reading())
-        XCTAssertNil(vm.hud, "the key was applied; nothing is drawn over the open panel")
+        XCTAssertNil(vm.hud, "the pill belongs to the shut island")
+        XCTAssertEqual(vm.hudStrip, HUDMoment(reading()), "the capsule under the open panel")
         vm.isOpen = false
+        XCTAssertNil(vm.hudStrip, "and it goes with the panel")
         vm.isLockedPresentation = true
         controller.presentHUD(reading())
         XCTAssertNil(vm.hud, "nothing over the lock screen")
+        XCTAssertNil(vm.hudStrip)
     }
 
     /// A panel folding still takes its clicks until the fold is done, even

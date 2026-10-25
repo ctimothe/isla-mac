@@ -1240,6 +1240,11 @@ until nothing uses them, then go.
 > **Amended 2026-10-17 (owner: activities first, §19).** The pop-up's look is
 > §19.5 d (245.4 × 103 with the level as a number); everything this section
 > says about behaviour stands.
+>
+> **Amended 2026-10-25 (owner).** The bar's `hudLevel` curve and "while the
+> panel is open the pop-up is not drawn" below are withdrawn: the bar steps,
+> and an open panel gets a capsule under it. See the last amendment in this
+> file.
 
 `Island-HUD-*`, `Settings-General-HUD`, `Motion-HUD`.
 
@@ -2442,7 +2447,8 @@ same setting (`island.headphones`).
 **d. Volume and brightness** — 245.4 × 103, radii 18.67 / 22.67, stroke white
 0.14. §12's behaviour is unchanged (opt-in, Accessibility, the keys it takes,
 1.5 s after the last press, never over the lock, not drawn while a surface is
-open); only its look is replaced.
+open); only its look is replaced. *(2026-10-25: "not drawn while a surface is
+open" is withdrawn, see the last amendment in this file.)*
 
 - At x 34, baseline 58: the output's name ("MacBook Pro Speakers"), or
   "Display Brightness", or "Keyboard Brightness" — 15 regular, white 0.90,
@@ -3554,3 +3560,73 @@ exactly as the paragraphs above this one drew it, and Settings keeps its X
 ("Close Settings"), which goes back. **Remove All** on the tray and **History**
 on Translate stay visible buttons beside the gear, as before. The
 confirmations (§19.1) are unaffected.
+
+*Amended 2026-10-25 (owner, the volume and brightness pop-up: "it kind of lags
+a little bit … I want it as light as the native macOS one, no lag, no freezing,
+no delaying", and "show it while the panel is open").* Two changes to §12 and
+§19.5 d. They replace, in place, what those say about the bar's curve, the
+content's arrival and the open panel; everything else about the pop-up stands.
+Research for the second: `docs/development/research/2026-10-25-hud-over-open-panel.md`
+(option A).
+
+**A. Light.**
+- **The bar has no curve.** It is at each press's level on the frame the press
+  is drawn; `Theme.hudLevel` is gone, Reduce Motion or not. Replaces the 0.2 s
+  critically damped spring of 2026-10-18 (which a key repeating every 30 to
+  35 ms outran by one or two steps) and the §2.4 / §12 easeOut 0.12. The number
+  beside it is a cut, as the system's is.
+- **The content is there at once.** On the shut island the pop-up's content
+  fades in over 0.1 s (`Theme.hudContentFade`) and does not scale; only the
+  outline springs, on `hudSpring` (0.3 / 1.0), and clips the content as it
+  grows. Replaces "opacity 0 and scale 0.94 on the spring" (§19.3, 2026-10-18).
+  Reduce Motion keeps the 0.24 s crossfade.
+- **A press redraws the pop-up and nothing else.** The level, symbol and
+  percent live in `HUDLiveLevel`, which only `HUDPillContent` and
+  `HUDStripContent` observe; `NotchViewModel.hudShown` changes on the arrival
+  and the fold, and on no press between them, so the island's body, the
+  outline and the alert queue are not touched by a held key.
+- **The latest reading wins.** The key path delivers one reading per main-queue
+  turn (`LatestReadingMailbox`); after a stalled main thread a held key shows
+  the level the key is at, not a backlog of bars. The listeners' echo re-read
+  after Isla's own write (`SystemLevels.levelChanged`) stays: it runs on the
+  applier's queue, off the main thread, and skipping it could leave the cached
+  level stale after another app moves the volume.
+
+**B. While the panel is open.** §12's "while the panel is open the key still
+applies but the pop-up is not drawn (the player's own slider is there)" and
+§19.5 d's "not drawn while a surface is open" are withdrawn: the player's
+slider went on 2026-10-16 and brightness never had one. With the panel open a
+key press draws a **capsule under the panel** (`HUDStripLayout`):
+- 32 pt tall, black, with the island's 2 pt line (white 0.14; 0.30 under
+  Increase Contrast) drawn inside its edge, 6 pt under the open body's bottom
+  edge, centred on the notch's axis, 220 wide and never wider than the body less
+  its two bottom corners (never under 140). Row: the symbol (20 × 14), a 6 pt bar
+  on the pop-up's track and fill, the percent (SF Pro Rounded 14, tabular,
+  32 wide), 14 pt inset each side. No title line; the glyph says what it is.
+- It arrives on `hudSpring`: 0.94 of its size about its top edge, opacity up in
+  0.1 s. A repeated press only moves the bar and restarts the wait; it folds
+  1.5 s after the last press (`Theme.hudLinger`) on the same spring. Reduce
+  Motion: the 0.24 s crossfade.
+- **Window and hit region.** Nothing is resized: the tallest body is 400 at a
+  38 pt notch (362 plus the notch's height, `SurfaceLayout.y`), so 400 + 6 + 32 =
+  438 of the window's 444, 6 pt to spare; the capsule fits for every notch up to
+  44 pt (`HUDStripLayout.tallestNotchThatFits`), and is held inside the window
+  past it. It is click-through: not in `activeRect`, `dropRect`'s inset aside, in
+  no pointer rect, in a hosting view that answers no hit test
+  (`IslandHUDStripHostingView`, between the Shelf's bubble and the outline's
+  line in `NotchStage`). It covers no panel content on any surface.
+- **Never two indicators.** The pill is the shut island's and the capsule the
+  open panel's (`NotchController.hudPlacement`); a panel that opens takes a
+  standing pill with it (the next press is the capsule), a panel that closes
+  takes the capsule with it in the close's own transaction and its timer (the
+  next press is the pill). Neither is drawn over the lock screen, on a dark
+  display or while a drag holds the panel open (the drop surface is the whole
+  answer), and neither takes part in the alert queue: the capsule is not an
+  island activity. VoiceOver is unchanged: the level is announced 0.25 s after
+  the last press whether or not anything is drawn, and the capsule is hidden
+  from it.
+- No new strings.
+
+Measured (`Scripts/measure-hitches.sh`, scenarios `hud-repeat` and
+`hud-strip-repeat`: 54 presses 35 ms apart, then the fold; idle Mac, 8 cycles):
+see `docs/development/checklist.md` MR-H8.

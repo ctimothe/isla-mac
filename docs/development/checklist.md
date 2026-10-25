@@ -2465,3 +2465,30 @@ Mac model and macOS version when run):
 - [ ] **MR-H6** Context lyric lines dim faster, and stay legible under
   Increase Contrast.
 
+- [ ] **MR-H7** Pop-up while the panel is open (spec §19.5 d, amended
+  2026-10-25). With Volume and Brightness on, a volume, mute and brightness
+  press with the panel open on each surface (player, Shelf, Clipboard,
+  Translate, stage, Settings) draws a 32 pt black capsule 6 pt under the body,
+  centred on the notch, with the symbol, bar and percent and the island's line;
+  it covers no content, a click through it reaches the app below, it folds
+  1.5 s after the last press, and a repeated press only moves the bar. Check on
+  a notched and an unnotched display at panel widths 480 and 620, under
+  Increase Contrast and Reduce Motion (crossfade). Closing the panel while it
+  stands folds it with the panel and the next press is the pill on the shut
+  island, never both; opening over a standing pill drops the pill and the next
+  press is the capsule; nothing over the lock screen or while a file is dragged
+  over the panel. VoiceOver says the level once, 0.25 s after the last press.
+- [ ] **MR-H8** Holding volume-up (and brightness-up) the bar keeps pace: it is
+  on the level the number says on every frame, with no trail behind the key,
+  no hesitation on the first press and no replay after the main thread stalls
+  (for instance while Xcode builds). As light as the system's own pop-up.
+  Measured in `Scripts/measure-hitches.sh` (`hud-repeat`: a pop-up on the shut
+  island, a level every 35 ms for two seconds, then the fold; idle Mac, same
+  test bundle built before and after, six runs before and three after,
+  interleaved; this Mac's load average was 3 to 60 throughout, so only the CPU
+  figure is comparable): main-thread CPU over the two-second hold fell from 289
+  ms (243 to 387) to 169 ms (142 to 185); the costliest single frame (about
+  5 to 9 ms, the arrival) and missed frames (0 to 0.5 of 240, 5 in the one run at
+  load 57) did not move beyond that noise. The panel-open capsule
+  (`hud-strip-repeat`) costs the same as the pill, 123 to 186 ms. Hardware run
+  owed.

@@ -224,12 +224,23 @@ final class OutlineHitchLab: VisualLabCase {
             .split(separator: ",").map(String.init)
     }
 
+    /// A key held down: fifty-four presses about 35 ms apart (two seconds), each a
+    /// sixteenth step up the bar and round again.
+    static let heldKeyPresses = 54
+    static let heldKeyInterval: TimeInterval = 1.0 / 30
+    static func heldKey(press: Int) -> HUDMoment {
+        HUDMoment(HUDReading(kind: .volume, level: Float(press % 17) / 16, muted: false, deviceSymbol: nil))
+    }
+
     struct Scenario {
         var name: String
         /// Puts the island where the scenario starts, and returns when it has settled.
         var prepare: @MainActor (HitchRig) async -> Void
         /// The morphs of one cycle, in order; each is watched for a window.
         var steps: [(name: String, run: @MainActor (HitchRig) -> Void)]
+        /// How long each step is watched, where the morph is not one second
+        /// long: a held key is two.
+        var window: TimeInterval?
     }
 
     private func scenarios() -> [Scenario] {
@@ -247,6 +258,35 @@ final class OutlineHitchLab: VisualLabCase {
         }
         let headphonesOut: @MainActor (HitchRig) -> Void = { rig in
             withAnimation(Theme.pill(reduceMotion: reduceMotion)) { rig.vm.ambient = nil }
+        }
+        // A held volume key against the shut island's pop-up: the arrival once,
+        // inside `Theme.hud`, then a new level every 33 ms for two seconds (the
+        // fastest key repeat macOS offers), then the fold. Through the view
+        // model's `hud`, which is what the controller sets per press: whatever
+        // the build does with a level that changes (re-draw the island, or only
+        // the bar) is what this measures.
+        // The same hold with the panel open: the capsule under it
+        // (`NotchViewModel.hudStrip`) instead of the pill.
+        func hold(strip: Bool) -> @MainActor (HitchRig) -> Void {
+            { rig in
+                @MainActor func set(_ moment: HUDMoment?) {
+                    if strip { rig.vm.hudStrip = moment } else { rig.vm.hud = moment }
+                }
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) { set(Self.heldKey(press: 1)) }
+                Task { @MainActor in
+                    for press in 2...Self.heldKeyPresses {
+                        try? await Task.sleep(for: .seconds(Self.heldKeyInterval))
+                        set(Self.heldKey(press: press))
+                    }
+                }
+            }
+        }
+        func fold(strip: Bool) -> @MainActor (HitchRig) -> Void {
+            { rig in
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
+                    if strip { rig.vm.hudStrip = nil } else { rig.vm.hud = nil }
+                }
+            }
         }
         return [
             // Nothing moves: what the island costs the main thread standing
@@ -310,6 +350,21 @@ final class OutlineHitchLab: VisualLabCase {
                     ("open+50ms-block", { rig in open(rig); rig.block(after: 0.12, for: 0.05) }),
                     ("close", close),
                 ]
+            ),
+            Scenario(
+                name: "hud-repeat",
+                prepare: { rig in rig.vm.isOpen = false; rig.vm.hud = nil },
+                steps: [("hold-2s", hold(strip: false)), ("fold", fold(strip: false))],
+                window: 2.0
+            ),
+            // The panel open, the key held: the capsule's arrival, its bar
+            // following 54 presses, its fold. Absent from builds before the
+            // capsule existed.
+            Scenario(
+                name: "hud-strip-repeat",
+                prepare: { rig in rig.vm.isOpen = true; rig.vm.open(.player); rig.vm.hud = nil; rig.vm.hudStrip = nil },
+                steps: [("hold-2s", hold(strip: true)), ("fold", fold(strip: true))],
+                window: 2.0
             ),
             Scenario(
                 name: "alert-stall",
@@ -400,7 +455,7 @@ final class OutlineHitchLab: VisualLabCase {
                         let id = signposter.makeSignpostID()
                         let state = signposter.beginInterval("morph", id: id, "\(scenario.name)/\(step.name) \(load)")
                         step.run(rig)
-                        try await settle(window)
+                        try await settle(scenario.window ?? window)
                         signposter.endInterval("morph", state)
                         if cycle >= 2 {
                             windows.append(HitchWindow(

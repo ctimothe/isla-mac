@@ -1824,8 +1824,7 @@ final class NotchController {
             .store(in: &cancellables)
         // And so does the volume pop-up — only when it appears or folds, not
         // with each press, which moves a bar and changes no width.
-        vm.$hud
-            .map { $0 != nil }
+        vm.$hudShown
             .removeDuplicates()
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
@@ -2028,10 +2027,11 @@ final class NotchController {
             peekWork = nil
             ambientWork?.cancel()
             ambientWork = nil
-            // The pop-up's own timer, with the flag the view model has ended. The
-            // key keeps working with the panel open, and the player's slider is
-            // where its volume shows; the permission is looked at again, since
-            // the panel opening is one of the moments trust is re-read.
+            // The pill's own timer, with the flag the view model has ended. The
+            // key keeps working with the panel open and the next press shows
+            // its level as the capsule under the panel (`hudPlacement`); the
+            // permission is looked at again, since the panel opening is one of
+            // the moments trust is re-read.
             hudFoldWork?.cancel()
             hudFoldWork = nil
             // The update alert's hold and retry: the view model takes the alert
@@ -2087,6 +2087,14 @@ final class NotchController {
         // The next hover is the one nobody planned, and it must not open onto
         // a row somebody revealed ten minutes ago.
         vm.privacy.coverEverything()
+        // The capsule under the panel folds with it (the view model takes it
+        // down as `isOpen` flips, in the close's own transaction); its timer
+        // goes too, so it cannot fold a pop-up that a press on the shut island
+        // has drawn since, nor promote a waiting alert early.
+        if vm.hudStrip != nil {
+            hudFoldWork?.cancel()
+            hudFoldWork = nil
+        }
         // Animated when the user is watching it fold, and not when they are
         // not. `deferRectShrink == false` is the lock path, where the panel is
         // about to be resized to the whole display and its content replaced by
@@ -2618,12 +2626,26 @@ final class NotchController {
     /// VoiceOver talking over itself about numbers already out of date.
     static let hudAnnounceDelay: TimeInterval = 0.25
 
-    /// Shows a key's result on the island, and restarts the fold.
+    /// Where a key's result is drawn.
+    enum HUDPlacement: Equatable {
+        /// The shut island's expanded alert (spec §19.5 d).
+        case pill
+        /// The capsule under the open panel (`HUDStripLayout`, spec §19.5 d,
+        /// amended 2026-10-25).
+        case strip
+    }
+
+    /// Shows a key's result, and restarts the fold.
     ///
     /// The key has already been applied and consumed; this only says so. The
-    /// level is announced even when nothing is drawn — with the panel open the
-    /// volume has its slider but brightness has nothing, and a person on
-    /// VoiceOver has neither.
+    /// level is announced even when nothing is drawn — over the lock screen,
+    /// or a dark display — so a person on VoiceOver is never left without it.
+    ///
+    /// Each press costs the main thread one store and nothing else once the
+    /// pop-up is up: the level goes to `HUDLiveLevel`, which only the pop-up's
+    /// own view watches, and the fold timer is pushed back. The island's body,
+    /// the outline and the alert queue are touched on the arrival and the
+    /// fold alone (owner, 2026-10-25: "as light as the native macOS one").
     func presentHUD(_ reading: HUDReading) {
         guard let vm = viewModel else { return }
         let moment = HUDMoment(reading)
@@ -2634,49 +2656,64 @@ final class NotchController {
         hudAnnounceWork = announce
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.hudAnnounceDelay, execute: announce)
 
-        guard Self.hudAllowed(
+        guard let placement = Self.hudPlacement(
             isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted,
             isLocked: vm.isLockedPresentation, screensAsleep: screensAreAsleep
         ) else { return }
 
-        // The highest of R7's alerts, so the queue always says show; asked all
-        // the same, so a peek or a charger waiting behind an older pop-up is
-        // judged against this one.
-        guard postAlert(.hud(moment), to: vm) == .show else { return }
-
         let reduceMotion = SystemAppearance.shared.reduceMotion
-        if vm.hud == nil {
-            // Unfolding, on the pop-up's own quick, critically damped spring
-            // (`Theme.hud`): on the island's slower, bouncier curve a key
-            // press felt heavy, and the owner's review (2026-10-18) asked for
-            // the system's feel — there at once, no overshoot.
-            //
-            // It replaces what it outranks — the charger, headphones, a
-            // peek — and the replaced alert is
-            // dropped with its timer, not left underneath to come back when
-            // this folds (spec §19.1): a percentage shown again after the
-            // pop-up is a percentage from before it.
-            peekWork?.cancel()
-            peekWork = nil
-            ambientWork?.cancel()
-            ambientWork = nil
-            confirmationWork?.cancel()
-            confirmationWork = nil
-            // The update alert is the one replaced alert that is not dropped:
-            // the queue took it back as this was posted (spec §19.1), and it
-            // returns, with a fresh hold, when this folds.
-            cancelUpdateWork()
-            withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
-                vm.isPeeking = false
-                vm.ambient = nil
-                vm.hud = moment
-                vm.confirmation = nil
-                vm.updateOffer = nil
+        switch placement {
+        case .strip:
+            // A satellite of the panel, not an alert: it takes no part in the
+            // island's queue, replaces nothing and waits for nothing — the
+            // panel being open means every alert is already waiting for it to
+            // close, so nothing else is on screen to stack with.
+            if vm.hudStrip == nil {
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) { vm.hudStrip = moment }
+            } else {
+                // Already up: the bar follows on its own curve; the capsule
+                // has nothing to do.
+                vm.hudStrip = moment
             }
-        } else {
-            // Already up: the bar follows on its own curve; the shape has
-            // nothing to do.
-            vm.hud = moment
+        case .pill:
+            // The highest of R7's alerts, so the queue always says show; asked
+            // all the same, so a peek or a charger waiting behind an older
+            // pop-up is judged against this one.
+            guard postAlert(.hud(moment), to: vm) == .show else { return }
+            if vm.hud == nil {
+                // Unfolding, on the pop-up's own quick, critically damped
+                // spring (`Theme.hud`): on the island's slower, bouncier curve
+                // a key press felt heavy, and the owner's review (2026-10-18)
+                // asked for the system's feel — there at once, no overshoot.
+                //
+                // It replaces what it outranks — the charger, headphones, a
+                // peek — and the replaced alert is
+                // dropped with its timer, not left underneath to come back when
+                // this folds (spec §19.1): a percentage shown again after the
+                // pop-up is a percentage from before it.
+                peekWork?.cancel()
+                peekWork = nil
+                ambientWork?.cancel()
+                ambientWork = nil
+                confirmationWork?.cancel()
+                confirmationWork = nil
+                // The update alert is the one replaced alert that is not
+                // dropped: the queue took it back as this was posted (spec
+                // §19.1), and it returns, with a fresh hold, when this folds.
+                cancelUpdateWork()
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
+                    vm.isPeeking = false
+                    vm.ambient = nil
+                    vm.hud = moment
+                    vm.confirmation = nil
+                    vm.updateOffer = nil
+                }
+            } else {
+                // Already up: the bar follows on its own curve; the shape has
+                // nothing to do, and the view model hears nothing of it
+                // (`NotchViewModel.hud`).
+                vm.hud = moment
+            }
         }
         hudFoldWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -2684,9 +2721,11 @@ final class NotchController {
             self.hudFoldWork = nil
             // The island returns to its live activity — the song, the Shelf —
             // on the curve the pop-up arrived on, or to an alert that waited
-            // for the pop-up and is still inside its second.
+            // for the pop-up and is still inside its second. The capsule folds
+            // on the same curve.
             withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.hud = nil
+                vm.hudStrip = nil
             }
             self.promoteWaitingAlert()
         }
@@ -2694,19 +2733,32 @@ final class NotchController {
         DispatchQueue.main.asyncAfter(deadline: .now() + hudFoldDelay, execute: work)
     }
 
-    /// Whether the pop-up may be drawn now. Pure, so each refusal is a test.
+    /// Where the pop-up may be drawn now, or nowhere. Pure, so each refusal is
+    /// a test.
     ///
-    /// Not over the open panel — the player has its own volume slider, and the
-    /// panel would not have a pill to widen (the spec is silent, so the key is
-    /// applied and nothing is drawn); not while a drag holds the panel open;
-    /// not over the lock screen, where the tap passes every event through and
-    /// the collapsed rects belong to the card; not on a dark display. A key
-    /// press is the person's own act, so unlike the charger it is **not**
-    /// refused for a pointer on the pill or a full-screen app.
+    /// The shut island's pill when the panel is shut; the capsule under the
+    /// panel when it is open (it was refused outright until 2026-10-25, on the
+    /// premise that the player had its own volume slider — withdrawn on
+    /// 2026-10-16 — and brightness never had one). Not while a drag holds the
+    /// panel open, whose drop surface is the whole answer; not over the lock
+    /// screen, where the tap passes every event through and the collapsed rects
+    /// belong to the card; not on a dark display. A key press is the person's
+    /// own act, so unlike the charger it is **not** refused for a pointer on
+    /// the pill or a full-screen app.
+    nonisolated static func hudPlacement(
+        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool
+    ) -> HUDPlacement? {
+        guard !isDropTargeted, !isLocked, !screensAsleep else { return nil }
+        return isOpen ? .strip : .pill
+    }
+
+    /// Whether the pop-up may be drawn at all, in either place.
     nonisolated static func hudAllowed(
         isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool
     ) -> Bool {
-        !isOpen && !isDropTargeted && !isLocked && !screensAsleep
+        hudPlacement(
+            isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked, screensAsleep: screensAsleep
+        ) != nil
     }
 
     // MARK: The island's confirmations (2026-10-25, MR-7)
@@ -2779,6 +2831,7 @@ final class NotchController {
         hudAnnounceWork?.cancel()
         hudAnnounceWork = nil
         viewModel?.hud = nil
+        viewModel?.hudStrip = nil
     }
 
     /// Shows the charger or headphones on the island for their hold.

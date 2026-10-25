@@ -255,12 +255,24 @@ final class MediaKeyHUD: ObservableObject {
         self.sessionIsAvailable = sessionIsAvailable ?? {
             PlayerBridge.isRunningTests ? true : CodeIdentity.sessionIsAvailable
         }
+        let mailbox = LatestReadingMailbox()
         route = MediaKeyRoute(
             gate: gate,
             applier: self.applier,
             deliver: { [weak self] reading in
-                // The one hop to the main actor a press costs.
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.present(reading) } }
+                // The one hop to the main actor a press costs — and one per
+                // run-loop turn, not per press: readings that arrive while a
+                // hop is still waiting replace the one it will deliver, so a
+                // main thread that stalls for 100 ms under a held key wakes to
+                // the level the key is at, not to a backlog of twenty bars
+                // each drawn in turn (`LatestReadingMailbox`).
+                guard mailbox.post(reading) else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let latest = mailbox.take() else { return }
+                        self?.present(latest)
+                    }
+                }
             },
             settingWentOff: { [weak self] in
                 // The tap should not exist: end it, but not from inside its own
@@ -928,6 +940,43 @@ final class MediaKeyRoute: Sendable {
         case .consume(let apply):
             if apply { applier.submit(press.key, fine: modifiers.fine, deliver: deliver) }
             return true
+        }
+    }
+}
+
+/// The newest reading waiting for the main actor, and whether a hop to fetch it
+/// is already queued.
+///
+/// A held key repeats every 30 to 35 ms and each press is applied on the
+/// applier's queue, off the main thread. Handing each reading to the main queue
+/// separately meant that after the main thread stalled — a synchronous
+/// AppleScript, a page fault, a long layout — the whole backlog played back,
+/// one bar after another, long after the key had been released (diagnosed
+/// 2026-10-25, "it kind of lags … freezing"). Only the latest level is of any
+/// use to a person looking at a bar, so a reading replaces the one before it and
+/// only the first of a burst schedules the hop.
+///
+/// Thread-safe: `post` runs on the applier's queue, `take` on the main actor.
+final class LatestReadingMailbox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: HUDReading?
+
+    /// Stores `reading` over whatever waits. True when nothing was waiting,
+    /// which is to say the caller must schedule the hop that takes it.
+    func post(_ reading: HUDReading) -> Bool {
+        lock.withLock {
+            let first = pending == nil
+            pending = reading
+            return first
+        }
+    }
+
+    /// The newest reading, leaving the mailbox empty so the next `post` hops
+    /// again.
+    func take() -> HUDReading? {
+        lock.withLock {
+            defer { pending = nil }
+            return pending
         }
     }
 }

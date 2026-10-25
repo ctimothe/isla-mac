@@ -24,6 +24,11 @@ final class NotchViewModel: ObservableObject {
             // back (spec §9.3): a field left open would be waiting, with its
             // query, inside the next visit.
             if !isOpen, oldValue {
+                // The capsule under the panel goes with it, in the close's own
+                // transaction: it folds as the panel does, and the next press
+                // is the shut island's pill, not a second indicator beside a
+                // panel that is leaving.
+                hudStrip = nil
                 // A swipe does not outlive the panel it was made on.
                 pageTravel.finish()
                 pageSwipe = PageSwipe()
@@ -66,9 +71,12 @@ final class NotchViewModel: ObservableObject {
             confirmation = nil
             isPeeking = false
             endCollectedMoment()
-            // The pop-up too: the panel has the player's own slider, and a
-            // pill left standing over a panel that just opened would fold
-            // under it with nobody asking (spec §12).
+            // The pop-up's pill too: a pill left standing over a panel that
+            // just opened would fold under it with nobody asking (spec §12).
+            // The level is not lost — the next press draws it as the capsule
+            // under the panel (`NotchController.hudPlacement`) — and nothing
+            // is handed over mid-opening, which would show the same level
+            // twice for the length of the open.
             hud = nil
             // And the update alert, which is not answered by being opened
             // over: the controller offers it again once the panel closes.
@@ -76,7 +84,13 @@ final class NotchViewModel: ObservableObject {
         }
     }
     @Published var isDropTargeted = false {
-        didSet { if isDropTargeted { endPageGesture() } }
+        didSet {
+            guard isDropTargeted else { return }
+            endPageGesture()
+            // The drop surface is the panel's whole answer while a drag is
+            // over it; a level under it would be a second thing to look at.
+            hudStrip = nil
+        }
     }
     /// Which of the Shelf's two wells a drag in flight is over (spec §8.3): the
     /// one the drop will use, and the one that lights. Meaningful only while
@@ -113,9 +127,49 @@ final class NotchViewModel: ObservableObject {
     @Published var isPeeking = false
     /// The charger or headphones, shown for a moment. See `AmbientActivity`.
     @Published var ambient: AmbientActivity?
-    /// The volume or brightness pop-up, while it is up (spec §12). The highest
-    /// of the island's alerts: see `IslandActivity`.
-    @Published var hud: HUDMoment?
+    /// The volume or brightness pop-up on the shut island, while it is up
+    /// (spec §12). The highest of the island's alerts: see `IslandActivity`.
+    ///
+    /// Whether it is up is published; what it shows is not. A held key presses
+    /// every 30 to 35 ms, and a `@Published` moment made every press re-run
+    /// the island's whole body to move a bar. The moment lives in `hudLive`,
+    /// which only the pop-up's own views observe, so assigning a new level
+    /// while the pop-up stands publishes nothing here (`hudShown` stays true)
+    /// and assigning nil or a first moment is the arrival and the fold, which
+    /// the island does need to hear. Everything that read `hud` as a value —
+    /// `activity`, the tests — reads it unchanged.
+    var hud: HUDMoment? {
+        get { hudShown ? hudLive.moment : nil }
+        set {
+            if let newValue {
+                hudLive.update(newValue)
+                if !hudShown { hudShown = true }
+            } else if hudShown {
+                hudShown = false
+            }
+        }
+    }
+    @Published private(set) var hudShown = false
+    /// The same pop-up as a capsule under the open panel (spec §19.5 d,
+    /// amended 2026-10-25, `HUDStripLayout`): shown instead of the pill while
+    /// the panel is open, never beside it, and sharing the pill's live level.
+    /// Not an island activity: the island is the panel then, and the capsule
+    /// is a satellite of it that takes no part in `activity`, `bodySize` or the
+    /// clickable region.
+    var hudStrip: HUDMoment? {
+        get { hudStripShown ? hudLive.moment : nil }
+        set {
+            if let newValue {
+                hudLive.update(newValue)
+                if !hudStripShown { hudStripShown = true }
+            } else if hudStripShown {
+                hudStripShown = false
+            }
+        }
+    }
+    @Published private(set) var hudStripShown = false
+    /// The level on screen, for whichever of the two is up.
+    let hudLive = HUDLiveLevel()
     /// A confirmation of the person's own act, while it is up: rank 5, below
     /// the pop-up. The controller decides when it shows (`IslandConfirmation`).
     @Published var confirmation: IslandConfirmation?
@@ -252,7 +306,10 @@ final class NotchViewModel: ObservableObject {
     /// is already written; this asks macOS for Accessibility when it went on and
     /// lets the key tap follow the setting and the permission together.
     func setVolumeAndBrightness(_ enabled: Bool) {
-        if !enabled { hud = nil }
+        if !enabled {
+            hud = nil
+            hudStrip = nil
+        }
         stores.hud.settingChanged(to: enabled)
     }
 

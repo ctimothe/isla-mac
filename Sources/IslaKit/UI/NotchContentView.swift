@@ -270,7 +270,10 @@ struct NotchContentView: View {
                 // cut by its mask, and the bubble lives outside the outline:
                 // it is drawn by a hosting view of its own, above this one
                 // (`IslandBubbleLayer`, `NotchStage`).
-                if outline == nil { IslandBubbleLayer(vm: vm) }
+                if outline == nil {
+                    IslandBubbleLayer(vm: vm)
+                    HUDStripLayer(vm: vm)
+                }
             }
         }
     }
@@ -687,8 +690,10 @@ struct NotchContentView: View {
                 // an alert replaces what it outranks, and the replaced one is
                 // gone, not waiting underneath (spec §19.1).
                 switch vm.activity {
-                case .hud(let hud):
-                    hudHeader(hud)
+                case .hud:
+                    // Its own view, watching the live level: a press redraws
+                    // the pop-up and not this body (`HUDLiveLevel`).
+                    HUDPillContent(live: vm.hudLive, size: size, notchHeight: vm.geometry.notchSize.height)
                         .transition(Theme.hudArrival(reduceMotion: reduceMotion))
                 case .confirmation(let confirmation):
                     // A compact activity, and it arrives as one: the
@@ -773,6 +778,11 @@ struct NotchContentView: View {
     /// that there is none. The locked pill draws no moment, so over the shield
     /// it does not name one.
     private var closedIslandValue: String {
+        // The level as the last press left it when this body last ran. A
+        // press redraws only the pop-up (`HUDLiveLevel`), so this is the
+        // arrival's level until something else re-runs the body; the spoken
+        // level is the announcement's (`NotchController.presentHUD`), which
+        // follows every press.
         if !vm.isLockedPresentation, let hud = vm.hud { return hud.accessibilityLabel }
         if !vm.isLockedPresentation, let confirmation = vm.confirmation { return confirmation.accessibilityLabel }
         if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
@@ -931,56 +941,6 @@ struct NotchContentView: View {
                 .padding(.trailing, CompactIslandLayout.shelfCountTrailingInset)
         }
         .frame(width: size.width, height: size.height)
-    }
-
-    /// The volume or brightness pop-up (spec §19.5 d), an expanded alert: the
-    /// output's name — or which brightness — over a row of the symbol, the
-    /// bar and the level as a number. The bar fills in amber with a glow;
-    /// muted, white 0.32 at the level it will return to, no glow. It steps on
-    /// `hudLevel` per press; under Reduce Motion it steps without gliding.
-    private func hudHeader(_ hud: HUDMoment) -> some View {
-        let notchHeight = vm.geometry.notchSize.height
-        let track = HUDLayout.trackFrame(islandWidth: size.width, notchHeight: notchHeight)
-        let symbol = HUDLayout.symbolFrame(notchHeight: notchHeight)
-        let fill = Color.white.opacity(hud.muted ? HUDLayout.mutedFillOpacity : HUDLayout.levelOpacity)
-        return ZStack(alignment: .topLeading) {
-            Text(hud.title)
-                .islandFont(HUDLayout.titleSize)
-                .foregroundStyle(Color.white.opacity(HUDLayout.titleOpacity))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(width: HUDLayout.titleWidth(islandWidth: size.width), alignment: .leading)
-                .islandBaseline(HUDLayout.titleBaseline(notchHeight: notchHeight))
-                .offset(x: HUDLayout.titleLeading)
-            Image(systemName: hud.symbol)
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(Color.white)
-                .frame(width: symbol.width, height: symbol.height)
-                .offset(x: symbol.minX, y: symbol.minY)
-            RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
-                .fill(Color.white.opacity(HUDLayout.trackOpacity))
-                .frame(width: track.width, height: track.height)
-                .offset(x: track.minX, y: track.minY)
-            RoundedRectangle(cornerRadius: HUDLayout.barRadius, style: .continuous)
-                .fill(fill)
-                .frame(width: track.width * CGFloat(hud.level), height: track.height)
-                .offset(x: track.minX, y: track.minY)
-                .animation(Theme.hudLevel(reduceMotion: reduceMotion), value: hud.level)
-            // Centred on the bar, its right edge on the reference's 34.5.
-            Text(hud.percent, format: .number)
-                .font(.system(size: HUDLayout.numberSize, design: .rounded).monospacedDigit())
-                .foregroundStyle(Color.white.opacity(HUDLayout.numberOpacity))
-                .contentTransition(.numericText(value: Double(hud.percent)))
-                .lineLimit(1)
-                .fixedSize()
-                .frame(width: max(0, size.width - HUDLayout.numberTrailingInset), height: track.height,
-                       alignment: .trailing)
-                .offset(y: track.minY)
-        }
-        .frame(width: size.width, height: size.height, alignment: .topLeading)
-        // No element of its own: like the other moments, the pop-up is the
-        // island's value (`closedIslandValue`), set on the stack above it.
     }
 
     /// The open panel's header strip (spec §19.6–§19.8): the notch's height,

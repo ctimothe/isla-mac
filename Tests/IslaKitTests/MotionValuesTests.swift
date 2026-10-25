@@ -74,10 +74,12 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertTrue(shell.contains(".animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hud != nil)"),
                       "the pop-up has its own quick spring (spec §19.3, amended 2026-10-18)")
         XCTAssertFalse(shell.contains("withAnimation(Theme.expand("), "the body's Expand moves the outline")
-        XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: reduceMotion)) {\n                vm.isPeeking = false\n                vm.ambient = nil\n                vm.hud = moment"),
+        XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: reduceMotion)) {\n                    vm.isPeeking = false\n                    vm.ambient = nil\n                    vm.hud = moment"),
                       "the pop-up arrives on its own spring, not the island's")
         XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {\n                vm.hud = nil"),
                       "and folds on it")
+        XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: reduceMotion)) { vm.hudStrip = moment }"),
+                      "the capsule under the open panel arrives on the same spring (2026-10-25)")
     }
 
     /// The outline's curves left the critically damped list; every curve that
@@ -90,28 +92,29 @@ final class MotionValuesTests: XCTestCase {
             ("open, inside a surface", Theme.openAnimation), ("compact", Theme.compactAnimation),
             ("caption out", Theme.captionTurnOut), ("caption in", Theme.captionTurnIn),
             ("update card", Theme.expandAnimation), ("lock card", Theme.lockCardMorph),
-            ("pop-up", Theme.hudSpring), ("pop-up level", Theme.hudLevel),
+            ("pop-up", Theme.hudSpring),
         ] {
             XCTAssertTrue(listed.contains(String(describing: curve)), name)
         }
-        XCTAssertEqual(listed.count, 8)
+        XCTAssertEqual(listed.count, 7)
     }
 
-    /// The pop-up arrives at once and only fades and settles: no blur, a
-    /// slight scale, a quick spring with no overshoot, and a level that
-    /// follows a held key as a spring rather than a chain of ease-outs
-    /// (owner's review, 2026-10-18: "heavy, not clean as the native one").
+    /// The pop-up is there at once: the outline springs (response 0.3, no
+    /// overshoot), the content fades in within a tenth of a second and does
+    /// not travel, and the level has no curve at all — a spring a held key
+    /// outruns left the bar one or two steps behind it (owner, 2026-10-18
+    /// "heavy, not clean as the native one"; 2026-10-25 "no lag, no delaying").
     func testThePopUpIsQuickAndUnblurred() throws {
         XCTAssertEqual(Theme.hudResponse, 0.3)
         XCTAssertEqual(Theme.hud(reduceMotion: false), Theme.hudSpring)
         XCTAssertEqual(Theme.hud(reduceMotion: true), Theme.reducedMotion)
         XCTAssertGreaterThan(Theme.hudArrivalScale, 0.9)
-        XCTAssertNil(Theme.hudLevel(reduceMotion: true))
+        XCTAssertLessThanOrEqual(Theme.hudContentFadeDuration, 0.12, "the content is there at once")
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let shell = try String(
             contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
-        XCTAssertTrue(shell.contains("hudHeader(hud)\n                        .transition(Theme.hudArrival(reduceMotion: reduceMotion))"))
+        XCTAssertTrue(shell.contains("notchHeight: vm.geometry.notchSize.height)\n                        .transition(Theme.hudArrival(reduceMotion: reduceMotion))"))
     }
 
     // MARK: Content arriving (spec §19.3)
