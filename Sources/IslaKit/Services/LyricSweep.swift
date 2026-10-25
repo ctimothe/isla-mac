@@ -407,9 +407,11 @@ enum LyricSweep {
     /// still song has nothing to show between frames, and a frame callback
     /// for it would be spent on nothing.
     static func frameClock(
-        media: MediaController, lead: TimeInterval
+        media: MediaController, lead: TimeInterval, held: NowPlayingPresenter.HeldClock? = nil
     ) -> (@MainActor () -> TimeInterval)? {
-        guard media.isPlaying else { return nil }
+        // A song held on screen while the next one loads has a still clock
+        // (`NowPlayingPresenter`): the live one already belongs to the next.
+        guard held == nil, media.isPlaying else { return nil }
         return { media.extrapolatedPosition() + lead }
     }
 

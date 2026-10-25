@@ -15,10 +15,87 @@ final class MediaController: ObservableObject {
         var key: String
     }
 
-    @Published private(set) var track: Track?
-    @Published private(set) var artwork: NSImage?
+    @Published private(set) var track: Track? {
+        didSet { publishReadingUnlessBatched() }
+    }
+    @Published private(set) var artwork: NSImage? {
+        didSet {
+            // A picture taken away belongs to nobody; one put up is owned by
+            // whoever put it up (`coverKey`), which every writer sets first.
+            if artwork == nil { coverKey = nil }
+            publishReadingUnlessBatched()
+        }
+    }
     @Published private(set) var isPlaying = false
-    @Published private(set) var duration: TimeInterval = 0
+    @Published private(set) var duration: TimeInterval = 0 {
+        didSet { publishReadingUnlessBatched() }
+    }
+
+    /// What one report says about the song, published once per report rather
+    /// than field by field.
+    ///
+    /// `track`, `duration` and `artwork` are each `@Published`, and a skip used
+    /// to reach subscribers as three separate events: the new title paired
+    /// with the old song's length, then the length, then — up to 180 ms later —
+    /// the cover (owner, 2026-10-25: "the contents are loading and they are
+    /// not even consistent"). The lyrics coordinator rebuilt its identity on
+    /// the first event and again on the second, so every skip asked for the
+    /// new song's words twice, once with the wrong length. This is the same
+    /// facts, assigned at the end of `apply` and `clear` with everything in
+    /// place, so a subscriber sees one consistent reading per report. The
+    /// coordinator and `NowPlayingPresenter` read it; the fields stay for
+    /// everything that only needs one of them.
+    struct Reading: Equatable {
+        var track: Track?
+        var duration: TimeInterval = 0
+        var artwork: NSImage?
+        /// The track `artwork` was decoded, fetched or carried for. On a skip
+        /// the previous cover can still be up while the new one decodes, and
+        /// only this says whether the picture is the new song's yet.
+        var coverKey: String?
+        var sourceIcon: NSImage?
+
+        /// Whether the song's own cover is in: a picture, put up for it.
+        var hasCover: Bool { artwork != nil && coverKey != nil && coverKey == track?.key }
+
+        static func == (lhs: Reading, rhs: Reading) -> Bool {
+            lhs.track == rhs.track && lhs.duration == rhs.duration && lhs.artwork === rhs.artwork
+                && lhs.coverKey == rhs.coverKey && lhs.sourceIcon === rhs.sourceIcon
+        }
+    }
+    @Published private(set) var reading = Reading()
+    /// The track the cover on show belongs to. See `Reading.coverKey`.
+    private var coverKey: String? {
+        didSet { publishReadingUnlessBatched() }
+    }
+    /// Above zero while `apply` or `clear` is mid-way: their writes land as one
+    /// reading when the outermost one finishes.
+    private var readingBatchDepth = 0
+
+    private func publishReadingUnlessBatched() {
+        guard readingBatchDepth == 0 else { return }
+        let fresh = Reading(
+            track: track, duration: duration, artwork: artwork, coverKey: coverKey, sourceIcon: sourceIcon
+        )
+        // `@Published` never compares; an identical reading every two-second
+        // poll would wake every subscriber for nothing.
+        if fresh != reading { reading = fresh }
+    }
+
+    private func batchingReading<T>(_ body: () -> T) -> T {
+        readingBatchDepth += 1
+        defer {
+            readingBatchDepth -= 1
+            publishReadingUnlessBatched()
+        }
+        return body()
+    }
+
+    /// Isla is about to see another song: its own Next or Previous (not a
+    /// restart), or Spotify announcing a different song before any report
+    /// names it. `NowPlayingPresenter` starts its hold on this, so the song on
+    /// screen stays drawn, still, rather than wearing the next one's 0:00.
+    let trackChangeExpected = PassthroughSubject<Void, Never>()
     @Published private(set) var position: TimeInterval = 0 {
         didSet { holdLabelSecond() }
     }
@@ -60,7 +137,9 @@ final class MediaController: ObservableObject {
     /// bundle identifiers we happen to know, so a browser tab, a podcast app or
     /// something nobody here has heard of all get their own icon for free — and
     /// none of them needs this app updated to be recognised.
-    @Published private(set) var sourceIcon: NSImage?
+    @Published private(set) var sourceIcon: NSImage? {
+        didSet { publishReadingUnlessBatched() }
+    }
     /// Whether the player accepts skipping at all. A browser tab playing one
     /// video registers no handler for it — the command leaves and nothing
     /// happens — so the buttons go dim rather than dead, the way the system's
@@ -453,8 +532,6 @@ final class MediaController: ObservableObject {
     private var musicStateObserver: (any NSObjectProtocol)?
 
     private var ticker: Timer?
-    /// Deferred blanking of a cover whose replacement is still in flight.
-    private var blankArtwork: Task<Void, Never>?
     private var observers: [Any] = []
     /// Whether the panel is open — the ticker below runs only then.
     private var isActive = false
@@ -635,6 +712,7 @@ final class MediaController: ObservableObject {
         guard pendingSeek == nil else { return }
         if broadcastNamesAnotherSong(info) {
             beginAwaitingTrackChange("Spotify announced another song")
+            trackChangeExpected.send()
             return
         }
         if isAwaitingTrackChange() { return }
@@ -1266,6 +1344,7 @@ final class MediaController: ObservableObject {
         guard transportReachesShownPlayer else { return false }
         trace("cmd next")
         beginAwaitingTrackChange("cmd next")
+        trackChangeExpected.send()
         dispatch(feed: .next, transport: .next)
         return true
     }
@@ -1282,6 +1361,9 @@ final class MediaController: ObservableObject {
             restartExpectedUntil = Date().addingTimeInterval(1.5)
         } else {
             beginAwaitingTrackChange("cmd previous")
+            // Only here: a restart keeps the song, and holding the picture of
+            // a song that is not leaving would only freeze its clock.
+            trackChangeExpected.send()
         }
         dispatch(feed: .previous, transport: .previous)
         return true
@@ -1733,10 +1815,11 @@ final class MediaController: ObservableObject {
         guard let key = track?.key, state.app != .music || mayScript(.music) else { return }
         heldArtwork(state) { [weak self] image in
             guard let self, self.track?.key == key, let image else { return }
-            self.blankArtwork?.cancel()
-            self.blankArtwork = nil
-            self.artworkKey = key
-            self.artwork = image
+            self.batchingReading {
+                self.artworkKey = key
+                self.artwork = image
+                self.coverKey = key
+            }
         }
     }
 
@@ -1802,6 +1885,11 @@ final class MediaController: ObservableObject {
     }
 
     func apply(_ snapshot: NowPlayingFeed.Snapshot) {
+        // Every field below lands as one `reading` when this returns.
+        batchingReading { applyReport(snapshot) }
+    }
+
+    private func applyReport(_ snapshot: NowPlayingFeed.Snapshot) {
         guard !snapshot.isEmpty else { return clear() }
         let positionBefore = position
         let previousTrack = track
@@ -2039,8 +2127,6 @@ final class MediaController: ObservableObject {
         if let queuedTarget { dispatchPlayback(queuedTarget) }
 
         if let data = snapshot.artwork {
-            blankArtwork?.cancel()
-            blankArtwork = nil
             artworkKey = key
             artworkRequestedFor.insert(key)
             decodeArtwork(data, for: key)
@@ -2059,10 +2145,10 @@ final class MediaController: ObservableObject {
             // Blanking it while the report caught up dropped the picture to the
             // placeholder and brought the same one back half a second later
             // (filmed 2026-09-21). Kept, and replaced if the song's own
-            // cover arrives different.
-            blankArtwork?.cancel()
-            blankArtwork = nil
+            // cover arrives different. It is this song's cover now, so the
+            // presenter may swap on it at once (`Reading.hasCover`).
             artworkKey = key
+            coverKey = key
             artworkRequestedFor = []
         } else if artworkKey != key {
             artworkKey = key
@@ -2070,20 +2156,16 @@ final class MediaController: ObservableObject {
             // reset rather than added to, so it holds one key rather than every
             // song of the session.
             artworkRequestedFor = []
-            // Measured: on a skip the new title arrives at +51ms and its
-            // artwork at +68ms, in the very next line. Blanking the moment the
-            // title changes therefore buys nothing and costs two crossfades —
-            // old cover to skeleton, skeleton to new cover — where one would
-            // do, which is most of what makes a skip feel slow. Waiting out
-            // that gap first collapses it to a single swap; a track that
-            // genuinely has no cover still falls back to the skeleton, just
-            // late enough that nobody sees a flash.
-            blankArtwork?.cancel()
-            blankArtwork = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(180))
-                guard !Task.isCancelled else { return }
-                self?.artwork = nil
-            }
+            // A different song's cover is not this one's, so it comes down at
+            // once. It used to wait 180 ms first, on the measurement that the
+            // new cover usually lands within 68 ms and one crossfade beats two;
+            // but the title had already changed, so the new title sat over the
+            // old cover for those 180 ms, then over the placeholder, then the
+            // new cover (owner, 2026-10-25). Hiding that gap is now
+            // `NowPlayingPresenter`'s job, which keeps the whole old song drawn
+            // until the new one's title and cover can be swapped in together;
+            // this field only ever says what is true.
+            if artwork != nil { artwork = nil }
         }
     }
 
@@ -2136,9 +2218,8 @@ final class MediaController: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let image = Self.artworkImage(data) else {
                 // An undecodable payload must not leave the previous track's
-                // cover standing: the deferred blank was already cancelled on
-                // the strength of this data existing, and no later snapshot
-                // for this track will schedule another one.
+                // cover standing: no later snapshot for this track will take it
+                // down.
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.artworkKey == key else { return }
                     self.artwork = nil
@@ -2147,7 +2228,13 @@ final class MediaController: ObservableObject {
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.artworkKey == key else { return }
-                self.artwork = image
+                // One reading, picture and owner together: a reading with the
+                // new picture still owned by the old song would read as "not
+                // in yet" for a turn.
+                self.batchingReading {
+                    self.artwork = image
+                    self.coverKey = key
+                }
             }
         }
     }
@@ -2193,6 +2280,10 @@ final class MediaController: ObservableObject {
     }
 
     private func clear() {
+        batchingReading { clearReport() }
+    }
+
+    private func clearReport() {
         // The helper publishes an empty record every two seconds whether or not
         // anything is playing, so this runs forever on an idle Mac. `@Published`
         // does not compare before firing, so writing nil over nil still
@@ -2204,8 +2295,6 @@ final class MediaController: ObservableObject {
         }
         activeApp = nil
         track = nil
-        blankArtwork?.cancel()
-        blankArtwork = nil
         artwork = nil
         artworkKey = nil
         // The session is gone, so the next one has earned a fresh ask — this is
@@ -2525,7 +2614,7 @@ final class MediaController: ObservableObject {
     /// request cost the song its cover for as long as it played. Two tries
     /// per song now: the next refresh retries a failure, and a cover that
     /// truly does not exist is not polled. Whatever `apply` decided about the
-    /// old cover — kept for an album-mate, or blanked after its 180 ms grace —
+    /// old cover — kept for an album-mate, or taken down at once —
     /// stands until this one lands.
     private func fallbackArtwork(for state: PlayerState, key: String) {
         // Before an attempt is counted: a cover consent kept back is not a
@@ -2540,10 +2629,11 @@ final class MediaController: ObservableObject {
         fallbackArtworkAttempts[key] = attempts + 1
         heldArtwork(state) { [weak self] image in
             guard let self, self.track?.key == key, let image else { return }
-            self.blankArtwork?.cancel()
-            self.blankArtwork = nil
-            self.artworkKey = key
-            self.artwork = image
+            self.batchingReading {
+                self.artworkKey = key
+                self.artwork = image
+                self.coverKey = key
+            }
         }
     }
 

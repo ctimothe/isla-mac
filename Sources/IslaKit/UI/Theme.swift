@@ -389,10 +389,41 @@ enum Theme {
         return high
     }
 
-    // A skip delivers its new title and cover in 68ms, so the crossfade is
-    // what the wait actually is. Short enough to read as immediate, long
-    // enough that the swap is still a fade rather than a cut.
-    static let artworkAnimation = Animation.easeOut(duration: 0.16)
+    /// The one swap of one song for the next, on every surface that draws a
+    /// song: the closed island, the open player, the lyric stage and the lock
+    /// card (`NowPlayingPresenter`, redesign spec §19.6 amendment 2026-10-25).
+    ///
+    /// Each surface used to animate whichever field it was handed, on its own
+    /// curve — the player in two transactions, the island's cover keyed on the
+    /// track and so crossfading the old picture into itself before cutting,
+    /// the lock card not at all (owner, 2026-10-25); the 0.16 s
+    /// `artworkAnimation` those used is withdrawn. One value now changes
+    /// once, and this is how it changes: the cover crossfades from 0.96 of
+    /// itself on a critically damped spring — nothing is thrown, so nothing
+    /// overshoots — and the words crossfade in the same transaction. Apple
+    /// Music's own skip is the reference: the picture settles, the type fades.
+    static let trackSwapSpring = Animation.spring(response: 0.3, dampingFraction: 1.0)
+
+    /// The swap's curve: the spring, or under Reduce Motion the plain fade
+    /// every other motion falls back to — a fade is not motion.
+    static func trackSwap(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : trackSwapSpring
+    }
+
+    /// Where the cover's scale starts on a swap.
+    static let trackSwapCoverScale: CGFloat = 0.96
+
+    /// The incoming cover's transition: from 0.96 and transparent, opacity only
+    /// under Reduce Motion. The outgoing one only fades, so the two are never
+    /// two sizes at once.
+    static func trackSwapCover(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .asymmetric(
+                insertion: .opacity.combined(with: .scale(scale: trackSwapCoverScale)),
+                removal: .opacity
+            )
+    }
 
     /// Motion-aware variants. Reduce Motion asks for the state change to
     /// still happen, just without the travel — so the spring becomes

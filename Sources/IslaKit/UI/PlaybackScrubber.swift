@@ -28,6 +28,10 @@ struct PlaybackScrubber: View {
     var radius: CGFloat
     var track: Color
     var fill: Color
+    /// The panel's presented song (`NowPlayingPresenter`): during a hold the
+    /// bar stays where the leaving song was, at that song's length. Nil draws
+    /// the controller live.
+    var nowPlaying: NowPlayingPresenter.Frame? = nil
     /// The fraction under the pointer or finger once it has rested a moment or
     /// is dragging, nil otherwise. The player's elapsed and remaining labels
     /// read the time at it instead of the clock's.
@@ -55,7 +59,9 @@ struct PlaybackScrubber: View {
     }
 
     private var progress: Double {
-        Self.fraction(scrubbing: scrubbing, position: media.position, duration: media.duration)
+        Self.fraction(
+            scrubbing: scrubbing, position: media.shownPosition(nowPlaying), duration: media.shownDuration(nowPlaying)
+        )
     }
 
     private var previewFraction: Double? {

@@ -1,4 +1,5 @@
 import CoreAudio
+import Combine
 import SwiftUI
 
 /// The media player shown while the Mac is locked: a slim banner that grows into
@@ -81,9 +82,12 @@ struct LockScreenCard: View {
         initialPane: Pane = .player,
         translation: LyricTranslation? = nil,
         tone: LockCardToneModel? = nil,
-        presentation: LockCardPresentation? = nil
+        presentation: LockCardPresentation? = nil,
+        nowPlaying: NowPlayingPresenter? = nil
     ) {
         self.media = media
+        self.nowPlaying = nowPlaying
+        _frame = State(initialValue: nowPlaying?.frame)
         self.lyrics = lyrics
         self.localLookup = localLookup
         let watch = audio ?? AudioWatch()
@@ -95,6 +99,13 @@ struct LockScreenCard: View {
             wrappedValue: presentation ?? LockCardPresentation(restsAsBanner: false, pane: initialPane)
         )
     }
+
+    /// The panel's presenter, for the song the card draws: the same one swap
+    /// per song as the island and the player. Nil — every render and test —
+    /// draws the controller live. Held as a frame in state, since the card is
+    /// the root of its own window and nothing above it redraws it.
+    private let nowPlaying: NowPlayingPresenter?
+    @State private var frame: NowPlayingPresenter.Frame?
 
     @State private var scrubbing: Double?
     /// The row the words were centred on at the last draw, to tell a line
@@ -130,7 +141,7 @@ struct LockScreenCard: View {
 
     private var glassRoute: (samplesBackdrop: Bool, preferDrawn: Bool, solid: Bool) {
         Self.glassRouting(
-            style: style, hasArtwork: media.artwork != nil, reduceTransparency: appearance.reduceTransparency,
+            style: style, hasArtwork: media.shownArtwork(frame) != nil, reduceTransparency: appearance.reduceTransparency,
             increaseContrast: appearance.increaseContrast
         )
     }
@@ -140,7 +151,7 @@ struct LockScreenCard: View {
     /// accessibility settings, read by the panel and the light alike.
     private var material: LockCardMaterial.Decision {
         LockCardMaterial.decision(
-            style: style, hasArtwork: media.artwork != nil, luminance: tone.luminance,
+            style: style, hasArtwork: media.shownArtwork(frame) != nil, luminance: tone.luminance,
             reduceTransparency: appearance.reduceTransparency, increaseContrast: appearance.increaseContrast
         )
     }
@@ -320,7 +331,27 @@ struct LockScreenCard: View {
     private let accent: Color = .white
 
     var body: some View {
-        if let track = media.track {
+        // A zero-sized base so the presenter is listened to with no song on the
+        // card too: a song arriving mid-lock must reach it.
+        ZStack {
+            Color.clear.frame(width: 0, height: 0)
+            card
+        }
+        .onReceive(Self.frames(of: nowPlaying)) { frame = $0 }
+    }
+
+    /// The presenter's frames, each the moment it is published.
+    private static func frames(of presenter: NowPlayingPresenter?) -> AnyPublisher<NowPlayingPresenter.Frame?, Never> {
+        guard let presenter else { return Empty().eraseToAnyPublisher() }
+        return Publishers.CombineLatest(presenter.$presented, presenter.$held)
+            .map { NowPlayingPresenter.Frame(presented: $0, held: $1) as NowPlayingPresenter.Frame? }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
+    @ViewBuilder
+    private var card: some View {
+        if let track = media.shownTrack(frame) {
             stage(track)
                 .frame(width: dimensions.width, height: dimensions.height, alignment: .top)
                 .environment(\.colorScheme, .dark)
@@ -343,7 +374,7 @@ struct LockScreenCard: View {
                 // presented — its window is destroyed at unlock — so nothing here
                 // speaks for a Mac that is not locked, and the island's own peek is
                 // refused over the shield, so the two never say one track twice.
-                .onChange(of: media.track?.key) { _, _ in
+                .onChange(of: media.shownTrack(frame)?.key) { _, _ in
                     // A drag that a new song cut short lets go here (K-017). A
                     // gesture torn down without `onEnded` left the seek bar pinned
                     // to the old finger and the volume mirror deaf until the next
@@ -353,7 +384,7 @@ struct LockScreenCard: View {
                     // The volume drag's end — the held level, the latch, the
                     // mirror — is the model's (`endForTrackChange`).
                     volumeSlider.endForTrackChange()
-                    guard let now = media.track else { return }
+                    guard let now = media.shownTrack(frame) else { return }
                     Announcer.shared.announce(now.artist.isEmpty ? now.title : "\(now.title), \(now.artist)")
                 }
                 // The machine moves on its own while the card stands here — a
@@ -489,7 +520,7 @@ struct LockScreenCard: View {
                 .frame(width: size.width, height: size.height)
                 .opacity(decision.alpha)
                 .accessibilityHidden(true)
-        } else if decision.layer == .coverLight, let image = media.artwork {
+        } else if decision.layer == .coverLight, let image = media.shownArtwork(frame) {
             ZStack {
                 Image(nsImage: image)
                     .resizable()
@@ -528,7 +559,7 @@ struct LockScreenCard: View {
             // cut there, so the whole card behind the type changed in one
             // frame, the most abrupt thing on the lock screen for the people
             // who asked for calm. A fade is not motion (F-055).
-            .animation(Theme.artworkAnimation, value: media.artwork)
+            .animation(Theme.trackSwap(reduceMotion: reduceMotion), value: media.shownArtwork(frame))
         }
     }
 
@@ -607,8 +638,11 @@ struct LockScreenCard: View {
     private func cover(side: CGFloat, radius: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
             Group {
-                if let image = media.artwork {
+                if let image = media.shownArtwork(frame) {
+                    // The shared swap (`Theme.trackSwap`): the card used to cut
+                    // from one cover to the next with no animation at all.
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                        .trackSwapCover(media.shownTrack(frame)?.key, reduceMotion: reduceMotion)
                 } else {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
                         .fill(Theme.cardFill)
@@ -737,7 +771,7 @@ struct LockScreenCard: View {
     // MARK: - The player pane
 
     private var playerBody: some View {
-        let showsBar = Self.showsSeekBar(duration: media.duration)
+        let showsBar = Self.showsSeekBar(duration: media.shownDuration(frame))
         return ZStack(alignment: .topLeading) {
             // Only a card that rests as a banner has one to fold back into; with
             // Rest as Banner off the card shows directly and has no chevron.
@@ -828,7 +862,7 @@ struct LockScreenCard: View {
 
     private var lyricInputs: LyricInputs {
         LyricInputs(
-            position: media.position,
+            position: media.shownPosition(frame),
             precisionSync: media.precisionSync,
             userOffset: lyrics.userOffset,
             trackOffset: lyrics.trackOffset,
@@ -1082,7 +1116,7 @@ struct LockScreenCard: View {
                 ? LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                     trackOffset: lyrics.trackOffset
-                ))
+                ), held: frame?.held)
                 : nil,
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
@@ -1112,7 +1146,7 @@ struct LockScreenCard: View {
 
     @ViewBuilder
     private var sourceBadge: some View {
-        if let icon = media.sourceIcon {
+        if let icon = media.shownSourceIcon(frame) {
             // The icon as the app draws it, the way Control Center badges its
             // Now Playing cover — not cut into a circle with a ring around it,
             // which made every app's icon into the same foreign badge.
@@ -1148,7 +1182,7 @@ struct LockScreenCard: View {
                 ? LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                     trackOffset: lyrics.trackOffset
-                )))
+                ), held: frame?.held))
                 : nil,
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
@@ -1307,16 +1341,18 @@ struct LockScreenCard: View {
 
     private var fraction: Double {
         if let scrubbing { return scrubbing }
-        guard media.duration > 0 else { return 0 }
-        return min(max(media.position / media.duration, 0), 1)
+        let duration = media.shownDuration(frame)
+        guard duration > 0 else { return 0 }
+        return min(max(media.shownPosition(frame) / duration, 0), 1)
     }
 
     /// The elapsed time for the labels: the finger while dragging, otherwise
     /// the clock's steady label position, which never steps back a second
     /// for a small correction.
     private var shownElapsed: TimeInterval {
-        if let scrubbing { return scrubbing * media.duration }
-        return min(media.labelPosition, media.duration)
+        let duration = media.shownDuration(frame)
+        if let scrubbing { return scrubbing * duration }
+        return min(media.shownLabelPosition(frame), duration)
     }
 
     /// The seek row of the board: the elapsed time, the bar, what is left, on one
@@ -1361,7 +1397,7 @@ struct LockScreenCard: View {
             )
             // What is left, which is the question a lock screen gets asked:
             // how long until this is over.
-            Text("-" + formatTime(max(0, media.duration - shownElapsed)))
+            Text("-" + formatTime(max(0, media.shownDuration(frame) - shownElapsed)))
                 .frame(minWidth: 30, alignment: .trailing)
                 .fixedSize()
         }

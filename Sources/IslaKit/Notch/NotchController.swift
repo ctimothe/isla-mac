@@ -472,6 +472,7 @@ final class NotchController {
                 lyrics: vm.lyrics,
                 localLookup: { vm.lyricsCoordinator.localLookup },
                 translation: vm.translation,
+                nowPlaying: vm.nowPlaying,
                 on: screen,
                 presence: lockPresence
             )
@@ -1861,7 +1862,13 @@ final class NotchController {
         // of a hundred milliseconds — the immediate one, the settled echo, the
         // artwork — and peeking per snapshot is the flicker every app in this
         // category has shipped at least once.
-        vm.media.$track
+        //
+        // The presented track's, not the reported one's: the peek used to fire
+        // on the raw key, while the island still showed the old cover or the
+        // placeholder, and so it peeked the new title over the wrong picture.
+        // The presenter swaps title and cover together, once per song, so the
+        // peek fires once, with its cover (owner, 2026-10-25).
+        vm.nowPlaying.$presented
             .map { $0?.key }
             .removeDuplicates()
             .dropFirst()

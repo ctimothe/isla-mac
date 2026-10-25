@@ -210,10 +210,17 @@ final class LyricsCoordinator: ObservableObject {
 
     func start() {
         guard observers.isEmpty else { return }
-        media.$track
-            .combineLatest(media.$duration)
-            .sink { [weak self] track, duration in
-                self?.reconcileTrack(track: track, duration: duration)
+        // One reading per report, not `$track` and `$duration` combined: those
+        // two arrived as two events on every skip — the new title with the old
+        // song's length, then the length — and each rebuilt the identity, so
+        // a skip asked for the new song's words twice, the first time with a
+        // length that was not its own (owner, 2026-10-25). The reading carries
+        // both, assigned together at the end of `MediaController.apply`.
+        media.$reading
+            .map { TrackAndLength(track: $0.track, duration: $0.duration) }
+            .removeDuplicates()
+            .sink { [weak self] reading in
+                self?.reconcileTrack(track: reading.track, duration: reading.duration)
             }
             .store(in: &observers)
         library.$revision
@@ -228,6 +235,13 @@ final class LyricsCoordinator: ObservableObject {
             .sink { [weak self] choice in self?.registerBoundaries(readAhead: choice) }
             .store(in: &observers)
         reconcileTrack(track: media.track, duration: media.duration)
+    }
+
+    /// What the coordinator identifies a recording by, out of a reading: a
+    /// new cover is not a new song.
+    private struct TrackAndLength: Equatable {
+        var track: MediaController.Track?
+        var duration: TimeInterval
     }
 
     func stop() {

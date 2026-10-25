@@ -359,6 +359,35 @@ final class LyricsCoordinatorTests: XCTestCase {
         )
     }
 
+    /// One skip, one lookup, with the new song's own length.
+    ///
+    /// The title was published before the length, so the coordinator built an
+    /// identity from the new title and the old song's length, looked it up,
+    /// and then built and looked up a second one when the length landed
+    /// (owner, 2026-10-25). Both now arrive in one `MediaController.Reading`.
+    func testASkipIsLookedUpOnceWithItsOwnLength() throws {
+        var lookups: [LocalTrackIdentity] = []
+        let library = LocalLyricsLibrary(directory: root, onLookup: { lookups.append($0) })
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+        XCTAssertEqual(lookups.count, 1, "the fixture: the first song, looked up once")
+
+        var next = playingSnapshot()
+        next.title = "Next Song"
+        next.duration = 214
+        next.elapsed = 0.1
+        media.apply(next)
+
+        XCTAssertEqual(lookups.count, 2, "one lookup for the skip, not one per field")
+        XCTAssertEqual(lookups.last?.title, "Next Song")
+        XCTAssertEqual(lookups.last?.duration, 214, "with its own length, never the previous song's")
+    }
+
     /// A skip shows no loading state at all while the answer is quick.
     ///
     /// Every track change used to publish "Finding lyrics…" immediately, so a

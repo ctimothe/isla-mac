@@ -49,6 +49,10 @@ struct MediaPane: View {
     /// toward Music and back scripted Spotify and started CoreAudio
     /// listeners for nothing (R8b review F8).
     var isLive = true
+    /// The song as the panel draws it (`NowPlayingPresenter`): swapped once
+    /// per song, its clock still while the next one loads. Nil outside the
+    /// panel — a test, a render — where the pane draws the controller live.
+    var nowPlaying: NowPlayingPresenter.Frame? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var appearance = SystemAppearance.shared
 
@@ -82,7 +86,7 @@ struct MediaPane: View {
     private var layout: PlayerLayout { PlayerLayout(hasOutputButton: outputButtonOn) }
 
     var body: some View {
-        if let track = media.track {
+        if let track = media.shownTrack(nowPlaying) {
             player(for: track)
                 .onAppear { if isLive { startWatching() } }
                 .onChange(of: isLive) { _, live in if live { startWatching() } }
@@ -116,22 +120,24 @@ struct MediaPane: View {
             coverButton(for: track)
                 .placedAt(layout.cover)
 
-            titleRow(for: track, withArtist: band.isOn)
+            titleRow(for: track, withArtist: band.isOn && !(nowPlaying?.presented?.lyricsCameLate ?? false))
+                .trackSwapText(track.key, reduceMotion: reduceMotion)
                 .placedAt(Self.textBox(
                     x: layout.textLeading, baseline: layout.titleBaseline, width: layout.titleWidth,
                     size: PlayerLayout.titleSize, weight: .medium
                 ))
 
             subtitle(for: track, band: band)
+                .trackSwapText(track.key, reduceMotion: reduceMotion)
                 .placedAt(Self.textBox(
                     x: layout.textLeading, baseline: layout.subtitleBaseline, width: layout.subtitleWidth,
                     size: PlayerLayout.subtitleSize, weight: .semibold
                 ))
 
             CompactEqualizer(
-                isAnimating: media.isPlaying,
+                isAnimating: media.shownIsPlaying(nowPlaying),
                 colors: CompactEqualizerMotion.colors(
-                    isPlaying: media.isPlaying, tint: coverTint,
+                    isPlaying: media.shownIsPlaying(nowPlaying), tint: coverTint,
                     increaseContrast: appearance.increaseContrast
                 )
             )
@@ -144,9 +150,11 @@ struct MediaPane: View {
             progressRow
             controls
         }
-        // Title and artist arrive together, so the column crossfades as one
-        // unit when the track changes.
-        .animation(Theme.artworkAnimation, value: track.key)
+        // Title, artist and cover change together, in one transaction, on the
+        // one swap every surface shares (`Theme.trackSwap`, through
+        // `trackSwapText` and `trackSwapCover`). This pane used to animate the
+        // track and the cover in two transactions on their own curves.
+        //
         // The band trades the artist line for the sung one and moves nothing,
         // so it fades under Reduce Motion too: a fade is not motion.
         .animation(Theme.contentAnimation, value: band.isOn)
@@ -202,12 +210,14 @@ struct MediaPane: View {
         let radius = PlayerLayout.coverRadius
         return Color.clear
             .overlay {
-                if let image = media.artwork {
-                    // No opacity transition: a travelling object that fades
-                    // while it travels is the crossfade the morph replaced.
+                if let image = media.shownArtwork(nowPlaying) {
+                    // No opacity transition on the frame: a travelling object
+                    // that fades while it travels is the crossfade the morph
+                    // replaced. The swap is the picture's, inside the frame.
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                        .trackSwapCover(track.key, reduceMotion: reduceMotion)
                 } else if artworkWaitExpired {
                     // The wait is over and the cover is not coming for this
                     // track (spec §4.7): the well, never a stretched app icon.
@@ -227,8 +237,8 @@ struct MediaPane: View {
             // Paused, the cover is 0.8 of itself (spec §4.2). A colour multiply,
             // not `.brightness`, which is additive and lifts the black of a dark
             // cover towards grey.
-            .colorMultiply(media.isPlaying ? .white : Color(white: Theme.playerPausedCoverBrightness))
-            .animation(Theme.contentAnimation, value: media.isPlaying)
+            .colorMultiply(media.shownIsPlaying(nowPlaying) ? .white : Color(white: Theme.playerPausedCoverBrightness))
+            .animation(Theme.contentAnimation, value: media.shownIsPlaying(nowPlaying))
             // The same shape again for the pointer: `.fill` on a cover that is
             // not square overflows, and the overflow must not take clicks meant
             // for the title beside it (#22).
@@ -238,7 +248,9 @@ struct MediaPane: View {
                     .strokeBorder(Theme.coverEdge, lineWidth: 0.5)
             )
             .morph(NotchContentView.MorphID.artwork, in: morph)
-            .animation(Theme.artworkAnimation, value: media.artwork)
+            // A cover that lands after its song was swapped in fades in under
+            // the same key, on the same curve.
+            .animation(Theme.trackSwap(reduceMotion: reduceMotion), value: media.shownArtwork(nowPlaying))
     }
 
     // MARK: Title and the sung line
@@ -315,7 +327,7 @@ struct MediaPane: View {
         guard Self.drawsLyricBand(setting: lyricBandOn, availability: lyrics.availability, state: lyrics.state),
               case .synced(let lines) = lyrics.state else { return SungLine(isOn: false) }
         let resolution = Self.captionResolution(lines: lines, inputs: LyricInputs(
-            position: media.position,
+            position: media.shownPosition(nowPlaying),
             precisionSync: media.precisionSync,
             userOffset: lyrics.userOffset,
             trackOffset: lyrics.trackOffset,
@@ -348,7 +360,7 @@ struct MediaPane: View {
                                 clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
                                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                                     trackOffset: lyrics.trackOffset
-                                ))
+                                ), held: nowPlaying?.held)
                             )
                         },
                         reduceMotion: reduceMotion,
@@ -391,9 +403,9 @@ struct MediaPane: View {
         }
         // Clipped, so a line turning out never crosses the title above it.
         .clipped()
-        .opacity(media.isPlaying || !band.isOn ? 1 : Theme.playerPausedLyricOpacity)
+        .opacity(media.shownIsPlaying(nowPlaying) || !band.isOn ? 1 : Theme.playerPausedLyricOpacity)
         .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: band.index)
-        .animation(Theme.contentAnimation, value: media.isPlaying)
+        .animation(Theme.contentAnimation, value: media.shownIsPlaying(nowPlaying))
     }
 
     /// The band is drawn when the Lyric Band setting is on *and* the song has
@@ -443,8 +455,9 @@ struct MediaPane: View {
         let timesBox = Self.textBox(
             x: layout.elapsedLeading, baseline: layout.timesTop + 11, width: 60, size: 11, weight: .medium
         )
-        if media.duration > 0 {
-            let shown = previewFraction.map { $0 * media.duration } ?? min(media.labelPosition, media.duration)
+        let duration = media.shownDuration(nowPlaying)
+        if duration > 0 {
+            let shown = previewFraction.map { $0 * duration } ?? min(media.shownLabelPosition(nowPlaying), duration)
             Text(formatTime(shown))
                 .font(Self.timeFont)
                 .foregroundStyle(previewFraction == nil
@@ -452,7 +465,7 @@ struct MediaPane: View {
                 .frame(width: timesBox.width, height: timesBox.height, alignment: .leading)
                 .offset(x: layout.elapsedLeading, y: layout.timesTop)
                 .accessibilityHidden(true)
-            Text("-" + formatTime(max(0, media.duration - shown)))
+            Text("-" + formatTime(max(0, duration - shown)))
                 .font(Self.timeFont)
                 .foregroundStyle(.white.opacity(Theme.playerTimeOpacity))
                 .frame(width: timesBox.width, height: timesBox.height, alignment: .trailing)
@@ -464,6 +477,7 @@ struct MediaPane: View {
                 media: media, width: layout.progress.width, trackHeight: layout.progress.height,
                 radius: PlayerLayout.progressRadius,
                 track: .white.opacity(Theme.playerTrackOpacity), fill: .white.opacity(Theme.playerFillOpacity),
+                nowPlaying: nowPlaying,
                 onPreviewChange: { previewFraction = $0 }
             )
             .placedAt(layout.progress.insetBy(dx: 0, dy: -8))
@@ -541,7 +555,7 @@ struct MediaPane: View {
         }
         TransportGlyphButton(.previous, enabled: media.canSkip) { media.previous() }
             .placedAt(layout.target(.previous), alignment: .center)
-        TransportGlyphButton(.playPause, isPlaying: media.isPlaying) { media.togglePlayPause() }
+        TransportGlyphButton(.playPause, isPlaying: media.shownIsPlaying(nowPlaying)) { media.togglePlayPause() }
             .placedAt(layout.target(.playPause), alignment: .center)
         TransportGlyphButton(.next, enabled: media.canSkip) { media.next() }
             .placedAt(layout.target(.next), alignment: .center)
@@ -897,5 +911,6 @@ extension MediaPane: @MainActor Equatable {
             && lhs.morph == rhs.morph
             && lhs.coverTint.isEqual(rhs.coverTint)
             && lhs.isLive == rhs.isLive
+            && lhs.nowPlaying == rhs.nowPlaying
     }
 }

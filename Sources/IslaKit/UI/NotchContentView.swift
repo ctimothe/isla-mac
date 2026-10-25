@@ -988,7 +988,7 @@ struct NotchContentView: View {
             // browser — by its own icon and name, where the other pages name
             // themselves (owner's review, 2026-10-18). The left of the
             // player's header was empty while the right held the gear.
-            let source = PlayerSourceTitle(name: vm.media.sourceName, icon: vm.media.sourceIcon)
+            let source = PlayerSourceTitle(name: vm.media.sourceName, icon: vm.media.shownSourceIcon(vm.nowPlaying.frame))
             let room = SurfaceHeaderLayout.title(bodyWidth: size.width, notchWidth: notch.width, notchHeight: notch.height)
             SurfaceHeaderTitle(glyph: source.glyph, title: source.title, showsName: source.showsName(room: room.width))
                 .placedAt(room)
@@ -1083,7 +1083,7 @@ struct NotchContentView: View {
             // (see `CompactIslandLayout.peekTextWidth`): the title is what the
             // peek exists to show, and the right wing keeps the equalizer so
             // the island still says whether audio is moving.
-            if vm.isPeeking, let track = vm.media.track {
+            if vm.isPeeking, let track = vm.nowPlaying.presented?.track {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(track.title)
                         .islandFont(.subhead, weight: .semibold)
@@ -1160,8 +1160,9 @@ struct NotchContentView: View {
     ///   the panel.
     /// - The image carries no `.transition(.opacity)` of its own any more. A
     ///   travelling object that fades while it travels is a crossfade wearing a
-    ///   morph's clothes, and the default transition already crossfades one
-    ///   album into the next when the track changes.
+    ///   morph's clothes. One album gives way to the next through the shared
+    ///   swap on the picture inside (`trackSwapCover`), keyed on the presented
+    ///   song, never on this frame.
     private func compactArtwork(morph: Namespace.ID?) -> some View {
         // 22 pt at radius 5 resting (16 at 4 on the short island), 34 at 8
         // while a track peeks: one cover in three sizes, and the frame
@@ -1173,11 +1174,16 @@ struct NotchContentView: View {
         return Color.clear
             .overlay {
                 Group {
-                    if let artwork = vm.media.artwork {
+                    // The presented song's cover, keyed on the presented song:
+                    // the two change in one transaction. Keyed on the live
+                    // track, the key changed a report before the picture did,
+                    // so a skip crossfaded the old cover into itself and then
+                    // cut to the new one (owner, 2026-10-25).
+                    if let artwork = vm.nowPlaying.presented?.artwork {
                         Image(nsImage: artwork)
                             .resizable()
                             .scaledToFill()
-                            .id(vm.media.track?.key)
+                            .trackSwapCover(vm.nowPlaying.presented?.key, reduceMotion: reduceMotion)
                     } else {
                         // A well and a note (spec §3.2): the left wing is never
                         // a hole, and never a second, different kind of cover.
@@ -1189,6 +1195,9 @@ struct NotchContentView: View {
                             }
                     }
                 }
+                // A cover landing after its song was swapped in fades in on
+                // the swap's curve, under the same key.
+                .animation(Theme.trackSwap(reduceMotion: reduceMotion), value: vm.nowPlaying.presented?.artwork)
                 // Paused darkens the cover to 0.55 of itself. It was 0.58
                 // opacity, which let a bright wallpaper through the picture —
                 // a paused cover on a pale desktop read as a ghost — where a
@@ -1399,7 +1408,8 @@ struct NotchContentView: View {
                 audio: vm.playerAudio,
                 spotify: vm.spotifyAccount,
                 coverTint: vm.coverTint.nsColor,
-                isLive: live
+                isLive: live,
+                nowPlaying: vm.nowPlaying.frame
             )
             // Skipped on a pass that changes nothing it draws: during a page
             // swipe this body is re-run on every frame, and without it so was
@@ -1428,7 +1438,8 @@ struct NotchContentView: View {
                 hideLyrics: { withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.hideLyrics() } },
                 audio: vm.playerAudio,
                 translation: vm.translation,
-                coverTint: vm.coverTint.nsColor
+                coverTint: vm.coverTint.nsColor,
+                nowPlaying: vm.nowPlaying.frame
             )
         case .tray:
             ShelfPane(shelf: vm.shelf, clear: vm.shelfClear, bodyWidth: bodyWidth)

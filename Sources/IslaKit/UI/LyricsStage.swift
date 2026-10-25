@@ -96,6 +96,11 @@ struct LyricsStage: View {
     /// idle one — which translates nothing — everywhere a stage is drawn on its
     /// own. Observed, so the rows arrive together the moment its batch does.
     @ObservedObject var translation: LyricTranslation = .idle
+    /// The clock of a song held on screen while the next one loads
+    /// (`NowPlayingPresenter`): the lines stay where they were rather than
+    /// resolving the held song's words at the next song's position. Nil runs
+    /// the controller's clock, as everywhere outside the panel.
+    var heldClock: NowPlayingPresenter.HeldClock? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// False once the reader has scrolled away under their own hand — a
@@ -148,7 +153,7 @@ struct LyricsStage: View {
         )
     }
 
-    private var now: TimeInterval { media.position + lead }
+    private var now: TimeInterval { (heldClock?.position ?? media.position) + lead }
 
     private var wordTimingEnabled: Bool {
         LyricsPresentation.usesWordTiming(
@@ -160,7 +165,7 @@ struct LyricsStage: View {
 
     private var inputs: LyricInputs {
         LyricInputs(
-            position: media.position, precisionSync: media.precisionSync,
+            position: heldClock?.position ?? media.position, precisionSync: media.precisionSync,
             userOffset: lyrics.userOffset, trackOffset: lyrics.trackOffset,
             wordTiming: wordTimingEnabled
         )
@@ -687,7 +692,7 @@ struct LyricsStage: View {
             end: LyricSweep.end(of: index, in: lines),
             // Only the sung row reads the clock per frame; every other row is
             // lit whole or not at all.
-            clock: isCurrent ? LyricSweep.frameClock(media: media, lead: lead) : nil,
+            clock: isCurrent ? LyricSweep.frameClock(media: media, lead: lead, held: heldClock) : nil,
             // The stage reads at 22 bold, the sung line at full white and never
             // larger (decision 6). A long line wraps to a second and only past
             // that is cut at its tail, its full words still what VoiceOver

@@ -980,8 +980,12 @@ final class NotchViewModel: ObservableObject {
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
     /// The colour the cover lends the island's equalizer (spec §3.4). The
-    /// fallback until a cover has been read, and for none.
+    /// fallback until a cover has been read, and for none. The presented
+    /// song's, so the bars recolour in the swap rather than a step after it.
     @Published private(set) var coverTint = CoverTint.fallback
+    /// What every surface draws of the song, swapped once per song
+    /// (`NowPlayingPresenter`). Owned here, beside the tint it now carries.
+    let nowPlaying: NowPlayingPresenter
     /// The machine's audio state for the player's volume slider and Output
     /// menu. Started and stopped by the Music pane while it is on screen — a
     /// listener on CoreAudio costs nothing while nobody looks — and *quiet*
@@ -1010,6 +1014,7 @@ final class NotchViewModel: ObservableObject {
         self.localLyricsLibrary = stores.localLyricsLibrary
         self.lyricsCoordinator = stores.lyricsCoordinator
         self.privacy = stores.privacy
+        self.nowPlaying = NowPlayingPresenter.live(media: stores.media, lyrics: stores.lyrics)
 
         // The panel header reads through to the stores — counters, the source
         // name, the equalizer. Nested ObservableObjects do not propagate on
@@ -1037,10 +1042,15 @@ final class NotchViewModel: ObservableObject {
         // invalidated the whole view graph at 4 Hz on the notes tab, and the
         // helper's idle heartbeat — an empty snapshot every two seconds
         // forever — invalidated it at 0.5 Hz with nothing playing at all.
+        //
+        // The track and its cover come from the presenter, not the controller:
+        // the shell draws the presented song, which changes once per skip
+        // where the controller's fields change once per field. The held clock
+        // too, which the player is handed by value.
         Publishers.MergeMany(
-            media.$track.map { $0?.key }.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            nowPlaying.$presented.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            nowPlaying.$held.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
             media.$isPlaying.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
-            media.$artwork.removeDuplicates { $0 === $1 }.map { _ in () }.eraseToAnyPublisher(),
             // The open header names the app the audio belongs to, and that name
             // can arrive a snapshot late — the pid→name lookup fails on the
             // first poll after a player launches and succeeds on the next —
@@ -1086,12 +1096,15 @@ final class NotchViewModel: ObservableObject {
             .sink { [weak self] selection in self?.shelfSelectionChanged(to: selection) }
             .store(in: &cancellables)
 
-        // One tint per artwork. A cover already read, and no cover at all, are
-        // answered on the spot; a new one is read off the main actor and
-        // lands a frame or two after the cover itself, which is never seen —
-        // the equalizer takes a colour change as a fade.
-        media.$artwork.removeDuplicates { $0 === $1 }
-            .sink { [weak self] image in self?.updateCoverTint(for: image) }
+        // One tint per artwork, read by the presenter before it swaps a cover
+        // in, so the bars take the new colour in the same swap. It used to be
+        // read here after the cover had already landed: a third step on every
+        // skip, after the title and the cover (owner, 2026-10-25).
+        nowPlaying.$presented.map { $0?.tint ?? CoverTint.fallback }.removeDuplicates()
+            .sink { [weak self] tint in
+                guard let self, self.coverTint != tint else { return }
+                self.coverTint = tint
+            }
             .store(in: &cancellables)
 
         // A pause that settles folds the island into the notch; playing again,
@@ -1140,21 +1153,6 @@ final class NotchViewModel: ObservableObject {
                     self.objectWillChange.send()
                 }
                 .store(in: &cancellables)
-        }
-    }
-
-    private func updateCoverTint(for image: NSImage?) {
-        if let known = CoverTint.cachedTint(for: image) {
-            if coverTint != known { coverTint = known }
-            return
-        }
-        Task { [weak self] in
-            let tint = await CoverTint.resolve(image)
-            // Only if this is still the cover on show: a skip can overtake a
-            // slow read, and a stale colour on the new song's bars is worse than
-            // the fallback it replaces.
-            guard let self, self.media.artwork === image, self.coverTint != tint else { return }
-            self.coverTint = tint
         }
     }
 

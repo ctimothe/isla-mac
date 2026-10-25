@@ -2701,6 +2701,53 @@ squircle on macOS 26 and later, so every player stands the same height.
 `PlayerLayoutTests` (`testTheCoverSitsEvenlyBetweenTheHeaderIconsAndTheTimes`,
 `testTheTitleAndArtistAreJoinedByADash`, `testALongTitleScrollsAndAShortOneStandsStill`).
 
+> **Amended 2026-10-25 (owner: a skip swaps once).** After a skip "the contents
+> are loading and they are not even consistent — they should load at once, all
+> with a clean smooth animation that shouldn't feel like it was loading at
+> all". Each field of a skip reached the surfaces on its own: the new title
+> over the old cover for up to 180 ms, then the placeholder, then the new
+> cover; the equalizer's tint a step later; the artist jumping between the
+> subtitle and the title row twice as the lyric slot went loading and then
+> ready; the lyrics coordinator looking the song up twice, the first time
+> with the previous song's length; the lock card cutting. Isla cannot delay
+> the other app's playback; it swaps the picture once.
+>
+> - **One presented value.** Every surface that draws a song — the closed
+>   island and its peek, the player, the lyrics stage, the lock card — draws
+>   one value (`NowPlayingPresenter`, owned by the view model beside the
+>   cover tint): the track, its cover, the cover's tint, its length, its app
+>   icon and whether its lyrics came late. The position and the play state
+>   stay live, except during a hold.
+> - **The hold.** It starts at Isla's own Next or Previous (not a restart),
+>   at Spotify announcing another song, or at the first report naming a new
+>   one; never for a restart, the first song, or nothing playing, which swap
+>   at once. While it stands the previous song stays drawn with its clock
+>   still, and the lyric store keeps that song's words.
+> - **The swap.** When the new song's title, artist and own cover are in, with
+>   the cover's tint read — or the album's cover is carried to the next song
+>   on the same album — the song swaps in, with its lyrics if they are already
+>   settled (a local file, a cached answer). At the latest **350 ms** after the
+>   new title, and never later than **700 ms** after the hold began, however
+>   many titles arrive in it. A skip during the hold follows the newest song;
+>   the one in between is never drawn.
+> - **Late parts.** A cover not in by the deadline swaps in as the placeholder
+>   and fades in under the same key when it lands (the 2.5 s missing-cover
+>   well stays). Lyrics slower than the swap leave the artist in the subtitle,
+>   and only the subtitle turns to the sung line when they arrive; the title
+>   row does not change.
+> - **One animation** (`Theme.trackSwap`): the cover crossfades in from 0.96
+>   of its size on a critically damped spring (response 0.3), the words
+>   crossfade in the same transaction; under Reduce Motion, opacity only. The
+>   key is on the picture inside the cover's frame, never the frame the open
+>   and close morph carries. The new-track peek (§3.5) keys on the presented
+>   song and fires once per song, with its cover.
+> - The controller reports a song's title and length together, so the lyrics
+>   coordinator looks each skip up once, and takes a different song's cover
+>   down at once; the 180 ms blank delay is withdrawn.
+>
+> `NowPlayingPresenterTests`, `LyricsCoordinatorTests.testASkipIsLookedUpOnceWithItsOwnLength`,
+> `FallbackRouteTests.testAFallbackSkipKeepsTheOldSongDrawnUntilTheSwap`. Hardware: MR-H9.
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the

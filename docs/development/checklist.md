@@ -2492,3 +2492,13 @@ Mac model and macOS version when run):
   load 57) did not move beyond that noise. The panel-open capsule
   (`hud-strip-repeat`) costs the same as the pill, 123 to 186 ms. Hardware run
   owed.
+- [ ] **MR-H9** A skip swaps once (spec §19.6, amended 2026-10-25). Skip ten
+  times in Spotify and ten in Music, from Isla and from the player itself,
+  fast (several skips a second) and slow, on a fast network and a throttled
+  one (Network Link Conditioner, 3G): one swap per song on the shut island,
+  the open player, the lyrics stage and the lock card — title, artist, cover
+  and the equalizer's colour together, nothing in between, never a new title
+  over the old cover; a song with no cover arrives as the placeholder and the
+  cover fades in; the lyrics are never of the wrong song, and with slow online
+  lyrics only the subtitle turns to the sung line. Under Reduce Motion the
+  swap is a fade. Previous a few seconds in restarts without a hold.

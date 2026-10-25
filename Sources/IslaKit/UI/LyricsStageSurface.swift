@@ -110,6 +110,10 @@ struct LyricsStageSurface: View {
     @ObservedObject var audio: AudioWatch = MediaPane.quietAudio()
     @ObservedObject var translation: LyricTranslation = .idle
     var coverTint: NSColor = CoverTint.fallback.nsColor
+    /// The song as the panel draws it (`NowPlayingPresenter`), nil outside
+    /// the panel, where the stage draws the controller live.
+    var nowPlaying: NowPlayingPresenter.Frame? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(NotchViewModel.volumeAndOutputKey) private var outputButtonOn = true
     /// The line a bound file was refused at, read when the state says it was.
     @State private var invalidFileLine: Int?
@@ -148,7 +152,8 @@ struct LyricsStageSurface: View {
                 invalidLine: invalidFileLine,
                 dismiss: hideLyrics,
                 readingCentre: StageLayout.readingCentre,
-                translation: translation
+                translation: translation,
+                heldClock: nowPlaying?.held
             )
             .placedAt(layout.lines, alignment: .topLeading)
 
@@ -197,7 +202,7 @@ struct LyricsStageSurface: View {
             .placedAt(layout.cover)
             .accessibilityHidden(true)
 
-        if let track = media.track {
+        if let track = media.shownTrack(nowPlaying) {
             Text(track.title)
                 .font(.system(size: 13, weight: .semibold))
                 .tracking(Theme.tracking(forSize: 13))
@@ -205,6 +210,7 @@ struct LyricsStageSurface: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(track.title)
+                .trackSwapText(track.key, reduceMotion: reduceMotion)
                 .placedAt(layout.title)
             Text(track.artist)
                 .font(.system(size: 12, weight: .regular))
@@ -213,6 +219,7 @@ struct LyricsStageSurface: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(track.artist)
+                .trackSwapText(track.key, reduceMotion: reduceMotion)
                 .placedAt(layout.artist)
         }
 
@@ -224,7 +231,7 @@ struct LyricsStageSurface: View {
         ) { media.previous() }
             .placedAt(layout.transport(.previous))
         TransportGlyphButton(
-            .playPause, isPlaying: media.isPlaying, hitTarget: StageLayout.Transport.playPause.hitTarget
+            .playPause, isPlaying: media.shownIsPlaying(nowPlaying), hitTarget: StageLayout.Transport.playPause.hitTarget
         ) { media.togglePlayPause() }
             .placedAt(layout.transport(.playPause))
         TransportGlyphButton(
@@ -255,10 +262,11 @@ struct LyricsStageSurface: View {
     private var cover: some View {
         Color.clear
             .overlay {
-                if let image = media.artwork {
+                if let image = media.shownArtwork(nowPlaying) {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                        .trackSwapCover(media.shownTrack(nowPlaying)?.key, reduceMotion: reduceMotion)
                 } else {
                     MissingCoverWell(cornerRadius: StageLayout.coverRadius, noteSize: 16)
                 }
@@ -268,7 +276,8 @@ struct LyricsStageSurface: View {
                 RoundedRectangle(cornerRadius: StageLayout.coverRadius, style: .continuous)
                     .strokeBorder(Theme.coverEdge, lineWidth: 0.5)
             )
-            .animation(Theme.artworkAnimation, value: media.artwork)
+            // The swap's curve, for a cover landing after its song.
+            .animation(Theme.trackSwap(reduceMotion: reduceMotion), value: media.shownArtwork(nowPlaying))
     }
 
     /// The progress: the cover's tint over white 0.18, 3 pt at rest.
@@ -282,11 +291,12 @@ struct LyricsStageSurface: View {
     /// length keeps the static bar: there is nothing to seek in.
     @ViewBuilder
     private func progress(_ layout: StageLayout) -> some View {
-        if media.duration > 0 {
+        if media.shownDuration(nowPlaying) > 0 {
             PlaybackScrubber(
                 media: media, width: layout.progress.width, trackHeight: layout.progress.height,
                 radius: StageLayout.progressRadius,
-                track: Theme.stageTrack, fill: Color(nsColor: coverTint)
+                track: Theme.stageTrack, fill: Color(nsColor: coverTint),
+                nowPlaying: nowPlaying
             )
             .placedAt(layout.progress.insetBy(dx: 0, dy: -StageLayout.progressGrabInset))
         } else {

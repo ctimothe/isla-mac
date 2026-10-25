@@ -236,7 +236,41 @@ final class LyricsStore: ObservableObject {
         return version
     }
 
+    /// What the coordinator said while the surfaces were held, waiting to be
+    /// drawn with the song it belongs to.
+    private var heldAvailability: LyricsAvailability?
+    /// Whether the words on screen are held for the song still drawn.
+    private(set) var holdsPresentation = false
+
+    /// Keeps the words on screen while `NowPlayingPresenter` keeps the song on
+    /// screen. The coordinator starts on the next song the moment it is
+    /// reported, which is right for the lookup — a local or cached answer is
+    /// then ready by the time the picture swaps — and wrong for the surfaces:
+    /// under the old title they would draw the next song's words, or its
+    /// loading state, for as long as the hold lasts (owner, 2026-10-25: lyrics
+    /// never of the wrong song). Only what is drawn waits; the coordinator's
+    /// own `availability` and the lookups do not.
+    func holdPresentation() {
+        holdsPresentation = true
+    }
+
+    /// Draws whatever arrived during the hold, in the same turn as the swap.
+    func releasePresentation() {
+        holdsPresentation = false
+        guard let held = heldAvailability else { return }
+        heldAvailability = nil
+        present(held)
+    }
+
+    /// What the surfaces will draw once released: the held answer, or the one
+    /// on screen.
+    var pendingAvailability: LyricsAvailability { heldAvailability ?? availability }
+
     func present(_ availability: LyricsAvailability) {
+        if holdsPresentation {
+            heldAvailability = availability
+            return
+        }
         self.availability = availability
         if case .ready(let timeline) = availability {
             timingGranularity = timeline.granularity
