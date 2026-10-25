@@ -578,6 +578,7 @@ struct NotchContentView: View {
         .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
         .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.isPeeking)
         .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.ambient)
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.confirmation)
         // The update alert grows out of the notch and folds back on the same
         // spring as the other expanded alerts. Keyed to its version, not to
         // the offer: the installer's progress redraws inside it and moves no
@@ -655,7 +656,7 @@ struct NotchContentView: View {
                 // removed, so the cover's morph and the fold described above
                 // are exactly as they were when the moment ends.
                 compactMediaHeader(morph: travellingMorph)
-                    .opacity(vm.ambient == nil && vm.hud == nil && vm.updateOffer == nil ? 1 : 0)
+                    .opacity(vm.ambient == nil && vm.hud == nil && vm.confirmation == nil && vm.updateOffer == nil ? 1 : 0)
                     // Faded under the update alert, and out of VoiceOver's
                     // way with it: the alert's container lets its own
                     // children through, and a song nobody can see is not one.
@@ -667,6 +668,11 @@ struct NotchContentView: View {
                 case .hud(let hud):
                     hudHeader(hud)
                         .transition(Theme.hudArrival(reduceMotion: reduceMotion))
+                case .confirmation(let confirmation):
+                    // A compact activity, and it arrives as one: the
+                    // charger's look, which under Reduce Motion is a fade.
+                    confirmationHeader(confirmation)
+                        .transition(Theme.compactArrival(reduceMotion: reduceMotion))
                 case .ambient(let ambient):
                     ambientHeader(ambient)
                         .transition(ambientArrival(ambient))
@@ -746,6 +752,7 @@ struct NotchContentView: View {
     /// it does not name one.
     private var closedIslandValue: String {
         if !vm.isLockedPresentation, let hud = vm.hud { return hud.accessibilityLabel }
+        if !vm.isLockedPresentation, let confirmation = vm.confirmation { return confirmation.accessibilityLabel }
         if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
         if !vm.isLockedPresentation, let offer = vm.updateOffer { return localized("Isla %@ is ready", offer.version) }
         if !vm.isLockedPresentation, case .shelf(let count) = vm.activity { return localized("Shelf, %d items", count) }
@@ -765,6 +772,31 @@ struct NotchContentView: View {
         }
         guard let detail, !detail.isEmpty else { return surface.title }
         return "\(surface.title), \(detail)"
+    }
+
+    /// A confirmation on the shut island (`IslandConfirmation`): its symbol
+    /// in the left wing where the charger's word starts, its words in the
+    /// right ending where the charger's battery ends — both white on the
+    /// island's black, nothing under the notch.
+    private func confirmationHeader(_ confirmation: IslandConfirmation) -> some View {
+        let scale = CompactIslandLayout.glyphScale(height: size.height)
+        return HStack(spacing: 0) {
+            Image(systemName: confirmation.symbol)
+                .font(.system(size: ConfirmationLayout.symbolSize * scale, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .padding(.leading, ConfirmationLayout.leadingInset)
+            Spacer(minLength: 0)
+            Text(confirmation.title)
+                .font(.system(size: ConfirmationLayout.titleSize, weight: .medium))
+                .tracking(Theme.tracking(forSize: ConfirmationLayout.titleSize))
+                .foregroundStyle(Color.white.opacity(ConfirmationLayout.titleOpacity))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.trailing, ConfirmationLayout.trailingInset)
+        }
+        .frame(width: size.width, height: size.height)
+        // No element of its own: like the other moments it is the island's
+        // value (`closedIslandValue`), and the act already said it.
     }
 
     /// The charger or the headphones on the island.
@@ -1012,7 +1044,7 @@ struct NotchContentView: View {
                     .placedAt(SurfaceHeaderLayout.removeAll(bodyWidth: size.width, width: width, notchHeight: notch.height))
                     .transition(.opacity)
             }
-            gearButton.placedAt(gear)
+            moreButton.placedAt(gear)
         case .translate:
             if translateKeepsHistory {
                 HeaderToolButton(
@@ -1021,20 +1053,35 @@ struct NotchContentView: View {
                 .placedAt(SurfaceHeaderLayout.history(bodyWidth: size.width, notchHeight: notch.height))
                 .transition(.opacity)
             }
-            gearButton.placedAt(gear)
-        case .player, .stage, .clipboard, .settings:
-            gearButton.placedAt(gear)
+            moreButton.placedAt(gear)
+        case .player, .stage, .clipboard:
+            moreButton.placedAt(gear)
+        case .settings:
+            closeSettingsButton.placedAt(gear)
         case .drop, .welcome:
             EmptyView()
         }
     }
 
-    /// The gear (spec §19.16), where the Tools button stood: Settings from a
-    /// page or the stage on the island's spring, and on Settings a close
-    /// button, the way back (`HeaderGear`). It carries the update badge Tools'
-    /// own gear carried, so an update waiting shows on every page.
-    private var gearButton: some View {
-        let gear = HeaderGear(onSettings: vm.presented == .settings, hasUpdate: updates.hasUpdate)
+    /// The ⋯ on every page and the stage (2026-10-25), in the well the gear
+    /// had (spec §19.16): the page's own actions and Settings…, each on the
+    /// island's spring as the gear's press was. It carries the update badge
+    /// the gear carried, so an update waiting still shows on every page.
+    private var moreButton: some View {
+        HeaderMoreButton(
+            hasUpdate: updates.hasUpdate,
+            items: { vm.moreMenuItems(panelIsKey: $0) },
+            perform: { kind in
+                withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.performMoreMenu(kind) }
+            }
+        )
+        .transition(.opacity)
+    }
+
+    /// Settings' X, the way back to the page or stage it was opened from
+    /// (`HeaderGear`), in the same well the ⋯ stands in everywhere else.
+    private var closeSettingsButton: some View {
+        let gear = HeaderGear(onSettings: true, hasUpdate: updates.hasUpdate)
         return HeaderToolButton(symbol: gear.symbol, label: gear.label, badge: gear.badge) {
             withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.pressGear() }
         }

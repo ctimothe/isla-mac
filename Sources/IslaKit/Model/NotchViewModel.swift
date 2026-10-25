@@ -61,6 +61,9 @@ final class NotchViewModel: ObservableObject {
             }
             guard isOpen, !oldValue else { return }
             ambient = nil
+            // A confirmation answers an act on a shut island; the panel that
+            // opened over it is where the person is now, and it shows its own.
+            confirmation = nil
             isPeeking = false
             endCollectedMoment()
             // The pop-up too: the panel has the player's own slider, and a
@@ -113,6 +116,25 @@ final class NotchViewModel: ObservableObject {
     /// The volume or brightness pop-up, while it is up (spec §12). The highest
     /// of the island's alerts: see `IslandActivity`.
     @Published var hud: HUDMoment?
+    /// A confirmation of the person's own act, while it is up: rank 5, below
+    /// the pop-up. The controller decides when it shows (`IslandConfirmation`).
+    @Published var confirmation: IslandConfirmation?
+    /// An act asked for a confirmation. The controller's, which puts it
+    /// through the island's alert queue.
+    var onConfirmation: ((IslandConfirmation) -> Void)?
+
+    /// Asks the island to confirm an act, and says it once to VoiceOver when
+    /// the act's own path has not already (`announcesAtTheAct`). Spoken here,
+    /// at the act, and never when the pill draws: whether the pill is drawn
+    /// depends on the panel and the second it may wait, and the person on
+    /// VoiceOver is owed the answer either way — as the volume pop-up's level
+    /// is spoken over an open panel that draws nothing.
+    func confirm(_ kind: IslandConfirmation.Kind) {
+        let confirmation = IslandConfirmation(kind)
+        if confirmation.announcesAtTheAct { Announcer.shared.announce(confirmation.title) }
+        onConfirmation?(confirmation)
+    }
+
     /// The update alert, while it is up (spec §19.5 f): rank 9, below the
     /// pop-up and the charger or headphones, above the peek. The controller
     /// decides when it shows; its buttons report through `onUpdateAction`.
@@ -134,7 +156,7 @@ final class NotchViewModel: ObservableObject {
     /// the Shelf, else the bare notch.
     var activity: IslandActivity {
         IslandActivity.current(
-            hud: hud, ambient: ambient, update: updateOffer, isPeeking: isPeeking,
+            hud: hud, confirmation: confirmation, ambient: ambient, update: updateOffer, isPeeking: isPeeking,
             musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount
         )
     }
@@ -1112,7 +1134,15 @@ final class NotchViewModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        importLocalLyricsFile(at: url, for: identity, from: origin)
+        // A main-actor turn later, not straight out of `runModal`: the picker
+        // is still on screen until the run loop has had a pass to take it
+        // down, and an import answered at once drew its confirmation (and any
+        // refusal's notice) under a sheet that was about to vanish — the
+        // island said "Lyrics imported" to nobody (MR-7, §10.4).
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.importLocalLyricsFile(at: url, for: identity, from: origin)
+        }
     }
 
     /// The import itself, apart from the panel so it can be tested.
@@ -1120,6 +1150,7 @@ final class NotchViewModel: ObservableObject {
         lyricsNotice = nil
         do {
             try lyricsCoordinator.importLocalFile(at: url, for: identity)
+            confirm(.lyricsImported)
         } catch {
             report(Self.importFailure(error), from: origin)
         }
@@ -1467,6 +1498,10 @@ final class NotchViewModel: ObservableObject {
         switch activity {
         case .hud(let hud):
             return Self.hudBodySize(hud, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+        case .confirmation(let confirmation):
+            return ConfirmationLayout.bodySize(
+                title: confirmation.title, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
+            )
         case .ambient(let ambient):
             return Self.ambientBodySize(ambient, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .update:
@@ -2290,8 +2325,9 @@ final class NotchViewModel: ObservableObject {
         return Surface.pages[next]
     }
 
-    /// The gear (§19.16): Settings from a page or the stage, and from Settings
-    /// — where it is the close button — back to where Settings was opened
+    /// The corner well (§19.16): Settings from a page or the stage — the ⋯
+    /// menu's Settings… since 2026-10-25, the gear before it — and from
+    /// Settings, where it is the X, back to where Settings was opened
     /// from. Going back to a page is a page turn, so it does not take the
     /// keyboard.
     func pressGear() {
@@ -2406,6 +2442,11 @@ final class NotchViewModel: ObservableObject {
             // list: the panel stays, on what is left.
             guard clipboard.copy(listing.items[index]) else { return .handled }
             Announcer.shared.announce(localized("Copied"))
+            // Return copies and closes in one press, so the row's own tick is
+            // gone with the panel: the island, once shut, is the one place
+            // left to say it. Posted now, with the panel still open, it waits
+            // its second in the queue and shows as the panel folds.
+            confirm(.copied)
             return .handledAndClose
         }
     }
@@ -2489,7 +2530,13 @@ final class NotchViewModel: ObservableObject {
     /// are never a Shelf card, and refusing them mid-drag would lose them.
     func acceptDrop(urls: [URL]) -> Bool {
         if ShelfDragSource.isDraggingOut { return false }
-        return accept(urls: urls)
+        guard accept(urls: urls) else { return false }
+        // Over a drag that opened the panel, the drop surface folds back into
+        // the island and this shows there; over a panel that was already
+        // open, the tray it returns to shows the file, and this lapses in
+        // the queue — one answer to one drop.
+        confirm(.addedToShelf)
+        return true
     }
 
 }

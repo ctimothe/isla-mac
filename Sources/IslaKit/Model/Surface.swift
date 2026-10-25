@@ -64,13 +64,24 @@ extension NotchViewModel {
         /// and Clipboard, whose search field types from the first key (§19.8).
         var takesKeyboard: Bool { self == .clipboard || self == .translate }
 
-        /// The surfaces that carry the gear at (`bw − 46`, 6) (§19.16): every
-        /// page and the stage, where the Tools button stood, and Settings,
-        /// where it is the close button that goes back (`HeaderGear`).
-        var hasGear: Bool {
+        /// What stands in the header's corner well at (`bw − 46`, 6) (§19.16).
+        enum HeaderCorner: Equatable {
+            /// The ⋯ and its menu: the surface's own actions, then Settings…
+            /// (`HeaderMoreMenu`).
+            case more
+            /// Settings' X, which goes back (`HeaderGear`).
+            case close
+        }
+
+        /// The corner each surface carries. Every page and the stage had the
+        /// gear, where the Tools button stood; since 2026-10-25 they carry the
+        /// ⋯ in its well, and Settings is reached from its last row. The drop
+        /// surface and the welcome carry nothing.
+        var headerCorner: HeaderCorner? {
             switch self {
-            case .player, .stage, .tray, .clipboard, .translate, .settings: return true
-            case .drop, .welcome: return false
+            case .player, .stage, .tray, .clipboard, .translate: return .more
+            case .settings: return .close
+            case .drop, .welcome: return nil
             }
         }
 
@@ -114,7 +125,7 @@ extension NotchViewModel {
         on activity: IslandActivity, live: IslandActivity, hasTrack: Bool = false, lastPage: Surface = .player
     ) -> IslandClick {
         switch activity {
-        case .hud, .ambient: return .foldAlert
+        case .hud, .confirmation, .ambient: return .foldAlert
         case .update: return .nothing
         case .peek: return .open(.player)
         case .music, .shelf, .none: return .open(openTarget(live: live, hasTrack: hasTrack, lastPage: lastPage))
@@ -136,7 +147,7 @@ extension NotchViewModel {
         switch live {
         case .peek, .music: return .player
         case .shelf: return .tray
-        case .hud, .ambient, .update, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
+        case .hud, .confirmation, .ambient, .update, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
         }
     }
 }
@@ -205,8 +216,9 @@ enum SurfaceLayout {
     /// the centring rather than the offset.
     static func headerCentreY(notchHeight: CGFloat) -> CGFloat { notchHeight / 2 }
 
-    /// The gear and every other header tool: 26 × 26, the gear ending 20
-    /// from the body's right edge (§19.8, §19.16).
+    /// The corner well (the ⋯, Settings' X) and every other header tool:
+    /// 26 × 26, the corner ending 20 from the body's right edge (§19.8,
+    /// §19.16).
     static let headerToolSide: CGFloat = 26
     static func gearX(bodyWidth: CGFloat) -> CGFloat { bodyWidth - 46 }
     /// The glyph-and-title pair's leading edge on a summoned surface.

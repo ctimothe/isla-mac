@@ -47,9 +47,12 @@ final class SurfaceContractTests: XCTestCase {
         XCTAssertEqual(Surface.reachable, [.player, .stage, .tray, .clipboard, .translate, .settings])
         XCTAssertEqual(Surface.allCases.filter(\.takesKeyboard), [.clipboard, .translate], "§19.8")
         XCTAssertEqual(
-            Surface.allCases.filter(\.hasGear), [.player, .stage, .tray, .clipboard, .translate, .settings],
-            "the gear on every page, the stage and Settings (§19.16)"
+            Surface.allCases.filter { $0.headerCorner == .more }, [.player, .stage, .tray, .clipboard, .translate],
+            "the ⋯ on every page and the stage, where the gear stood (2026-10-25)"
         )
+        XCTAssertEqual(Surface.settings.headerCorner, .close, "Settings keeps its X")
+        XCTAssertNil(Surface.drop.headerCorner)
+        XCTAssertNil(Surface.welcome.headerCorner)
     }
 
     /// Four pages in one order, left to right, always all four (§19.16). The
@@ -213,6 +216,17 @@ final class SurfaceContractTests: XCTestCase {
         XCTAssertTrue(vm.isShowingLyrics)
         vm.hideLyrics()
         XCTAssertEqual(vm.surface, .player)
+        // And the same two roads from the ⋯ menus (2026-10-25).
+        vm.performMoreMenu(.lyrics)
+        XCTAssertEqual(vm.surface, .stage, "the player's ⋯ › Lyrics")
+        vm.performMoreMenu(.hideLyrics)
+        XCTAssertEqual(vm.surface, .player, "the stage's ⋯ › Hide Lyrics")
+        vm.openStage()
+        vm.performMoreMenu(.lyricsSettings)
+        XCTAssertEqual(vm.surface, .settings, "the stage's ⋯ › Lyrics Settings…")
+        XCTAssertEqual(vm.settingsSection, .lyrics)
+        vm.pressGear()
+        vm.hideLyrics()
 
         // The tray: the bubble, the Shelf activity, the menu, its dot.
         vm.clickOpened(pointerIsOnPanel: true, opening: .tray)
@@ -293,25 +307,36 @@ final class SurfaceContractTests: XCTestCase {
         XCTAssertNil(vm.page(by: 1), "nor does the welcome")
     }
 
-    /// The gear opens Settings from a page or the stage, and on Settings,
-    /// lit, goes back to where Settings was opened from — without the
-    /// keyboard, as a page turn (§19.16).
-    func testTheGearGoesToSettingsAndBack() throws {
+    /// The ⋯ menu's Settings… opens Settings from every page and the stage
+    /// — the road the gear was (2026-10-25) — and Settings' X goes back to
+    /// where Settings was opened from, without the keyboard, as a page turn
+    /// (§19.16).
+    func testTheMoreMenuGoesToSettingsAndTheXComesBack() throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let vm = NotchViewModel(geometry: try geometry(), stores: isolated.stores)
+        isolated.stores.media.apply(playing())
+        for page in Surface.pages {
+            vm.turnPage(to: page)
+            XCTAssertEqual(vm.moreMenuItems(panelIsKey: false).last?.kind, .settings, "\(page)")
+            vm.performMoreMenu(.settings)
+            XCTAssertEqual(vm.surface, .settings, "Settings… from \(page)")
+            vm.pressGear()
+            XCTAssertEqual(vm.surface, page, "the X goes back to \(page)")
+        }
+
         vm.open(.clipboard)
-        vm.pressGear()
+        vm.performMoreMenu(.settings)
         XCTAssertEqual(vm.surface, .settings)
         XCTAssertFalse(vm.wantsKeyboard)
         vm.pressGear()
         XCTAssertEqual(vm.surface, .clipboard)
         XCTAssertFalse(vm.wantsKeyboard, "going back is a page turn, not a summons")
 
-        isolated.stores.media.apply(playing())
         vm.openStage()
-        vm.pressGear()
+        vm.performMoreMenu(.settings)
         XCTAssertEqual(vm.surface, .settings)
+        XCTAssertTrue(vm.moreMenuItems(panelIsKey: false).isEmpty, "Settings has its X, not a ⋯")
         vm.pressGear()
         XCTAssertEqual(vm.surface, .stage, "back to the stage it was opened from")
 

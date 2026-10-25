@@ -334,6 +334,8 @@
 "Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet." = "До macOS 26 этот Mac ничего не переводит сам: всё отправляется в MyMemory через интернет.";
 "%@. Press again to confirm." = "%@. Нажмите ещё раз, чтобы подтвердить.";
 "Copied" = "Скопировано";
+"Lyrics imported" = "Текст импортирован";
+"Added to Shelf" = "Добавлено на полку";
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется.";
 "Open Privacy Settings" = "Открыть настройки конфиденциальности";
 "Turn On" = "Включить";
@@ -491,6 +493,7 @@
 "Clear Everything…" = "Очистить всё…";
 "Clear %d entries? Pinned items stay." = "Очистить записи (%d)? Закреплённые останутся.";
 "Clear History" = "Очистить историю";
+"Clear History…" = "Очистить историю…";
 "Search" = "Поиск";
 "Clear Search" = "Очистить поиск";
 "No Results for “%@”" = "Нет результатов для «%@»";
@@ -570,6 +573,7 @@
 /* The island's right-click menu (spec §19.9). */
 "Translate Clipboard" = "Перевести буфер обмена";
 "Settings…" = "Настройки…";
+"More" = "Ещё";
 
 /* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
 "Show the clipboard" = "Показать буфер обмена";

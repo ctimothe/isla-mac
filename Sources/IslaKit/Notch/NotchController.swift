@@ -166,6 +166,7 @@ final class NotchController {
                 // percentage still on the island.
                 self.clearAmbient()
                 self.clearHUD()
+                self.clearConfirmation()
                 self.clearUpdateOffer()
                 // And anything waiting for the island: nobody will see it, and
                 // the second it may wait is over long before the lid opens.
@@ -286,8 +287,10 @@ final class NotchController {
         }
         // The pop-up is an answer to a key press and rides no Space into a new
         // one: it ends with the Space it was shown on — and an alert that was
-        // waiting behind it gets the island, as when the pop-up folds.
+        // waiting behind it gets the island, as when the pop-up folds. A
+        // confirmation is an answer too, and goes the same way.
         clearHUD()
+        clearConfirmation()
         promoteWaitingAlert()
         guard viewModel?.isOpen == true else { return }
         // What was typed is kept — only the panel closes.
@@ -393,6 +396,7 @@ final class NotchController {
         // which the tap does not even hear while the Mac is locked.
         clearAmbient()
         clearHUD()
+        clearConfirmation()
         // Nor the update alert: nothing on the shield takes a click but the
         // card. It is offered again after the unlock.
         clearUpdateOffer()
@@ -1443,6 +1447,7 @@ final class NotchController {
         vm.onIslandClick = { [weak self] in self?.islandClicked() }
         vm.onBubbleClick = { [weak self] in self?.islandClicked(opening: .tray) }
         vm.onUpdateAction = { [weak self] in self?.updateAlertAction($0) }
+        vm.onConfirmation = { [weak self] in self?.presentConfirmation($0) }
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
@@ -1798,6 +1803,13 @@ final class NotchController {
         // hit-test regions have to be re-cut with it or the wider shell would
         // look interactive while only the old strip answered.
         vm.$isPeeking
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
+        // A confirmation widens it too, from the notch to its words.
+        vm.$confirmation
             .removeDuplicates()
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
@@ -2377,6 +2389,7 @@ final class NotchController {
     ) {
         self.viewModel = viewModel
         self.rootView = rootView
+        viewModel.onConfirmation = { [weak self] in self?.presentConfirmation($0) }
         installOutsideClickMonitor = { _ in NSObject() }
         removeOutsideClickMonitor = { _ in }
         // A private tracker, so no test touches the shared one, and an Escape
@@ -2530,8 +2543,11 @@ final class NotchController {
         ambientWork = nil
         peekWork?.cancel()
         peekWork = nil
+        confirmationWork?.cancel()
+        confirmationWork = nil
         withAnimation(Theme.island(reduceMotion: SystemAppearance.shared.reduceMotion)) {
             vm.hud = nil
+            vm.confirmation = nil
             vm.ambient = nil
         }
         promoteWaitingAlert()
@@ -2568,6 +2584,7 @@ final class NotchController {
               ),
               let next = alertQueue.next(at: Date()) {
             switch next {
+            case .confirmation(let confirmation): presentConfirmation(confirmation)
             case .ambient(let activity): presentAmbient(activity)
             case .update(let offer): presentUpdate(offer)
             case .peek: sneakPeek()
@@ -2636,6 +2653,8 @@ final class NotchController {
             peekWork = nil
             ambientWork?.cancel()
             ambientWork = nil
+            confirmationWork?.cancel()
+            confirmationWork = nil
             // The update alert is the one replaced alert that is not dropped:
             // the queue took it back as this was posted (spec §19.1), and it
             // returns, with a fresh hold, when this folds.
@@ -2644,6 +2663,7 @@ final class NotchController {
                 vm.isPeeking = false
                 vm.ambient = nil
                 vm.hud = moment
+                vm.confirmation = nil
                 vm.updateOffer = nil
             }
         } else {
@@ -2680,6 +2700,67 @@ final class NotchController {
         isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool
     ) -> Bool {
         !isOpen && !isDropTargeted && !isLocked && !screensAsleep
+    }
+
+    // MARK: The island's confirmations (2026-10-25, MR-7)
+
+    private var confirmationWork: DispatchWorkItem?
+    /// How long a confirmation holds the island. `IslandConfirmation
+    /// .holdDuration`; a test shortens it rather than wait a second and a half.
+    var confirmationHold: TimeInterval = IslandConfirmation.holdDuration
+
+    /// Shows "Lyrics imported", "Copied" or "Added to Shelf" on the shut
+    /// island for its hold, through `alertQueue` like every alert.
+    ///
+    /// It waits its second for an open panel, a drag or the lock and is
+    /// dropped after it — which is the rule that keeps an act to one answer:
+    /// an act made in the open panel is answered there, and only a panel that
+    /// closes inside the second (Return copying and closing, a drag that
+    /// opened the panel folding back) hands the answer to the island. A
+    /// newer confirmation replaces an older one at once (equal rank), and the
+    /// key pop-up replaces it outright.
+    ///
+    /// Unlike the charger it is not refused with the pointer on the island:
+    /// a drop leaves the pointer exactly there, and the act is the person's
+    /// own, as a key press is. Nor over a full-screen app, for the same
+    /// reason. A dark display shows nothing.
+    func presentConfirmation(_ confirmation: IslandConfirmation) {
+        guard let vm = viewModel, !screensAreAsleep else { return }
+        guard postAlert(.confirmation(confirmation), to: vm) == .show else { return }
+
+        let reduceMotion = SystemAppearance.shared.reduceMotion
+        // What it outranks goes, and is dropped with its timer (spec §19.1);
+        // the update choice is the queue's to bring back.
+        peekWork?.cancel()
+        peekWork = nil
+        ambientWork?.cancel()
+        ambientWork = nil
+        cancelUpdateWork()
+        confirmationWork?.cancel()
+        withAnimation(Theme.pill(reduceMotion: reduceMotion)) {
+            vm.isPeeking = false
+            vm.ambient = nil
+            vm.updateOffer = nil
+            vm.confirmation = confirmation
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            self.confirmationWork = nil
+            withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.confirmation = nil
+            }
+            self.promoteWaitingAlert()
+        }
+        confirmationWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + confirmationHold, execute: work)
+    }
+
+    /// Ends a confirmation at once, for a lock, a dark display and a Space
+    /// change.
+    private func clearConfirmation() {
+        confirmationWork?.cancel()
+        confirmationWork = nil
+        viewModel?.confirmation = nil
     }
 
     /// Ends the pop-up at once, for a lock, a dark display and a Space change.
@@ -3145,7 +3226,7 @@ final class NotchController {
     }
 
     /// Later, or the hold running out: the version is remembered, and the
-    /// gear keeps its badge (§19.5 f).
+    /// ⋯ on every page keeps its badge (§19.5 f), as the gear did.
     private func answerUpdate(_ offer: UpdateOffer) {
         updateOfferMemory.remember(offer.version)
         foldUpdate()

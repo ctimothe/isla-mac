@@ -215,9 +215,13 @@ enum ShelfLayout {
     static let headerGlyphX: CGFloat = SurfaceHeaderLayout.titleLeading
     static let headerCountX: CGFloat = headerGlyphX + SurfaceHeaderLayout.titleGlyphBox.width + SurfaceHeaderLayout.titleGap
     static let headerCountSize: CGFloat = SurfaceHeaderLayout.titleSize
-    /// Remove All ends `gearClearance` before the gear's well (§19.16). The
-    /// board ended it 44 from the shape's right edge, which is where the gear
-    /// now stands.
+    /// Remove All ends `gearClearance` before the corner well (§19.16), which
+    /// holds the ⋯ since 2026-10-25 as it held the gear. The board ended it 44
+    /// from the shape's right edge, which is where the well now stands. When
+    /// the first round of the pass took the gear away and left Remove All
+    /// where it was, it stood alone with a gap to its right (owner: "leaving
+    /// some blank space which is wrong"); with the ⋯ in the well it is flush
+    /// again.
     static let removeAllRightRoom: CGFloat = 46 + SurfaceHeaderLayout.gearClearance
     static func removeAllTrailing(bodyWidth: CGFloat) -> CGFloat { bodyWidth - removeAllRightRoom }
 

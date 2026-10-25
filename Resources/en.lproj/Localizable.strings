@@ -328,6 +328,8 @@
 "Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet." = "Before macOS 26 this Mac translates nothing itself: everything is sent to MyMemory over the internet.";
 "%@. Press again to confirm." = "%@. Press again to confirm.";
 "Copied" = "Copied";
+"Lyrics imported" = "Lyrics imported";
+"Added to Shelf" = "Added to Shelf";
 "macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS is not letting Isla read what you copy, so nothing new is kept.";
 "Open Privacy Settings" = "Open Privacy Settings";
 "Turn On" = "Turn On";
@@ -485,6 +487,7 @@
 "Clear Everything…" = "Clear Everything…";
 "Clear %d entries? Pinned items stay." = "Clear %d entries? Pinned items stay.";
 "Clear History" = "Clear History";
+"Clear History…" = "Clear History…";
 "Search" = "Search";
 "Clear Search" = "Clear Search";
 "No Results for “%@”" = "No Results for “%@”";
@@ -564,6 +567,7 @@
 /* The island's right-click menu (spec §19.9). */
 "Translate Clipboard" = "Translate Clipboard";
 "Settings…" = "Settings…";
+"More" = "More";
 
 /* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
 "Show the clipboard" = "Show the clipboard";
