@@ -6,9 +6,9 @@ import SwiftUI
 /// The stage drew its own — a 13 pt semibold glyph in a white 0.10 well, the
 /// card's came from the type scale — so one song showed three different sets of
 /// the same three buttons depending on which page you were on. The owner's
-/// words on the lyric page (2026-10-24): its previous, play and next "are not
-/// consistent with the icons that you are using for the normal dynamic island
-/// page ... everything should be consistently used". So the glyph is the
+/// review of the lyric page (2026-10-25): its previous, play and next did not
+/// match the player page's, and "everything should be consistently used" for
+/// controls in the same context. So the glyph is the
 /// player's — `PlayerLayout.Control.glyph`, the board's 35 × 22 and 29 × 34,
 /// white 0.90 — and a surface with a smaller row scales it by its own target
 /// over the player's 42 rather than choosing sizes of its own. What differs per
