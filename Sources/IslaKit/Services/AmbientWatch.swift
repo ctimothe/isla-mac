@@ -41,6 +41,17 @@ final class AmbientWatch {
     /// to still be the answer to the cable going in.
     nonisolated static let chargeSettle: TimeInterval = 0.6
 
+    /// When the charge is read again after the edge, while the moment is up.
+    /// The battery's reason lags the plug (owner's recording, 2026-10-26
+    /// 15:06, Apple's 61 W USB-C at 80 percent): read at the settle, the
+    /// moment said "61 W Not Charging"; the same registry read a moment later
+    /// gave the hold, 16777216, and nothing asked again — the level and
+    /// `IsCharging` never change across a hold, so no power notification
+    /// came to prompt `onChargeUpdate`. Three more reads inside the hold, each
+    /// one dropped if power left or a newer plug came, and each a no-op when
+    /// the answer is unchanged (`NotchController.updateShownCharge`).
+    nonisolated static let chargeRereads: [TimeInterval] = [1, 2, 3]
+
     /// How long after announcing a device the same device stays quiet.
     /// AirPods hopping between a phone and this Mac, or a coreaudiod restart,
     /// reappear within seconds, and each reappearance is not news.
@@ -165,6 +176,15 @@ final class AmbientWatch {
             self?.readCharge { [weak self] activity in
                 guard let self, generation == self.arrivalGeneration else { return }
                 self.onEvent?(activity)
+            }
+        }
+        for delay in Self.chargeRereads {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, generation == self.arrivalGeneration else { return }
+                self.readCharge { [weak self] activity in
+                    guard let self, generation == self.arrivalGeneration else { return }
+                    self.onChargeUpdate?(activity)
+                }
             }
         }
     }

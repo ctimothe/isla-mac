@@ -302,6 +302,28 @@ final class ChargePortTests: XCTestCase {
         XCTAssertEqual(AmbientActivity.chargingHold, 3, "the hold is today's ambient alert's")
     }
 
+    /// The hold's reason lags the plug (owner's recording, 2026-10-26): read
+    /// once at the settle it said "Not Charging", and nothing asked again.
+    /// The re-reads land while the moment is still up, so each can correct it.
+    func testTheChargeIsReadAgainWhileTheMomentIsUp() {
+        let rereads = AmbientWatch.chargeRereads
+        XCTAssertFalse(rereads.isEmpty)
+        XCTAssertEqual(rereads, rereads.sorted())
+        XCTAssertGreaterThan(rereads.first ?? 0, AmbientWatch.chargeSettle)
+        XCTAssertLessThanOrEqual(rereads.last ?? .infinity, AmbientWatch.chargeSettle + AmbientActivity.chargingHold,
+                                 "a read after the fold has nothing to correct")
+        let early = AmbientWatch.chargeActivity(
+            power: .init(onExternalPower: true, level: 80, isCharging: false), port: .usbC, watts: 61, hold: nil
+        )
+        let late = AmbientWatch.chargeActivity(
+            power: .init(onExternalPower: true, level: 80, isCharging: false), port: .usbC, watts: 61,
+            hold: ChargeHoldReading.classify(16_777_216, encoding: .bitfield)
+        )
+        XCTAssertEqual(early.chargeState, .notCharging)
+        XCTAssertEqual(late.chargeState, .onHold, "the same plug, read a moment later")
+        XCTAssertNotEqual(early, late, "so the update in place has something to show")
+    }
+
     // MARK: Drawing
 
     func testTheRingDrawsToTheLevel() {
