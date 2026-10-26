@@ -71,7 +71,7 @@ final class LyricColumnPaneTests: XCTestCase {
 
     // MARK: - Where the controls land
 
-    /// The foot: the transport's three wells centred on `bw / 2`, Output and Hide
+    /// The foot: the transport's three wells centred on `bw / 2`, Output, Volume and Hide
     /// Lyrics at the right end of the tools, Hide Lyrics lit.
     func testTheStagePutsItsFootWhereTheBoardDoes() async throws {
         for width: CGFloat in [480, 560, 620] {
@@ -86,13 +86,23 @@ final class LyricColumnPaneTests: XCTestCase {
             XCTAssertEqual(try XCTUnwrap(hide.frame).width, 28, accuracy: 1)
             XCTAssertTrue(hide.selected, "the open Lyrics button is the lit one")
             XCTAssertEqual(l.tool(.hideLyrics).maxX, width - 26, "the last tool ends 26 from the right edge")
-            // The speaker since 2026-10-26: between More and Output, heard as
+            // The speaker since 2026-10-26, next to Hide Lyrics (order swapped
+            // with Output the same day): heard as
             // whose volume it is — the Mac's here, since the fixture's song
             // has no scriptable player behind it.
             let volume = try node(s.root, "Volume")
             try assertNear(volume, l.tool(.volume), "volume at \(width)")
-            XCTAssertLessThanOrEqual(l.tool(.output).maxX, l.tool(.hideLyrics).minX)
-            XCTAssertLessThanOrEqual(l.tool(.volume).maxX, l.tool(.output).minX)
+            XCTAssertLessThanOrEqual(l.tool(.volume).maxX, l.tool(.hideLyrics).minX)
+            XCTAssertLessThanOrEqual(l.tool(.output).maxX, l.tool(.volume).minX)
+            XCTAssertLessThan(l.tool(.output).minX, l.tool(.volume).minX, "Output is left of Volume")
+            // Reading order follows the picture: Output before Volume before Hide Lyrics.
+            let order = s.root.all { ["Sound Output", "Volume", "Hide Lyrics"].contains($0.label) }
+            let names = order.map(\.label)
+            let at = { (n: String) in names.firstIndex(of: n) }
+            if let o = at("Sound Output"), let v = at("Volume"), let h = at("Hide Lyrics") {
+                XCTAssertLessThan(o, v, "VoiceOver reaches Output before Volume at \(width)")
+                XCTAssertLessThan(v, h, "and Volume before Hide Lyrics at \(width)")
+            }
             for translation in [false, true] {
                 let row = StageLayout(bodyWidth: width, translationShown: translation)
                 let leftmost = row.tool(translation ? .translation : .more)

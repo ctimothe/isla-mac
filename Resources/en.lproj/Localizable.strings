@@ -305,6 +305,11 @@
 "Power adapter connected, not charging, %d percent" = "Power adapter connected, not charging, %d percent";
 "Power adapter connected, charged, %d percent" = "Power adapter connected, charged, %d percent";
 
+/* Charging: a charge the Mac holds on purpose (spec §19.4, amended 2026-10-26) */
+"Charging On Hold" = "Charging On Hold";
+"On Hold" = "On Hold";
+"Power adapter connected, charging on hold, %d percent" = "Power adapter connected, charging on hold, %d percent";
+
 /* Shelf: a card whose disk is not plugged in */
 "Disk not connected" = "Disk not connected";
 
@@ -544,7 +549,7 @@
 "History" = "History";
 "Use Online" = "Use Online";
 "No translations yet" = "No translations yet";
-"Sends this text to MyMemory over the internet." = "Sends this text to MyMemory over the internet.";
+"Sends this text, and what you type next in these languages, to MyMemory over the internet." = "Sends this text, and what you type next in these languages, to MyMemory over the internet.";
 
 /* The volume pop-up names what the brightness keys move (spec §19.5 d). */
 "Display Brightness" = "Display Brightness";

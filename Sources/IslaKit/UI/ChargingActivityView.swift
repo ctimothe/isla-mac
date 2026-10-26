@@ -13,9 +13,12 @@ import SwiftUI
 ///   charging; the left wing says the adapter's wattage when it reports one
 ///   ("61 W"), else "Charging".
 ///
-/// Both give the left wing to "Not Charging" while the battery is held (at the
-/// Optimized Charging limit, or paused) and "Charged" when full, in white —
-/// the old white plug said neither. A level at 20 percent or below is red in
+/// The left wing always starts with the source — "MagSafe", or the watts —
+/// and says the battery's state after it, dimmer (amended again 2026-10-26,
+/// owner on hardware): "61 W On Hold" at the Optimized Charging limit,
+/// "MagSafe Charged" when full, "Not Charging" for any other reason. The
+/// state used to replace the source, so a held charge on the owner's 61 W
+/// adapter read "Not Charging" with no port and no watts. A level at 20 percent or below is red in
 /// both, as the battery menu fills a low battery (`AmbientActivity.chargeTint`).
 /// Increase Contrast takes the system's accessible green and red and a
 /// stronger track.
@@ -34,16 +37,16 @@ struct ChargingActivityView: View {
     var body: some View {
         let scale = CompactIslandLayout.glyphScale(height: size.height)
         let port: ChargePort = {
-            if case .charging(_, _, let port, _) = activity { return port }
+            if case .charging(_, _, let port, _, _) = activity { return port }
             return .adapter
         }()
         HStack(spacing: 0) {
-            Text(activity.chargeHeadline ?? localized("Charging"))
+            ChargingWingText(source: activity.chargeSource, status: activity.chargeStatus)
                 .islandFont(CompactIslandLayout.chargingTextSize)
-                .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingTextOpacity))
                 .lineLimit(1)
-                // "Not Charging" and its Russian are wider than a 90 pt wing;
-                // they shrink to fit rather than run under the notch.
+                // "61 W On Hold" and the Russian are wider than a 90 pt wing;
+                // they shrink to fit, together, rather than run under the
+                // notch.
                 .minimumScaleFactor(CompactIslandLayout.chargingTextMinimumScale)
                 .frame(
                     maxWidth: CompactIslandLayout.chargingWingTextWidth(islandWidth: size.width, notchWidth: notchWidth),
@@ -78,7 +81,13 @@ struct ChargingActivityView: View {
 
     private var isCharging: Bool { activity.chargeState == .charging }
 
-    private var tintColor: Color {
+    private var tone: AnyShapeStyle { Self.tone(for: activity, increaseContrast: increaseContrast) }
+    private var trackColor: Color { Self.track(for: activity, increaseContrast: increaseContrast) }
+
+    /// The tint as a colour: green, red, or white for none. Shared with the
+    /// capsule under the open panel (`StripNoticeContent`), so the two never
+    /// colour one charge differently.
+    static func tintColor(for activity: AmbientActivity, increaseContrast: Bool) -> Color {
         switch activity.chargeTint {
         case .green?: return increaseContrast ? Theme.chargingGreenContrast : Theme.chargingGreen
         case .red?: return increaseContrast ? Theme.lowBatteryRedContrast : Theme.lowBatteryRed
@@ -88,14 +97,52 @@ struct ChargingActivityView: View {
 
     /// The level's style: the tint's gradient, as §19.4 draws the green, or
     /// flat white.
-    private var tone: AnyShapeStyle {
-        activity.chargeTint == nil ? AnyShapeStyle(Color.white) : AnyShapeStyle(tintColor.gradient)
+    static func tone(for activity: AmbientActivity, increaseContrast: Bool) -> AnyShapeStyle {
+        activity.chargeTint == nil
+            ? AnyShapeStyle(Color.white)
+            : AnyShapeStyle(tintColor(for: activity, increaseContrast: increaseContrast).gradient)
     }
 
-    private var trackColor: Color {
-        tintColor.opacity(
+    static func track(for activity: AmbientActivity, increaseContrast: Bool) -> Color {
+        tintColor(for: activity, increaseContrast: increaseContrast).opacity(
             increaseContrast ? CompactIslandLayout.batteryTrackContrastOpacity : CompactIslandLayout.batteryTrackOpacity
         )
+    }
+}
+
+/// The left wing's words as one line, so the source and the status shrink
+/// together: the source at the wing's usual white, the status after it at the
+/// secondary white, as a subtitle sits under a title. One `Text`, so one
+/// baseline and one scale.
+struct ChargingWingText: View {
+    let source: String?
+    let status: String?
+
+    var body: some View {
+        let primary = Color.white.opacity(CompactIslandLayout.chargingTextOpacity)
+        let secondary = Color.white.opacity(CompactIslandLayout.chargingStatusOpacity)
+        switch (source, status) {
+        case let (source?, status?):
+            // An attributed string rather than an interpolated `Text`: the
+            // interpolation is a localization key ("%@ %@") the tables do not
+            // carry, and `Text + Text` is deprecated on macOS 26. Both words
+            // arrive localized already.
+            Text(Self.joined(source: source, status: status, primary: primary, secondary: secondary))
+        case let (source?, nil):
+            Text(source).foregroundStyle(primary)
+        case let (nil, status?):
+            Text(status).foregroundStyle(primary)
+        case (nil, nil):
+            Text(localized("Charging")).foregroundStyle(primary)
+        }
+    }
+
+    static func joined(source: String, status: String, primary: Color, secondary: Color) -> AttributedString {
+        var lead = AttributedString(source + " ")
+        lead.foregroundColor = primary
+        var tail = AttributedString(status)
+        tail.foregroundColor = secondary
+        return lead + tail
     }
 }
 
@@ -189,8 +236,12 @@ struct BatteryBolt: View {
 extension CompactIslandLayout {
     // MARK: Charging's two variants (spec §19.4, amended 2026-10-26)
 
-    /// How far "Not Charging" may shrink to fit its wing.
+    /// How far the left wing's words may shrink to fit it.
     static let chargingTextMinimumScale: CGFloat = 0.7
+
+    /// The status after the source ("On Hold", "Charged"): the secondary
+    /// white, so the port reads first.
+    static let chargingStatusOpacity: Double = 0.55
 
     /// The left wing's room for words: from the inset to 4 pt short of the
     /// notch, so nothing runs under the camera.

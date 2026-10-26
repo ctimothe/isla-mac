@@ -66,12 +66,12 @@ struct StageLayout: Equatable {
     private var textWidth: CGFloat { max(0, transport(.previous).minX - 8 - 76) }
 
     /// The tools at y 336, 28 × 28, 6 apart, the last ending at `bw − 26`:
-    /// Show Translation (when a translation is possible), More, Volume,
-    /// Output, Hide Lyrics — so counted from the right, Hide Lyrics is 0.
-    /// Volume sits beside Output (amended 2026-10-26): how loud and where to,
-    /// as the menu bar's Sound module pairs them.
+    /// Show Translation (when a translation is possible), More, Output,
+    /// Volume, Hide Lyrics — so counted from the right, Hide Lyrics is 0.
+    /// Volume sits beside Hide Lyrics, Output left of it (amended 2026-10-26,
+    /// order swapped the same day): the speaker is the nearer to the thumb.
     enum Tool: Int, CaseIterable {
-        case hideLyrics, output, volume, more, translation
+        case hideLyrics, volume, output, more, translation
     }
 
     func tool(_ which: Tool) -> CGRect {
@@ -299,12 +299,12 @@ struct LyricsStageSurface: View {
             LyricsMoreButton(controller: moreMenu)
                 .placedAt(layout.tool(.more))
         }
-        StageVolumeButton(volume: volume)
-            .placedAt(layout.tool(.volume))
         if outputButtonOn {
             PlayerOutputButton(audio: audio)
                 .placedAt(layout.tool(.output))
         }
+        StageVolumeButton(volume: volume)
+            .placedAt(layout.tool(.volume))
         HeaderIconButton(symbol: "quote.bubble.fill", label: localized("Hide Lyrics"), isOn: true, action: hideLyrics)
             .placedAt(layout.tool(.hideLyrics))
 

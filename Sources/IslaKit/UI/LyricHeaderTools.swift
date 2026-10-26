@@ -11,7 +11,8 @@ enum StageToolFrames {
 
 // MARK: - A header icon
 
-/// One of the stage foot's tools, 28 × 28: a glyph at 13 pt, secondary, and —
+/// One of the stage foot's tools, 28 × 28: a glyph at `HeaderIcon.size` (13
+/// until 2026-10-26, a point under the gear above it), secondary, and —
 /// for a switch like Show Translation or the lit Hide Lyrics — white 0.18 behind
 /// the filled glyph while it is on (§19.6).
 struct HeaderIconButton: View {
@@ -23,7 +24,7 @@ struct HeaderIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
+                .font(HeaderIcon.font)
                 .foregroundStyle(isOn ? Color.white : Theme.secondary)
                 .frame(width: StageToolFrames.side, height: StageToolFrames.side)
                 .background(
@@ -227,7 +228,7 @@ struct LyricsMoreButton: View {
         let label = localized("More Lyrics Options")
         Button { presenter.present() } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .medium))
+                .font(HeaderIcon.font)
                 .foregroundStyle(Theme.secondary)
                 .frame(width: StageToolFrames.side, height: StageToolFrames.side)
                 .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))

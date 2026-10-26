@@ -146,3 +146,111 @@ enum ChargePortReading {
             .takeRetainedValue() as? [String: Any]
     }
 }
+
+/// Why a battery on external power is not taking charge, as the island words
+/// it (owner on hardware, 2026-10-26): plugged into Apple's 61 W USB-C
+/// charger at 80 percent with the charge held, the pill read "Not Charging ·
+/// 80%" and dropped the watts. macOS's own battery menu says "Charging On
+/// Hold" for a charge the Mac holds on purpose, and that is what the island
+/// says now; "Not Charging" is left for the other reasons.
+enum ChargeHold: Equatable, Sendable {
+    /// The Mac holds the charge on purpose: Optimized Battery Charging, a
+    /// charge limit, a battery topped up that asks for no more.
+    case onHold
+    /// The battery reports itself full.
+    case full
+    /// Anything else, an unknown reason included: too hot or too cold, a
+    /// fault, no battery, a charger it will not take power from.
+    case notCharging
+}
+
+/// `AppleSmartBattery`'s `ChargerData.NotChargingReason`, read and sorted.
+///
+/// **The field is not public API.** IOKit's headers (`IOPSKeys.h`,
+/// `IOPMPowerSource.h`) and Apple's open-source PowerManagement and IOKitUser
+/// trees name no such key and no value for it (searched 2026-10-26). What the
+/// values mean comes from the one public decoder that names them, Battman's
+/// `not_charging_reason.h` (github.com/Torrekie/Battman, read 2026-10-26),
+/// and from the owner's own Mac: on a MacBook Pro with MagSafe 3, macOS
+/// 27.0.1, held at 80 percent on a 61 W USB-C adapter, `ioreg -rn
+/// AppleSmartBattery` read `ExternalConnected` Yes, `IsCharging` No,
+/// `FullyCharged` No and `NotChargingReason` 16777216 (bit 24), a bit
+/// Battman's table does not list.
+///
+/// So the rule names only what it can stand behind, and everything else is
+/// "Not Charging", which is never untrue of a battery that is not charging:
+///
+/// - Apple silicon reports a bitfield (Battman's "version 2", the SMC's
+///   CHNC). Bit 0 is full. Bits 14 (charging inhibited by a client — a charge
+///   limit), 15 (predictive charging: Optimized Battery Charging), 22 (the
+///   battery requests no charge) and 24 (the owner's measured hold) are
+///   holds. Temperature, timer, presence and fault bits make it "Not
+///   Charging" whatever else is set, because a hold beside a fault is not
+///   the news.
+/// - Intel Macs with a T2 report an enumerated value (Battman's "version 1",
+///   BNCR): 4 is full; 5 (no charge requested), 13 (the OS asked for none),
+///   14 (the charge limit, BCLM, reached) and 16 (power management asked for
+///   none) are holds.
+/// - Zero, or no field at all, is no reason: the IOPS state alone decides.
+enum ChargeHoldReading {
+    enum Encoding: Equatable, Sendable {
+        case bitfield
+        case enumerated
+    }
+
+    /// The encoding this Mac's battery firmware uses.
+    static var native: Encoding {
+        #if arch(arm64)
+        return .bitfield
+        #else
+        return .enumerated
+        #endif
+    }
+
+    static let fullBit: UInt64 = 1 << 0
+    /// 14 inhibited by a client, 15 predictive charging, 22 no charge
+    /// requested, 24 the owner's measured hold (2026-10-26).
+    static let holdBits: UInt64 = (1 << 14) | (1 << 15) | (1 << 22) | (1 << 24)
+    /// 1–4 temperature, 5 the charge timer, 6 no battery, 7 no bus power,
+    /// 9 the controller unreachable, 21 a cell's voltage too high, and the
+    /// permanent faults in the top byte.
+    static let stopBits: UInt64 = (0b1111 << 1) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 9) | (1 << 21)
+        | (0xFF << 56)
+
+    static let enumeratedFull: UInt64 = 4
+    static let enumeratedHolds: Set<UInt64> = [5, 13, 14, 16]
+
+    /// Nil when the battery gives no reason (zero or no field); otherwise
+    /// what the island calls it. Pure, so every measured and published value
+    /// is a fixture.
+    static func classify(_ raw: UInt64?, encoding: Encoding = native) -> ChargeHold? {
+        guard let raw, raw != 0 else { return nil }
+        switch encoding {
+        case .bitfield:
+            if raw & stopBits != 0 { return .notCharging }
+            if raw & fullBit != 0 { return .full }
+            if raw & holdBits != 0 { return .onHold }
+            return .notCharging
+        case .enumerated:
+            if raw == enumeratedFull { return .full }
+            return enumeratedHolds.contains(raw) ? .onHold : .notCharging
+        }
+    }
+
+    /// The raw reason from a `ChargerData` dictionary.
+    static func reason(fromChargerData data: [String: Any]?) -> UInt64? {
+        guard let number = data?["NotChargingReason"] as? NSNumber else { return nil }
+        return number.uint64Value
+    }
+
+    /// The battery's reason now. IPC to the kernel's registry: off the main
+    /// thread only (`AmbientWatch.readCharge`).
+    static func read() -> ChargeHold? {
+        let battery = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard battery != 0 else { return nil }
+        defer { IOObjectRelease(battery) }
+        let data = IORegistryEntryCreateCFProperty(battery, "ChargerData" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? [String: Any]
+        return classify(reason(fromChargerData: data))
+    }
+}

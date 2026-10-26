@@ -360,6 +360,18 @@ final class AudioWatch: ObservableObject {
     /// Runs the device-list re-read once a burst of notifications has settled.
     private let debounce: (@escaping @Sendable () -> Void) -> Void
 
+    /// One reading, as `start()` takes it away from the main thread.
+    typealias Reading = (outputs: [AudioOutputs.Output], current: AudioDeviceID?, volume: Float?)
+    /// Where `start()` takes its first reading: given the read and what to
+    /// do with the answer on the main actor, it runs the one somewhere and
+    /// hands the other back. Nil reads on the caller's turn (the lock card's
+    /// watch: its first frame draws from that reading).
+    typealias ReadAway = (_ read: @escaping () -> Reading, _ deliver: @escaping @MainActor @Sendable (Reading) -> Void) -> Void
+    private let readAway: ReadAway?
+    /// Which `start()` a reading taken away belongs to: one that lands after
+    /// a stop, or after a stop and a fresh start, is dropped.
+    private var startGeneration = 0
+
     /// Whether this watch reads and listens to the level and the mute at all.
     /// The lock card's does (its bar); the player's does not (2026-10-25): it
     /// has had no volume control since 2026-10-16, yet its watch kept a volume
@@ -388,9 +400,11 @@ final class AudioWatch: ObservableObject {
         installListeners: (() -> Void)? = nil,
         removeListeners: (() -> Void)? = nil,
         debounce: ((@escaping @Sendable () -> Void) -> Void)? = nil,
-        followsLevel: Bool = true
+        followsLevel: Bool = true,
+        readAway: ReadAway? = nil
     ) {
         self.followsLevel = followsLevel
+        self.readAway = readAway
         self.read = read ?? {
             (AudioOutputs.available(), AudioOutputs.current(), followsLevel ? SystemVolume.current() : nil)
         }
@@ -440,16 +454,40 @@ final class AudioWatch: ObservableObject {
         }
     }
 
-    /// The player's watch: the route only (see `followsLevel`). Quiet — it
-    /// reads an empty machine and installs nothing — under test.
+    /// The player's watch: the route only (see `followsLevel`), its first
+    /// reading taken off the main thread (`offMain`). Quiet — it reads an
+    /// empty machine and installs nothing — under test.
     static func player(quiet: Bool = PlayerBridge.isRunningTests) -> AudioWatch {
         quiet
             ? AudioWatch(
                 read: { ([], nil, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {},
                 followsLevel: false
             )
-            : AudioWatch(followsLevel: false)
+            : AudioWatch(followsLevel: false, readAway: offMain)
     }
+
+    /// The player's first reading, on a queue of its own (MR-H18, 2026-10-26).
+    ///
+    /// The player started its watch as it appeared — inside the panel's open
+    /// — and `start()` enumerated every device (streams, name, transport,
+    /// data source: six CoreAudio round trips each) on the main thread before
+    /// the open's frame could commit. Measured on a MacBook Pro with two
+    /// outputs: 0.6 to 1.1 ms a read once CoreAudio is up, and 82 ms for the
+    /// first read in a process, which connects to the audio server — the
+    /// first open after launch paid that in its first frame. Property reads
+    /// are safe from any thread; only the publishing and the listener
+    /// registrations stay on the main actor, where the answer is handed back.
+    /// Until it lands the Output button shows the route it last read.
+    nonisolated static let offMain: ReadAway = { read, deliver in
+        let box = UncheckedBox((read, deliver))
+        readQueue.async {
+            let reading = box.value.0()
+            let result = UncheckedBox(reading)
+            DispatchQueue.main.async { MainActor.assumeIsolated { box.value.1(result.value) } }
+        }
+    }
+
+    private nonisolated static let readQueue = DispatchQueue(label: "com.ctimothe.isla.audio-watch", qos: .userInitiated)
 
     /// The device the glue attaches the volume and mute listener to: the
     /// current one, or none for a watch that does not follow the level.
@@ -556,10 +594,33 @@ final class AudioWatch: ObservableObject {
     func start() {
         guard !running else { return }
         running = true
-        // Read before installing: the glue attaches the volume listener to
-        // whatever `current` reads as, so the first frame draws from a
-        // synchronously taken reading and the attachment matches it.
-        apply(read())
+        startGeneration &+= 1
+        guard let readAway else {
+            // Read before installing: the glue attaches the volume listener to
+            // whatever `current` reads as, so the first frame draws from a
+            // synchronously taken reading and the attachment matches it.
+            began(with: read())
+            return
+        }
+        // Away from the caller's turn (`offMain`); the listeners go on with
+        // the answer, so the attachment still matches what was read.
+        let generation = startGeneration
+        readAway(read) { [weak self] reading in
+            guard let self, Self.deliveryCounts(running: self.running, generation: generation, current: self.startGeneration)
+            else { return }
+            self.began(with: reading)
+        }
+    }
+
+    /// Whether a reading taken away for one `start()` may be published: only
+    /// while that start still stands — not after a stop, nor after a stop and
+    /// a fresh start, whose own reading is on its way. Pure, for the tests.
+    nonisolated static func deliveryCounts(running: Bool, generation: Int, current: Int) -> Bool {
+        running && generation == current
+    }
+
+    private func began(with reading: Reading) {
+        apply(reading)
         readMute()
         installListeners()
         listeningTo = current
@@ -842,4 +903,12 @@ final class OutputLatencyMonitor {
             AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block
         )
     }
+}
+
+/// Carries a value the compiler cannot prove sendable across one hop and back
+/// (`AudioWatch.offMain`): the read is called on the queue and nowhere else,
+/// the delivery on the main actor and nowhere else.
+private struct UncheckedBox<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }

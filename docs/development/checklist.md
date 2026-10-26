@@ -2549,12 +2549,18 @@ Mac model and macOS version when run):
   stage. Every time the capsule is 6 pt under the visible panel's bottom edge,
   centred, and follows the outline as it springs to a new size, never left
   under a taller page.
-- [ ] **MR-H13** The Shelf's selection is Finder's (spec §8, amended
-  2026-10-26). A clicked tile shows a grey backdrop and no ring; its date and
-  time (or name) sit white on rounded fills in the accent colour set in System
-  Settings › Appearance — change the accent with the tray open and the next
-  click shows the new one. ⌘- and ⇧-clicks pick several the same way; a file
-  dropped that is already on the Shelf still flashes its ring.
+- [ ] **MR-H13** The Shelf's tiles are Finder's icon view (spec §8, amended
+  2026-10-26, second amendment). Put the same files in a Finder window in
+  icon view with Show Item Info on and beside the tray and compare: no plate
+  behind any tile, under the pointer either; the name 12 regular under the
+  icon, two lines, the second cut in the middle; the date in grey under it.
+  Click a tile: a grey rounded square behind the icon only, the name on a
+  pill in the Highlight colour set in System Settings › Appearance (change
+  Highlight or the accent with the tray open and the next click shows it);
+  the date line is never filled. ⌘- and ⇧-clicks pick several the same way;
+  the remove badge shows on a hovered or picked tile; a file dropped that is
+  already on the Shelf still flashes its ring. In light mode, and with
+  Increase Contrast, the name and date still read on the black panel.
 - [ ] **MR-H14** The lyric stage's Volume (spec §19.6, amended 2026-10-26).
   With Spotify playing, open the stage and press the speaker: macOS asks
   once whether Isla may control Spotify (only if it has not been asked yet;
@@ -2616,3 +2622,100 @@ Mac model and macOS version when run):
   `log show --last 5m --predicate 'subsystem == "com.ctimothe.isla"'` shows
   each step (browser opened, consent approved, exchange succeeded or its
   status and Spotify's error, the access check), and no token or code.
+- [ ] **MR-H18** Opening, closing and the two-finger pull feel immediate (spec
+  §19.3, amended 2026-10-26). With music playing, click the shut island ten
+  times, then open on the Shelf's bubble, then the lyric stage (right-click ›
+  lyrics): the outline starts moving in the frame after the click — no beat of
+  stillness, no jump partway along — and the body fades in behind it with no
+  frame where it is cut by the edge. Close each the same ways. Pull two fingers
+  down over the island and up on the header, slowly and as a flick: the
+  outline gives under the fingers with no stepping, and on lifting the open or
+  the close carries on from where the fingers left it. Repeat with a build
+  running (one `yes` per core) and under Reduce Motion (fades only, no give).
+  The player's cover still flies from the pill into the player. For a record,
+  a QuickTime screen capture at 120 fps of five opens of the stage: count the
+  frames from the click's highlight to the first moved outline (lab, stage:
+  the outline's motion reaches the render server 10 ms after the click and is
+  on the glass at about 20 ms, against 30–36 ms and 45–52 ms before; the
+  player is unchanged at about 37 ms). Record the Mac and macOS.
+  *Extended 2026-10-26 (the player stages itself).* Ten clicks on the shut
+  island with a song playing: the cover still flies from the pill into its
+  place in every one, and the title, the times and the five controls are
+  there as the body fades in — never a frame of the cover alone, never a
+  control popping in after the fade. Right after launching Isla, the first
+  open is as quick as the tenth (it used to read every audio device on the
+  open's frame, 82 ms on the first read). The Output button shows the right
+  device at once; plug in or unplug headphones with the player open and it
+  follows. Close the panel during the open's first tenth of a second: nothing
+  is left behind and the next open is whole. Swipe from the Shelf to Music:
+  the player arrives whole, nothing staged. Capture as above; the lab puts the
+  player's outline in the render server at 26 ms, against 34 ms before.
+- [ ] **MR-H19** Use Online works on the press (spec §11, amended
+  2026-10-26). Translate English → Russian with Russian not downloaded and
+  Apple Intelligence off, type "salom": the card says Russian is not
+  downloaded. Press Use Online: the spinner replaces the card in the same
+  frame and the answer, with the globe, follows as soon as MyMemory replies.
+  Type " dunyo": it translates online after the usual pause with no second
+  press, and Settings › Translate Online is still off. Change the target, or
+  press Clear, or close the panel: the next text shows the card again and
+  sends nothing (watch with `nettop -p Isla`). With the network off, one
+  alert in the card with Try Again; back on, Try Again answers. Download
+  Russian in Translation Languages…: the next edit answers on the Mac (the
+  lock, not the globe). With the press standing, copy a line elsewhere and
+  press ⌃⌥⌘T, then use Services › Translate in Isla on another: each time
+  the card says "not downloaded" again with Use Online (once the covered
+  text is shown) and nothing is sent until it is pressed; typing after that
+  press rides it as before. Supersedes R4-H6's "sends once". Record the Mac
+  model and macOS version.
+- [ ] **MR-H20** One icon size on every page (spec §19.8, amended
+  2026-10-26). With Spotify playing, open Music, the lyric stage, the Shelf
+  with files, Clipboard, Translate and Settings at 560 and at 480: Spotify's
+  squircle stands the height of `music.note` and of the Shelf's, Clipboard's,
+  Translate's and Settings' glyphs; the gear, its X, History and Remove All's
+  trash are the same size in the same 26 pt wells; the stage's More, Output,
+  Volume and Hide Lyrics, and Translate's Swap, Speak, Copy and Paste, are
+  that size too, and Paste is Remove All's kind of button. No header is
+  taller than before and nothing in the page's content moved. Hover each
+  well: it lightens; click each: it answers on the first click. Record the
+  Mac model and macOS version.
+- [ ] **MR-H21** Charging On Hold is worded as Apple words it (spec §19.4,
+  amended 2026-10-26). With Optimized Battery Charging (or a charge limit)
+  holding at 80 %: plug Apple's **USB-C** charger → "61 W On Hold" (the
+  adapter's rating first, "On Hold" dimmer after it), "80%", the white
+  battery with no bolt, a white line; VoiceOver says "Power adapter connected,
+  charging on hold, 80 percent". Plug **MagSafe** in the same state →
+  "MagSafe On Hold" and the white ring. While it charges: "61 W" or "MagSafe"
+  alone, green. In Russian: "61 Вт Пауза", "MagSafe Пауза", nothing under the
+  notch. Then run `ioreg -rn AppleSmartBattery | grep -E
+  'NotChargingReason|IsCharging|FullyCharged'` and record the reason's value
+  beside what the pill said; a hold that reads "Not Charging" is a value to
+  add to `ChargeHoldReading`. Record the Mac model, macOS version and
+  adapters.
+- [ ] **MR-H22** Every alert shows under the open panel (spec §19.5 d,
+  amended 2026-10-26). Open the panel on Music and plug in a charger: about
+  0.6 s later the capsule 6 pt under the panel shows "61 W" (or "MagSafe"),
+  the level and the battery or ring, with a green line, for 3 s, and folds;
+  nothing waits for the close. Connect AirPods with the panel open: the
+  capsule shows them with "Connected" for 4 s. Copy a Clipboard row with its
+  button, and drop a file on the open Shelf: "Copied" and "Added to Shelf" in
+  the capsule. Press a volume key while one stands: the level takes the
+  capsule at once and the notice does not come back. Turn a page with a
+  notice up: it follows the outline. Press Return in the Clipboard browser
+  (copy and close in one press): "Copied" shows on the shut island instead.
+  Shut, each still shows on the island as before. Record the Mac model and
+  macOS version.
+- [ ] **MR-H23** The island on the lock screen (spec §3.7, amended
+  2026-10-26). Volume and Brightness on, Show on Lock Screen on, music
+  playing. Lock the Mac (⌃⌘Q) and press volume up, volume down, mute and
+  brightness: the island at the notch shows the compact pill — symbol, bar,
+  level — and **not** the system's OSD, the volume really changes, and the
+  lock card's volume bar moves with it; the card neither moves nor is
+  covered; the pill folds 1.5 s after the last press; a click on it shakes
+  and opens nothing. Plug a charger while locked: the charger's pill for 3 s,
+  card unaffected. Unlock, then read `log show --last 10m --predicate
+  'subsystem == "com.ctimothe.isla"' | grep "media keys while locked"`:
+  record "N heard, M taken". **If N is 0** the tap hears nothing while locked
+  on this macOS: the system's OSD showing over the lock screen is then the
+  correct result, and the charger still shows. Repeat with Show on Lock
+  Screen off: the system's OSD, nothing from Isla. Record the Mac model and
+  macOS version.

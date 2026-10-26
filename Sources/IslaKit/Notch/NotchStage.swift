@@ -38,6 +38,8 @@ enum NotchStage {
         // The pages settle on this view's display link, frame by frame
         // (§19.16), rather than on a timer that drifts against the display.
         (vm.pageTravel.clock as? DisplayPageClock)?.view = hosting
+        // The vertical pull publishes once a frame, on the same clock.
+        (vm.pullStretch.clock as? DisplayPageClock)?.view = hosting
         hosting.frame = root.bounds
         hosting.autoresizingMask = [.width, .height]
         hosting.sizingOptions = []

@@ -350,10 +350,11 @@ final class VisualLabPanelTests: VisualLabCase {
             Self.scene(try await self.openPanel(session, surface: .tray, prepare: { self.stock($0.shelf, session: session, urls: few) }),
                        variant, height: size.height)
         }
-        // A picked tile wears its ring and its remove badge (decision 9); the
-        // selection bar went with the grid (§19.11).
+        // A picked tile is Finder's icon view: the icon's backdrop, the name on
+        // the selected-text pill, the date line untouched, and the remove badge
+        // (decision 9); the selection bar went with the grid (§19.11).
         try await shoot.shoot("two-selected", variants: [.base, .contrast, .russian], size: size, settle: 0.8,
-                              notes: note + " Two tiles picked: each wears the grey backdrop, its caption in the accent, and its remove badge.") { variant in
+                              notes: note + " Two tiles picked: each has the grey backdrop behind its icon, its name on the Highlight-colour pill (the lab's own accent here), the date line plain, and its remove badge.") { variant in
             Self.scene(try await self.openPanel(session, surface: .tray, prepare: { stores in
                 self.stock(stores.shelf, session: session, urls: few)
             }, configure: { vm in

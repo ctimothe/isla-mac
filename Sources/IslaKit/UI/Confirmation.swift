@@ -67,7 +67,7 @@ struct CopyButton: View {
             Announcer.shared.announce(localized("Copied"))
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .islandFont(.caption, weight: .semibold)
+                .font(HeaderIcon.font)
                 .foregroundStyle(copied ? Theme.success : Theme.secondary)
                 .symbolSwap(value: copied, reduceMotion: reduceMotion)
                 .frame(width: side, height: side)

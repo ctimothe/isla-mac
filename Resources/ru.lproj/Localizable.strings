@@ -311,6 +311,11 @@
 "Power adapter connected, not charging, %d percent" = "Адаптер питания подключён, не заряжается: %d %%";
 "Power adapter connected, charged, %d percent" = "Адаптер питания подключён, заряжено: %d %%";
 
+/* Зарядка, которую Mac придерживает сам (спец. §19.4, поправка 2026-10-26) */
+"Charging On Hold" = "Зарядка приостановлена";
+"On Hold" = "Пауза";
+"Power adapter connected, charging on hold, %d percent" = "Адаптер питания подключён, зарядка приостановлена: %d %%";
+
 /* Полка: карточка, чей диск не подключён */
 "Disk not connected" = "Диск не подключён";
 
@@ -550,7 +555,7 @@
 "History" = "История";
 "Use Online" = "Перевести онлайн";
 "No translations yet" = "Переводов пока нет";
-"Sends this text to MyMemory over the internet." = "Отправляет этот текст в MyMemory через интернет.";
+"Sends this text, and what you type next in these languages, to MyMemory over the internet." = "Отправляет этот текст и то, что вы введёте дальше на этих языках, в MyMemory через интернет.";
 
 /* The volume pop-up names what the brightness keys move (spec §19.5 d). */
 "Display Brightness" = "Яркость дисплея";

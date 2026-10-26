@@ -39,6 +39,9 @@ struct NotchContentView: View {
         _travel = ObservedObject(wrappedValue: vm.pageTravel)
         _pull = ObservedObject(wrappedValue: vm.pullStretch)
         self.outline = outline
+        // A shell built over a panel that is already open — an unlock, a
+        // display change, a test's snapshot — has no open to stage.
+        _bodyStaged = State(initialValue: vm.isOpen || vm.isDropTargeted)
     }
 
     /// Translate's History is offered only while Keep History is on (spec
@@ -101,6 +104,40 @@ struct NotchContentView: View {
     private var isOpen: Bool { vm.isOpen || vm.isDropTargeted }
     private var size: CGSize { vm.bodySize }
     @State private var isPressed = false
+
+    /// Whether the open body may mount its content (MR-H18, 2026-10-26).
+    ///
+    /// The open's first frame used to mount the whole surface beside the
+    /// outline's change, and the hitch lab put the cost there: 8.4 + 8.2 +
+    /// 4.6 ms of main thread in the first three 8.3 ms frames opening the
+    /// lyric stage, 6.8 ms in the first opening the tray, against about 1 ms
+    /// a frame for the rest of the spring — every missed frame of an open was
+    /// in its first 100 ms. The outline's spring is committed to Core
+    /// Animation in that same frame, so a frame the mount made late was a
+    /// frame the island did not start moving in.
+    ///
+    /// So the open's first frame carries the outline and the header alone, and
+    /// the body mounts one run-loop pass later, in a commit of its own: by
+    /// then the outline is moving in the render server, and a heavy commit no
+    /// longer holds it. Nothing is seen to wait — the body fades in behind
+    /// `Theme.paneIn`'s 40 ms delay either way. Not the player while the
+    /// cover travels: its far end is inside `MediaPane`, and a morph's two
+    /// ends must be in the tree in the same transaction (`MorphID`). The
+    /// player stages itself instead, by the same flag: the cover and the
+    /// equalizer in the outline's frame, the rest a pass later
+    /// (`MediaPane.holdsBackRest`).
+    @State private var bodyStaged = false
+
+    /// Whether opening onto `surface` mounts its content a pass after the
+    /// outline starts (`bodyStaged`). Pure, for `NotchContentStagingTests`.
+    nonisolated static func stagesBody(opening surface: NotchViewModel.Surface, reduceMotion: Bool) -> Bool {
+        surface != .player || !travels(reduceMotion: reduceMotion)
+    }
+
+    /// The open body is in the tree.
+    private var bodyShown: Bool {
+        isOpen && (bodyStaged || !Self.stagesBody(opening: vm.presented, reduceMotion: reduceMotion))
+    }
     private var compactActivity: CompactMediaActivity { vm.compactMediaActivity }
     /// Whether the collapsed pill is out of the notch: any activity at all —
     /// an alert, the song, or the Shelf holding files (`IslandActivity`).
@@ -308,7 +345,10 @@ struct NotchContentView: View {
         // The wings are the island's own and the banner or the card is the
         // song's: while it is up the island rests in the notch, wherever the
         // song is playing (spec §3.7, owner decision 1; `LockedIsland`).
-        let shown = vm.lockedIslandShowsWings
+        // An alert — the volume pop-up, the charger — takes the wings for its
+        // hold and folds back (amended 2026-10-26), whatever holds the song.
+        let alert = vm.lockedAlert
+        let shown = vm.lockedIslandShowsWings || alert != nil
         let notch = vm.geometry.notchSize
         // The notch the banner or the card leaves alone still answers: a hover
         // wakes it as it wakes any resting notch, and a click shakes it. Only over
@@ -341,7 +381,12 @@ struct NotchContentView: View {
             // unlocked one are two branches of `body` that swap in a single
             // transaction, so sharing an identity would hand the lock a
             // travelling cover to interpolate — and the lock is a cut.
-            if shown {
+            if let alert {
+                lockedAlertContent(alert)
+                    .frame(width: size.width, alignment: .center)
+                    .clipped()
+                    .transition(Theme.compactArrival(reduceMotion: reduceMotion))
+            } else if shown {
                 compactMediaHeader(morph: nil)
                     // Held inside the wings the way the unlocked shell holds it,
                     // so the last blurred trace of the cover can never be drawn on
@@ -392,6 +437,24 @@ struct NotchContentView: View {
         // hover and click are the two answers the board asks for.
         .allowsHitTesting(shown || answers)
         .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
+        // The alerts' own curves, declared beneath the lock's refusal like the
+        // fold above: the pop-up's quick one in and out, the charger's pill.
+        .animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hudShown)
+        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.ambient)
+    }
+
+    /// What an alert over the shield draws in the wings: the pop-up's compact
+    /// form, or the charger exactly as the shut island draws it.
+    @ViewBuilder
+    private func lockedAlertContent(_ alert: IslandActivity) -> some View {
+        switch alert {
+        case .hud:
+            LockedHUDContent(live: vm.hudLive, size: size)
+        case .ambient(let ambient):
+            ambientHeader(ambient)
+        default:
+            EmptyView()
+        }
     }
 
     /// The part of the shell gesture that acts: the drawn collapsed island,
@@ -450,7 +513,7 @@ struct NotchContentView: View {
 
             VStack(spacing: 0) {
                 header
-                if isOpen {
+                if bodyShown {
                     // The body arrives after the panel, and leaves before it.
                     //
                     // This was a plain `.transition(.opacity)`, which carries no
@@ -600,6 +663,16 @@ struct NotchContentView: View {
         // `withAnimation`, or the two transactions disagree about when the
         // shape starts.
         .animation(isOpen ? Theme.open(reduceMotion: reduceMotion) : Theme.close(reduceMotion: reduceMotion), value: isOpen)
+        // The body a pass after the outline (`bodyStaged`). Shut, it is
+        // unstaged at once, so the next open stages again; opened, it is let
+        // in on the next pass if the panel is still open then.
+        .onChange(of: isOpen) { _, open in
+            guard open else { bodyStaged = false; return }
+            DispatchQueue.main.async {
+                guard vm.isOpen || vm.isDropTargeted else { return }
+                bodyStaged = true
+            }
+        }
         // The pointer arriving. Over a playing island that is a brightening on
         // a quick ease; over one resting hidden in the notch it is the island
         // growing out of the cutout with a single small bump — see
@@ -788,9 +861,16 @@ struct NotchContentView: View {
     }
 
     /// The shut island's value: the moment if one is up, else the track, else
-    /// that there is none. The locked pill draws no moment, so over the shield
-    /// it does not name one.
+    /// that there is none. Over the shield it names only the alerts the
+    /// locked pill draws (`lockedAlert`): the pop-up and the charger.
     private var closedIslandValue: String {
+        if vm.isLockedPresentation, let alert = vm.lockedAlert {
+            switch alert {
+            case .hud(let hud): return hud.accessibilityLabel
+            case .ambient(let ambient): return ambient.accessibilityLabel
+            default: break
+            }
+        }
         // The level as the last press left it when this body last ran. A
         // press redraws only the pop-up (`HUDLiveLevel`), so this is the
         // arrival's level until something else re-runs the body; the spoken
@@ -848,7 +928,7 @@ struct NotchContentView: View {
     @ViewBuilder
     private func ambientHeader(_ ambient: AmbientActivity) -> some View {
         switch ambient {
-        case .charging(let level, _, _, _):
+        case .charging(let level, _, _, _, _):
             // `showsOnIsland` keeps a Mac with no level off the island; the
             // guard is for the type, not a state that is drawn.
             if let level { chargingHeader(ambient, level: level) }
@@ -1391,7 +1471,11 @@ struct NotchContentView: View {
                 spotify: vm.spotifyAccount,
                 coverTint: vm.coverTint.nsColor,
                 isLive: live,
-                nowPlaying: vm.nowPlaying.frame
+                nowPlaying: vm.nowPlaying.frame,
+                // The open's first pass builds the flight's two ends alone;
+                // the rest comes in with every other surface's body
+                // (`bodyStaged`, `MediaPane.holdsBackRest`).
+                holdsBackRest: !bodyStaged
             )
             // Skipped on a pass that changes nothing it draws: during a page
             // swipe this body is re-run on every frame, and without it so was

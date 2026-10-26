@@ -141,7 +141,7 @@ final class TranslatePaneLayoutTests: XCTestCase {
     func testPasteAndTheCounterSitAtTheSourceFoot() {
         let card = TranslateLayout.sourceCard(bodyWidth: 560)
         XCTAssertEqual(TranslateLayout.counter(card: card), CGRect(x: 30, y: 216, width: 228, height: 12), "10 from the card's bottom")
-        XCTAssertEqual(TranslateLayout.paste(card: card), CGRect(x: 30, y: 211, width: 228, height: 22))
+        XCTAssertEqual(TranslateLayout.paste(card: card), CGRect(x: 30, y: 202, width: 228, height: 26), "the header well, on the count's foot line")
     }
 
     /// Paste is never cut: the room it is placed in holds the glyph, the gap
@@ -151,8 +151,10 @@ final class TranslatePaneLayoutTests: XCTestCase {
     func testPasteHasRoomForItsWholeLabel() {
         let room = TranslateLayout.paste(card: TranslateLayout.sourceCard(bodyWidth: NotchMetrics.minimumBodyWidth)).width
         for word in ["Paste", "Вставить"] {
-            let text = (word as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 15)]).width
-            let needed = 11 + 5 + text + 2 * ToolbarPushButtonStyle.horizontalPadding
+            let text = (word as NSString).size(withAttributes: [
+                .font: NSFont.systemFont(ofSize: HeaderIcon.wordSize, weight: .medium),
+            ]).width
+            let needed = ShelfLayout.removeAllGlyphWidth + ShelfLayout.removeAllGap + text + 2 * ShelfLayout.removeAllPadding
             XCTAssertLessThan(needed, room, word)
         }
         let source = try? String(

@@ -321,6 +321,49 @@ nudges it and a click still refuses with `RefusalShake` and "Unlock your Mac
 to open Isla." (existing string). With Show on Lock Screen off, the island
 behaves as today.
 
+> **Amended 2026-10-26 (owner: "the island should work on the lock screen
+> too, especially its HUD controls, as minimal as possible without being
+> weird; we have the music lock-screen card, so take care of every logic").**
+> Two alerts may now take the locked island's wings for their hold and fold
+> back on their own: the **volume and brightness pop-up** and the **charger**.
+> Both are compact — the charger's 3 s pill exactly as §19.4 draws it, and
+> the pop-up in the same notch-plus-180 pill at the notch's height
+> (`LockedHUDLayout`: the symbol 20 × 14 where the charger's words start, a
+> 40 × 6 bar and the level, SF Pro Rounded 14, ending where its battery
+> ends), never the 103 pt expanded alert, which would hang over the lock
+> screen's clock. The pop-up arrives and folds on `Theme.hud`, the charger
+> on `Theme.pill`; the pop-up replaces the charger; nothing queues. Nothing
+> else shows over the shield (headphones, confirmations, the update choice
+> and the peek wait for the unlock as before, `LockedIsland.showsAlert`),
+> nothing opens, the pill stays inert to clicks (a click still shakes), and
+> the unlock ends either at once.
+>
+> **One answer for "over the shield".** Both show only while the notch panel
+> is in the lock screen's SkyLight space (`LockScreenPresence.isAboveShield`),
+> the same lifted space the lock card is in at absolute level 400. The pop-up
+> is drawn inside the notch panel, so it is over the shield exactly when the
+> card is and has no level of its own; the card is a window in the middle of
+> the display and the pill sits at the notch, so neither covers nor moves the
+> other. The card's volume bar watches the same output and moves with a key.
+> With the SPI missing, a space the compositor refused, Show on Lock Screen
+> off, or a dark display, the island is not over the shield and nothing here
+> applies.
+>
+> **The keys.** Whether the session event tap hears the media keys while the
+> Mac is locked is not documented: loginwindow takes Secure Event Input for
+> the password field, which Apple documents as hiding *keyboard* events from
+> other processes, and the media keys reach a tap as `NX_SYSDEFINED`
+> system-defined events, not key events. So the rule is built for both
+> answers and decided by what the tap sees at run time: while locked, a key is
+> consumed only when the island is over the shield (`MediaKeyGate`,
+> `drawsWhileLocked`, mirrored after the lift by `lockChanged`); then Isla
+> applies it and draws the compact pop-up, and the system's OSD does not show.
+> Otherwise — or if the tap hears nothing while locked — every key goes to the
+> system and its own OSD shows, as before. Each unlock logs how many presses
+> the tap heard and took while locked ("media keys while locked: N heard, M
+> taken"), which is the hardware answer (MR-H23). `LockScreenHUDTests`,
+> `MediaKeyHUDTests.testALockedKeyIsTakenAndShownOnlyWhileTheIslandIsOverTheShield`.
+
 ### 3.8 A display without a notch
 
 `Stress-No-Notch`, `Stress-No-Notch-Open`. The synthetic island is **200 × 24**
@@ -1307,6 +1350,38 @@ until nothing uses them, then go.
 
 > **Withdrawn 2026-10-17 (owner: activities first, §19).** The wings note
 > above no longer applies; the Translate surface is §19.8.
+
+> **Amended 2026-10-26 (owner: "when I click Use Online it's not even
+> working instantly").** "Use Online sends one text, once" above is
+> withdrawn. The press waited out the 320 ms typing pause with the alert
+> still up, and was spent by the first keystroke, so the next word put "not
+> downloaded" back. As built (`Translator.useOnline`, `retry`,
+> `runWhenSettled`; `TranslateUseOnlineTests`):
+> - A press (Use Online, Try Again, Turn On Translate Online) puts the
+>   spinner up on the press itself and skips the typing pause; the answer
+>   lands when MyMemory replies. Keystrokes still wait 320 ms.
+> - Use Online stands for the pair on screen: what is typed next for that
+>   pair goes online too, with no second press. A pair change, a swap, Clear,
+>   Escape, a History restore, the cover and the panel closing still end it.
+>   Under Detect Language the pair is the detected one. The tooltip says
+>   "Sends this text, and what you type next in these languages, to MyMemory
+>   over the internet." It never switches Translate Online on.
+> - After a failed or partial send the card offers Try Again while the press
+>   stands, and Use Online when it was ended while the send was out; neither
+>   once the day's allowance is spent. The failure is the result card's one
+>   alert, never a toast as well.
+> - Online is never used beside an on-device engine that can run: once the
+>   language is downloaded the Mac answers, the press notwithstanding.
+
+> **Amended 2026-10-26 (owner: clipboard text can be private).** "What is
+> typed next for that pair goes online too" above covers typing only. Text
+> that the clipboard brings — ⌃⌥⌘T, the "Translate in Isla" service and a
+> Clipboard row's Translate — ends the press as it lands
+> (`NotchViewModel.receiveCommandedTranslation`), so a copied password or
+> token never rides a press made for other words: the card shows "not
+> downloaded" with Use Online again, offered once the covered text is shown.
+> Typed edits, and Paste, which is a press in the field, keep riding it.
+> `TranslateUseOnlineTests.testClipboardTextAsksAgainWhileTypedEditsKeepThePress`.
 
 ## 12. Volume and brightness pop-up (R5, decision 13)
 
@@ -2443,6 +2518,59 @@ already about a third opaque 0.08 s in. No other surface waits.
 (`SettingsPane.mountsAfter`, off unless the shell asks, and the shell asks only
 for a swap, `NotchViewModel.arrivedOverAnOpenSurface`; `SettingsStagedMountTests`.)
 
+*Amended 2026-10-26 (owner on hardware: "the whole opening and closing of the
+island is not smooth"; MR-H18).* No curve changes: the outline stays on
+`Theme.islandSpring` (0.5 / 0.75), the close keeps `Theme.closeShapeDelay`, and
+Reduce Motion keeps its 0.24 s fade. Two rules change when the main thread does
+the work, measured in the hitch lab (`Scripts/measure-hitches.sh`, scenarios
+`click-*` and `pull-*`, 120 Hz, idle):
+
+- **The open's first frame carries the outline and the header; the body mounts
+  one run-loop pass later**, in a commit of its own, on every surface but the
+  player while the cover travels (its two ends must share a transaction). The
+  open used to spend 8.4 + 8.2 + 4.6 ms of main thread in its first three
+  frames on the lyric stage and 6.8 ms in the first on the tray, against about
+  1 ms a frame for the rest of the spring, and the outline's motion reached the
+  render server only when that whole frame was committed: 36 ms after the
+  click on the stage, now 10 ms (on the glass 52 ms, now 21 ms; the tray 27
+  to 22 ms; the player, not staged, about 37 ms either way). Nothing waits on
+  screen: the body arrives behind `Theme.paneIn`'s 40 ms delay either way. This
+  supersedes "No other surface waits" above for an open from the shut island;
+  a swap still waits only for Settings. (`NotchContentView.stagesBody`,
+  `NotchContentStagingTests`.)
+- **The vertical pull redraws at most once a display frame** and never a frame
+  late: the first scroll event of a frame is drawn in it, later ones wait for
+  the next frame's tick and only the newest is drawn (`FrameCoalescer`,
+  `IslandPullStretch`, `IslandPullStretchTests`). A trackpad sends more events
+  than the display draws; each one re-ran the shell's body and layout. At 240
+  events a second: 26 outline updates in a 15-frame pull, now 15; the main
+  thread's first 100 ms of a pull shut from the player 38 ms, now 24, and from
+  the stage 49 ms, now 41.
+
+What the lab cannot see is the render server: whether the outline itself now
+starts in the first frame on glass is MR-H18, by eye and with a capture.
+
+*Amended 2026-10-26, later the same day (MR-H18, the player).* The player now
+stages itself by the same flag: the open's first pass builds only the two far
+ends of the flight from the pill — the cover and the equalizer — and the
+title, the artist or sung line, the times, the scrubber and the five controls
+mount a pass later, with every other surface's body (`MediaPane.holdsBackRest`,
+`MediaPaneStagingTests`). Once let in they stay for the pane's life, so a
+close never strips a fading player. Its two questions to the machine move
+with them: Apple Events for the modes and the star, and CoreAudio for the
+Output button's route, whose first reading now runs on a queue of its own and
+publishes back on the main thread (`AudioWatch.offMain`); it was a device
+enumeration on the open's frame, 0.6–1.1 ms on a MacBook Pro with two outputs
+and 82 ms for the first read after launch. The hitch lab, three interleaved
+runs of twelve opens each, idle, 120 Hz, medians: click to the outline's
+motion in the render server 34 ms, now 26 ms (commit 19, now 14 ms; the tray,
+the floor, about 22 ms); the costliest frame 21, now 15 ms; missed frames
+1.8, now 1.4; a pull's release to the outline 36, now 24 ms. The main
+thread's first 100 ms is unchanged at about 29 ms — the same work, a frame
+later, behind the outline instead of in front of it. The close is unchanged
+(18–19 ms) and was not player work. The cover's flight is untouched: both of
+its ends are still in the open's one transaction.
+
 ### 19.4 Compact activities
 
 `H` tall. Shoulders 8.67, bottom corners 12.67. Board `R2-Alerts` (top row)
@@ -2511,6 +2639,44 @@ what the wings say and draw.
   silence the second. The refusals themselves (switch off, pointer on or
   under the pill, displays asleep, full screen or mirrored, the second's
   patience behind an open panel or the lock) are unchanged.
+
+*Amended 2026-10-26 (owner on hardware: Apple's 61 W USB-C charger, 80
+percent, charging held; `ioreg` read `ExternalConnected` Yes, `IsCharging`
+No, `ChargerData.NotChargingReason` 16777216, `FullyCharged` No — the pill
+read "Not Charging · 80%" with no port and no watts).* Replaces *States,
+both* and the left wing's words above.
+
+- *The source always leads.* The left wing starts with the port's identity in
+  every state — "MagSafe", or the adapter's watts ("61 W") — at white 0.88,
+  and says the battery's state after it, one space on, at white 0.55: "61 W
+  On Hold", "MagSafe Charged", "61 W Not Charging". While it simply charges,
+  the source alone. With no source to name (an adapter the Mac cannot place
+  and that reports no watts): "Charging", "Charging On Hold", "Not Charging"
+  or "Charged" alone, at 0.88. One line, shrinking together to 0.7, 4 pt
+  short of the notch.
+- *Charging On Hold* is Apple's wording for a charge the Mac holds on
+  purpose, and it is now told apart from "Not Charging" by the battery's own
+  reason, `AppleSmartBattery`'s `ChargerData.NotChargingReason`
+  (`ChargeHoldReading`), read off the main thread with the port, only when
+  the battery is not charging. The field is not public API (no IOKit header
+  or Apple open-source tree names it, searched 2026-10-26), so only the values
+  that can be stood behind are named, from the one public decoder that names
+  them (Battman's `not_charging_reason.h`) and the owner's Mac: on Apple
+  silicon (a bitfield) bit 0 is full, bits 14 (charging inhibited by a
+  client), 15 (Optimized Battery Charging), 22 (no charge requested) and 24
+  (the owner's measured hold) are **On Hold**; temperature, timer, presence
+  and fault bits make it **Not Charging** whatever else is set; any other
+  non-zero value is **Not Charging**. On an Intel Mac with a T2 (an
+  enumeration) 4 is full and 5, 13, 14 (the charge limit) and 16 are On
+  Hold. Zero or no field leaves the old reading: Not Charging below 100.
+- Colours are unchanged: On Hold, Not Charging and Charged are white, the
+  plug stands in for the bolt, and 20 percent or less is red.
+- *Labels.* Adds "Power adapter connected, charging on hold, %d percent".
+  *Strings:* "Charging On Hold" (ru "Зарядка приостановлена"), "On Hold"
+  (ru "Пауза"), and that label.
+- Tests: `ChargePortTests.testTheOwnersHeldChargeReadsChargingOnHoldWithItsWatts`,
+  `testTheBitfieldNamesOnlyWhatItCanStandBehind`,
+  `testTheEnumeratedReasonOfAT2Mac`, `testTheStateWeighsTheReasonAfterTheCharge`.
 
 ### 19.5 Alerts
 
@@ -2922,6 +3088,10 @@ squircle on macOS 26 and later, so every player stands the same height.
 > `PlayerVolumeControlTests`, `LyricColumnPaneTests.testTheStagePutsItsFootWhereTheBoardDoes`.
 > Hardware: MR-H14.
 
+> **Amended 2026-10-26 (owner: Volume and Output swap places).** The tools from the right now read Hide Lyrics, Volume, Output, More, Show Translation: Volume beside Hide Lyrics, Output left of it; widths, gaps (the narrow-body rule below 502) and VoiceOver order, which follows the picture, are unchanged. `LyricColumnPaneTests.testTheStagePutsItsFootWhereTheBoardDoes`.
+
+> **Amended 2026-10-26 (owner: the whole song block opens the lyrics).** On the player the title and the artist line open the stage exactly as the cover does, with the same press dim, and where the song has no lyrics they bring the player forward as the cover does; the hit region is the text's box, never the transport, scrubber, star or Output, and VoiceOver gets one element per line, the title with the cover's "Opens the full lyrics" hint. `PlayerPaneTests.testTitleAndArtistOpenTheStageLikeTheCover`.
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the
@@ -2969,12 +3139,31 @@ untouched." with Cancel and Remove All (destructive) under it; Escape and
 leaving the tray take the question back. **The selected tile** is white 0.18
 with a 1.5 pt blue ring inside its edge; on the drop surface a file already
 on the Shelf lights its tile blue 0.18 with a 2 pt ring, as the lit target
-does. *Amended 2026-10-26 (owner): the selected tile takes Finder's icon-view
-selection instead — white 0.18 behind the icon with no ring, and each caption
-line white on its own rounded fill (radius 4, 3 pt either side) in the system
-accent colour (`controlAccentColor`), never a fixed blue. A ring round a
-thumbnail is the Photos grid's selection; the Shelf holds files. The drop
-match keeps its ring: that is a drop target's lit look, not a selection.*
+does. *Amended 2026-10-26 (owner), superseded the same day by the next
+amendment: the selected tile takes Finder's icon-view selection instead —
+white 0.18 behind the icon with no ring, and each caption line white on its
+own rounded fill (radius 4, 3 pt either side) in the system accent colour
+(`controlAccentColor`), never a fixed blue. A ring round a thumbnail is the
+Photos grid's selection; the Shelf holds files. The drop match keeps its
+ring: that is a drop target's lit look, not a selection.* *Amended
+2026-10-26 (owner: "make the Shelf be and act exactly like Finder, 1:1"; the
+date had worn the system colour): **the tile is Finder's icon view.** No
+plate behind a tile, resting or under the pointer (Finder shows none), so the
+white 0.10 and 0.14 plates and the whole-tile 0.18 well are gone. Under the
+icon, the file's name — 12 regular, `labelColor`, centred, two lines, the
+second cut in the middle (§8.1) — and, under it with no gap, Finder's item
+info: the date added, 11 regular, `secondaryLabelColor`, one line (the time
+to the minute for today's cards, the day for older ones; the tooltip and
+VoiceOver carry both). A picked tile shows white 0.15 in a rounded square
+(radius 5) 3 pt around the icon's box and nothing behind the name; each name
+line sits white on its own pill (radius 4, 3 pt either side) in
+`selectedContentBackgroundColor`, the person's Highlight colour (the accent
+unless set apart in System Settings › Appearance). The info line is never
+highlighted; several picked tiles look alike. Hover changes nothing but the
+remove badge, which shows on a hovered or picked tile (decision 9). The icon
+sits at y 7 and the name at y 53 so a two-line name and the info line fill
+the tile's 94 exactly: the tray's height is unchanged. The drop match keeps
+its whole-tile ring.*
 The drop surface's captions do not change when a target is lit: only
 their brightness does, so nothing reflows under a moving pointer.
 **The tray's width follows a wide notch.** The board's 385.3 leaves the
@@ -3130,6 +3319,44 @@ line at y 46 (`ClipboardHeader.controlHeight`); the field was two points
 shorter. On Translate, Paste takes the counter row's full width and sizes to
 its label, so "Paste" is never cut in either language.
 
+*Amended 2026-10-26 (owner: "work on the exact icon size consistently across
+the pages ... literally every icon ... don't over-increase their height or
+disrupt the main content").* **One icon spec** (`HeaderIcon`,
+`SurfaceHeader.swift`). Measured in the visual lab before it, the header and
+the pages' tool rows drew six sizes for one kind of thing: the header's
+glyphs at 14 medium, the stage's foot tools at 13, Swap and Speak at 12, Copy
+at the caption's 12 semibold, Paste's glyph and Clipboard's symbol segments
+at 11 regular, and the playing app's squircle at 16 pt beside symbols whose
+ink is 14 to 15 pt (gear 15 × 15, `character.bubble.fill` 15.5 × 14.5,
+`music.note` 8.5 × 14). Now:
+
+- Every SF Symbol that is a control or names a page is **14 pt medium**: the
+  identity glyph in the 18 × 16 box, the gear and its X, History, Remove
+  All's trash, the stage's More, Output, Volume and Hide Lyrics, Translate's
+  Swap, Speak and Copy, Paste, and Clipboard's Kind symbols where words do
+  not fit.
+- The playing app's icon shows its squircle at **14 pt**, the symbols' size,
+  so its image is about 17.4 pt, centred on the same line (amends §19.6's
+  16 pt of 2026-10-25). A filled squircle carries more weight than a glyph's
+  strokes, so equal extents read as one size; Spotify and `music.note` stand
+  the same height.
+- A glyph-only header tool is the **26 × 26 well**, radius 8, white 0.08
+  (0.14 under the pointer, 0.18 lit). A glyph with a word is the same well
+  26 tall with the word at 13 medium, both secondary (`IconWordButton`):
+  Remove All, and Paste, which was a 22 pt push plate and now stands on the
+  count's foot line, 10 from the card's bottom. No tool's hit target is
+  under 24 pt.
+- No header grows: the strip is still the notch's height, and every item is
+  centred in it as before. The stage's tools keep their 28 pt targets.
+
+Not icons by this spec: glyphs that sit in a line of text and take its size
+(the lock or globe before "On this Mac", ⓘ before a footnote, a Clipboard
+row's kind), a field's own magnifier and Clear ⓧ, the player's transport and
+star (§19.6's content), Settings' sidebar tiles, the Shelf's confirmation
+buttons, and the page dots. `HeaderIconSpecTests`,
+`HeaderNotchBandTests.testThePlayersIconIsTheSymbolsSize`, and the lab's
+`header-icons/one-size` sheet.
+
 ### 19.9 The right-click menu
 
 `R2-Menu`. An `NSMenu` at the click, in the system's appearance:
@@ -3204,6 +3431,9 @@ sizes are the board's divided by its 0.81 scale.
   It is the only part that answers clicks; the rest passes them through.
 - **The island** shows the Locked compact activity (19.4). Decision 1 holds:
   no music in the island while the lock shows the player.
+  *Amended 2026-10-26:* the volume and brightness pop-up and the charger take
+  the island's wings over the shield for their hold, compact, and fold back
+  (§3.7's amendment); the player is untouched.
 - Reduce Transparency: the backdrop is opaque and the player Solid. Reduce
   Motion: nothing turns; lines crossfade.
 
@@ -3915,6 +4145,49 @@ key press draws a **capsule under the panel** (`HUDStripLayout`):
 Measured (`Scripts/measure-hitches.sh`, scenarios `hud-repeat` and
 `hud-strip-repeat`: 54 presses 35 ms apart, then the fold; idle Mac, 8 cycles):
 see `docs/development/checklist.md` MR-H8.
+
+*Amended 2026-10-26 (owner: "it's not consistent: when the island is open and
+I charge, it doesn't show under the island — every HUD should").* **Every
+alert under the open panel.** The capsule now also carries the charger,
+headphones connecting and the island's confirmations ("Copied", "Added to
+Shelf", "Lyrics imported") while a surface is open (`StripNotice`,
+`NotchController.noticePlacement`); before, they waited for the panel to close
+— a second for the charger and headphones, five for a confirmation — and were
+mostly never seen. Withdraws "neither takes part in the alert queue" above for
+these notices; the level itself is unchanged.
+
+- *Same capsule.* 32 tall, the same width rule, the same place under the
+  outline as drawn, following page turns and the pull (`HUDStripPlaced`), the
+  same arrival and fold (`Theme.hudStripArrival`, `Theme.hud`), click-through.
+  The island's line is tinted as the shut island tints that alert (green while
+  charging, red at 20 percent or less, white otherwise).
+- *Rows*, SF Pro 13 between the 14 pt insets: the charger as the shut
+  island's left wing says it ("61 W On Hold") with the level and MagSafe's ring
+  or USB-C's battery at 0.75 scale at the right; headphones as their symbol,
+  the name (giving way at its tail) and "Connected" at white 0.55; a
+  confirmation as its symbol and words. Each holds its own time (3 s, 4 s,
+  1.5 s).
+- *One at a time.* The level outranks them all and takes the capsule at
+  once, dropping the notice with its timer (§19.1). Between notices the
+  island's ranks and patience apply (`IslandAlertQueue`, a queue of the
+  capsule's own): a confirmation replaces the charger; one that cannot show
+  waits its second (five for a confirmation) and shows when the capsule comes
+  free while the panel is open.
+- *Refusals.* The switches, a dark display and a full-screen film or mirrored
+  display refuse the charger and headphones here as on the island; the
+  pointer does not, since nothing in the capsule takes a click. A drag over
+  the panel and the lock screen keep the old path (wait for the island).
+- *The close.* The panel closing takes the notice with it in the close's own
+  transaction. One that had stood less than 0.6 s (`StripNotice.handBackWindow`)
+  is handed to the shut island's queue and shows there for its whole hold:
+  Return in the Clipboard copies and closes in one press, and its "Copied"
+  would otherwise have been on screen for no time at all. The shut island's
+  queue is otherwise what it was.
+- VoiceOver: the charger and headphones are announced once when shown, as on
+  the island; confirmations are spoken at the act. The capsule is hidden from
+  it. No new strings.
+- Tests: `AlertCapsuleTests`,
+  `HUDStripPlacementTests.testANoticeInTheCapsuleSitsUnderTheOutlineAndFollowsADotTurn`.
 
 *Amended 2026-10-25 (owner: "only the volume pop-up lags and delays, with or
 without earphones, while music plays … if ours lags while replacing the Mac's

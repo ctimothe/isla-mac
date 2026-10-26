@@ -78,7 +78,10 @@ final class MotionValuesTests: XCTestCase {
                       "the pop-up arrives on its own spring, not the island's")
         XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {\n                vm.hud = nil"),
                       "and folds on it")
-        XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: reduceMotion)) { vm.hudStrip = moment }"),
+        // Since 2026-10-26 the capsule also carries the charger, headphones and
+        // confirmations, so the level's arrival clears the notice it replaces
+        // in the same transaction, on the same spring.
+        XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: reduceMotion)) {\n                    vm.stripNotice = nil\n                    vm.hudStrip = moment"),
                       "the capsule under the open panel arrives on the same spring (2026-10-25)")
     }
 

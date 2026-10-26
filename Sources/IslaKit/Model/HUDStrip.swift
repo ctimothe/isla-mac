@@ -1,4 +1,5 @@
 import Combine
+import Foundation
 import CoreGraphics
 
 /// The level the volume and brightness pop-up shows *this instant*, kept apart
@@ -94,5 +95,51 @@ enum HUDStripLayout {
     /// reference notch, plus that 38.
     static func tallestNotchThatFits(windowHeight: CGFloat) -> CGFloat {
         windowHeight - gap - height - SurfaceLayout.settingsHeight + SurfaceLayout.referenceNotchHeight
+    }
+}
+
+/// What the capsule under the open panel carries when it is not the level
+/// (spec §19.5 d, amended 2026-10-26; owner: "when the island is open and I
+/// charge, it doesn't show under the island — every HUD should"): the
+/// charger, headphones connecting, and the island's confirmations. Before,
+/// each of them waited for the panel to close — a second for the charger and
+/// headphones, five for a confirmation — and was usually never seen.
+///
+/// Same capsule, same placement under the drawn outline, same arrival and
+/// fold as the level's; one thing at a time, by the island's own ranks
+/// (`IslandAlertQueue`), with the level above everything.
+enum StripNotice: Equatable {
+    case ambient(AmbientActivity)
+    case confirmation(IslandConfirmation)
+
+    /// The island alert it stands for, for the ranks.
+    var activity: IslandActivity {
+        switch self {
+        case .ambient(let ambient): return .ambient(ambient)
+        case .confirmation(let confirmation): return .confirmation(confirmation)
+        }
+    }
+
+    /// The notice an alert from the queue becomes, or nil for one the
+    /// capsule does not carry (the level is `hudStrip`; the update alert has
+    /// buttons and waits for the shut island; the peek is the song's).
+    init?(_ activity: IslandActivity) {
+        switch activity {
+        case .ambient(let ambient): self = .ambient(ambient)
+        case .confirmation(let confirmation): self = .confirmation(confirmation)
+        default: return nil
+        }
+    }
+
+    /// The panel closing within this long of the notice's arrival hands it to
+    /// the shut island for its whole hold. Return in the Clipboard copies and
+    /// closes in one press: its "Copied" reached the capsule and left with the
+    /// panel in the same moment, and nobody saw it anywhere. A notice that
+    /// stood longer than this was read, and goes with the panel.
+    static let handBackWindow: TimeInterval = 0.6
+
+    /// Pure, so the rule is a test.
+    static func handsBack(shownFor elapsed: TimeInterval) -> Bool {
+        elapsed < handBackWindow
     }
 }

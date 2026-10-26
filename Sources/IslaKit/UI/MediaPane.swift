@@ -58,6 +58,30 @@ struct MediaPane: View {
     /// per song, its clock still while the next one loads. Nil outside the
     /// panel — a test, a render — where the pane draws the controller live.
     var nowPlaying: NowPlayingPresenter.Frame? = nil
+    /// The open's first pass (MR-H18, 2026-10-26): only the two far ends of
+    /// the flight from the island — the cover and the equalizer — are built,
+    /// and the rest of the player a run-loop pass later, when the panel lets
+    /// its body in (`NotchContentView.bodyStaged`).
+    ///
+    /// The panel stages every other surface's whole body that way, so the
+    /// open's first commit carries the outline and the header alone. The
+    /// player could not be staged whole: a `matchedGeometryEffect`'s two ends
+    /// must be in the tree in one transaction, or the cover appears where it
+    /// lands instead of flying there. So it was built whole in the outline's
+    /// frame, and the hitch lab put the open's cost there — 8.1 and 8.0 ms
+    /// of main thread in the first two 8.3 ms frames, 40 ms from the click to
+    /// the outline moving, against 22 ms opening the Shelf. The title, the
+    /// artist or sung line, the times, the scrubber and the five controls are
+    /// eight buttons, a marquee that measures itself and a dozen texts, and
+    /// none of them travels. Nothing is seen to wait: the body is still
+    /// inside `Theme.paneIn`'s 40 ms delay when they arrive, at opacity 0.
+    ///
+    /// Only ever true at the pane's mount: once let in, the rest stays for
+    /// the pane's life (`restReleased`), so a close — which unstages the
+    /// panel's body as it removes it — never strips the controls from a pane
+    /// that is fading out.
+    var holdsBackRest = false
+    @State private var restReleased = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var appearance = SystemAppearance.shared
 
@@ -93,8 +117,16 @@ struct MediaPane: View {
     var body: some View {
         if let track = media.shownTrack(nowPlaying) {
             player(for: track)
-                .onAppear { if isLive { startWatching() } }
-                .onChange(of: isLive) { _, live in if live { startWatching() } }
+                // The player's questions — its modes over Apple Events, the
+                // outputs over CoreAudio — wait for the rest of the player as
+                // well: nothing they answer is on screen before it.
+                .onAppear { if isLive && showsRest { startWatching() } }
+                .onChange(of: holdsBackRest) { _, held in
+                    guard !held, !restReleased else { return }
+                    restReleased = true
+                    if isLive { startWatching() }
+                }
+                .onChange(of: isLive) { _, live in if live && showsRest { startWatching() } }
                 // The watch follows the machine only while there is a button to
                 // show it in, and only while the pane is on screen: it reads, and
                 // installs CoreAudio listeners, and writes nothing.
@@ -112,6 +144,14 @@ struct MediaPane: View {
         if outputButtonOn { audio.start() }
     }
 
+    /// Whether everything but the flight's two ends is built (`holdsBackRest`).
+    private var showsRest: Bool { Self.showsRest(holdsBack: holdsBackRest, released: restReleased) }
+
+    /// Pure, for `MediaPaneStagingTests`: held back only until let in once.
+    nonisolated static func showsRest(holdsBack: Bool, released: Bool) -> Bool {
+        !holdsBack || released
+    }
+
     // MARK: - The player (spec §19.6)
 
     private func player(for track: MediaController.Track) -> some View {
@@ -125,19 +165,24 @@ struct MediaPane: View {
             coverButton(for: track)
                 .placedAt(layout.cover)
 
-            titleRow(for: track, withArtist: band.isOn && !(nowPlaying?.presented?.lyricsCameLate ?? false))
-                .trackSwapText(track.key, reduceMotion: reduceMotion)
-                .placedAt(Self.textBox(
-                    x: layout.textLeading, baseline: layout.titleBaseline, width: layout.titleWidth,
-                    size: PlayerLayout.titleSize, weight: .medium
-                ))
+            if showsRest {
+                titleButton(for: track, withArtist: band.isOn && !(nowPlaying?.presented?.lyricsCameLate ?? false))
+                    .trackSwapText(track.key, reduceMotion: reduceMotion)
+                    .placedAt(Self.textBox(
+                        x: layout.textLeading, baseline: layout.titleBaseline, width: layout.titleWidth,
+                        size: PlayerLayout.titleSize, weight: .medium
+                    ))
 
-            subtitle(for: track, band: band)
-                .trackSwapText(track.key, reduceMotion: reduceMotion)
-                .placedAt(Self.textBox(
-                    x: layout.textLeading, baseline: layout.subtitleBaseline, width: layout.subtitleWidth,
-                    size: PlayerLayout.subtitleSize, weight: .semibold
-                ))
+                subtitle(for: track, band: band)
+                    .trackSwapText(track.key, reduceMotion: reduceMotion)
+                    .placedAt(Self.textBox(
+                        x: layout.textLeading, baseline: layout.subtitleBaseline, width: layout.subtitleWidth,
+                        size: PlayerLayout.subtitleSize, weight: .semibold
+                    ))
+
+                progressRow
+                controls
+            }
 
             CompactEqualizer(
                 isAnimating: media.shownIsPlaying(nowPlaying),
@@ -151,9 +196,6 @@ struct MediaPane: View {
             .morph(NotchContentView.MorphID.equalizer, in: morph)
             .placedAt(layout.equalizer, alignment: .center)
             .accessibilityHidden(true)
-
-            progressRow
-            controls
         }
         // Title, artist and cover change together, in one transaction, on the
         // one swap every surface shares (`Theme.trackSwap`, through
@@ -185,15 +227,26 @@ struct MediaPane: View {
     /// lyrics, and otherwise brings the player forward.
     private func coverButton(for track: MediaController.Track) -> some View {
         let opensStage = Self.coverOpensStage(availability: lyrics.availability)
-        return Button {
-            if opensStage { openStage() } else { bringPlayerForward() }
-        } label: {
+        return Button(action: openFromSong) {
             artwork(for: track)
         }
         .buttonStyle(PanelButtonStyle())
         .help(opensStage ? localized("Lyrics") : (media.sourceName ?? ""))
         .accessibilityLabel(opensStage ? localized("Lyrics") : localized("Cover"))
         .accessibilityHint(opensStage ? localized("Opens the full lyrics") : "")
+    }
+
+    /// What the whole song block does on a click — the cover, the title and the
+    /// artist share it (amended 2026-10-26): the stage when the song has lyrics,
+    /// the player's app otherwise. One function, so the three can never differ.
+    private func openFromSong() {
+        if Self.coverOpensStage(availability: lyrics.availability) { openStage() } else { bringPlayerForward() }
+    }
+
+    /// The VoiceOver hint the title and the artist carry beside the cover:
+    /// the same words, and none where the click only brings the player forward.
+    private var songHint: String {
+        Self.coverOpensStage(availability: lyrics.availability) ? localized("Opens the full lyrics") : ""
     }
 
     /// Whether the cover opens the stage: only when there are lyrics to show
@@ -264,6 +317,21 @@ struct MediaPane: View {
     /// the artist at white 0.50 (§19.6). A line longer than its room scrolls
     /// to show the rest (`MarqueeLine`); where it may not move, the artist is
     /// the first to give way, as it always was.
+    /// The title row is a button as the cover is (amended 2026-10-26): the
+    /// whole song block opens the stage, with the cover's press dim and hint.
+    /// One element for VoiceOver — the button itself carries the line.
+    private func titleButton(for track: MediaController.Track, withArtist: Bool) -> some View {
+        let artist = withArtist && !track.artist.isEmpty ? track.artist : nil
+        return Button(action: openFromSong) {
+            titleRow(for: track, withArtist: withArtist)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PanelButtonStyle())
+        .accessibilityLabel(Self.titleLine(title: track.title, artist: artist))
+        .accessibilityHint(songHint)
+    }
+
     private func titleRow(for track: MediaController.Track, withArtist: Bool) -> some View {
         let artist = withArtist && !track.artist.isEmpty ? track.artist : nil
         let line = Self.titleLine(title: track.title, artist: artist)
@@ -283,8 +351,6 @@ struct MediaPane: View {
         .lineLimit(1)
         .truncationMode(.tail)
         .help(line)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(line)
     }
 
     /// Between the title and the artist: a dash, which reads as "by" at a
@@ -391,17 +457,22 @@ struct MediaPane: View {
             } else {
                 // The artist on its own line scrolls like the title when it
                 // is longer than its room.
-                MarqueeLine(room: layout.subtitleWidth, isActive: isLive && !reduceMotion, text: track.artist) {
-                    Text(track.artist)
+                Button(action: openFromSong) {
+                    MarqueeLine(room: layout.subtitleWidth, isActive: isLive && !reduceMotion, text: track.artist) {
+                        Text(track.artist)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(PanelButtonStyle())
                     .font(.system(size: PlayerLayout.subtitleSize, weight: .regular))
                     .tracking(Theme.tracking(forSize: PlayerLayout.subtitleSize))
                     .foregroundStyle(.white.opacity(Theme.playerArtistOpacity))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(track.artist)
-                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel(track.artist)
+                    .accessibilityHint(songHint)
                     .id(-1)
                     .transition(.lyricLine(reduceMotion: reduceMotion))
             }
@@ -845,7 +916,7 @@ struct PlayerOutputButton: View {
                         .frame(width: glyph.width, height: glyph.height)
                 } else {
                     Image(systemName: symbol)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(HeaderIcon.font)
                 }
             }
             .foregroundStyle(color)
@@ -917,5 +988,6 @@ extension MediaPane: @MainActor Equatable {
             && lhs.coverTint.isEqual(rhs.coverTint)
             && lhs.isLive == rhs.isLive
             && lhs.nowPlaying == rhs.nowPlaying
+            && lhs.holdsBackRest == rhs.holdsBackRest
     }
 }

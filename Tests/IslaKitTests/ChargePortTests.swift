@@ -143,9 +143,97 @@ final class ChargePortTests: XCTestCase {
         XCTAssertEqual(AmbientActivity.charging(level: 64, isCharging: true, port: .usbC, watts: 61).chargeHeadline, "61 W")
         XCTAssertEqual(AmbientActivity.charging(level: 64, isCharging: true, port: .usbC).chargeHeadline, "Charging")
         XCTAssertEqual(AmbientActivity.charging(level: 64, isCharging: true).chargeHeadline, "Charging")
-        XCTAssertEqual(AmbientActivity.charging(level: 80, isCharging: false, port: .magSafe).chargeHeadline, "Not Charging")
-        XCTAssertEqual(AmbientActivity.charging(level: 100, isCharging: false, port: .usbC, watts: 61).chargeHeadline, "Charged")
+        // The source stays on the leading side whatever the battery does
+        // (owner on hardware, 2026-10-26); the state follows it.
+        XCTAssertEqual(AmbientActivity.charging(level: 80, isCharging: false, port: .magSafe).chargeHeadline, "MagSafe Not Charging")
+        XCTAssertEqual(AmbientActivity.charging(level: 100, isCharging: false, port: .usbC, watts: 61).chargeHeadline, "61 W Charged")
+        XCTAssertEqual(AmbientActivity.charging(level: 80, isCharging: false, port: .adapter).chargeHeadline, "Not Charging")
         XCTAssertNil(AmbientActivity.headphones(name: "AirPods", symbol: "airpods").chargeHeadline)
+    }
+
+    // MARK: Charging On Hold (owner on hardware, 2026-10-26)
+
+    /// The owner's Mac, as `ioreg -rn AppleSmartBattery` printed it: Apple's
+    /// 61 W USB-C charger, 80 percent, `ExternalConnected` Yes, `IsCharging`
+    /// No, `FullyCharged` No, `ChargerData.NotChargingReason` 16777216. The
+    /// pill read "Not Charging · 80%" with no port and no watts.
+    func testTheOwnersHeldChargeReadsChargingOnHoldWithItsWatts() {
+        let chargerData: [String: Any] = ["NotChargingReason": NSNumber(value: 16_777_216 as UInt64)]
+        let raw = ChargeHoldReading.reason(fromChargerData: chargerData)
+        XCTAssertEqual(raw, 16_777_216)
+        let hold = ChargeHoldReading.classify(raw, encoding: .bitfield)
+        XCTAssertEqual(hold, .onHold)
+        let usbC = AmbientWatch.chargeActivity(
+            power: .init(onExternalPower: true, level: 80, isCharging: false), port: .usbC, watts: 61, hold: hold
+        )
+        XCTAssertEqual(usbC.chargeState, .onHold)
+        XCTAssertEqual(usbC.chargeSource, "61 W", "the port's identity keeps the leading side")
+        XCTAssertEqual(usbC.chargeStatus, "On Hold", "and the state is secondary, in Apple's words")
+        XCTAssertEqual(usbC.chargeHeadline, "61 W On Hold")
+        XCTAssertNil(usbC.chargeTint, "white: a held charge says nothing it would take back")
+        XCTAssertEqual(usbC.chargeSymbol, "powerplug.fill")
+        XCTAssertEqual(usbC.accessibilityLabel, "Power adapter connected, charging on hold, 80 percent")
+
+        let magSafe = AmbientActivity.charging(level: 80, isCharging: false, port: .magSafe, watts: 140, hold: .onHold)
+        XCTAssertEqual(magSafe.chargeHeadline, "MagSafe On Hold")
+        let unplaced = AmbientActivity.charging(level: 80, isCharging: false, port: .adapter, hold: .onHold)
+        XCTAssertNil(unplaced.chargeSource)
+        XCTAssertEqual(unplaced.chargeHeadline, "Charging On Hold", "alone, the whole phrase")
+    }
+
+    /// Apple silicon's bitfield: only the bits the published decoder names,
+    /// plus the owner's measured one, are holds; a stop bit wins over a hold;
+    /// an unknown bit is "Not Charging"; zero is no reason at all.
+    func testTheBitfieldNamesOnlyWhatItCanStandBehind() {
+        func classify(_ raw: UInt64?) -> ChargeHold? { ChargeHoldReading.classify(raw, encoding: .bitfield) }
+        XCTAssertNil(classify(nil), "no field: the IOPS state alone decides")
+        XCTAssertNil(classify(0), "zero: no reason given")
+        XCTAssertEqual(classify(1 << 0), .full)
+        XCTAssertEqual(classify(1 << 14), .onHold, "charging inhibited by a client: a charge limit")
+        XCTAssertEqual(classify(1 << 15), .onHold, "predictive charging: Optimized Battery Charging")
+        XCTAssertEqual(classify(1 << 22), .onHold, "the battery requests no charge")
+        XCTAssertEqual(classify(1 << 24), .onHold, "the owner's measured hold")
+        XCTAssertEqual(classify(1 << 2), .notCharging, "too hot to charge")
+        XCTAssertEqual(classify(1 << 3), .notCharging, "too cold to start")
+        XCTAssertEqual(classify(1 << 6), .notCharging, "no battery")
+        XCTAssertEqual(classify(1 << 21), .notCharging, "a cell's voltage too high")
+        XCTAssertEqual(classify(0x10 << 56), .notCharging, "a permanent fault")
+        XCTAssertEqual(classify((1 << 15) | (1 << 2)), .notCharging, "a hold beside heat is not the news")
+        XCTAssertEqual(classify((1 << 24) | (1 << 0)), .full, "full and held: full")
+        XCTAssertEqual(classify(1 << 30), .notCharging, "a bit nobody has named")
+        XCTAssertEqual(classify((1 << 30) | (1 << 15)), .onHold, "a named hold beside an unknown bit")
+    }
+
+    /// Intel Macs with a T2 report one enumerated value.
+    func testTheEnumeratedReasonOfAT2Mac() {
+        func classify(_ raw: UInt64) -> ChargeHold? { ChargeHoldReading.classify(raw, encoding: .enumerated) }
+        XCTAssertEqual(classify(4), .full)
+        for hold: UInt64 in [5, 13, 14, 16] { XCTAssertEqual(classify(hold), .onHold, "\(hold)") }
+        for other: UInt64 in [1, 2, 3, 9, 17, 23, 99] { XCTAssertEqual(classify(other), .notCharging, "\(other)") }
+        XCTAssertNil(ChargeHoldReading.classify(0, encoding: .enumerated))
+    }
+
+    /// The state from the three readings together.
+    func testTheStateWeighsTheReasonAfterTheCharge() {
+        XCTAssertEqual(ChargeState(level: 80, isCharging: true, hold: .onHold), .charging, "charging is charging")
+        XCTAssertEqual(ChargeState(level: 80, isCharging: false, hold: .onHold), .onHold)
+        XCTAssertEqual(ChargeState(level: 99, isCharging: false, hold: .full), .charged, "the battery says full")
+        XCTAssertEqual(ChargeState(level: 100, isCharging: false, hold: .onHold), .charged, "a full battery is charged")
+        XCTAssertEqual(ChargeState(level: 80, isCharging: false, hold: .notCharging), .notCharging)
+        XCTAssertEqual(ChargeState(level: 80, isCharging: false, hold: nil), .notCharging, "no reason: as before")
+    }
+
+    /// Both languages have all three words, and the Russian is not the
+    /// English.
+    func testTheHoldIsWordedInBothLanguages() {
+        defer { LabLocalization.use("en") }
+        LabLocalization.use("ru")
+        let held = AmbientActivity.charging(level: 80, isCharging: false, port: .usbC, watts: 61, hold: .onHold)
+        XCTAssertEqual(held.chargeStatus, "Пауза")
+        XCTAssertEqual(held.chargeSource, "61 Вт")
+        XCTAssertEqual(
+            AmbientActivity.charging(level: 80, isCharging: false, hold: .onHold).chargeStatus, "Зарядка приостановлена"
+        )
     }
 
     /// VoiceOver hears it once (`presentAmbient` announces after the guard),
@@ -244,6 +332,8 @@ final class ChargePortTests: XCTestCase {
             .charging(level: 64, isCharging: true, port: .usbC, watts: 61),
             .charging(level: 12, isCharging: true, port: .magSafe),
             .charging(level: 80, isCharging: false, port: .usbC),
+            .charging(level: 80, isCharging: false, port: .usbC, watts: 61, hold: .onHold),
+            .charging(level: 80, isCharging: false, port: .magSafe, hold: .onHold),
         ] {
             let vm = NotchViewModel(geometry: geometry, stores: isolated.stores)
             vm.ambient = activity

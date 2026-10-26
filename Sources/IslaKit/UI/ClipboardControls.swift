@@ -24,7 +24,7 @@ struct ClipboardKindControl: View {
                     Group {
                         if usesSymbols {
                             Image(systemName: filter.symbol)
-                                .font(.system(size: 11, weight: isSelected ? .medium : .regular))
+                                .font(HeaderIcon.font)
                         } else {
                             Text(filter.title)
                                 .font(.system(size: 12, weight: isSelected ? .medium : .regular))

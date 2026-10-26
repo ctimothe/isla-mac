@@ -64,6 +64,47 @@ struct HUDPillContent: View {
     }
 }
 
+/// The pop-up over the lock screen, in the pill's compact form
+/// (`LockedHUDLayout`, spec §3.7 amended 2026-10-26): the symbol where the
+/// charger's words start, the bar and the level ending where its battery
+/// ends, nothing under the notch. Watches only the live level, as the shut
+/// island's pop-up does.
+struct LockedHUDContent: View {
+    @ObservedObject var live: HUDLiveLevel
+    let size: CGSize
+
+    var body: some View {
+        if let hud = live.moment {
+            let fill = Color.white.opacity(hud.muted ? HUDLayout.mutedFillOpacity : HUDLayout.levelOpacity)
+            HStack(spacing: 0) {
+                Image(systemName: hud.symbol)
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(Color.white)
+                    .frame(width: LockedHUDLayout.symbolSize.width, height: LockedHUDLayout.symbolSize.height)
+                    .padding(.leading, CompactIslandLayout.chargingTextInset)
+                Spacer(minLength: 0)
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: LockedHUDLayout.barHeight / 2, style: .continuous)
+                        .fill(Color.white.opacity(HUDLayout.trackOpacity))
+                    RoundedRectangle(cornerRadius: LockedHUDLayout.barHeight / 2, style: .continuous)
+                        .fill(fill)
+                        .frame(width: LockedHUDLayout.barWidth * CGFloat(hud.level))
+                }
+                .frame(width: LockedHUDLayout.barWidth, height: LockedHUDLayout.barHeight)
+                Text(hud.percent, format: .number)
+                    .font(.system(size: LockedHUDLayout.numberSize, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color.white.opacity(HUDLayout.numberOpacity))
+                    .lineLimit(1)
+                    .frame(width: LockedHUDLayout.numberWidth, alignment: .trailing)
+                    .padding(.leading, LockedHUDLayout.spacing)
+                    .padding(.trailing, CompactIslandLayout.batteryTrailing - CompactIslandLayout.shoulder)
+            }
+            .frame(width: size.width, height: size.height)
+        }
+    }
+}
+
 /// What the capsule under the open panel draws: the symbol, the bar and the
 /// percent in one row, no title (the glyph says what it is, and the line was
 /// only ever there because the shut pop-up has the height for it).
@@ -117,6 +158,119 @@ struct HUDStripContent: View {
     }
 }
 
+/// The charger, headphones or a confirmation in the capsule under the open
+/// panel (spec §19.5 d, amended 2026-10-26): the shut island's words for
+/// each, on one line between the capsule's insets, in the capsule's black and
+/// the island's line — tinted as the island tints that alert.
+///
+/// - Charging: the source and the status at the left, as the shut island's
+///   left wing says them ("61 W On Hold"), the level and MagSafe's ring or
+///   USB-C's battery at the right.
+/// - Headphones: the device's symbol, its name, "Connected" after it, dimmer.
+/// - A confirmation: its symbol and its words.
+struct StripNoticeContent: View {
+    let notice: StripNotice
+    let width: CGFloat
+    let increaseContrast: Bool
+
+    var body: some View {
+        row
+            .font(.system(size: StripNoticeLayout.textSize))
+            .tracking(Theme.tracking(forSize: StripNoticeLayout.textSize))
+            .lineLimit(1)
+            .padding(.leading, HUDStripLayout.leadingInset)
+            .padding(.trailing, HUDStripLayout.trailingInset)
+            .frame(width: width, height: HUDStripLayout.height)
+            .background(Capsule(style: .continuous).fill(Color.black))
+            .overlay(
+                Capsule(style: .continuous).strokeBorder(
+                    IslandStroke.color(
+                        tint: IslandStroke.tint(for: notice.activity, isOpen: false),
+                        increaseContrast: increaseContrast
+                    ),
+                    lineWidth: Theme.islandStrokeWidth
+                )
+            )
+    }
+
+    @ViewBuilder
+    private var row: some View {
+        switch notice {
+        case .ambient(let ambient):
+            switch ambient {
+            case .charging(let level?, _, let port, _, _):
+                HStack(spacing: HUDStripLayout.spacing) {
+                    ChargingWingText(source: ambient.chargeSource, status: ambient.chargeStatus)
+                        .minimumScaleFactor(CompactIslandLayout.chargingTextMinimumScale)
+                    Spacer(minLength: 0)
+                    Text(localized("%d%%", level))
+                        .monospacedDigit()
+                        .foregroundStyle(ChargingActivityView.tone(for: ambient, increaseContrast: increaseContrast))
+                        .fixedSize()
+                    let isCharging = ambient.chargeState == .charging
+                    let fill = ChargingActivityView.tone(for: ambient, increaseContrast: increaseContrast)
+                    let track = ChargingActivityView.track(for: ambient, increaseContrast: increaseContrast)
+                    if port == .magSafe {
+                        MagSafeRing(
+                            level: level, fill: fill, track: track, isCharging: isCharging,
+                            scale: StripNoticeLayout.glyphScale, reduceMotion: true
+                        )
+                    } else {
+                        IslandBattery(level: level, fill: fill, track: track, scale: StripNoticeLayout.glyphScale)
+                            .overlay(alignment: .leading) {
+                                if isCharging { BatteryBolt(scale: StripNoticeLayout.glyphScale) }
+                            }
+                    }
+                }
+            case .charging:
+                // No level: a Mac with no battery shows no Charging at all
+                // (`showsOnIsland`), here as on the island.
+                EmptyView()
+            case .headphones(let name, let symbol):
+                HStack(spacing: HUDStripLayout.spacing) {
+                    Image(systemName: symbol)
+                        .resizable()
+                        .symbolRenderingMode(.hierarchical)
+                        .scaledToFit()
+                        .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.glyphOpacity))
+                        .frame(width: StripNoticeLayout.symbolSize.width, height: StripNoticeLayout.symbolSize.height)
+                    // The name gives way at its tail; "Connected" is always
+                    // whole, because it is the news.
+                    HStack(spacing: 4) {
+                        Text(name)
+                            .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingTextOpacity))
+                            .truncationMode(.tail)
+                        Text(localized("Connected"))
+                            .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingStatusOpacity))
+                            .fixedSize()
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        case .confirmation(let confirmation):
+            HStack(spacing: HUDStripLayout.spacing) {
+                Image(systemName: confirmation.symbol)
+                    .font(.system(size: StripNoticeLayout.textSize, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                    .frame(width: StripNoticeLayout.symbolSize.width)
+                Text(confirmation.title)
+                    .foregroundStyle(Color.white.opacity(ConfirmationLayout.titleOpacity))
+                Spacer(minLength: 0)
+            }
+        }
+    }
+}
+
+/// The notices' measures inside the level's capsule (`HUDStripLayout`).
+enum StripNoticeLayout {
+    /// A point under the shut island's 14: the capsule is 32 tall, the
+    /// island's wing the notch's height.
+    static let textSize: CGFloat = 13
+    /// The battery and MagSafe's ring at three quarters of the island's.
+    static let glyphScale: CGFloat = 0.75
+    static let symbolSize = HUDStripLayout.symbolSize
+}
+
 /// The level indicator under the open panel, as a layer of its own (spec §19.5
 /// d, amended 2026-10-25).
 ///
@@ -139,7 +293,7 @@ struct HUDStripLayer: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            if vm.hudStripShown {
+            if vm.hudStripShown || vm.stripNotice != nil {
                 HUDStripPlaced(
                     vm: vm, travel: vm.pageTravel, pull: vm.pullStretch,
                     increaseContrast: appearance.increaseContrast, reduceMotion: reduceMotion
@@ -154,6 +308,7 @@ struct HUDStripLayer: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hudStripShown)
+        .animation(Theme.hud(reduceMotion: reduceMotion), value: vm.stripNotice)
     }
 
     /// The capsule under the outline as it is drawn this instant: the
@@ -202,7 +357,16 @@ struct HUDStripPlaced: View {
     var body: some View {
         Self.bodies &+= 1
         let frame = HUDStripLayer.capsuleFrame(for: vm)
-        return HUDStripContent(live: vm.hudLive, width: frame.width, increaseContrast: increaseContrast)
+        return Group {
+            // The level first: it outranks everything else the capsule
+            // carries, and the controller never leaves both up — this only
+            // says which to draw if it ever did.
+            if vm.hudStripShown {
+                HUDStripContent(live: vm.hudLive, width: frame.width, increaseContrast: increaseContrast)
+            } else if let notice = vm.stripNotice {
+                StripNoticeContent(notice: notice, width: frame.width, increaseContrast: increaseContrast)
+            }
+        }
             .offset(y: frame.minY)
             // The body changing height under a standing capsule — a page
             // turned to a shorter one — moves it on the outline's own spring.

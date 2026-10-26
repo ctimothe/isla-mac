@@ -29,6 +29,15 @@ final class NotchViewModel: ObservableObject {
                 // is the shut island's pill, not a second indicator beside a
                 // panel that is leaving.
                 hudStrip = nil
+                // And the charger, headphones or a confirmation in it, told to
+                // the controller first: a "Copied" that Return posted as it
+                // closed the panel is owed to the shut island. Told on every
+                // close, not only with a notice up (Codex review 2026-10-26):
+                // a "Copied" waiting behind the level has no `stripNotice`
+                // yet, and was lost with the panel.
+                let notice = stripNotice
+                stripNotice = nil
+                onStripClosed?(notice)
                 // A swipe does not outlive the panel it was made on.
                 pageTravel.finish()
                 pageSwipe = PageSwipe()
@@ -90,6 +99,7 @@ final class NotchViewModel: ObservableObject {
             // The drop surface is the panel's whole answer while a drag is
             // over it; a level under it would be a second thing to look at.
             hudStrip = nil
+            stripNotice = nil
         }
     }
     /// Which of the Shelf's two wells a drag in flight is over (spec §8.3): the
@@ -170,6 +180,17 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var hudStripShown = false
     /// The level on screen, for whichever of the two is up.
     let hudLive = HUDLiveLevel()
+    /// The charger, headphones or a confirmation in the same capsule under the
+    /// open panel (spec §19.5 d, amended again 2026-10-26: "every HUD should"
+    /// show under the open island). The pop-up outranks it and takes the
+    /// capsule whenever it comes; the controller keeps them one at a time
+    /// (`NotchController.presentInStrip`). Like `hudStrip`, not an island
+    /// activity.
+    @Published var stripNotice: StripNotice?
+    /// The panel closed, with the notice that was in the capsule if any: the
+    /// controller may hand one that had barely arrived, or one still waiting
+    /// for the capsule, to the shut island (`StripNotice.handsBack`).
+    var onStripClosed: ((StripNotice?) -> Void)?
     /// A confirmation of the person's own act, while it is up: rank 5, below
     /// the pop-up. The controller decides when it shows (`IslandConfirmation`).
     @Published var confirmation: IslandConfirmation?
@@ -905,6 +926,12 @@ final class NotchViewModel: ObservableObject {
             // through the editor, so this text does not count as typed and
             // stays covered.
             privacy.conceal(TranslatePane.revealID)
+            // A standing Use Online press is for what is typed, never for
+            // what the clipboard brings: a copied password or token would
+            // otherwise go to MyMemory on a press made for other words, with
+            // nobody looking (owner, 2026-10-26). The card asks again — "not
+            // downloaded" and Use Online — for this text.
+            translator.revokeOnlineRequest()
             translator.input = text
             // The text lands in the field, and the field is under the list while
             // History is up.
@@ -1561,6 +1588,12 @@ final class NotchViewModel: ObservableObject {
         )
         switch activity {
         case .hud(let hud):
+            // Over the lock screen the pop-up keeps to the pill's own height
+            // (spec §3.7, amended 2026-10-26): the 103 pt alert would hang
+            // over the lock screen's clock.
+            if isLockedPresentation {
+                return LockedHUDLayout.bodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+            }
             return Self.hudBodySize(hud, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .confirmation(let confirmation):
             return ConfirmationLayout.bodySize(

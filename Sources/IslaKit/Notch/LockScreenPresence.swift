@@ -24,6 +24,29 @@ final class LockScreenPresence {
 
     private(set) var isLocked = false
     var onLock: (() -> Void)?
+    /// The SkyLight calls, or nil on a macOS without them. A seam: a test
+    /// stands a fake in, and never touches the real compositor.
+    let skyLight: SkyLight?
+
+    init() {
+        skyLight = SkyLight.shared
+    }
+
+    init(skyLight: SkyLight?) {
+        self.skyLight = skyLight
+    }
+
+    /// Whether `windowNumber` is in the space above the shield now: the one
+    /// answer to "is the island over the lock screen" (spec §3.7, amended
+    /// 2026-10-26). The notch panel and the lock card share that one space at
+    /// absolute level 400, so anything the panel draws — the pill, the
+    /// volume pop-up, the charger — is over the shield exactly when the card
+    /// is, and never needs a level of its own. A macOS without the SPI, or a
+    /// space the compositor refused, answers false, and the keys stay the
+    /// system's.
+    func isAboveShield(windowNumber: Int) -> Bool {
+        skyLight?.contains(windowNumber: windowNumber) ?? false
+    }
     var onUnlock: (() -> Void)?
     private var observers: [Any] = []
 
@@ -92,16 +115,16 @@ final class LockScreenPresence {
     /// until its last window leaves.
     func release(_ panel: NSPanel?) {
         guard let panel else { return }
-        SkyLight.shared?.lower(windowNumber: panel.windowNumber)
+        skyLight?.lower(windowNumber: panel.windowNumber)
     }
 
     func apply(to panel: NSPanel?, locked: Bool) {
         guard let panel else { return }
         if locked {
             panel.canBecomeVisibleWithoutLogin = true
-            SkyLight.shared?.lift(windowNumber: panel.windowNumber)
+            skyLight?.lift(windowNumber: panel.windowNumber)
         } else {
-            SkyLight.shared?.lower(windowNumber: panel.windowNumber)
+            skyLight?.lower(windowNumber: panel.windowNumber)
             panel.level = NotchPanel.normalLevel
             panel.canBecomeVisibleWithoutLogin = false
         }
@@ -202,6 +225,11 @@ final class SkyLight {
         calls.show(space)
         calls.add(space, windowNumber)
         windows.insert(windowNumber)
+    }
+
+    /// Whether the window is in the space above the shield.
+    func contains(windowNumber: Int) -> Bool {
+        space != 0 && windows.contains(windowNumber)
     }
 
     func lower(windowNumber: Int) {

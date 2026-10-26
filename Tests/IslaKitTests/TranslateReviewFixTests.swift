@@ -96,9 +96,10 @@ final class TranslateReviewFixTests: XCTestCase {
         XCTAssertEqual(translator.failureKind, .obstacle(.needsDownload(.ukrainian)))
     }
 
-    /// The press is spent by its request. A Try Again, a debounce re-run of the
-    /// same request or an edit back to the same text finds it gone.
-    func testAPressIsSpentWhenItsRequestSucceeds() async {
+    /// The press stands for the pair after its request (amended 2026-10-26): it
+    /// was spent by it, so Try Again or the next word typed landed back on
+    /// "not downloaded" and the button seemed not to work.
+    func testAPressStandsAfterItsRequestSucceeds() async {
         let (rig, sent) = downloadRig()
         defer { rig.release() }
         let translator = rig.translator
@@ -107,16 +108,16 @@ final class TranslateReviewFixTests: XCTestCase {
         await translator.translate()
         XCTAssertEqual(sent.texts, ["Hello"])
         XCTAssertEqual(translator.engine, .online)
-        XCTAssertNil(translator.onlineRequest, "consumed by the request it authorized")
+        XCTAssertNotNil(translator.onlineRequest, "it stands for the pair")
         XCTAssertEqual(sent.routes.first, Translator.Route(source: .english, target: .ukrainian))
 
         translator.retry()
         await translator.translate()
-        XCTAssertEqual(sent.texts, ["Hello"], "Try Again is a new request and was not pressed for")
-        XCTAssertEqual(translator.failureKind, .obstacle(.needsDownload(.ukrainian)))
+        XCTAssertEqual(sent.texts, ["Hello", "Hello"], "Try Again runs with the standing press")
+        XCTAssertEqual(translator.engine, .online)
     }
 
-    func testAPressIsSpentWhenItsRequestFails() async {
+    func testAPressStandsAfterItsRequestFails() async {
         let (rig, sent) = downloadRig()
         defer { rig.release() }
         let translator = rig.translator
@@ -126,22 +127,21 @@ final class TranslateReviewFixTests: XCTestCase {
         await translator.translate()
         XCTAssertEqual(sent.texts, ["Hello"])
         XCTAssertEqual(translator.failureKind, .unreachable)
-        XCTAssertNil(translator.onlineRequest)
+        XCTAssertEqual(translator.remedies, [.retry])
+        XCTAssertNotNil(translator.onlineRequest)
 
-        // The Try Again under "not reachable" does not send a second time: the
-        // person pressed Use Online once, and a second send needs a second press.
         sent.failure = nil
         translator.retry()
         await translator.translate()
-        XCTAssertEqual(sent.texts, ["Hello"], "no second online send without another press")
+        XCTAssertEqual(sent.texts, ["Hello", "Hello"])
+        XCTAssertEqual(translator.engine, .online)
     }
 
     // MARK: - Try Again after a Use Online run
 
-    /// A partial answer from a Use Online run used to offer Try Again, which ran
-    /// without the (spent) press, landed on "not downloaded" and wiped the part
-    /// that had come back. It offers Use Online instead; the answer stays.
-    func testAPartialAnswerAfterAPressOffersUseOnlineAndKeepsItsAnswer() async {
+    /// A partial answer from a Use Online run offers Try Again, which runs with
+    /// the standing press; the part that came back stays until the rest does.
+    func testAPartialAnswerAfterAPressOffersTryAgainAndKeepsItsAnswer() async {
         let (rig, sent) = downloadRig()
         defer { rig.release() }
         let translator = rig.translator
@@ -152,43 +152,39 @@ final class TranslateReviewFixTests: XCTestCase {
         XCTAssertEqual(sent.texts, ["Hello"])
         XCTAssertEqual(translator.output, "Привіт")
         XCTAssertNotNil(translator.outputNote)
-        XCTAssertEqual(translator.remedies, [.useOnline], "not Try Again: its press is spent")
+        XCTAssertEqual(translator.remedies, [.retry])
 
-        // Nothing sends without a press, and the answer survives a lone re-run.
-        translator.retry()
-        await translator.translate()
-        XCTAssertEqual(sent.texts, ["Hello"])
-
-        // Pressed again, it sends exactly once more.
         sent.failure = nil
-        translator.useOnline()
+        translator.retry()
         await translator.translate()
         XCTAssertEqual(sent.texts, ["Hello", "Hello"])
         XCTAssertEqual(translator.output, "Привіт")
+        XCTAssertNil(translator.outputNote)
         XCTAssertEqual(translator.engine, .online)
     }
 
-    func testAnUnreachableFailureAfterAPressOffersUseOnline() async {
+    /// A press revoked while its send was out (the cover, the panel) leaves a
+    /// failure whose second try would have nothing behind it: that card offers
+    /// Use Online, a new press, rather than a Try Again that lands on "not
+    /// downloaded" and, after a partial answer, wipes the part that came back.
+    func testAFailureAfterTheChoiceWasRevokedOffersUseOnline() async {
         let (rig, sent) = downloadRig()
         defer { rig.release() }
         let translator = rig.translator
-        sent.failure = OnlineTranslation.Failure.unreachable
+        translator.onlineTranslate = { [weak translator] text, _ in
+            sent.texts.append(text)
+            translator?.revokeOnlineRequest()
+            throw OnlineTranslation.Failure.unreachable
+        }
         await translator.translate()
         translator.useOnline()
         await translator.translate()
         XCTAssertEqual(translator.failureKind, .unreachable)
         XCTAssertEqual(translator.remedies, [.useOnline])
-        XCTAssertEqual(sent.texts, ["Hello"])
 
         translator.retry()
         await translator.translate()
-        XCTAssertEqual(sent.texts, ["Hello"], "nothing sends without the press")
-
-        sent.failure = nil
-        translator.useOnline()
-        await translator.translate()
-        XCTAssertEqual(sent.texts, ["Hello", "Hello"])
-        XCTAssertEqual(translator.engine, .online)
+        XCTAssertEqual(sent.texts, ["Hello"], "nothing sends without a press")
     }
 
     /// Never while the allowance is spent; the pane withholds it under the cover.
@@ -206,7 +202,7 @@ final class TranslateReviewFixTests: XCTestCase {
         translator.allowanceSpent = { false }
         translator.useOnline()
         await translator.translate()
-        XCTAssertEqual(translator.remedies, [.useOnline])
+        XCTAssertEqual(translator.remedies, [.retry], "the press stands, so Try Again")
         XCTAssertEqual(
             TranslateAlert.make(kind: .unreachable, message: "m", remedies: [.useOnline], allowanceSpent: false, covered: true).actions, []
         )
@@ -268,7 +264,7 @@ final class TranslateReviewFixTests: XCTestCase {
         XCTAssertEqual(translator.failureKind, .obstacle(.needsDownload(.ukrainian)))
     }
 
-    func testAPressEndsWithAnEditClearAndEscape() async {
+    func testAPressOutlivesAnEditButEndsWithClearAndEscape() async {
         let (rig, sent) = downloadRig()
         defer { rig.release() }
         let translator = rig.translator
@@ -276,7 +272,7 @@ final class TranslateReviewFixTests: XCTestCase {
 
         translator.useOnline()
         translator.input = "Hello!"
-        XCTAssertNil(translator.onlineRequest, "an edit")
+        XCTAssertNotNil(translator.onlineRequest, "an edit keeps it (amended 2026-10-26)")
 
         translator.useOnline()
         translator.clear()

@@ -259,6 +259,57 @@ struct IslandPull: Equatable {
     }
 }
 
+/// At most one value per display frame, with no frame of delay (MR-H18,
+/// 2026-10-26).
+///
+/// A trackpad sends scroll events faster than the display draws — the hitch
+/// lab feeds 240 a second, two per frame on a ProMotion panel — and every
+/// stretch published re-ran the whole shell's body and its layout: 26 outline
+/// updates for the 15 frames of a pull, and 2.5–3 ms of main thread a frame
+/// pulling the open player shut, against 1.5 for one update. The first value
+/// of a frame is published at once, so the fingers are never a frame behind;
+/// any later one in the same frame waits for the next frame's tick, and only
+/// the newest of those is published. Pure: the clock is the caller's.
+struct FrameCoalescer<Value: Equatable>: Equatable {
+    /// Something was published since the last tick.
+    private(set) var publishedThisFrame = false
+    /// What arrived after this frame's publish, waiting for the next tick.
+    private(set) var pending: Value?
+
+    /// Nothing left to publish and nothing published this frame: the clock
+    /// may stop.
+    var isIdle: Bool { !publishedThisFrame && pending == nil }
+
+    /// A new value: returned when it is to be published now, nil when it
+    /// waits for the next frame (replacing any that was already waiting).
+    mutating func offer(_ value: Value) -> Value? {
+        guard publishedThisFrame else {
+            publishedThisFrame = true
+            pending = nil
+            return value
+        }
+        pending = value
+        return nil
+    }
+
+    /// A display frame began: what waited, if anything, to publish now.
+    mutating func frame() -> Value? {
+        guard let value = pending else {
+            publishedThisFrame = false
+            return nil
+        }
+        pending = nil
+        publishedThisFrame = true
+        return value
+    }
+
+    /// Forget what waits: the gesture ended, and the value is set otherwise.
+    mutating func cancel() {
+        pending = nil
+        publishedThisFrame = false
+    }
+}
+
 /// How far the pull has the outline drawn past its size, in points: longer
 /// pulled open, shorter pushed shut (`IslandPull.Outcome.stretch`). An object
 /// of its own, as `PageTravel` is, so a frame of tracking publishes one number
@@ -266,22 +317,53 @@ struct IslandPull: Equatable {
 /// the hit region and the window keep their sizes — and under Reduce Motion
 /// it stays at zero: the gesture still opens and closes, on the curves the
 /// click already uses there.
+///
+/// It publishes at most once per display frame (`FrameCoalescer`), on the
+/// island view's own display link once `NotchStage` hands it the view.
 @MainActor
 final class IslandPullStretch: ObservableObject {
     @Published private(set) var points: CGFloat = 0
 
-    /// Follows the fingers: no curve, the layers take it as it comes.
+    private var coalescer = FrameCoalescer<CGFloat>()
+    let clock: PageClock
+    /// How many times `points` was set: the tests' check that a frame
+    /// publishes once.
+    private(set) var publishes = 0
+
+    init(clock: PageClock? = nil) {
+        self.clock = clock ?? DisplayPageClock()
+    }
+
+    /// Follows the fingers: no curve, the layers take it as it comes — the
+    /// first value of a frame at once, a later one on the next frame.
     func track(_ points: CGFloat) {
-        guard points != self.points else { return }
+        guard points != (coalescer.pending ?? self.points) else { return }
+        if let now = coalescer.offer(points) {
+            publish(now)
+        }
+        clock.start { [weak self] in self?.frame() }
+    }
+
+    private func frame() {
+        if let value = coalescer.frame() { publish(value) }
+        if coalescer.isIdle { clock.stop() }
+    }
+
+    private func publish(_ value: CGFloat) {
+        guard value != points else { return }
+        publishes += 1
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) { self.points = points }
+        withTransaction(transaction) { self.points = value }
     }
 
     /// Back to the outline's own size on the island's spring — the curve the
     /// open and the close it may go with are already on.
     func settle(reduceMotion: Bool) {
+        coalescer.cancel()
+        clock.stop()
         guard points != 0 else { return }
+        publishes += 1
         withAnimation(Theme.island(reduceMotion: reduceMotion)) { points = 0 }
     }
 }

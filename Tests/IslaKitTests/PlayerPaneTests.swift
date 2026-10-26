@@ -49,7 +49,8 @@ final class PlayerPaneTests: XCTestCase {
     private func scene(
         lyrics: Bool = true, lyricBand: Bool = true, outputButton: Bool = true,
         duration: TimeInterval = 238, elapsed: TimeInterval = 9, playing: Bool = true, volume: Float? = 0.62,
-        title: String = "Waiting Room", cover: Bool = false, lines: [LyricsStore.Line] = PlayerPaneTests.lines
+        title: String = "Waiting Room", cover: Bool = false, lines: [LyricsStore.Line] = PlayerPaneTests.lines,
+        openStage: @escaping () -> Void = {}, bringPlayerForward: @escaping () -> Void = {}
     ) async -> Scene {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
@@ -66,7 +67,8 @@ final class PlayerPaneTests: XCTestCase {
             store.present(.ready(LyricTimeline(lines: lines, granularity: .line)))
         }
         let pane = MediaPane(
-            media: media, lyrics: store, morph: nil, audio: Self.audio(volume: volume),
+            media: media, lyrics: store, openStage: openStage, bringPlayerForward: bringPlayerForward,
+            morph: nil, audio: Self.audio(volume: volume),
             icons: SettingsFixture.macWithApps([:])
         )
         .defaultAppStorage(isolated.suite)
@@ -91,6 +93,56 @@ final class PlayerPaneTests: XCTestCase {
         XCTAssertEqual(frame.minY, expected.minY, accuracy: accuracy, "\(message) minY \(frame)", file: file, line: line)
         XCTAssertEqual(frame.width, expected.width, accuracy: accuracy, "\(message) width \(frame)", file: file, line: line)
         XCTAssertEqual(frame.height, expected.height, accuracy: accuracy, "\(message) height \(frame)", file: file, line: line)
+    }
+
+    // MARK: - The song block opens the stage
+
+    /// The title and the artist open the stage as the cover does (amended
+    /// 2026-10-26): each a single button element carrying the cover's hint, in
+    /// its own box, and pressing either is the cover's action.
+    func testTitleAndArtistOpenTheStageLikeTheCover() async throws {
+        for band in [true, false] {
+            var opened = 0
+            var forward = 0
+            let s = await scene(lyricBand: band, openStage: { opened += 1 }, bringPlayerForward: { forward += 1 })
+            let cover = try node(s.root, "Lyrics", role: "AXButton")
+            let titles = s.root.all { $0.label.contains("Waiting Room") }
+            XCTAssertEqual(titles.count, 1, "one element for the title, band \(band)\n\(s.root.dump)")
+            let title = try XCTUnwrap(titles.first)
+            XCTAssertEqual(title.role, "AXButton", "the title is a button, band \(band)")
+            XCTAssertEqual(title.help, cover.help, "the title carries the cover's hint, band \(band)")
+            XCTAssertFalse(title.help.isEmpty)
+            XCTAssertTrue(title.actionNames.contains("AXPress"))
+            let box = MediaPane.textBox(
+                x: s.layout.textLeading, baseline: s.layout.titleBaseline, width: s.layout.titleWidth,
+                size: PlayerLayout.titleSize, weight: .medium
+            )
+            try assertFrame(title, near: box, "the title's hit region", accuracy: 3)
+            title.press()
+            XCTAssertEqual(opened, 1, "the title opens the stage, band \(band)")
+            if !band {
+                let artist = try XCTUnwrap(s.root.all { $0.role == "AXButton" && $0.help == cover.help && $0.label != "Lyrics" && !$0.label.contains("Waiting Room") }.first, s.root.dump)
+                artist.press()
+                XCTAssertEqual(opened, 2, "the artist line opens the stage")
+            }
+            cover.press()
+            XCTAssertEqual(opened, band ? 2 : 3)
+            XCTAssertEqual(forward, 0)
+        }
+    }
+
+    /// With no lyrics the title does what the cover does: brings the player
+    /// forward, and says nothing about lyrics.
+    func testTitleBringsThePlayerForwardWithoutLyrics() async throws {
+        var opened = 0
+        var forward = 0
+        let s = await scene(lyrics: false, openStage: { opened += 1 }, bringPlayerForward: { forward += 1 })
+        let title = try XCTUnwrap(s.root.all { $0.label.contains("Waiting Room") }.first, s.root.dump)
+        XCTAssertEqual(title.role, "AXButton")
+        XCTAssertTrue(title.help.isEmpty)
+        title.press()
+        XCTAssertEqual(forward, 1)
+        XCTAssertEqual(opened, 0)
     }
 
     // MARK: - Where the board puts things

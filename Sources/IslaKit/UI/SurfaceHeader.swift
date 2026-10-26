@@ -1,6 +1,43 @@
 import AppKit
 import SwiftUI
 
+/// The one icon spec for every page (owner, 2026-10-26: "the exact icon size
+/// consistently across the pages ... literally every icon"; spec §19.8,
+/// amended 2026-10-26). Before it, the header drew its glyphs at 14 medium,
+/// the stage's foot at 13, Translate's Swap and Speak at 12, Copy at the
+/// caption's 12 semibold, Paste and Clipboard's symbol segments at 11
+/// regular, and the playing app's squircle at 16 beside symbols whose ink is
+/// 14 to 15 — six sizes for one kind of thing.
+///
+/// - Every SF Symbol that is a control or names a page — the identity glyph,
+///   the gear and its X, History, Remove All's trash, the stage's tools,
+///   Swap, Speak, Copy, Paste, the Kind control's symbols — is `size` at
+///   `weight`.
+/// - The playing app's icon shows its squircle at `appSquircle`, the symbols'
+///   own point size, centred on the same line. A filled squircle carries more
+///   weight than a glyph's strokes, so equal extents read as one size.
+/// - A glyph-only header tool is `well` square, radius `wellRadius`; one with
+///   a word (Remove All, Paste) is the same well, `well` tall, the word at
+///   `wordSize` medium (`IconWordButton`). No control's hit target is under
+///   `minimumHitTarget` on either side.
+///
+/// Not icons by this spec, and left as they are: glyphs that stand inside a
+/// line of text and take its size (the lock or globe before "On this Mac",
+/// ⓘ before a footnote, a clipboard row's kind), a text field's own
+/// adornments (Search's magnifier, the Clear ⓧ), the player's transport and
+/// star (the page's content, sized by `PlayerLayout`), Settings' sidebar
+/// tiles (System Settings' own), and the page dots, which are not glyphs.
+enum HeaderIcon {
+    static let size: CGFloat = 14
+    static let weight: Font.Weight = .medium
+    static var font: Font { .system(size: size, weight: weight) }
+    static let appSquircle: CGFloat = size
+    static let well: CGFloat = 26
+    static let wellRadius: CGFloat = 8
+    static let wordSize: CGFloat = 13
+    static let minimumHitTarget: CGFloat = 24
+}
+
 /// The header strip's frames (spec §19.6–§19.8), in body coordinates: the strip
 /// is the notch's own height at the top of the body, and the notch sits in the
 /// middle of it — 185 to 220 pt wide, and drawn on a Mac that has none — so
@@ -13,7 +50,7 @@ enum SurfaceHeaderLayout {
 
     /// The gear, 26 × 26 at (`bw − 46`, 6) on every page, the stage and
     /// Settings (§19.16) — where the Tools button stood.
-    static let toolSide: CGFloat = 26
+    static let toolSide: CGFloat = HeaderIcon.well
     static func gear(bodyWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
         centred(x: SurfaceLayout.gearX(bodyWidth: bodyWidth), size: CGSize(width: toolSide, height: toolSide), notchHeight: notchHeight)
     }
@@ -40,7 +77,7 @@ enum SurfaceHeaderLayout {
     /// app rather than something separate for each section".
     static let titleLeading: CGFloat = 20
     static let titleGlyphBox = CGSize(width: 18, height: 16)
-    static let titleGlyphSize: CGFloat = 14
+    static let titleGlyphSize: CGFloat = HeaderIcon.size
     /// The playing app's icon shows a 16 pt squircle, 20 in from the left as
     /// the gear's well is 20 in from the right. History: it was drawn 16 × 16,
     /// and an app icon's canvas is not its squircle — macOS 26 seats every
@@ -50,13 +87,16 @@ enum SurfaceHeaderLayout {
     /// consistent"); it was then drawn the gear's full 26 pt squircle. On
     /// 2026-10-25 the owner found the Apple Music icon at that size "just too
     /// big ... making it look weird" beside the title, so the squircle came
-    /// down to 16 pt, the size of an iPhone Live Activity's app glyph. The
-    /// image is `16 / share` (about 20 pt), never a 16 × 16 frame, which
-    /// would show 13 pt. Every app still gets the same squircle on macOS 26
-    /// and later, so one scale makes every player the same height. The
-    /// lock card's badge is unchanged. Header only.
+    /// down to 16 pt, the size of an iPhone Live Activity's app glyph. On
+    /// 2026-10-26 it came to 14 (`HeaderIcon.appSquircle`): beside the other
+    /// pages' glyphs, whose ink measures 14 to 15 pt, the 16 pt squircle was
+    /// still the biggest thing in any header. The image is `14 / share`
+    /// (about 17.4 pt), never a 14 × 14 frame, which would show 11 pt. Every
+    /// app still gets the same squircle on macOS 26 and later, so one scale
+    /// makes every player the same height. The lock card's badge is
+    /// unchanged. Header only.
     static let appIconSquircleShare: CGFloat = 824.0 / 1024.0
-    static let appIconSquircleSide: CGFloat = 16
+    static let appIconSquircleSide: CGFloat = HeaderIcon.appSquircle
     static let appIconSide: CGFloat = appIconSquircleSide / appIconSquircleShare
     /// The width a title's glyph takes before its name: the app's squircle
     /// (about 20 pt of image), or the box every symbol shares.
@@ -65,7 +105,7 @@ enum SurfaceHeaderLayout {
         return titleGlyphBox.width
     }
     /// The glyph in a header tool's well: the gear, History, Remove All.
-    static let toolGlyphSize: CGFloat = 14
+    static let toolGlyphSize: CGFloat = HeaderIcon.size
     static let titleSize: CGFloat = 13
     static let titleGap: CGFloat = 6
     static let titleRowHeight: CGFloat = 16
@@ -140,7 +180,7 @@ struct HeaderToolButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: SurfaceHeaderLayout.toolGlyphSize, weight: .medium))
+                .font(HeaderIcon.font)
                 .foregroundStyle(isOn ? Color.white : Theme.secondary)
                 // The gear turning into Settings' close button, and back, is
                 // one glyph replaced in its well rather than two buttons
@@ -148,7 +188,7 @@ struct HeaderToolButton: View {
                 .symbolSwap(value: symbol, reduceMotion: reduceMotion)
                 .frame(width: SurfaceHeaderLayout.toolSide, height: SurfaceHeaderLayout.toolSide)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: HeaderIcon.wellRadius, style: .continuous)
                         .fill(Color.white.opacity(isOn ? 0.18 : (hovering ? 0.14 : 0.08)))
                 )
                 .overlay(alignment: .topTrailing) {
@@ -159,7 +199,7 @@ struct HeaderToolButton: View {
                             .offset(x: -3, y: 3)
                     }
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: HeaderIcon.wellRadius, style: .continuous))
         }
         .buttonStyle(PanelButtonStyle())
         .onHover { hovering = $0 }
@@ -265,7 +305,7 @@ struct HeaderGlyphView: View {
             switch glyph {
             case .symbol(let name):
                 Image(systemName: name)
-                    .font(.system(size: SurfaceHeaderLayout.titleGlyphSize, weight: .medium))
+                    .font(HeaderIcon.font)
                     .foregroundStyle(Color.white)
             case .app(let icon):
                 Image(nsImage: icon)
@@ -289,35 +329,55 @@ struct HeaderGlyphView: View {
 /// tray, in place of the row.
 struct ShelfRemoveAllButton: View {
     let action: () -> Void
-    @State private var hovering = false
 
     static func width() -> CGFloat { ShelfLayout.removeAllWidth() }
 
     var body: some View {
+        IconWordButton(symbol: "trash", word: localized("All"), action: action)
+            .help(localized("Remove All"))
+            .accessibilityLabel(localized("Remove All"))
+            .accessibilityHint(localized("Asks for confirmation before acting."))
+    }
+}
+
+/// A glyph and a word in a header tool's well (`HeaderIcon`): Remove All on
+/// the Shelf's header and Paste on Translate's source card, one style since
+/// 2026-10-26. Paste was a 22 pt push plate — white 0.14 with a lit top
+/// edge, its glyph at 11 regular beside a 13 regular word in white — and so
+/// a second kind of button with a hit target under 24 pt, where Remove All
+/// was already the gear's well. The glyph is `HeaderIcon.size` in a column
+/// `ShelfLayout.removeAllGlyphWidth` wide, the word `HeaderIcon.wordSize`
+/// medium, both secondary and white under the pointer; 0.4 while disabled.
+struct IconWordButton: View {
+    let symbol: String
+    let word: String
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
         Button(action: action) {
             HStack(spacing: ShelfLayout.removeAllGap) {
-                Image(systemName: "trash")
-                    .font(.system(size: SurfaceHeaderLayout.toolGlyphSize, weight: .medium))
+                Image(systemName: symbol)
+                    .font(HeaderIcon.font)
                     .frame(width: ShelfLayout.removeAllGlyphWidth)
-                Text(localized("All"))
-                    .font(.system(size: ShelfLayout.removeAllTextSize, weight: .medium))
+                Text(word)
+                    .font(.system(size: HeaderIcon.wordSize, weight: .medium))
                     .lineLimit(1)
                     .fixedSize()
             }
-            .foregroundStyle(hovering ? Color.white : Theme.secondary)
+            .foregroundStyle(hovering && isEnabled ? Color.white : Theme.secondary)
             .padding(.horizontal, ShelfLayout.removeAllPadding)
-            .frame(height: SurfaceHeaderLayout.toolSide)
+            .frame(height: HeaderIcon.well)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(hovering ? 0.14 : 0.08))
+                RoundedRectangle(cornerRadius: HeaderIcon.wellRadius, style: .continuous)
+                    .fill(Color.white.opacity(hovering && isEnabled ? 0.14 : 0.08))
             )
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: HeaderIcon.wellRadius, style: .continuous))
+            .opacity(isEnabled ? 1 : 0.4)
         }
         .buttonStyle(PanelButtonStyle())
         .onHover { hovering = $0 }
         .animation(Theme.contentAnimation, value: hovering)
-        .help(localized("Remove All"))
-        .accessibilityLabel(localized("Remove All"))
-        .accessibilityHint(localized("Asks for confirmation before acting."))
     }
 }

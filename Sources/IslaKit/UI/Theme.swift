@@ -1204,31 +1204,35 @@ enum Theme {
     /// Later's capsule (at 0.22): the system's grey.
     static var updateLaterFill: Color { SettingsTint.grey.color }
 
-    /// A tile's plate: white 0.10, 0.14 under the pointer; picked, white 0.18
-    /// and nothing more (§19.7, amended 2026-10-26).
-    ///
-    /// A picked tile wore a 1.5 pt ring in a fixed blue until 2026-10-26. That
-    /// is the Photos grid's way of saying "picked", and the Shelf holds files,
-    /// not photos; the owner asked for Apple's own pattern, which for files is
-    /// Finder's icon view: a grey backdrop behind the icon and the name filled
-    /// with the accent colour (`shelfCaptionHighlight`). No ring.
-    static let shelfTilePlate = Color.white.opacity(0.10)
-    static let shelfHoverWell = Color.white.opacity(0.14)
-    static let shelfSelectedWell = Color.white.opacity(0.18)
-    /// A picked tile's caption, each line in its own rounded fill, as Finder
-    /// highlights a selected file's name. The person's accent colour, never a
-    /// fixed blue: `controlAccentColor` resolves at draw time, so a change in
-    /// System Settings › Appearance reaches the next frame. Finder greys the
-    /// fill in a window that is not key; this panel never becomes key (Shell,
-    /// CLAUDE.md) while it is plainly the thing being used, so it keeps the
-    /// active look, as the switches do (`switchOnFill`).
-    static let shelfCaptionHighlight = Color(nsColor: .controlAccentColor)
+    /// A tile is Finder's icon view (§19.7, amended 2026-10-26, second
+    /// amendment): no plate behind a tile, resting or under the pointer — a
+    /// plate was the Photos grid's way of saying "card", and the Shelf holds
+    /// files. A picked tile gets the icon's backdrop only (Finder's
+    /// unemphasized icon highlight, white 0.15 on the dark panel, radius 5)
+    /// and its name on the selected-text pill.
+    static let shelfSelectedWell = Color.white.opacity(0.15)
+    static let shelfIconBackdropRadius: CGFloat = 5
+    /// The selected name's pill: `selectedContentBackgroundColor`, which is
+    /// the person's Highlight colour in System Settings › Appearance (the
+    /// accent unless it was set apart) and what Finder fills a selected
+    /// name with. Dynamic, so a change reaches the next frame. Finder greys
+    /// it in a window that is not key; this panel never becomes key (Shell,
+    /// CLAUDE.md) while it is plainly the thing in use, so it keeps the active
+    /// look, as the switches do (`switchOnFill`).
+    static let shelfCaptionHighlight = Color(nsColor: .selectedContentBackgroundColor)
     static let shelfCaptionHighlightRadius: CGFloat = 4
     /// Room either side of a highlighted line, so the fill does not end on the
     /// glyphs' edges.
     static let shelfCaptionHighlightInset: CGFloat = 3
-    /// A tile's name: white 0.86.
-    static let shelfTileNameOpacity: Double = 0.86
+    /// A tile's name: `labelColor`, white under Increase Contrast — the
+    /// panel is fixed `.darkAqua`, which does not pass that setting on to the
+    /// system colours (`settingsLabel`'s reason).
+    @MainActor static var shelfTileName: Color { settingsLabel }
+    /// The line under the name, Finder's "item info": `secondaryLabelColor`,
+    /// the grey Finder sets it in, and not the accent (the owner asked why a
+    /// tile's date wore the system colour; it is the pill that does, the date
+    /// never). White 0.75 under Increase Contrast, as `settingsSecondaryLabel`.
+    @MainActor static var shelfTileInfo: Color { settingsSecondaryLabel }
 
     /// The remove badge (§19.7): `xmark.circle.fill` at white 0.62 over a 14 pt
     /// disc of black 0.28, so the cross reads on a bright thumbnail.

@@ -653,6 +653,38 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(taps.handler?(down(.volumeUp), .none), true, "the unlock reaches the mirror too")
     }
 
+    /// Over the lock screen (2026-10-26): a key is taken, applied and shown
+    /// only while the island is over the shield to draw it, and the lock path
+    /// mirrors that after the lift. Not over it, the key stays the system's.
+    func testALockedKeyIsTakenAndShownOnlyWhileTheIslandIsOverTheShield() async {
+        let hud = hud()
+        var locked = false
+        var overShield = false
+        hud.isLocked = { locked }
+        hud.drawsWhileLocked = { overShield }
+        on(hud)
+        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil, outputDevice: 42)
+        locked = true
+        hud.lockChanged()
+        XCTAssertEqual(taps.handler?(down(.volumeUp), .none), false, "locked, not lifted: the system's")
+        XCTAssertEqual(taps.handler?(up(.volumeUp), .none), false)
+        overShield = true
+        XCTAssertEqual(taps.handler?(down(.volumeUp), .none), false, "nothing mirrored the lift yet")
+        _ = taps.handler?(up(.volumeUp), .none)
+        hud.lockChanged()
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none), "lifted and mirrored: Isla's")
+        await drain()
+        XCTAssertEqual(readings.count, 1, "and the reading reaches the locked island")
+        XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: .none))
+        overShield = false
+        hud.lockChanged()
+        XCTAssertFalse(hud.handle(down(.volumeUp), modifiers: .none), "the island went under: the system's again")
+        _ = hud.handle(up(.volumeUp), modifiers: .none)
+        locked = false
+        hud.lockChanged()
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none), "unlocked: as before")
+    }
+
     func testThePopUpCarriesTheApplierLabelInOneHop() async {
         let hud = hud()
         on(hud)

@@ -176,14 +176,19 @@ final class AmbientWatch {
         DispatchQueue.global(qos: .utility).async {
             guard let power = Self.readPower(), power.onExternalPower else { return }
             let port = ChargePortReading.read()
-            let activity = Self.chargeActivity(power: power, port: port.port, watts: port.watts)
+            // Only asked of a battery that is not charging: a charging one has
+            // no reason to give, and the read is one more registry round trip.
+            let hold = power.isCharging ? nil : ChargeHoldReading.read()
+            let activity = Self.chargeActivity(power: power, port: port.port, watts: port.watts, hold: hold)
             DispatchQueue.main.async { MainActor.assumeIsolated { deliver(activity) } }
         }
     }
 
     /// The moment a settled reading makes. Pure, so the mapping is a test.
-    nonisolated static func chargeActivity(power: Power, port: ChargePort, watts: Int?) -> AmbientActivity {
-        .charging(level: power.level, isCharging: power.isCharging, port: port, watts: watts)
+    nonisolated static func chargeActivity(
+        power: Power, port: ChargePort, watts: Int?, hold: ChargeHold? = nil
+    ) -> AmbientActivity {
+        .charging(level: power.level, isCharging: power.isCharging, port: port, watts: watts, hold: hold)
     }
 
     /// Only the moment external power arrives, and not again within `quiet`

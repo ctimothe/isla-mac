@@ -125,11 +125,11 @@ final class Translator: ObservableObject {
             // there; once the field changes they are not (redesign 2026-10-15,
             // spec §11): speech ends with the edit rather than finishing a
             // sentence nobody asked for any more.
-            if input != oldValue {
-                speaker.stop()
-                // A Use Online press was for the text it was made on.
-                revokeOnlineRequest()
-            }
+            // A Use Online press is no longer ended here: it stands for the
+            // pair, so the next words typed go online too (owner, 2026-10-26:
+            // a press that was spent by the first keystroke read as a button
+            // that did not work). `OnlineRequest` says what does end it.
+            if input != oldValue { speaker.stop() }
         }
     }
     /// One line the pane shows under the field about how text arrived there by
@@ -666,27 +666,74 @@ final class Translator: ObservableObject {
 
     // MARK: - Translating
 
-    func retry() {
-        attempt += 1
+    /// The pause the pane waits out after a keystroke before it asks an
+    /// engine: a word is a handful of keystrokes, and a session per letter
+    /// would be both wasteful and visibly jumpy.
+    static let typingPause: Duration = .milliseconds(320)
+
+    /// Raised by a press (Try Again, Use Online, Turn On Translate Online) and
+    /// taken by the run it starts. A press is not typing, so that run skips
+    /// `typingPause`: Use Online used to wait it out with the alert still up
+    /// and nothing moving, then look the pair up, and only then show the
+    /// spinner — a button that seemed not to work (owner, 2026-10-26).
+    private var pressedSinceLastRun = false
+
+    /// How long the next run waits before it asks an engine, taking the press.
+    func pauseBeforeRun() -> Duration {
+        defer { pressedSinceLastRun = false }
+        return pressedSinceLastRun ? .zero : Self.typingPause
     }
 
-    /// What one "Use Online" press authorizes: this text, along this route, once.
+    /// What the pane's task runs for every new `request`: the typing pause,
+    /// unless a press asked, and then the translation.
+    func runWhenSettled() async {
+        guard !trimmed.isEmpty else {
+            clear()
+            return
+        }
+        let pause = pauseBeforeRun()
+        if pause > .zero {
+            try? await Task.sleep(for: pause)
+            guard !Task.isCancelled else { return }
+        }
+        await translate()
+    }
+
+    func retry() {
+        attempt += 1
+        guard !trimmed.isEmpty else { return }
+        pressedSinceLastRun = true
+        // The spinner goes up on the press itself, before the pane's task has
+        // even started, so the frame after the click already shows that
+        // something is happening. The generation moves on with it: a run
+        // still out for the same text would otherwise end, take the flag down
+        // under the new run, and put its stale answer or alert back.
+        generation += 1
+        isTranslating = true
+    }
+
+    /// What one "Use Online" press authorizes: this pair, for as long as the
+    /// screen stays the question it was pressed on (owner, 2026-10-26).
     ///
-    /// It used to be the text alone, kept until the field changed. So after a
-    /// press for Ukrainian, choosing French — or swapping, or going French and
-    /// back to Ukrainian — sent the same text to MyMemory again with Translate
-    /// Online off and nobody pressing anything. The press is now spent by the
-    /// request it authorized (`translate()` takes it once the run is committed to
-    /// an engine, success or failure) and ended by anything that makes the
-    /// screen a different question: a pair change, a swap, Clear, Escape, a
-    /// history restore, an edit, the panel closing and the pane going under its
-    /// cover (`revokeOnlineRequest()`).
+    /// It was this text, once (R4 review, 2026-10-15): spent by its request and
+    /// ended by the first keystroke, so typing one more word put "not
+    /// downloaded" back up and the button had to be found and pressed again —
+    /// which read as a button that did not work. It now covers the text that
+    /// is typed next as well. Before that it was the text alone, kept until the
+    /// field changed, so after a press for Ukrainian choosing French sent the
+    /// text to MyMemory with Translate Online off; the route is why that cannot
+    /// happen. Anything that makes the screen a different question still ends
+    /// it: a pair change, a swap, Clear, Escape, a history restore, the panel
+    /// closing and the pane going under its cover (`revokeOnlineRequest()`).
+    /// Under Detect Language the pair is the detected one, so text detected as
+    /// another language is not covered. It never switches Translate Online on,
+    /// and it never sends a pair an engine on this Mac can run
+    /// (`engines(given:)`): once the language is downloaded, the Mac answers.
     struct OnlineRequest: Equatable {
-        var text: String
         var route: Route
 
-        func covers(text other: String, route otherRoute: Route) -> Bool {
-            text == other && route == otherRoute
+        func covers(route otherRoute: Route) -> Bool {
+            route == otherRoute
         }
     }
 
@@ -698,12 +745,12 @@ final class Translator: ObservableObject {
     }
 
     /// "Use Online" under "Ukrainian is not downloaded for translation on this
-    /// Mac." (spec §11): send this one text to MyMemory now, and leave
-    /// Translate Online as it is. The button's tooltip says where the text
-    /// goes before it is pressed.
+    /// Mac." (spec §11): send this text to MyMemory now, and what is typed
+    /// next for this pair, and leave Translate Online as it is. The button's
+    /// tooltip says where the text goes before it is pressed.
     func useOnline() {
         guard !trimmed.isEmpty else { return }
-        onlineRequest = OnlineRequest(text: trimmed, route: route)
+        onlineRequest = OnlineRequest(route: route)
         retry()
     }
 
@@ -762,18 +809,12 @@ final class Translator: ObservableObject {
         let route = route
         var capabilities = await capabilities(for: route)
         guard !Task.isCancelled, self.generation == generation else { return }
-        // The press is read here, after every await and immediately before it
-        // is spent, from the text and route this run captured. A revoke that
-        // landed while the capabilities were being looked up (cover, panel
-        // close, Escape, pair change) is therefore no press at all.
-        capabilities.onlineByRequest = onlineRequest?.covers(text: text, route: route) ?? false
-        // Spent here: this run is the request the press authorized (its text
-        // and route were compared above), and from this line on it either goes
-        // to MyMemory or does not. Whatever it finds — an answer, a failure, a
-        // cancellation by the next keystroke — a second send needs a second
-        // press. Taken before the awaits below so that nothing between here and
-        // the reply can leave it standing for another run.
-        revokeOnlineRequest()
+        // The press is read here, after every await, against the route this
+        // run captured. A revoke that landed while the capabilities were being
+        // looked up (cover, panel close, Escape, pair change) is therefore no
+        // press at all. It is no longer spent by the run: it stands for the
+        // pair until one of those ends it (`OnlineRequest`).
+        capabilities.onlineByRequest = onlineRequest?.covers(route: route) ?? false
         let engines = Self.engines(given: capabilities)
         // Online answered or was tried because of the press, not because
         // Translate Online is on. Its Try Again would have no press behind it.
@@ -834,14 +875,17 @@ final class Translator: ObservableObject {
     }
 
     /// What a second try is called after an online run. Through Translate Online
-    /// it is Try Again, as always. After a Use Online press it is Use Online
-    /// again, and only while the day's allowance is not spent: Try Again re-ran
-    /// without the (spent) press and landed on "not downloaded", after a
-    /// partial answer wiping the part that had come back. The cover is the
-    /// pane's to apply, as for every other button that sends text.
+    /// it is Try Again, as always, and after a Use Online press too while the
+    /// press stands, since Try Again runs with it. Should the press have been
+    /// revoked while the run was out, it is Use Online again, and only while
+    /// the day's allowance is not spent: a Try Again without it would land on
+    /// "not downloaded" and, after a partial answer, wipe the part that had
+    /// come back. The cover is the pane's to apply, as for every other button
+    /// that sends text.
     private func retryRemedies(byRequest: Bool) -> [Remedy] {
         guard byRequest else { return [.retry] }
-        return allowanceSpent() ? [] : [.useOnline]
+        if allowanceSpent() { return [] }
+        return onlineRequest?.covers(route: route) ?? false ? [.retry] : [.useOnline]
     }
 
     /// The one place an answer lands: the text, what it answers, and which

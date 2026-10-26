@@ -114,6 +114,9 @@ final class NotchController {
             guard let self else { return false }
             return self.lockPresence.isLocked || self.viewModel?.isLockedPresentation == true
         }
+        // Over the lock screen a key is Isla's only while the island is over
+        // the shield to show it — the same lift that puts the card there.
+        stores.hud.drawsWhileLocked = { [weak self] in self?.islandIsOverShield ?? false }
         stores.hud.onReading = { [weak self] reading in
             self?.presentHUD(reading)
         }
@@ -176,6 +179,9 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = true
                 self.geometryTrace("screens asleep")
+                // A dark display draws nothing over the shield: the keys go
+                // back to the system until it wakes.
+                self.stores.hud.lockChanged()
                 // A charger moment's timer does not run while the Mac sleeps,
                 // so a lid closed right after plugging in woke to the old
                 // percentage still on the island.
@@ -206,6 +212,7 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = false
                 self.geometryTrace("screens awake locked=\(self.lockPresence.isLocked ? 1 : 0)")
+                self.stores.hud.lockChanged()
                 let plan = Self.wakePlan(
                     isLocked: self.lockPresence.isLocked,
                     lockedPresentation: self.viewModel?.isLockedPresentation == true
@@ -406,9 +413,9 @@ final class NotchController {
     /// none of this happens and the panel sinks under the shield as any
     /// ordinary window does.
     private func screenLocked() {
-        // A charger or headphones moment does not carry over the shield. The
-        // locked pill is cut for music alone — and so is the volume pop-up,
-        // which the tap does not even hear while the Mac is locked.
+        // Nothing carries over the shield: the lock is a cut. The pop-up and
+        // the charger may show again over it, on their own news (spec §3.7,
+        // amended 2026-10-26); nothing from before the lock does.
         clearAmbient()
         clearHUD()
         clearConfirmation()
@@ -476,6 +483,10 @@ final class NotchController {
         stores.suspendForIdleScreen(keepingMediaRunning: keepsMediaRunning, forLock: true)
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
+        // The panel is over the shield now, or the compositor refused: either
+        // way the key tap's mirror learns it here, after the lift, so it takes
+        // a key only once the island can show it (`islandIsOverShield`).
+        stores.hud.lockChanged()
         // And the card, in its own window, at the centre of the notch's own
         // display — not `panel.screen`, which is nil while the window is
         // momentarily off every display mid-reconfiguration, and not the
@@ -535,6 +546,11 @@ final class NotchController {
     /// costs nothing. `pointer.start()` doubles with the wake handler when
     /// the display slept too — starting twice only reschedules the timer.
     private func screenUnlocked() {
+        // A pop-up or a charger over the shield ends with it, as a cut: left
+        // up, the unlocked shell would redraw the compact pop-up as the 103 pt
+        // alert for what was left of its linger.
+        clearHUD()
+        clearAmbient()
         lockCard.dismiss(presence: lockPresence)
         lockPresence.apply(to: panel, locked: false)
         geometryTrace("unlocked")
@@ -1550,6 +1566,7 @@ final class NotchController {
         vm.onBubbleClick = { [weak self] in self?.islandClicked(opening: .tray) }
         vm.onUpdateAction = { [weak self] in self?.updateAlertAction($0) }
         vm.onConfirmation = { [weak self] in self?.presentConfirmation($0) }
+        vm.onStripClosed = { [weak self] in self?.stripClosed($0) }
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
@@ -2496,6 +2513,7 @@ final class NotchController {
         self.viewModel = viewModel
         self.rootView = rootView
         viewModel.onConfirmation = { [weak self] in self?.presentConfirmation($0) }
+        viewModel.onStripClosed = { [weak self] in self?.stripClosed($0) }
         installOutsideClickMonitor = { _ in NSObject() }
         removeOutsideClickMonitor = { _ in }
         // A private tracker, so no test touches the shared one, and an Escape
@@ -2738,6 +2756,9 @@ final class NotchController {
     enum HUDPlacement: Equatable {
         /// The shut island's expanded alert (spec §19.5 d).
         case pill
+        /// The locked island's compact pill, over the shield (spec §3.7,
+        /// amended 2026-10-26; `LockedHUDLayout`).
+        case locked
         /// The capsule under the open panel (`HUDStripLayout`, spec §19.5 d,
         /// amended 2026-10-25).
         case strip
@@ -2766,18 +2787,41 @@ final class NotchController {
 
         guard let placement = Self.hudPlacement(
             isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted,
-            isLocked: vm.isLockedPresentation, screensAsleep: screensAreAsleep
+            isLocked: vm.isLockedPresentation, screensAsleep: screensAreAsleep,
+            overShield: islandIsOverShield
         ) else { return }
 
         let reduceMotion = SystemAppearance.shared.reduceMotion
         switch placement {
+        case .locked:
+            // Over the shield the island is the lock's, so no queue: the
+            // pop-up replaces the charger, and nothing else can be up there.
+            if vm.hud == nil {
+                ambientWork?.cancel()
+                ambientWork = nil
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
+                    vm.ambient = nil
+                    vm.hud = moment
+                }
+            } else {
+                vm.hud = moment
+            }
         case .strip:
             // A satellite of the panel, not an alert: it takes no part in the
             // island's queue, replaces nothing and waits for nothing — the
             // panel being open means every alert is already waiting for it to
             // close, so nothing else is on screen to stack with.
             if vm.hudStrip == nil {
-                withAnimation(Theme.hud(reduceMotion: reduceMotion)) { vm.hudStrip = moment }
+                // The level outranks whatever else the capsule carries — the
+                // charger, headphones, a confirmation — and takes it over in
+                // one transaction, as the pill replaces what it outranks;
+                // the replaced notice is dropped with its timer (spec §19.1).
+                stripNoticeWork?.cancel()
+                stripNoticeWork = nil
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
+                    vm.stripNotice = nil
+                    vm.hudStrip = moment
+                }
             } else {
                 // Already up: the bar follows on its own curve; the capsule
                 // has nothing to do.
@@ -2835,6 +2879,7 @@ final class NotchController {
                 vm.hud = nil
                 vm.hudStrip = nil
             }
+            self.promoteStripNotice()
             self.promoteWaitingAlert()
         }
         hudFoldWork = work
@@ -2853,21 +2898,52 @@ final class NotchController {
     /// belong to the card; not on a dark display. A key press is the person's
     /// own act, so unlike the charger it is **not** refused for a pointer on
     /// the pill or a full-screen app.
+    ///
+    /// Over the lock screen (amended 2026-10-26): the locked island's compact
+    /// pill when the island is over the shield (`overShield`, the panel in the
+    /// lock screen's SkyLight space with the card), and nowhere otherwise —
+    /// then the tap never took the key (`MediaKeyHUD.drawsWhileLocked`), and
+    /// the system's own pop-up is showing. The card is a window of its own in
+    /// the middle of the display and the pill sits at the notch, so neither
+    /// moves or covers the other; the card's own volume bar watches the same
+    /// output and moves with the key.
     nonisolated static func hudPlacement(
-        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool
+        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool, overShield: Bool = false
     ) -> HUDPlacement? {
-        guard !isDropTargeted, !isLocked, !screensAsleep else { return nil }
+        guard !screensAsleep else { return nil }
+        // `LockedIsland.showsAlert` says the same of `.hud`.
+        if isLocked { return overShield ? .locked : nil }
+        guard !isDropTargeted else { return nil }
         return isOpen ? .strip : .pill
     }
 
-    /// Whether the pop-up may be drawn at all, in either place.
+    /// Whether the pop-up may be drawn at all, in any place.
     nonisolated static func hudAllowed(
-        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool
+        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool, overShield: Bool = false
     ) -> Bool {
         hudPlacement(
-            isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked, screensAsleep: screensAsleep
+            isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked, screensAsleep: screensAsleep,
+            overShield: overShield
         ) != nil
     }
+
+    /// Whether the island is over the lock screen now, to draw on: locked as
+    /// the island presents it, the display awake, and the panel in the space
+    /// above the shield (`LockScreenPresence.isAboveShield`) — the one answer
+    /// the key tap, the pop-up and the charger all ask.
+    var islandIsOverShield: Bool {
+        guard let vm = viewModel, vm.isLockedPresentation, !screensAreAsleep else { return false }
+        if let overShieldForTesting { return overShieldForTesting }
+        guard let panel else { return false }
+        return lockPresence.isAboveShield(windowNumber: panel.windowNumber)
+    }
+
+    /// A test's answer for the lift, which needs a real panel and the
+    /// compositor; production never sets it.
+    var overShieldForTesting: Bool?
+    /// A test's answer for `momentsAreQuiet`, which reads the owner's real
+    /// displays and frontmost app; production never sets it.
+    var momentsQuietForTesting: Bool?
 
     // MARK: The island's confirmations (2026-10-25, MR-7)
 
@@ -2894,6 +2970,13 @@ final class NotchController {
     /// reason. A dark display shows nothing.
     func presentConfirmation(_ confirmation: IslandConfirmation) {
         guard let vm = viewModel, !screensAreAsleep else { return }
+        // Over an open panel: in the capsule under it, now (2026-10-26).
+        if Self.noticePlacement(
+            isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+        ) == .strip {
+            presentInStrip(.confirmation(confirmation))
+            return
+        }
         guard postAlert(.confirmation(confirmation), to: vm) == .show else { return }
 
         let reduceMotion = SystemAppearance.shared.reduceMotion
@@ -2940,6 +3023,139 @@ final class NotchController {
         hudAnnounceWork = nil
         viewModel?.hud = nil
         viewModel?.hudStrip = nil
+        clearStripNotice()
+    }
+
+    // MARK: The capsule's other notices (spec §19.5 d, amended 2026-10-26)
+
+    /// Where an alert that is not the level goes. Pure, so each case is a test.
+    enum NoticePlacement: Equatable {
+        /// The shut island, through `alertQueue`, as it always went.
+        case island
+        /// The capsule under the open panel, now.
+        case strip
+    }
+
+    /// The capsule while a surface is open; the island otherwise — which
+    /// waits, as before, through a drag (the drop surface is the panel's whole
+    /// answer) and over the lock screen.
+    nonisolated static func noticePlacement(isOpen: Bool, isDropTargeted: Bool, isLocked: Bool) -> NoticePlacement {
+        isOpen && !isDropTargeted && !isLocked ? .strip : .island
+    }
+
+    /// The capsule's own queue: what waits there behind the level or a
+    /// higher notice, by the island's ranks and patience. The shut island's
+    /// `alertQueue` never sees these; a notice shown in the capsule has been
+    /// shown.
+    private var stripQueue = IslandAlertQueue()
+    private var stripNoticeWork: DispatchWorkItem?
+    private var stripNoticeShownAt: Date?
+
+    /// Puts a notice in the capsule, or makes it wait there behind what
+    /// outranks it. True when it shows now.
+    @discardableResult
+    func presentInStrip(_ notice: StripNotice) -> Bool {
+        guard let vm = viewModel else { return false }
+        let showing: IslandActivity = vm.hudStrip.map { .hud($0) } ?? vm.stripNotice?.activity ?? .none
+        guard stripQueue.post(notice.activity, showing: showing, blocked: false, at: Date()) == .show else {
+            return false
+        }
+        showInStrip(notice)
+        return true
+    }
+
+    private func showInStrip(_ notice: StripNotice) {
+        guard let vm = viewModel else { return }
+        stripNoticeWork?.cancel()
+        // The level's own curve, in and out: the capsule is one object
+        // whatever it carries.
+        withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.stripNotice = notice
+        }
+        stripNoticeShownAt = Date()
+        let hold: TimeInterval
+        switch notice {
+        case .ambient(let ambient): hold = ambient.holdDuration
+        case .confirmation: hold = confirmationHold
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            self.stripNoticeWork = nil
+            withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.stripNotice = nil
+            }
+            self.promoteStripNotice()
+        }
+        stripNoticeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: work)
+    }
+
+    /// The capsule is free — the level folded, a notice folded: the highest
+    /// notice still inside its patience takes it, while the panel is open.
+    private func promoteStripNotice() {
+        guard let vm = viewModel else { return }
+        while vm.isOpen, !vm.isDropTargeted, vm.hudStrip == nil, vm.stripNotice == nil,
+              let next = stripQueue.next(at: Date()) {
+            // Asked again as it leaves the queue (Codex review 2026-10-26): a
+            // charger that waited behind the level must still find its switch
+            // on and the moment not quiet, as `presentAmbient` asked it.
+            if let notice = StripNotice(next), stripStillAllows(notice) { showInStrip(notice) }
+        }
+    }
+
+    /// The capsule's own refusals for a notice: the switch, a dark display
+    /// and a quiet moment refuse the charger and headphones; a confirmation
+    /// of the person's own act is always shown. Under the open panel the
+    /// pointer is on the panel, which says nothing about a capsule nobody can
+    /// click, so it is not asked.
+    private func stripStillAllows(_ notice: StripNotice) -> Bool {
+        guard case .ambient(let activity) = notice else { return true }
+        let switchOn: Bool
+        switch activity {
+        case .charging: switchOn = NotchViewModel.chargingEnabled
+        case .headphones: switchOn = NotchViewModel.headphonesEnabled
+        }
+        return activity.showsOnIsland && Self.ambientAllowed(
+            switchOn: switchOn, pointerInside: false, pointerUnderGrownPill: false,
+            screensAsleep: screensAreAsleep, quiet: momentsAreQuiet()
+        )
+    }
+
+    /// The panel closed (the view model took the capsule down in the close's
+    /// own transaction). A notice that had only just arrived is handed to the
+    /// shut island, which shows it for its hold once the close lets it
+    /// (`StripNotice.handsBack`), and so is the best one still waiting for
+    /// the capsule inside its patience — it was never seen at all. The rest
+    /// go with the panel.
+    private func stripClosed(_ shown: StripNotice?) {
+        let shownAt = stripNoticeShownAt
+        let waiting = stripQueue.next(at: Date()).flatMap(StripNotice.init)
+        stripNoticeWork?.cancel()
+        stripNoticeWork = nil
+        stripNoticeShownAt = nil
+        stripQueue.removeAll()
+        guard let vm = viewModel else { return }
+        var owed: [StripNotice] = []
+        if let shown, let shownAt, StripNotice.handsBack(shownFor: Date().timeIntervalSince(shownAt)) {
+            owed.append(shown)
+        }
+        if let waiting { owed.append(waiting) }
+        // Each waits as any alert posted over an open panel does; the close's
+        // promotion pass (`wireAlertPromotion`) brings it up, through its own
+        // entry point and every refusal there — the charger's switch included.
+        for notice in owed {
+            _ = alertQueue.post(notice.activity, showing: vm.activity, blocked: true, at: Date())
+        }
+    }
+
+    /// Ends whatever the capsule carries besides the level, and what waits
+    /// for it: a lock, a dark display, a Space change.
+    private func clearStripNotice() {
+        stripNoticeWork?.cancel()
+        stripNoticeWork = nil
+        stripNoticeShownAt = nil
+        stripQueue.removeAll()
+        viewModel?.stripNotice = nil
     }
 
     /// Shows the charger or headphones on the island for their hold.
@@ -2950,7 +3166,7 @@ final class NotchController {
     /// `sneakPeek`). Headphones outrank the charger, and a peek already on
     /// screen gives way to either, because the Mac did something and the song
     /// has not changed.
-    private func presentAmbient(_ activity: AmbientActivity) {
+    func presentAmbient(_ activity: AmbientActivity) {
         // A Mac that reports no battery level shows no Charging (spec §19.4).
         guard let vm = viewModel, activity.showsOnIsland else { return }
         let switchOn: Bool
@@ -2961,6 +3177,24 @@ final class NotchController {
         let grown = NotchViewModel.ambientBodySize(
             activity, notchSize: vm.geometry.notchSize, bodyWidth: vm.geometry.expandedSize.width
         )
+        if vm.isLockedPresentation, LockedIsland.showsAlert(.ambient(activity), overShield: islandIsOverShield) {
+            presentLockedCharge(activity, switchOn: switchOn)
+            return
+        }
+        let placement = Self.noticePlacement(
+            isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+        )
+        if placement == .strip {
+            // Under the open panel the pointer is on the panel, which says
+            // nothing about a capsule nobody can click; the switch, a dark
+            // display and a full-screen film still refuse it.
+            guard stripStillAllows(.ambient(activity)) else { return }
+            if presentInStrip(.ambient(activity)) {
+                Announcer.shared.announce(activity.accessibilityLabel)
+                if case .charging = activity { stores.ambient.chargerShown() }
+            }
+            return
+        }
         let blocked = Self.alertsBlocked(
             isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
         )
@@ -3000,14 +3234,41 @@ final class NotchController {
         scheduleAmbientFold(after: activity.holdDuration)
     }
 
+    /// The charger plugged in while the Mac is locked, on the locked island
+    /// (spec §3.7, amended 2026-10-26): its compact pill for its hold, no
+    /// queue — over the shield the island is the lock's — and no pointer
+    /// test, since nothing there opens. The pop-up outranks it: one already
+    /// up keeps the island, and the charge is not shown.
+    private func presentLockedCharge(_ activity: AmbientActivity, switchOn: Bool) {
+        guard let vm = viewModel, vm.hud == nil,
+              Self.ambientAllowed(
+                  switchOn: switchOn, pointerInside: false, pointerUnderGrownPill: false,
+                  screensAsleep: screensAreAsleep, quiet: momentsAreQuiet()
+              ) else { return }
+        ambientWork?.cancel()
+        withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.ambient = activity
+        }
+        Announcer.shared.announce(activity.accessibilityLabel)
+        stores.ambient.chargerShown()
+        scheduleAmbientFold(after: activity.holdDuration)
+    }
+
     /// A Charging moment on the island takes a later reading in place: the
     /// battery that began charging a moment after the plug, the adapter's
     /// watts. Nothing is announced again and the hold is not restarted — it
     /// is the same moment, told more exactly. Ignored when no Charging moment
     /// is up, so a reading that lands after the fold puts nothing back.
     private func updateShownCharge(_ activity: AmbientActivity) {
-        guard let vm = viewModel, case .charging? = vm.ambient, case .charging = activity,
-              vm.ambient != activity else { return }
+        guard let vm = viewModel, case .charging = activity else { return }
+        // The capsule's Charging moment takes it the same way.
+        if case .ambient(.charging)? = vm.stripNotice, vm.stripNotice != .ambient(activity) {
+            withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.stripNotice = .ambient(activity)
+            }
+            return
+        }
+        guard case .charging? = vm.ambient, vm.ambient != activity else { return }
         withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
             vm.ambient = activity
         }
@@ -3077,7 +3338,8 @@ final class NotchController {
     /// The live reading behind `momentsQuiet`. Read when a moment is about to
     /// show, never cached: a display plugged in a second ago has to count.
     private func momentsAreQuiet() -> Bool {
-        let options = NSApp.currentSystemPresentationOptions
+        if let momentsQuietForTesting { return momentsQuietForTesting }
+        let options = NSApplication.shared.currentSystemPresentationOptions
         var count: UInt32 = 0
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         CGGetActiveDisplayList(UInt32(ids.count), &ids, &count)

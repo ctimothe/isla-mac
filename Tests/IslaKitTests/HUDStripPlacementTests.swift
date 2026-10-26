@@ -175,6 +175,32 @@ final class HUDStripPlacementTests: XCTestCase {
         )
     }
 
+    /// The charger, headphones and confirmations share the capsule (spec
+    /// §19.5 d, amended 2026-10-26): drawn in the same place, and moved by a
+    /// page turn exactly as the level is.
+    func testANoticeInTheCapsuleSitsUnderTheOutlineAndFollowsADotTurn() throws {
+        let vm = try openModel(on: .clipboard)
+        let host = Host(vm: vm)
+        defer { host.close() }
+        vm.stripNotice = .ambient(.charging(level: 80, isCharging: false, port: .usbC, watts: 61, hold: .onHold))
+        host.settle()
+        XCTAssertEqual(try XCTUnwrap(host.capsuleTop(), "the notice is drawn"), underTheOutline(vm), accuracy: 2)
+
+        vm.travel(to: .player, reduceMotion: false)
+        clock.advance(1.0 / 120)
+        host.settle(0.05)
+        runUntilAtRest(vm)
+        host.settle()
+        XCTAssertEqual(try XCTUnwrap(host.capsuleTop()), underTheOutline(vm), accuracy: 2, "under Music's outline")
+
+        vm.stripNotice = .confirmation(IslandConfirmation(.copied))
+        host.settle()
+        XCTAssertEqual(try XCTUnwrap(host.capsuleTop()), underTheOutline(vm), accuracy: 2, "a confirmation the same")
+        vm.stripNotice = nil
+        host.settle()
+        XCTAssertNil(host.capsuleTop(), "and gone when it folds")
+    }
+
     /// A press during a swipe that springs back to Music: nothing turns, so
     /// nothing publishes on the view model when the leg ends.
     func testAPressDuringASwipeThatSpringsBackLandsUnderThePage() throws {

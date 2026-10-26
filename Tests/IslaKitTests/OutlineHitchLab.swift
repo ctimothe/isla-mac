@@ -61,6 +61,16 @@ private struct HitchWindow {
     var cpu: TimeInterval
     /// The main thread's deliberate block inside the window, if there was one.
     var stall: ClosedRange<CFTimeInterval>?
+    /// The main thread's CPU time when the step began.
+    var cpuBefore: TimeInterval = 0
+    /// The moments the step answered an input, by name ("input" is the
+    /// step's own start; a pull adds the frame it first stretched on and its
+    /// release), for the latency from each to the first frame drawn after it.
+    var marks: [String: CFTimeInterval] = [:]
+    /// The outline's applies inside the window, and the scroll events a pull
+    /// fed it: more applies than display frames is work no frame shows.
+    var outlineApplies: Int = 0
+    var scrollEvents: Int = 0
 }
 
 @MainActor
@@ -261,6 +271,14 @@ final class HitchRig {
     let vm: NotchViewModel
     let root: NotchRootView
     let hosting: NSHostingView<NotchContentView>
+    let outline: IslandOutlineHost
+    /// How many times the outline was asked for a state, for the pull's
+    /// one-update-per-frame check.
+    fileprivate(set) var outlineApplies = 0
+    /// The current step's marks and scroll events (`HitchWindow.marks`).
+    fileprivate var marks: [String: CFTimeInterval] = [:]
+    fileprivate var scrollEvents = 0
+    private var pullTimer: DispatchSourceTimer?
     /// The main thread's deliberate blocks, in order, taken by the case.
     fileprivate var stalls: [ClosedRange<CFTimeInterval>] = []
     /// The `hud-hold` case's records.
@@ -278,6 +296,7 @@ final class HitchRig {
         let stage = NotchStage.make(viewModel: vm, windowSize: geometry.windowSize)
         root = stage.root
         hosting = stage.hosting
+        outline = stage.outline
         root.wantsLayer = true
         panel.contentView = root
 
@@ -286,6 +305,78 @@ final class HitchRig {
         panel.ignoresMouseEvents = true
         root.activeRect = CGRect(origin: .zero, size: geometry.windowSize)
         panel.orderFrontRegardless()
+        outline.onApply = { [unowned self] _, _ in
+            self.outlineApplies += 1
+            // The same for the release of a pull: the open or the close it
+            // commits, as the outline takes it.
+            if marks["release"] != nil, marks["releaseApplied"] == nil {
+                marks["releaseApplied"] = CACurrentMediaTime()
+                DispatchQueue.main.async { [unowned self] in
+                    if self.marks["releaseCommitted"] == nil { self.marks["releaseCommitted"] = CACurrentMediaTime() }
+                }
+            }
+            // The first change of the outline after the input: when SwiftUI
+            // reached the bridge, and when the commit carrying it was over
+            // (the next pass of the main queue runs after it), which is when
+            // the render server has the outline's motion.
+            guard marks["input"] != nil, marks["outlineApplied"] == nil else { return }
+            marks["outlineApplied"] = CACurrentMediaTime()
+            DispatchQueue.main.async { [unowned self] in
+                if self.marks["outlineCommitted"] == nil { self.marks["outlineCommitted"] = CACurrentMediaTime() }
+            }
+        }
+    }
+
+    /// The controller's open, as `NotchController.openFromIsland` does it:
+    /// the surface and the pin first, then the shell on the island's spring.
+    func openFromIsland(_ surface: NotchViewModel.Surface?, reduceMotion: Bool) {
+        vm.clickOpened(opening: surface) { _ in true }
+        withAnimation(Theme.open(reduceMotion: reduceMotion)) { vm.isOpen = true }
+    }
+
+    func close(reduceMotion: Bool) {
+        withAnimation(Theme.close(reduceMotion: reduceMotion)) { vm.isOpen = false }
+    }
+
+    /// Two fingers down over the shut island (or up on the open header): a
+    /// trackpad's precise scroll, `events` of them `interval` apart — 240 a
+    /// second, two per frame on a ProMotion display, which is what a fast
+    /// trackpad sends — then the lift. Fed through `NotchViewModel.pullScroll`
+    /// as the controller's monitor feeds it, and played out the controller's
+    /// way when the pull commits.
+    func pull(down: Bool, region: IslandPull.Region, reduceMotion: Bool,
+              events: Int = 30, interval: TimeInterval = 1.0 / 240, step: CGFloat = 1.6) {
+        pullTimer?.cancel()
+        var sent = 0
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: interval, leeway: .microseconds(200))
+        timer.setEventHandler { [unowned self] in
+            MainActor.assumeIsolated {
+                let phase: ScrollSample.Phase = sent == 0 ? .began : (sent == events ? .ended : .changed)
+                let delta: CGFloat = sent == events ? 0 : (down ? step : -step)
+                let event = PageScroll(
+                    deltaX: 0, deltaY: delta, phase: phase, precise: true,
+                    time: ProcessInfo.processInfo.systemUptime, invertedFromDevice: true
+                )
+                scrollEvents += 1
+                let outcome = vm.pullScroll(event, region: region)
+                let now = CACurrentMediaTime()
+                switch outcome {
+                case .stretch: if marks["stretch"] == nil { marks["stretch"] = now }
+                case .open(let surface):
+                    marks["release"] = now
+                    openFromIsland(surface, reduceMotion: reduceMotion)
+                case .close:
+                    marks["release"] = now
+                    close(reduceMotion: reduceMotion)
+                default: break
+                }
+                sent += 1
+                if sent > events { pullTimer?.cancel(); pullTimer = nil }
+            }
+        }
+        pullTimer = timer
+        timer.resume()
     }
 
     /// Blocks the main thread for `duration` seconds, `delay` from now: a
@@ -391,7 +482,10 @@ final class HitchRig {
 @MainActor
 final class OutlineHitchLab: VisualLabCase {
     static let envKey = "ISLA_HITCH_OUT"
-    private let signposter = OSSignposter(subsystem: "com.ctimothe.isla.hitchlab", category: "morph")
+    // Points of Interest, so a Time Profiler trace of the lab (`xctrace record
+    // --template "Time Profiler"`) carries each morph's interval beside the
+    // samples, and the first frames of a morph can be cut out of it.
+    private let signposter = OSSignposter(subsystem: "com.ctimothe.isla.hitchlab", category: .pointsOfInterest)
 
     /// How long each morph is watched: the spring's settle (0.63 s to half a
     /// point over the widest travel, 0.98 s to rest) plus the content's curves.
@@ -518,6 +612,58 @@ final class OutlineHitchLab: VisualLabCase {
                     rig.vm.lyrics.present(LabFixtures.timeline())
                 },
                 steps: [("open", open), ("close", close)]
+            ),
+            // The controller's own open (surface, pin, then the shell), onto
+            // each kind of body: the player, the Shelf's tray, the lyric stage
+            // (MR-H18, 2026-10-26).
+            Scenario(
+                name: "click-player",
+                prepare: { rig in rig.vm.isOpen = false; await LabFixtures.play(.init(), on: rig.vm.media) },
+                steps: [("open", { $0.openFromIsland(.player, reduceMotion: reduceMotion) }),
+                        ("close", { $0.close(reduceMotion: reduceMotion) })]
+            ),
+            Scenario(
+                name: "click-tray",
+                prepare: { rig in rig.vm.isOpen = false },
+                steps: [("open", { $0.openFromIsland(.tray, reduceMotion: reduceMotion) }),
+                        ("close", { $0.close(reduceMotion: reduceMotion) })]
+            ),
+            Scenario(
+                name: "click-stage",
+                prepare: { rig in
+                    rig.vm.isOpen = false
+                    await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                    rig.vm.lyrics.present(LabFixtures.timeline())
+                },
+                steps: [("open", { $0.openFromIsland(.stage, reduceMotion: reduceMotion) }),
+                        ("close", { $0.close(reduceMotion: reduceMotion) })]
+            ),
+            // Two fingers: down over the shut island, up on the open header,
+            // 240 events a second (see `HitchRig.pull`).
+            Scenario(
+                name: "pull-player",
+                prepare: { rig in rig.vm.isOpen = false; await LabFixtures.play(.init(), on: rig.vm.media) },
+                steps: [("pull-open", { $0.pull(down: true, region: .island, reduceMotion: reduceMotion) }),
+                        ("pull-close", { $0.pull(down: false, region: .header, reduceMotion: reduceMotion) })],
+                window: 1.2
+            ),
+            Scenario(
+                name: "pull-tray",
+                prepare: { rig in rig.vm.isOpen = false },
+                steps: [("pull-open", { $0.pull(down: true, region: .bubble, reduceMotion: reduceMotion) }),
+                        ("pull-close", { $0.pull(down: false, region: .header, reduceMotion: reduceMotion) })],
+                window: 1.2
+            ),
+            Scenario(
+                name: "pull-stage",
+                prepare: { rig in
+                    rig.vm.isOpen = false
+                    await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                    rig.vm.lyrics.present(LabFixtures.timeline())
+                },
+                steps: [("click-open", { $0.openFromIsland(.stage, reduceMotion: reduceMotion) }),
+                        ("pull-close", { $0.pull(down: false, region: .header, reduceMotion: reduceMotion) })],
+                window: 1.2
             ),
             Scenario(
                 name: "surface-change",
@@ -664,6 +810,9 @@ final class OutlineHitchLab: VisualLabCase {
                         let began = CACurrentMediaTime()
                         let cpuBefore = clock.cpu()
                         let stallsBefore = rig.stalls.count
+                        let appliesBefore = rig.outlineApplies
+                        rig.marks = ["input": began]
+                        rig.scrollEvents = 0
                         let id = signposter.makeSignpostID()
                         let state = signposter.beginInterval("morph", id: id, "\(scenario.name)/\(step.name) \(load)")
                         step.run(rig)
@@ -673,7 +822,9 @@ final class OutlineHitchLab: VisualLabCase {
                             windows.append(HitchWindow(
                                 name: step.name, start: began, end: CACurrentMediaTime(),
                                 cpu: clock.cpu() - cpuBefore,
-                                stall: rig.stalls.count > stallsBefore ? rig.stalls.last : nil
+                                stall: rig.stalls.count > stallsBefore ? rig.stalls.last : nil,
+                                cpuBefore: cpuBefore, marks: rig.marks,
+                                outlineApplies: rig.outlineApplies - appliesBefore, scrollEvents: rig.scrollEvents
                             ))
                         }
                         try await settle(hold)
@@ -741,6 +892,25 @@ final class OutlineHitchLab: VisualLabCase {
             let overrun = frameCPU.map { max(0, $0 - period) }.reduce(0, +)
             let heavy = frameCPU.filter { $0 > period * 0.75 }.count
             let span = w.end - w.start
+            // Input to the frame that shows it: the first display-link
+            // callback the main thread ran after the mark (it cannot run
+            // until the turn that answered the input, and the commit with
+            // it, is over), and that callback's target — when the frame is
+            // on the glass.
+            func latency(_ mark: String) -> Double? {
+                guard let at = w.marks[mark], let tick = ticks.first(where: { $0.ranAt > at }) else { return nil }
+                return (tick.target - at) * 1000
+            }
+            // The first 100 ms of the morph, where a hitch reads as a delay:
+            // the main thread's CPU and the frames it missed.
+            let early = w.start + 0.1
+            let earlyCPU = (ticks.last(where: { $0.timestamp <= early && $0.timestamp >= w.start })?.cpu)
+                .map { $0 - w.cpuBefore } ?? 0
+            var earlyMissed = 0
+            for (a, b) in zip(ticks, ticks.dropFirst()) where b.timestamp >= w.start && b.timestamp <= early {
+                let late = (b.timestamp - a.timestamp) - period
+                if late > period * 0.5 { earlyMissed += Int((late / period).rounded()) }
+            }
             let lateness = inside.map { max(0, $0.ranAt - $0.timestamp) }
             var sample: [String: Double] = [
                 "frames": Double(inside.count),
@@ -753,7 +923,32 @@ final class OutlineHitchLab: VisualLabCase {
                 "worstFrameCPUMs": (frameCPU.max() ?? 0) * 1000,
                 "heavyFrames": Double(heavy),
                 "cpuOverrunMs": overrun * 1000,
+                "first100CPUMs": earlyCPU * 1000,
+                "first100MissedFrames": Double(earlyMissed),
+                "outlineApplies": Double(w.outlineApplies),
+                "scrollEvents": Double(w.scrollEvents),
             ]
+            for mark in ["input", "stretch", "release"] {
+                if let value = latency(mark) { sample["latencyMs." + mark] = value }
+            }
+            // From the input to the first frame the outline moves in: its
+            // commit over, then the render server's next frame on the vsync
+            // grid (the display link's own timestamps), on the glass one
+            // period after that. Not the next display-link callback: that is
+            // the main thread's, and a heavy commit right behind the outline's
+            // holds the callback but not the render server, which already has
+            // the motion.
+            if let input = w.marks["input"], let committed = w.marks["outlineCommitted"],
+               let base = ticks.last(where: { $0.timestamp <= committed }) {
+                let next = base.timestamp + (((committed - base.timestamp) / period).rounded(.up)) * period
+                sample["outlineLatencyMs"] = (next + period - input) * 1000
+                sample["outlineCommitMs"] = (committed - input) * 1000
+            }
+            if let release = w.marks["release"], let committed = w.marks["releaseCommitted"],
+               let base = ticks.last(where: { $0.timestamp <= committed }) {
+                let next = base.timestamp + (((committed - base.timestamp) / period).rounded(.up)) * period
+                sample["releaseOutlineLatencyMs"] = (next + period - release) * 1000
+            }
             perStep[w.name, default: []].append(sample)
         }
         var steps: [[String: Any]] = []
@@ -773,6 +968,18 @@ final class OutlineHitchLab: VisualLabCase {
                 "worstFrameCPUMs": worst("worstFrameCPUMs"),
                 "meanHeavyFrames": mean("heavyFrames"),
                 "meanCPUOverrunMs": mean("cpuOverrunMs"),
+                "meanFirst100CPUMs": mean("first100CPUMs"),
+                "meanFirst100MissedFrames": mean("first100MissedFrames"),
+                "meanOutlineApplies": mean("outlineApplies"),
+                "meanScrollEvents": mean("scrollEvents"),
+                "meanInputLatencyMs": mean("latencyMs.input"),
+                "worstInputLatencyMs": worst("latencyMs.input"),
+                "meanStretchLatencyMs": mean("latencyMs.stretch"),
+                "meanReleaseLatencyMs": mean("latencyMs.release"),
+                "meanOutlineLatencyMs": mean("outlineLatencyMs"),
+                "worstOutlineLatencyMs": worst("outlineLatencyMs"),
+                "meanOutlineCommitMs": mean("outlineCommitMs"),
+                "meanReleaseOutlineLatencyMs": mean("releaseOutlineLatencyMs"),
             ])
         }
         return ["scenario": scenario, "load": load, "periodMs": period * 1000, "steps": steps]
@@ -838,7 +1045,7 @@ final class OutlineHitchLab: VisualLabCase {
                                                     "scenario" as NSString, "load" as NSString, "step" as NSString,
                                                     "hitch/s" as NSString, "missed" as NSString, "cpu ms" as NSString,
                                                     "gap ms" as NSString, "worst f" as NSString, "heavy" as NSString,
-                                                    "overrun" as NSString)]
+                                                    "overrun" as NSString) + "  cpu100 miss100  lat ms (in/stretch/release)  applies/events"]
         for result in results {
             for step in (result["steps"] as? [[String: Any]]) ?? [] {
                 lines.append(String(
@@ -849,6 +1056,14 @@ final class OutlineHitchLab: VisualLabCase {
                     step["meanMainCPUMs"] as? Double ?? 0, step["worstGapMs"] as? Double ?? 0,
                     step["worstFrameCPUMs"] as? Double ?? 0, step["meanHeavyFrames"] as? Double ?? 0,
                     step["meanCPUOverrunMs"] as? Double ?? 0
+                ) + String(
+                    format: "  %6.1f %6.1f  %5.1f / %5.1f / %5.1f  %5.1f / %5.1f  outline %5.1f (worst %5.1f, commit %5.1f)",
+                    step["meanFirst100CPUMs"] as? Double ?? 0, step["meanFirst100MissedFrames"] as? Double ?? 0,
+                    step["meanInputLatencyMs"] as? Double ?? 0, step["meanStretchLatencyMs"] as? Double ?? 0,
+                    step["meanReleaseLatencyMs"] as? Double ?? 0,
+                    step["meanOutlineApplies"] as? Double ?? 0, step["meanScrollEvents"] as? Double ?? 0,
+                    step["meanOutlineLatencyMs"] as? Double ?? 0, step["worstOutlineLatencyMs"] as? Double ?? 0,
+                    step["meanOutlineCommitMs"] as? Double ?? 0
                 ))
             }
         }
