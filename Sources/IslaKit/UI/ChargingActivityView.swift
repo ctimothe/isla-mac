@@ -41,13 +41,24 @@ struct ChargingActivityView: View {
             return .adapter
         }()
         HStack(spacing: 0) {
-            ChargingWingText(source: activity.chargeSource, status: activity.chargeStatus)
+            // "61 W On Hold" and the Russian are wider than a 90 pt wing:
+            // first the whole line at full size, then the status alone — the
+            // news, at its shortest ("On Hold", not "Charging On Hold"); the
+            // port is already the ring or the battery on the right — and then
+            // that, shrunk. Shrinking the whole line hit
+            // its floor and cut the word: "61 W Not Cha…" on the owner's
+            // recording (2026-10-26 15:26).
+            let status = activity.shortChargeStatus
+            ViewThatFits(in: .horizontal) {
+                ChargingWingText(source: activity.chargeSource, status: activity.chargeStatus)
+                    .fixedSize()
+                ChargingWingText(source: nil, status: status)
+                    .fixedSize()
+                ChargingWingText(source: nil, status: status)
+                    .minimumScaleFactor(CompactIslandLayout.chargingTextMinimumScale)
+            }
                 .islandFont(CompactIslandLayout.chargingTextSize)
                 .lineLimit(1)
-                // "61 W On Hold" and the Russian are wider than a 90 pt wing;
-                // they shrink to fit, together, rather than run under the
-                // notch.
-                .minimumScaleFactor(CompactIslandLayout.chargingTextMinimumScale)
                 .frame(
                     maxWidth: CompactIslandLayout.chargingWingTextWidth(islandWidth: size.width, notchWidth: notchWidth),
                     alignment: .leading

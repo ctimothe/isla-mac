@@ -202,6 +202,11 @@ final class ChargePortTests: XCTestCase {
         XCTAssertEqual(classify((1 << 24) | (1 << 0)), .full, "full and held: full")
         XCTAssertEqual(classify(1 << 30), .notCharging, "a bit nobody has named")
         XCTAssertEqual(classify((1 << 30) | (1 << 15)), .onHold, "a named hold beside an unknown bit")
+        // The owner's recorder, 2026-10-26 15:37: 5.5 s after every plug-in
+        // the hold still carries bit 7, no bus power, from the unplug.
+        XCTAssertEqual(classify(16_777_344), .onHold, "the hold with the unplug's stale bit 7")
+        XCTAssertEqual(classify(16_777_216), .onHold, "and once it clears")
+        XCTAssertNil(classify(1 << 7), "bit 7 alone, read on external power, is no reason")
     }
 
     /// Intel Macs with a T2 report one enumerated value.

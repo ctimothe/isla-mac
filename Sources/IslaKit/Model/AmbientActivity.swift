@@ -112,6 +112,12 @@ enum AmbientActivity: Equatable {
         }
     }
 
+    /// The status at its shortest, for a wing too narrow for the whole line:
+    /// a hold is "On Hold" whether or not a source stands beside it.
+    var shortChargeStatus: String? {
+        chargeState == .onHold ? localized("On Hold") : (chargeStatus ?? chargeSource)
+    }
+
     /// The whole left wing as one line: the source, then the status.
     var chargeHeadline: String? {
         let parts = [chargeSource, chargeStatus].compactMap { $0 }

@@ -211,10 +211,21 @@ enum ChargeHoldReading {
     /// 14 inhibited by a client, 15 predictive charging, 22 no charge
     /// requested, 24 the owner's measured hold (2026-10-26).
     static let holdBits: UInt64 = (1 << 14) | (1 << 15) | (1 << 22) | (1 << 24)
-    /// 1–4 temperature, 5 the charge timer, 6 no battery, 7 no bus power,
-    /// 9 the controller unreachable, 21 a cell's voltage too high, and the
-    /// permanent faults in the top byte.
-    static let stopBits: UInt64 = (0b1111 << 1) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 9) | (1 << 21)
+    /// 1–4 temperature, 5 the charge timer, 6 no battery, 9 the controller
+    /// unreachable, 21 a cell's voltage too high, and the permanent faults in
+    /// the top byte.
+    ///
+    /// Not bit 7, no bus power (owner's recorder, 2026-10-26 15:37, Apple's
+    /// 61 W USB-C held at 80 percent): for 5.5 s after each plug-in the
+    /// battery reads 16777344 — the hold, bit 24, with bit 7 still set from
+    /// the unplug — while `ExternalConnected` is already Yes and the adapter
+    /// reports its 61 W; then 16777216 alone. Counted as a stop, every plug-in
+    /// said "Not Charging" for the whole moment, past every re-read. The
+    /// reason is only read while the Mac is on external power
+    /// (`AmbientWatch.readCharge`), which bit 7 contradicts, so it is stale
+    /// there by construction.
+    static let staleBits: UInt64 = 1 << 7
+    static let stopBits: UInt64 = (0b1111 << 1) | (1 << 5) | (1 << 6) | (1 << 9) | (1 << 21)
         | (0xFF << 56)
 
     static let enumeratedFull: UInt64 = 4
@@ -227,6 +238,8 @@ enum ChargeHoldReading {
         guard let raw, raw != 0 else { return nil }
         switch encoding {
         case .bitfield:
+            let raw = raw & ~staleBits
+            guard raw != 0 else { return nil }
             if raw & stopBits != 0 { return .notCharging }
             if raw & fullBit != 0 { return .full }
             if raw & holdBits != 0 { return .onHold }
