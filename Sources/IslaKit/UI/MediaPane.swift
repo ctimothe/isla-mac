@@ -36,7 +36,12 @@ struct MediaPane: View {
     /// default reads nothing and installs nothing: a pane built anywhere but the
     /// panel — a test, a render — must not reach the owner's output devices, even
     /// to read them. The panel hands in `NotchViewModel.playerAudio`.
-    @ObservedObject var audio: AudioWatch = MediaPane.quietAudio()
+    ///
+    /// Held, not observed (2026-10-25): the pane only starts and stops it and
+    /// hands it to the Output button, which subscribes to the route alone
+    /// (`OutputButtonState`). Observing the whole watch redrew the player for
+    /// every change it published.
+    var audio: AudioWatch = MediaPane.quietAudio()
     /// The Spotify account, for the Favourite star on a Spotify song. Nil
     /// outside the panel: the live account's first read is the owner's own
     /// keychain, which nothing but the panel may touch.

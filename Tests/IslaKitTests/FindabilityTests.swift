@@ -109,8 +109,8 @@ final class FindabilityTests: XCTestCase {
         XCTAssertEqual(SpotifyAccount.Refusal.from(unlisted), .notRegistered)
         let premium = Data(#"{"error":{"status":403,"message":"Premium required"}}"#.utf8)
         XCTAssertEqual(SpotifyAccount.Refusal.from(premium), .premiumRequired)
-        XCTAssertEqual(SpotifyAccount.Refusal.from(Data("<html>".utf8)), .other)
-        XCTAssertEqual(SpotifyAccount.Refusal.from(nil), .other)
+        XCTAssertEqual(SpotifyAccount.Refusal.from(Data("<html>".utf8)), .other(nil))
+        XCTAssertEqual(SpotifyAccount.Refusal.from(nil), .other(nil))
     }
 
     /// Spotify demands Premium of the developer who registered a Development
@@ -121,8 +121,9 @@ final class FindabilityTests: XCTestCase {
         let explanation = SpotifyAccount.Refusal.premiumRequired.explanation
         XCTAssertEqual(
             explanation,
-            "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause."
+            "Spotify asks for Premium on Isla’s registration."
         )
         XCTAssertFalse(explanation.contains("needs Spotify Premium"))
+        XCTAssertFalse(explanation.contains("your"), "names the registration, not the listener's plan")
     }
 }

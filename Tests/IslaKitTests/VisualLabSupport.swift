@@ -332,6 +332,12 @@ final class LabSession {
         configuration.protocolClasses = [LabNetworkGuard.self]
         spotify = SpotifyAccount(credentials: credentials, session: URLSession(configuration: configuration))
         SpotifyAccount.sharedOverride = spotify
+        // The xctest host has no icon of its own and drew a tinted folder on
+        // About; the lab draws Isla's, from the repository's own icon file.
+        let icon = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/AppIcon.icns")
+        AppIcons.islaIconOverride = NSImage(contentsOf: icon)
 
         savedArgumentDomain = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         savedLinger = NotchMetrics.pausedLinger

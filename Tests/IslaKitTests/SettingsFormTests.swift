@@ -38,8 +38,8 @@ final class SettingsFormTests: XCTestCase {
                 let frame = button.frame ?? .zero
                 XCTAssertEqual(frame.minX, 16, accuracy: 0.5, "row \(index) at \(width)")
                 XCTAssertEqual(frame.width, 122, accuracy: 0.5, "row \(index) at \(width)")
-                XCTAssertEqual(frame.minY, 8 + CGFloat(index) * 26, accuracy: 0.5, "row \(index) at \(width)")
-                XCTAssertEqual(frame.height, 24, accuracy: 0.5, "row \(index) at \(width)")
+                XCTAssertEqual(frame.minY, 8 + CGFloat(index) * 32, accuracy: 0.5, "row \(index) at \(width)")
+                XCTAssertEqual(frame.height, 28, accuracy: 0.5, "row \(index) at \(width)")
             }
 
             guard let launch = root.all(role: "AXCheckBox").first(where: { $0.label == localized("Launch at Login") })?.frame else {
@@ -47,9 +47,9 @@ final class SettingsFormTests: XCTestCase {
             }
             XCTAssertEqual(launch.minX, 150, accuracy: 0.5, "the form starts at body x 150 at \(width)")
             XCTAssertEqual(launch.width, formWidth, accuracy: 0.5, "the row is the form's width at \(width)")
-            XCTAssertEqual(launch.height, 28, accuracy: 0.5, "rows are 28 tall at \(width)")
+            XCTAssertEqual(launch.height, SettingsLayout.rowHeight, accuracy: 0.5, "rows are the native 38 at \(width)")
         }
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 396)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 390)
     }
 
     /// The pane starts under the header row, so the sidebar and the form begin
@@ -66,7 +66,9 @@ final class SettingsFormTests: XCTestCase {
         let first = root.all(where: { $0.label == localized("Settings sections") }).first?.all(role: "AXButton").first
         XCTAssertEqual(first?.frame?.minY ?? -1, 46 - 38, accuracy: 0.5, "sidebar")
         let launch = root.all(role: "AXCheckBox").first { $0.label == localized("Launch at Login") }
-        XCTAssertEqual((launch?.frame?.minY ?? -1), 46 - 38 + 19, accuracy: 1.5, "form's first row")
+        // Under the first group's header: 13 pt semibold and its 6 pt gap
+        // (native pass 2026-10-25; the header was 11 pt).
+        XCTAssertEqual((launch?.frame?.minY ?? -1), 46 - 38 + 22, accuracy: 1.5, "form's first row")
     }
 
     /// The section holds at both ends of the width range and in Russian: every
@@ -76,8 +78,8 @@ final class SettingsFormTests: XCTestCase {
         for language in ["en", "ru"] {
             LabLocalization.use(language)
             let pushTitles = Set(SettingsRowID.allCases.filter { $0.kind == .push }.map(\.title) + [
-                localized("Try Again"), localized("Open Automation Settings…"), localized("Connect Spotify Account…"),
-                localized("Import Account from Keychain…"), localized("Disconnect Spotify Account"), localized("Remove"),
+                localized("Try Again"), localized("Open Automation Settings…"),
+                localized("Import Account from Keychain…"), localized("Remove"),
             ])
             for width in [CGFloat(480), 620] {
                 let isolated = ProbeFixtures.isolatedStores()
@@ -110,7 +112,7 @@ final class SettingsFormTests: XCTestCase {
                     for button in controls where button.role == "AXButton" && pushTitles.contains(button.label) {
                         guard let frame = button.frame else { continue }
                         let word = (button.label as NSString).size(
-                            withAttributes: [.font: NSFont.systemFont(ofSize: Theme.TypeRole.body.size)]
+                            withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
                         ).width
                         XCTAssertGreaterThanOrEqual(
                             frame.width, word * 0.95, "\"\(button.label)\" is cut in \(section) at \(width) in \(language)"
@@ -259,13 +261,17 @@ final class SettingsFormTests: XCTestCase {
     func testALongNameIsCutToItsLabelAndHelpsWithTheWhole() async {
         LabLocalization.use("ru")
         let root = await AXProbe.tree(
-            of: SidebarHarness { _ in }.frame(width: 122, height: 260), size: CGSize(width: 122, height: 260)
+            of: SidebarHarness { _ in }.frame(width: 122, height: 340), size: CGSize(width: 122, height: 340)
         )
-        guard let privacy = root.all(role: "AXButton").first(where: { $0.label == "Конфиденциальность" }) else {
+        // The longest Russian title, whichever it is: the short ones the
+        // native pass chose (Приватность, Клавиши, Блокировка) all fit, and
+        // the rule still holds for the one that runs longest.
+        let longest = SettingsSection.allCases.map(\.title).max { $0.count < $1.count } ?? ""
+        guard let row = root.all(role: "AXButton").first(where: { $0.label == longest }) else {
             return XCTFail(root.dump)
         }
-        XCTAssertEqual(privacy.help, "Конфиденциальность")
-        XCTAssertLessThanOrEqual(privacy.frame?.maxX ?? 0, 122.5, "the row never runs under the form")
+        XCTAssertEqual(row.help, longest)
+        XCTAssertLessThanOrEqual(row.frame?.maxX ?? 0, 122.5, "the row never runs under the form")
     }
 
     // MARK: - A destructive action is a push button that asks
@@ -300,7 +306,7 @@ final class SettingsFormTests: XCTestCase {
     func testNoSectionDrawsAnArmedStateAtRest() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        for section in [SettingsSection.lyrics, .spotify, .screenshots, .about] {
+        for section in [SettingsSection.lyrics, .connections, .screenshots, .about] {
             let root = await SettingsFixture.tree(isolated, section: section, height: 1400)
             XCTAssertTrue(
                 root.all(role: "AXButton").filter { [localized("Delete These Files"), localized("Disconnect")].contains($0.label) }.isEmpty,

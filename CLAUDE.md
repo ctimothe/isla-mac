@@ -208,8 +208,10 @@ once in `IslaApplication.run()` and never changed at runtime. There is
 no status item: Open Panel, About, Quit and the privacy toggles all live in the
 **Settings** surface (`SettingsPane` calls `orderFrontStandardAboutPanel`/`terminate`
 directly). Since 2026-10-15 Settings is a 400-tall sidebar of ten sections
-drawn from `SettingsTable`, a pure table of every row with its key and
-default; `NotchViewModel`'s accessors read their defaults back from it, so add
+(General, Privacy, Shortcuts, Music, Lyrics, Lock Screen, Translate,
+Connections, Screenshots, About — Connections replaced Spotify on 2026-10-25
+and lists every installed player, `PlayerConnections`) drawn from
+`SettingsTable`, a pure table of every row with its key and default; `NotchViewModel`'s accessors read their defaults back from it, so add
 a setting there, not in the view. `NotchController` (~1400 lines) owns panel lifecycle, geometry,
 open/close timing, and the lock transition; `AppDelegate` owns the four global hot
 keys (⌃⌥⌘I open, ⌃⌥⌘V clipboard, ⌃⌥⌘T translate clipboard, ⌃⌥⌘L lyric stage —
@@ -335,7 +337,11 @@ copy). A click on the notch's own span of the
 header row closes the panel. A right-click on the island or the header row opens
 `IslandMenu` (Clipboard, Shelf, Translate Clipboard, lyrics, Settings…, Quit);
 it is the app's only menu, since an `.accessory` app has no menu bar.
-Hover-to-open survives as **Open on Hover** in Settings, off by default. Over the lock screen nothing opens: a hover
+Hover-to-open survives as **Open on Hover** in Settings, off by default.
+Two fingers down over the shut island open it and two fingers up on the open
+header (or anywhere on the player) close it — precise scrolls only, decided in
+the first 10 pt like the pages' swipe and never stealing a list's vertical
+scroll (`IslandPull`, Settings "Swipe to Open and Close", on by default). Over the lock screen nothing opens: a hover
 brightens, a click shakes (`RefusalShake`). `PrivacyMode` covers per-section
 content (clipboard, translate) behind drifting dots. Haptics are sparing:
 `Haptics` fires `NSHapticFeedbackManager`'s `.alignment` when a lyric click lands

@@ -23,4 +23,10 @@ enum Log {
     static let shelf = Logger(subsystem: subsystem, category: "shelf")
     static let updates = Logger(subsystem: subsystem, category: "updates")
     static let permissions = Logger(subsystem: subsystem, category: "permissions")
+    /// Each step of a Spotify sign-in and each refusal, with Spotify's own
+    /// error code, description and HTTP status, and never a token, a code, a
+    /// verifier or a state (2026-10-25: the owner's Connect failed and nothing
+    /// said where). `log show --predicate 'subsystem == "com.ctimothe.isla"
+    /// && category == "spotify"'` reads them back.
+    static let spotify = Logger(subsystem: subsystem, category: "spotify")
 }

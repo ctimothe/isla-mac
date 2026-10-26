@@ -27,6 +27,14 @@ final class ReduceMotionContractTests: XCTestCase {
 
     private static let allowed: [Allowed] = [
         Allowed(
+            file: "StageVolumeControl.swift",
+            line: ".animation(reduceMotion ? nil : Theme.trackSwapSpring, value: volume.isDragging)",
+            count: 1,
+            reason: "the lyric stage's volume track thickens under a dragging finger, as the "
+                + "system's own sliders do: a change of size, which Reduce Motion asks to have "
+                + "happen at once rather than grow (2026-10-26, spec §19.6 amendment)."
+        ),
+        Allowed(
             file: "LockScreenCard.swift",
             line: ".animation(jump || reduceMotion ? nil : Theme.lyricScroll, value: centre)",
             count: 1,

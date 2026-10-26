@@ -1150,6 +1150,79 @@ until nothing uses them, then go.
 > above no longer applies; Settings is reached by the gear and the menu,
 > §19.8.
 
+
+> **Amended 2026-10-25 (native pass, plan `2026-10-25-settings-native-polish`;
+> decisions taken by the driver on the owner's behalf).** Settings keeps its
+> hand-laid form (option B of the plan: a full `Form(.grouped)` was not taken)
+> and moves every value to the grouped form's as measured on macOS 27:
+>
+> - **Type and colour.** Row labels 13 pt regular in `labelColor`; group
+>   headers 13 pt semibold; footers and a row's second line 11 pt in
+>   `secondaryLabelColor`; values (a pop-up's choice, Automation's state) in
+>   `secondaryLabelColor`. Roles: `SettingsLayout.labelRole` (`.subhead`) and
+>   `footnoteRole` (`.body`).
+> - **Geometry.** Rows 38 tall (they were 28), a segmented row 41; the form
+>   ends 20 pt short of the body (it was 14), so it is `bw − 170` wide from 540
+>   up and 310 below; groups have no edge stroke, fill white 0.065 (0.14 with
+>   Increase Contrast) — the drawn stand-in for `.listRowBackground` over the
+>   black panel, which option B cannot use; dividers `separatorColor`.
+> - **Sidebar.** Rows 28 tall on a 32 pt pitch, 20 pt tiles with a 4.5 pt
+>   corner, labels 13 pt; the selection is filled with the system accent
+>   (`selectedContentBackgroundColor`, the active look). Russian titles are
+>   shortened so the sidebar keeps its 122 pt: «Приватность», «Клавиши»,
+>   «Блокировка», «Сервисы» (Connections) and «Об Isla» (About); every title
+>   fits the 84 pt label at 13 pt (`SettingsTableTests`).
+> - **Icons.** General, Privacy, Shortcuts and Screenshots draw System
+>   Settings' own pane icons (`com.apple.graphic-icon.*`), Lock Screen and
+>   Connections those of their Settings extensions (checked by bundle
+>   identifier), all read at runtime and none shipped; About draws Isla's own
+>   icon (48 pt in the head, it was 56, so Quit stays in view). Where this
+>   macOS has no such icon a tile is drawn in system colours (`SettingsTint`
+>   is now `systemGray`/`systemBlue`/`systemPink`/`systemOrange`/`systemIndigo`).
+> - **Controls.** Segmented choices are AppKit's segmented control, which
+>   supersedes owner decision 4 of 2026-10-15 (the drawn capsules); VoiceOver
+>   still reads the row as a radio group named by its title. Push buttons are
+>   `.bordered`, Update Now `.borderedProminent` in the accent, a confirming
+>   button turns `.destructive` once armed. Sliders are AppKit's small slider
+>   in the accent. Pop-ups stay a SwiftUI `Menu` (not `NSPopUpButton`, which
+>   is unproven from the never-key panel) drawn as the grouped form's: the
+>   value and up-down chevrons, no plate. The form says
+>   `.environment(\.appearsActive, true)`, so all of them draw active.
+> - **The switch stays drawn** (H-002: the panel is never key, and
+>   `NSSwitch` then never shows "on"), now 36 × 16 with a 14 pt knob, on in
+>   `controlAccentColor`, off a white 0.08 track (a dark well with its outline
+>   under Increase Contrast).
+> - **Accent, not Isla's colours.** The shortcut recorder's ring, the Lock
+>   Screen style ring and the update card's bar use `controlAccentColor`;
+>   Isla's red and the fixed blue left Settings.
+> - **Connections replaces Spotify.** One group, one row per player: Apple
+>   Music ("Favorites, no sign-in") and Spotify (Connect… / Disconnect, "Liked
+>   Songs") always; YouTube Music, Amazon Music, Deezer, TIDAL, Yandex Music,
+>   Pandora and Qobuz only while installed ("Controls and lyrics, no
+>   favorites"), each with its own icon from the installed app. SoundCloud
+>   has no Mac app and a web player no app at all, so neither is listed
+>   (`PlayerConnections`, research `2026-10-25-favourites-per-player`). A
+>   stored `spotify` section opens Connections.
+> - **Spotify's own reason.** A Connect that fails shows one line under the
+>   row in Spotify's words: the consent callback's `error` and
+>   `error_description`, the token endpoint's error body and HTTP status, or
+>   the Web API's refusal. Known cases are localized (unreachable,
+>   `invalid_client`, 5xx, Development Mode's unlisted account, Premium);
+>   anything else reads "Spotify said: …", one line, at most 160 characters.
+>   A grant is followed by one `GET /v1/me`, so an unlisted account is known
+>   at Connect rather than at the first Spotify song. Every step is logged
+>   under `com.ctimothe.isla` / `spotify`, never a token or a code.
+> - **Cost of the swap.** The staged mount (`SettingsPane.mountsAfter`) is
+>   kept. Hitch lab, `surface-change` at idle, 6 cycles, one run after the
+>   change: player → Settings costliest frame 18.5 ms of main-thread CPU,
+>   2.8 heavy frames, 11.6 ms past the slot; Settings → player 31.0 / 1.8 /
+>   17.6. R8e's medians for player → Settings were 22.1 and 13.2 ms, so the
+>   native controls cost no more; there is no same-tree "before" run (the
+>   tree could not be set back without touching git state), so this is not a
+>   fair A/B.
+> - **Not done in this pass:** the plan's items 23 (the first group header
+>   that repeats the section's name) and 24 (About's repeated version group).
+
 ## 11. Translate (R4)
 
 > **Amended 2026-10-17 (owner: activities first, §19).** Reached from the
@@ -1245,6 +1318,11 @@ until nothing uses them, then go.
 > panel is open the pop-up is not drawn" below are withdrawn: the bar steps,
 > and an open panel gets a capsule under it. See the last amendment in this
 > file.
+>
+> **Amended 2026-10-25 (owner: "only the volume pop-up lags and delays …
+> this needs an architectural fix, like Apple's own sound control").** A
+> volume press is drawn before it is written, and one writer takes the newest
+> level. See "The volume key: predicted, then written" at the end of this file.
 
 `Island-HUD-*`, `Settings-General-HUD`, `Motion-HUD`.
 
@@ -2386,6 +2464,54 @@ and `R2-Music-Rest`.
 - The new-track peek (decision 3, §3.5) keeps its content and its 50 pt height,
   on this section's outline (shoulders 8.67, bottom corners 16) and motion.
 
+**Amendment (2026-10-26, owner): two Charging activities, MagSafe and USB-C.**
+"If it's possible to know which one is connecting we need two different live
+activities, 100% native Apple design for each." The Charging row above stays
+the width, height, hold (3 s), rank (7) and motion of both; what changes is
+what the wings say and draw.
+
+- *Which port.* External power from IOPS first — a USB-C display or hub makes
+  a CC line active without a watt going in. Then the I/O Registry's
+  `IOPortTransportStateCC` services: `Active` on the one whose
+  `ParentBuiltInPortTypeDescription` is "MagSafe 3" → **MagSafe** (even with a
+  USB-C display active beside it); otherwise a Mac with USB-C ports →
+  **USB-C**; no port controller, or an adapter reporting `IsWireless` → a
+  power adapter, drawn as USB-C without a name. Watts come from the adapter's
+  details (`IOPSCopyExternalPowerAdapterDetails`, else `AppleSmartBattery`
+  `AdapterDetails`). Measured on a MacBook Pro with MagSafe 3, macOS 27.0.1:
+  the key is `Active`; `ConnectionActive` and `IOPortFeaturePowerIn` read No
+  on every port while charging. Read off the main thread, once per plug-in,
+  never polled (`ChargePortReading`).
+- *MagSafe.* Left wing "MagSafe"; right wing the level, then a ring 18 across,
+  3 pt line, a track all round in the tint at 0.30 and the level drawn over
+  it clockwise from twelve, round-capped, `bolt.fill` 8 inside while charging.
+  The ring draws from empty on arrival on `Theme.pill`; under Reduce Motion it
+  is there at once.
+- *USB-C.* Left wing the adapter's wattage ("61 W"), or "Charging" when it
+  reports none; right wing the level and the drawn battery above with
+  `bolt.fill` 10 over its body, white, outlined in black so it reads over
+  fill and track.
+- *States, both.* Held at the limit or paused → "Not Charging", level and
+  glyph white, white stroke; full → "Charged", white. 20 percent or less →
+  the level, glyph and stroke in the system red `#FF453A`, charging or not.
+  Increase Contrast takes `#30DB5B` and `#FF6961` and a 0.45 track. The left
+  wing's words stop 4 pt short of the notch and may shrink to 0.7.
+- *Labels.* "Charging over MagSafe, %d percent", "Charging over USB-C, %d
+  percent", "Charging, %d percent" (adapter), "Power adapter connected, not
+  charging, %d percent", "Power adapter connected, charged, %d percent";
+  spoken once, when shown.
+- *When it shows.* The moment is read 0.6 s after power arrives
+  (`AmbientWatch.chargeSettle`), not at the edge: at the edge the battery is
+  not yet charging (powerd's log, 2026-10-26: "State:Charging" 47 ms after the
+  source turned AC), and every moment drew the held state. A later reading
+  inside the hold updates the moment in place, without a second announcement.
+  The 30 s repeat window counts from a moment **shown**, never from a plug-in
+  the controller refused: the owner's adapter renegotiates 1–5 s after every
+  plug-in (AC, Battery, AC in the pmset log), and a refused first edge used to
+  silence the second. The refusals themselves (switch off, pointer on or
+  under the pill, displays asleep, full screen or mirrored, the second's
+  patience behind an open panel or the lock) are unchanged.
+
 ### 19.5 Alerts
 
 Expanded, one at a time (§19.1). Board `R2-Alerts`, middle and bottom rows;
@@ -2748,6 +2874,54 @@ squircle on macOS 26 and later, so every player stands the same height.
 > `NowPlayingPresenterTests`, `LyricsCoordinatorTests.testASkipIsLookedUpOnceWithItsOwnLength`,
 > `FallbackRouteTests.testAFallbackSkipKeepsTheOldSongDrawnUntilTheSwap`. Hardware: MR-H9.
 
+> **Amended 2026-10-26 (owner: "when the lyrics screen is open we need a
+> button to change the volume of the song").** The stage's foot gains a
+> **Volume** tool, between More and Output, so the tools from the right read
+> Hide Lyrics, Output, Volume, More, Show Translation. This reverses, for the
+> stage only, the 2026-10-16 withdrawal of a volume bar from the player: that
+> bar was the Mac's volume, and this one is the song's where the song's app
+> has one.
+>
+> - **Whose volume.** Music and Spotify: the player's own `sound volume`
+>   (0–100, through the existing Apple Events entitlement), which leaves the
+>   Mac's output where it is. Any other source — a browser, Yandex Music —
+>   the Mac's output volume, through the same `VolumeOutput` writer the
+>   volume keys use. No audio tap or process capture: those need a recording
+>   permission. The label says whose it is: "Music volume", "Spotify volume",
+>   or "Volume" (`PlayerVolumeTarget`).
+> - **The tool.** 28 × 28 like its neighbours; its glyph is the level's —
+>   `speaker.slash.fill` at 0 or muted, `speaker.fill`, then
+>   `speaker.wave.1.fill` … `speaker.wave.3.fill` — lit while open. A press
+>   opens the slider; it folds 3 s after the last touch, on a click anywhere
+>   else on the stage, or on a second press. Five tools fit 6 apart from a
+>   502 pt body; narrower, with Show Translation in the row, they close up
+>   (3.25 at 480) and never come within 6 of Next (`StageLayout.toolSpacing`).
+> - **The slider** takes the title's and the transport's place while it is
+>   open — x 76 to Next's right edge, 30 tall at y 334 — and they fade for it
+>   (`Theme.trackSwap`; opacity only under Reduce Motion). Apple Music's look:
+>   `speaker.fill` at the low end, `speaker.wave.3.fill` at the high end, a 5
+>   pt capsule track in the stage's track colour, white fill, 8 pt under the
+>   finger; Increase Contrast draws the track's edge. No material of its own:
+>   the stage is already the glass. Scroll-to-adjust is not built.
+> - **Performance.** A drag draws the intended level at once and keeps one
+>   write in flight with the newest value waiting (`LatestWinsSender`): ten
+>   moves while the first Apple Event blocks make two events. The level is
+>   read when the slider opens and when the song's source changes under an
+>   open one; nothing reads, polls or listens while it is closed.
+> - **Consent.** The first press for Music or Spotify is the only thing that
+>   can raise macOS's Automation prompt for it — never launch, never opening
+>   the stage. A refusal (-1743), or one already known, moves the control to
+>   the Mac's volume and puts one line of 11 pt under the slider, "Allow Isla
+>   to control Spotify…", which opens Privacy & Security › Automation; that
+>   line is the refusal's only surface. A value still waiting is dropped, not
+>   replayed on the Mac.
+> - **VoiceOver.** The tool itself is adjustable: "Spotify volume, 40
+>   percent", 5 % a step, so nobody has to catch the slider before it folds;
+>   the open slider is the same adjustable element.
+>
+> `PlayerVolumeControlTests`, `LyricColumnPaneTests.testTheStagePutsItsFootWhereTheBoardDoes`.
+> Hardware: MR-H14.
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the
@@ -2795,7 +2969,13 @@ untouched." with Cancel and Remove All (destructive) under it; Escape and
 leaving the tray take the question back. **The selected tile** is white 0.18
 with a 1.5 pt blue ring inside its edge; on the drop surface a file already
 on the Shelf lights its tile blue 0.18 with a 2 pt ring, as the lit target
-does. The drop surface's captions do not change when a target is lit: only
+does. *Amended 2026-10-26 (owner): the selected tile takes Finder's icon-view
+selection instead — white 0.18 behind the icon with no ring, and each caption
+line white on its own rounded fill (radius 4, 3 pt either side) in the system
+accent colour (`controlAccentColor`), never a fixed blue. A ring round a
+thumbnail is the Photos grid's selection; the Shelf holds files. The drop
+match keeps its ring: that is a drop target's lit look, not a selection.*
+The drop surface's captions do not change when a target is lit: only
 their brightness does, so nothing reflows under a moving pointer.
 **The tray's width follows a wide notch.** The board's 385.3 leaves the
 header about 100 pt either side of a 185 pt notch; under the 220 and 240 pt
@@ -3584,6 +3764,54 @@ first use on hardware:
 |---|---|
 | Close Settings | Закрыть настройки |
 
+*Amended 2026-10-25 (owner: "when I swipe two fingers down the island should
+be shown, and when I swipe up it should close to the default unclicked state")
+— a vertical swipe opens and closes the panel.* Adds to §19.1's roads and to
+the swipe above; nothing here replaces either. `IslandPull` holds the rules,
+`IslandPullTests` holds them to the letter.
+
+- **Down over the shut island opens it** on what a click opens
+  (`openTarget`); down over the Shelf's bubble opens the tray. Over an alert
+  the alert folds first and the panel opens; over the update alert, which only
+  its buttons answer, nothing happens, as for a click.
+- **Up closes to the shut island** when the gesture lands on the open panel's
+  header row (the top `notchHeight` of the body) on every surface, or anywhere
+  on the player, the one surface with nothing that scrolls vertically. A
+  pinned panel closes too: the gesture is as explicit as a click on the notch.
+  Anywhere else an up-and-down scroll is the reader's — the Shelf's grid,
+  Clipboard's list, the lyric stage, Settings' form, Translate's text.
+- **Down means the fingers**, whichever way the owner scrolls
+  (`isDirectionInvertedFromDevice`).
+- **Precise scrolls only** — a trackpad's two fingers, a Magic Mouse's one. A
+  notched wheel has no beginning or end to a gesture, and a wheel turned with
+  the pointer just under the menu bar would open the panel by accident; the
+  wheel has the click.
+- **The first 10 pt decide**, as the pages' do, with the opposite rule: more up
+  or down than sideways is the pull's, more sideways the pages'. A gesture that
+  began off the island or the header is never the pull's.
+- **The release commits:** the fingers' travel plus the projection of their
+  speed must reach 32 pt. Short, taken back or cancelled, it settles back.
+  Momentum never opens or closes; the glide after a pull is swallowed so it
+  does not scroll the page that opened under it.
+- **Over the lock screen** a pull down is refused as a click is, with the
+  shake, and nothing stretches.
+- **Feedback:** while the fingers track, the outline gives by a rubber band of
+  the travel, approaching 8 pt — longer pulled open, shorter pushed shut — and
+  goes back on the island's spring. The window, the content and the hit
+  region keep their sizes. Under Reduce Motion nothing stretches; the open and
+  the close keep their reduced curves.
+- **Settings › General: "Swipe to Open and Close"**, on by default — the
+  gesture is local and nothing leaves the Mac. Key `island.swipeToOpen`.
+- **macOS reserves no two-finger vertical swipe.** Mission Control and App
+  Exposé are three or four fingers; Notification Center is two fingers sliding
+  leftward in from the trackpad's right edge. A scroll reaches a window only
+  under the pointer, so the gesture exists only over the island's own hit
+  region.
+
+| English (key) | Russian |
+|---|---|
+| Swipe to Open and Close | Открывать и закрывать смахиванием |
+
 *Amended 2026-10-25 (owner, refinement pass MR-7) — the gear becomes the ⋯
 menu.* **The gear** above and its first amendment are replaced on the pages
 and the stage by a **⋯ (More) button** in the same well, at the same place,
@@ -3662,6 +3890,16 @@ key press draws a **capsule under the panel** (`HUDStripLayout`):
   no pointer rect, in a hosting view that answers no hit test
   (`IslandHUDStripHostingView`, between the Shelf's bubble and the outline's
   line in `NotchStage`). It covers no panel content on any surface.
+- **Under the outline as drawn** (amended 2026-10-26, owner: "sometimes the
+  HUD sound control bar opens in the whole middle of the screen … once you try
+  again it works properly"). "The open body" is the outline drawn this instant
+  (`drawnOpenBodySize`, the pull's give included), never the clickable region,
+  which during a page leg is every page the leg can reach: a capsule standing
+  through a dot or a swipe from Clipboard to Music stayed under Clipboard's
+  316 pt until it folded. The capsule follows the pages and the pull while it
+  is up and watches neither while it is folded (`HUDStripPlaced`,
+  `HUDStripPlacementTests`). On the stage and Settings it stays 6 pt under
+  their 400 pt body, about 440 pt from the top of the screen.
 - **Never two indicators.** The pill is the shut island's and the capsule the
   open panel's (`NotchController.hudPlacement`); a panel that opens takes a
   standing pill with it (the next press is the capsule), a panel that closes
@@ -3677,3 +3915,54 @@ key press draws a **capsule under the panel** (`HUDStripLayout`):
 Measured (`Scripts/measure-hitches.sh`, scenarios `hud-repeat` and
 `hud-strip-repeat`: 54 presses 35 ms apart, then the fold; idle Mac, 8 cycles):
 see `docs/development/checklist.md` MR-H8.
+
+*Amended 2026-10-25 (owner: "only the volume pop-up lags and delays, with or
+without earphones, while music plays … if ours lags while replacing the Mac's
+own HUD the app is meaningless; this needs an architectural fix, like Apple's
+own sound control") — **the volume key: predicted, then written.*** Replaces,
+for the volume only, how §12 applies a key, and withdraws "the listeners' echo
+re-read after Isla's own write stays" from the amendment above. Brightness, the
+keys Isla takes, the mute, the look and the fold are unchanged.
+
+- **The press is drawn first.** The level a press means is stepped from the
+  *intended* volume — the last press's target, or the last change adopted from
+  outside — on the tap's thread, under a lock, and handed to the pop-up at
+  once, before any CoreAudio call. The next press steps from that intention,
+  never from what the device has caught up to. Steps are unchanged: 1/16, and
+  1/64 with ⌥⇧.
+- **One writer, newest wins.** A press leaves its target in a single slot,
+  over whatever waits there; one queue writes it. However slow the device, a
+  hold costs the write in flight and then the newest level, never a queue of
+  them. The control (virtual main volume, main, or the two channels) and
+  whether the mute is settable are found when the tap starts and when the
+  default output changes, so a write is one set call.
+- **A replaced device is never written for.** Each target carries the
+  generation of the default output it was stepped on; a target from before
+  AirPods took over is dropped. A device that has gone answers its write as
+  "device changed", and the key is applied once to the device now current,
+  from that device's own level (the old rule, kept).
+- **Only outside changes are adopted.** The listeners no longer share the
+  writer's queue, and a burst of them is one read. A read is ignored while a
+  write is waiting or in flight, and for 0.25 s after one when it matches a
+  level Isla just wrote or left; one more look at the end of that window
+  catches a real change that looked like an echo. Anything else — the menu-bar
+  slider, another app — becomes the intended volume, and the next press steps
+  from it.
+- **The player stops listening to the volume.** Its watch follows the route
+  (outputs and the current device) and nothing else, and the player and the
+  lyric stage no longer observe it whole; the Output button subscribes to the
+  route alone. The lock card's watch, whose bar shows the level, is unchanged.
+- Signposts (`hud`): "media key", "level queued", "level write", "hud
+  presented".
+
+Measured (`Scripts/measure-hitches.sh`, scenario `hud-hold`: 100 presses 30 ms
+apart through the real key path, ⌥⇧ steps, over a fake output whose writes
+take 20 ms and then 50 ms; 6 cycles, idle and one `yes` per core):
+
+| hold | before p50 / p95 | after p50 / p95 | frames after release, before → after |
+|---|---|---|---|
+| 20 ms writes, idle | 29 / 37 ms | 5 / 10 ms | 1 → 1 |
+| 50 ms writes, idle | 1097 / 2033 ms | 6 / 9 ms | 42 (last 2.1 s late) → 1 (7 ms) |
+| 50 ms writes, stressed | 1094 / 2028 ms | 7 / 10 ms | 42 → 1 |
+
+The 50 ms hold made 100 writes before and 60 after. Hardware: checklist MR-H10.

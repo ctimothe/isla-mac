@@ -33,8 +33,11 @@ import Foundation
 /// thread (`EventMediaKeyTap`), not the main run loop, and decides from
 /// `MediaKeyGate` — the setting, the lock and the hold table, mirrored there by
 /// this object whenever they change — plus the applier's cached `canApply`.
-/// The hardware write follows on the applier's queue, from cached levels, and
-/// the reading reaches the island in one hop to the main actor. Before, the
+/// Since 2026-10-25 a volume press is drawn before it is written: the applier
+/// steps its intended level on the tap's thread and the reading leaves at once,
+/// while one writer takes the newest target (`SystemLevelApplier`). The
+/// brightnesses' write follows on the applier's queue, from cached levels; either
+/// way the reading reaches the island in one hop to the main actor. Before, the
 /// callback sat on the main run loop and wrote the volume before answering,
 /// and the reading took a second main-queue turn for its glyph: a busy main
 /// thread (the owner's Mac loaded with agents) made every press heavy and let
@@ -634,6 +637,7 @@ final class MediaKeyHUD: ObservableObject {
     /// main-queue turn.
     private func present(_ reading: HUDReading) {
         guard !isLocked(), isTapped else { return }
+        HUDSignpost.signposter.emitEvent("hud presented")
         onReading?(reading)
     }
 
@@ -907,13 +911,17 @@ final class MediaKeyGate: @unchecked Sendable {
 }
 
 /// The tap's handler, assembled: ask the applier whether the key's family can
-/// be applied (cached), let the gate decide, hand the write to the applier's
-/// queue, answer. Every member is immutable and `Sendable`, so it can be
+/// be applied (cached), let the gate decide, hand the key to the applier,
+/// answer. For the volume the applier draws the press's level before it
+/// returns (`deliver` on the tap's thread) and writes it later; the
+/// brightnesses deliver from the applier's queue after their write. Every
+/// member is immutable and `Sendable`, so it can be
 /// called from the tap's thread and from the main actor alike.
 final class MediaKeyRoute: Sendable {
     let gate: MediaKeyGate
     let applier: MediaKeyApplying
-    /// Called on the applier's queue with each reading to show.
+    /// Called with each reading to show: on the tap's thread for a volume
+    /// press, on the applier's queue for the rest. Must only post and hop.
     let deliver: @Sendable (HUDReading) -> Void
     /// Called on the tap's thread when a fresh press found the setting off.
     let settingWentOff: @Sendable () -> Void
@@ -956,7 +964,8 @@ final class MediaKeyRoute: Sendable {
 /// use to a person looking at a bar, so a reading replaces the one before it and
 /// only the first of a burst schedules the hop.
 ///
-/// Thread-safe: `post` runs on the applier's queue, `take` on the main actor.
+/// Thread-safe: `post` runs on the tap's thread (a volume press) or the
+/// applier's queue (a brightness), `take` on the main actor.
 final class LatestReadingMailbox: @unchecked Sendable {
     private let lock = NSLock()
     private var pending: HUDReading?

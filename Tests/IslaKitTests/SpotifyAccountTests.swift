@@ -326,8 +326,12 @@ final class SpotifyAccountTests: XCTestCase {
     /// old refusal goes with it.
     func testANewGrantClearsTheRefusal() async throws {
         let tokens = Data(#"{"access_token":"granted","refresh_token":"granted-refresh","expires_in":3600}"#.utf8)
+        // The library refuses until the new grant; then the access check that
+        // follows every grant (`GET /v1/me`) finds the account admitted.
         let session = stubSession { request in
-            request.url?.host == "accounts.spotify.com" ? (200, tokens) : (403, Data())
+            if request.url?.host == "accounts.spotify.com" { return (200, tokens) }
+            if request.url?.path == "/v1/me" { return (200, Data("{}".utf8)) }
+            return (403, Data())
         }
         var opened: URL?
         let account = await connectedAccount(session: session, openURL: { opened = $0; return true })
@@ -539,8 +543,228 @@ final class SpotifyAccountTests: XCTestCase {
         account.handleCallback(callback.url!)
         await waitUntil { account.signInOutcome != nil }
 
-        XCTAssertEqual(account.signInOutcome, .failed)
+        XCTAssertEqual(account.signInOutcome, .failed(.init(stage: .exchange, status: 500)))
         XCTAssertFalse(account.isConnected)
+    }
+
+    // MARK: - Spotify's own reason (2026-10-25)
+
+    /// The owner's Connect failed and Settings said only "did not finish".
+    /// Spotify names its reason in the callback (`error`, `error_description`)
+    /// and in the token endpoint's body; both now reach the outcome.
+    func testAConsentErrorKeepsSpotifysOwnWords() async throws {
+        var opened: URL?
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0; return true }
+        )
+        let state = try beginSignIn(account) { opened }
+
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [
+            .init(name: "error", value: "invalid_request"),
+            .init(name: "error_description", value: "Scope not allowed"),
+            .init(name: "state", value: state),
+        ]
+        account.handleCallback(callback.url!)
+
+        let failure = SpotifyAccount.SignInFailure(stage: .consent, error: "invalid_request", detail: "Scope not allowed")
+        XCTAssertEqual(account.signInOutcome, .failed(failure))
+        XCTAssertEqual(failure.explanation, localized("Spotify said: %@", "Scope not allowed"))
+    }
+
+    /// A refused exchange keeps the HTTP status and Spotify's description.
+    func testARefusedExchangeKeepsTheStatusAndTheDescription() async throws {
+        var opened: URL?
+        let body = Data(#"{"error":"invalid_request","error_description":"Invalid redirect URI"}"#.utf8)
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (400, body) }, openURL: { opened = $0; return true }
+        )
+        let state = try beginSignIn(account) { opened }
+
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [.init(name: "code", value: "granted-code"), .init(name: "state", value: state)]
+        account.handleCallback(callback.url!)
+        await waitUntil { account.signInOutcome != nil }
+
+        let failure = SpotifyAccount.SignInFailure(
+            stage: .exchange, status: 400, error: "invalid_request", detail: "Invalid redirect URI"
+        )
+        XCTAssertEqual(account.signInOutcome, .failed(failure))
+        XCTAssertEqual(failure.explanation, localized("Spotify said: %@ (HTTP %ld)", "Invalid redirect URI", 400))
+        XCTAssertFalse(account.isConnected)
+    }
+
+    /// The known cases are said in Isla's words, in the person's language;
+    /// everything else in Spotify's.
+    func testKnownFailuresAreLocalizedAndTheRestAreSpotifys() {
+        typealias F = SpotifyAccount.SignInFailure
+        XCTAssertEqual(F(stage: .exchange, status: 0).explanation, localized("Isla couldn’t reach Spotify."))
+        XCTAssertEqual(
+            F(stage: .exchange, status: 400, error: "invalid_client", detail: "Invalid client").explanation,
+            localized("Spotify doesn’t recognise Isla’s registration.")
+        )
+        XCTAssertEqual(F(stage: .consent, error: "invalid_client").explanation,
+                       localized("Spotify doesn’t recognise Isla’s registration."))
+        XCTAssertEqual(F(stage: .exchange, status: 503).explanation,
+                       localized("Spotify isn’t answering (HTTP %ld). Try again later.", 503))
+        XCTAssertEqual(F(stage: .consent, error: "invalid_request").explanation, localized("Spotify said: %@", "invalid_request"))
+        XCTAssertEqual(F(stage: .consent).explanation, localized("Spotify sign-in did not finish. Try connecting again."))
+        // Spotify's text is one line and bounded: it is drawn under a row.
+        let long = F(stage: .consent, detail: String(repeating: "a", count: 400) + "\nsecond line").explanation
+        XCTAssertFalse(long.contains("\n"))
+        XCTAssertLessThan(long.count, 220)
+    }
+
+    /// The RFC 6749 codes Spotify can send are said in Isla's words, in the
+    /// person's language, whichever stage they come from (finding C): the
+    /// description Spotify attaches is for the developer, and "Spotify said:
+    /// invalid_grant" told a listener nothing.
+    func testTheStandardOAuthCodesGetLocalizedLines() {
+        typealias F = SpotifyAccount.SignInFailure
+        let expected: [String: String] = [
+            "invalid_grant": "The sign-in expired before it finished. Try Connect again.",
+            "invalid_scope": "Spotify refused the permissions Isla asked for.",
+            "server_error": "Spotify had a problem. Try again later.",
+            "temporarily_unavailable": "Spotify is busy right now. Try again in a minute.",
+            "invalid_client": "Spotify doesn’t recognise Isla’s registration.",
+            "unauthorized_client": "Spotify doesn’t allow Isla to sign in this way.",
+        ]
+        for (code, line) in expected {
+            XCTAssertEqual(F(stage: .consent, error: code, detail: "dev text").explanation, localized(line), code)
+            XCTAssertEqual(F(stage: .exchange, status: 400, error: code, detail: "dev text").explanation, localized(line), code)
+        }
+    }
+
+    /// `unreadable_response` is Isla's own marker for a 200 it could not
+    /// decode. It is not Spotify's word and is never drawn as one.
+    func testAnUnreadableAnswerIsTheGenericLineNotSpotifySaid() {
+        let failure = SpotifyAccount.SignInFailure(stage: .exchange, status: 200, error: "unreadable_response")
+        XCTAssertEqual(failure.explanation, localized("Spotify sign-in did not finish. Try connecting again."))
+        XCTAssertFalse(failure.explanation.contains("unreadable_response"))
+    }
+
+    /// Spotify's text is bounded and flattened before it is drawn or logged:
+    /// bidi overrides, zero-width characters, control characters and tabs
+    /// cannot reorder or hide the line (finding D).
+    func testSpotifysTextLosesBidiZeroWidthControlAndTabCharacters() throws {
+        typealias F = SpotifyAccount.SignInFailure
+        let hostile = "Re\u{202E}fused\u{200B} by\u{2066}\u{FEFF} Spo\u{200F}tify\ttoken\u{0007}\r\n  expired\u{2029}now\u{2069}"
+        let line = try XCTUnwrap(F.oneLine(hostile))
+        XCTAssertEqual(line, "Refused by Spotify token expired now")
+        for scalar in line.unicodeScalars {
+            XCTAssertNotEqual(scalar.properties.generalCategory, .format, "U+\(String(scalar.value, radix: 16))")
+            XCTAssertNotEqual(scalar.properties.generalCategory, .control)
+        }
+        XCTAssertNil(F.oneLine("\u{202E}\u{200B}\t \n"), "nothing visible left means nothing to say")
+        XCTAssertEqual(F.oneLine(String(repeating: "a", count: 400))?.count, 160)
+        XCTAssertEqual(F.oneLine(String(repeating: "a", count: 400), limit: 120)?.count, 120)
+    }
+
+    /// Every Spotify-sourced field in a log line is one line and at most 120
+    /// characters (finding E); `.public` is only ever applied to this value.
+    func testLoggedSpotifyFieldsAreSanitisedAndCapped() {
+        let failure = SpotifyAccount.SignInFailure(
+            stage: .exchange, status: 400,
+            error: "bad\u{202E}\ncode" + String(repeating: "e", count: 300),
+            detail: "line one\nline two\u{200B}" + String(repeating: "d", count: 300)
+        )
+        let line = failure.logLine
+        XCTAssertFalse(line.contains("\n"))
+        XCTAssertFalse(line.unicodeScalars.contains { $0.properties.generalCategory == .format })
+        XCTAssertLessThanOrEqual(
+            line.count, "stage=exchange status=400 error= description=".count + 240,
+            "each Spotify field is capped at 120 characters"
+        )
+        XCTAssertEqual(SpotifyAccount.SignInFailure.loggable(nil), "-")
+        XCTAssertEqual(SpotifyAccount.SignInFailure.loggable("  \t "), "-")
+        XCTAssertEqual(SpotifyAccount.SignInFailure.loggable(String(repeating: "x", count: 500)).count, 120)
+    }
+
+    /// A callback with nothing pending must not wipe the reason the last
+    /// attempt ended in (finding F): it only fills a blank row.
+    func testAStrayCallbackDoesNotReplaceAFailureWithExpired() async throws {
+        var opened: URL?
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0; return true }
+        )
+        let state = try beginSignIn(account) { opened }
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [
+            .init(name: "error", value: "server_error"), .init(name: "state", value: state),
+        ]
+        account.handleCallback(callback.url!)
+        let failed = SpotifyAccount.SignInOutcome.failed(.init(stage: .consent, error: "server_error"))
+        XCTAssertEqual(account.signInOutcome, failed)
+
+        account.handleCallback(URL(string: "isla://spotify-callback?code=late&state=gone")!)
+
+        XCTAssertEqual(account.signInOutcome, failed, "the reason on screen stays")
+    }
+
+    /// A callback whose state is not the pending sign-in's is not ours to
+    /// report on, even when it carries an `error` and a description (finding
+    /// G): nothing shows, and the real sign-in is still pending.
+    func testAWrongStateCallbackWithAnErrorChangesNothingVisible() async throws {
+        var opened: URL?
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession { _ in (500, Data()) }, openURL: { opened = $0; return true }
+        )
+        let state = try beginSignIn(account) { opened }
+
+        var forged = URLComponents(string: "isla://spotify-callback")!
+        forged.queryItems = [
+            .init(name: "error", value: "server_error"),
+            .init(name: "error_description", value: "Your Mac is infected, call 555"),
+            .init(name: "state", value: "not-the-pending-state"),
+        ]
+        account.handleCallback(forged.url!)
+
+        XCTAssertNil(account.signInOutcome)
+        XCTAssertNil(account.signInProblem)
+
+        var real = URLComponents(string: "isla://spotify-callback")!
+        real.queryItems = [.init(name: "error", value: "access_denied"), .init(name: "state", value: state)]
+        account.handleCallback(real.url!)
+        XCTAssertEqual(account.signInOutcome, .cancelled, "the pending sign-in survived the forged callback")
+    }
+
+    /// Development Mode admits only accounts the developer listed, and Spotify
+    /// says so with a 403 on the first Web-API call, which used to wait for a
+    /// Spotify track to play. One call right after the grant finds it, so
+    /// Settings can say why the heart will not appear while the person is
+    /// still looking at Connect.
+    func testAGrantForAnUnlistedAccountIsRefusedAtOnce() async throws {
+        var opened: URL?
+        let tokens = Data(#"{"access_token":"granted","refresh_token":"granted-refresh","expires_in":3600}"#.utf8)
+        let refused = Data(#"{"error":{"status":403,"message":"User not registered in the Developer Dashboard"}}"#.utf8)
+        let wire = Wire { request in
+            request.url?.host == "accounts.spotify.com" ? (200, tokens) : (403, refused)
+        }
+        let account = SpotifyAccount(
+            credentials: makeStore(), session: stubSession(wire.answer), openURL: { opened = $0; return true }
+        )
+        // Let the launch read of the empty store land first: it answers "not
+        // connected", and landing after the grant it would undo it.
+        try? await Task.sleep(for: .milliseconds(100))
+        let state = try beginSignIn(account) { opened }
+
+        var callback = URLComponents(string: "isla://spotify-callback")!
+        callback.queryItems = [.init(name: "code", value: "granted-code"), .init(name: "state", value: state)]
+        account.handleCallback(callback.url!)
+        await waitUntil { account.refusal != nil }
+
+        XCTAssertTrue(account.isConnected)
+        XCTAssertEqual(account.refusal, .notRegistered)
+        XCTAssertTrue(wire.seen.contains { $0.hasPrefix("GET /v1/me ") }, "\(wire.seen)")
+    }
+
+    /// An unclassified 403 keeps Spotify's own message for Settings.
+    func testAnUnclassifiedRefusalKeepsSpotifysMessage() {
+        let body = Data(#"{"error":{"status":403,"message":"Insufficient client scope"}}"#.utf8)
+        XCTAssertEqual(SpotifyAccount.Refusal.from(body), .other("Insufficient client scope"))
+        XCTAssertEqual(SpotifyAccount.Refusal.other("Insufficient client scope").explanation,
+                       localized("Spotify said: %@", "Insufficient client scope"))
+        XCTAssertEqual(SpotifyAccount.Refusal.other(nil).explanation, localized("Spotify refused this account."))
     }
 
     // MARK: - Sign-in edge cases (K-015)

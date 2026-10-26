@@ -86,7 +86,23 @@ final class LyricColumnPaneTests: XCTestCase {
             XCTAssertEqual(try XCTUnwrap(hide.frame).width, 28, accuracy: 1)
             XCTAssertTrue(hide.selected, "the open Lyrics button is the lit one")
             XCTAssertEqual(l.tool(.hideLyrics).maxX, width - 26, "the last tool ends 26 from the right edge")
-            XCTAssertNil(s.root.all { $0.label == "Volume" }.first, "no volume on the stage at \(width)")
+            // The speaker since 2026-10-26: between More and Output, heard as
+            // whose volume it is — the Mac's here, since the fixture's song
+            // has no scriptable player behind it.
+            let volume = try node(s.root, "Volume")
+            try assertNear(volume, l.tool(.volume), "volume at \(width)")
+            XCTAssertLessThanOrEqual(l.tool(.output).maxX, l.tool(.hideLyrics).minX)
+            XCTAssertLessThanOrEqual(l.tool(.volume).maxX, l.tool(.output).minX)
+            for translation in [false, true] {
+                let row = StageLayout(bodyWidth: width, translationShown: translation)
+                let leftmost = row.tool(translation ? .translation : .more)
+                XCTAssertGreaterThanOrEqual(
+                    leftmost.minX, row.transport(.next).maxX + StageLayout.toolClearance,
+                    "the tools clear Next at \(width), translation \(translation)"
+                )
+                XCTAssertGreaterThanOrEqual(row.toolSpacing, StageLayout.minimumToolSpacing)
+            }
+            XCTAssertEqual(l.toolSpacing, StageToolFrames.spacing, "four tools keep the board's 6 at \(width)")
         }
     }
 

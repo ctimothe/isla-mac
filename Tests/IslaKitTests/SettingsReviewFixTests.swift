@@ -17,13 +17,12 @@ final class SettingsReviewFixTests: XCTestCase {
     // MARK: - Liked Songs shows no guess
 
     /// The row said "Allowed" before the API had been asked anything, and "Not
-    /// allowed" under a footnote that said the same. It is gone; the footnote
-    /// is the whole answer, and only for a real refusal that is a permission
-    /// problem.
+    /// allowed" under a footnote that said the same. It is gone; the line under
+    /// the Spotify row is the whole answer, and only for a real refusal.
     func testSpotifyHasNoLikedSongsValueRow() {
         var context = SettingsContext()
-        context.spotify = SettingsPane.spotifyRows(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
-        XCTAssertEqual(SettingsTable.rows(for: .spotify, context: context), [.spotifyHead, .spotifyAccount])
+        context.spotify = SettingsPane.spotifyConnection(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
+        XCTAssertEqual(SettingsTable.rows(for: .connections, context: context), [.appleMusicConnection, .spotifyConnection])
         XCTAssertFalse(SettingsRowID.allCases.contains { $0.rawValue == "likedSongs" })
         XCTAssertTrue(SettingsRowID.allCases.filter { $0.kind == .value }.map(\.rawValue) == ["automationStatus"],
                       "the one value row that remains is a real reading")
@@ -32,25 +31,47 @@ final class SettingsReviewFixTests: XCTestCase {
     /// Every refusal that hides the lock-screen heart is explained, the generic
     /// one included, and nothing is said before a refusal has happened.
     func testEveryRefusalThatHidesTheHeartIsExplained() {
-        func notes(_ blocked: Bool, _ refusal: SpotifyAccount.Refusal?) -> [SettingsPane.SpotifyRow] {
-            SettingsPane.spotifyRows(
+        func line(_ blocked: Bool, _ refusal: SpotifyAccount.Refusal?) -> String? {
+            SettingsPane.spotifyConnection(
                 connected: true, needsReconnect: false, signIn: nil, apiBlocked: blocked, refusal: refusal
-            )
+            ).problem
         }
-        for refusal in [SpotifyAccount.Refusal.notRegistered, .premiumRequired, .other] {
-            XCTAssertTrue(notes(true, refusal).contains(.note(refusal.explanation)), "\(refusal)")
-            XCTAssertFalse(notes(false, refusal).contains(.note(refusal.explanation)), "no refusal has happened: \(refusal)")
+        for refusal in [SpotifyAccount.Refusal.notRegistered, .premiumRequired, .other(nil), .other("Nope")] {
+            XCTAssertEqual(line(true, refusal), refusal.explanation, "\(refusal)")
+            XCTAssertNil(line(false, refusal), "no refusal has happened: \(refusal)")
         }
-        XCTAssertFalse(notes(true, nil).contains(.note(SpotifyAccount.Refusal.other.explanation)))
+        XCTAssertNil(line(true, nil))
     }
 
-    /// An unclassified 403 (`.other`) hides the heart too, so the footnote says
-    /// that Spotify refused, once.
-    func testAnUnclassifiedRefusalIsExplainedInTheSection() {
-        let rows = SettingsPane.spotifyRows(
-            connected: true, needsReconnect: false, signIn: nil, apiBlocked: true, refusal: .other
+    /// One event, one line: a failed sign-in replaces the reconnect note
+    /// rather than stacking under it, and a problem on this Mac comes first.
+    func testTheSpotifyRowSaysOneThingAtATime() {
+        let failure = SpotifyAccount.SignInFailure(stage: .exchange, status: 400, error: "invalid_grant", detail: "Bad code")
+        let failed = SettingsPane.spotifyConnection(
+            connected: false, needsReconnect: true, signIn: .failed(failure), apiBlocked: false
         )
-        XCTAssertEqual(rows.filter { $0 == .note(SpotifyAccount.Refusal.other.explanation) }.count, 1)
+        XCTAssertEqual(failed.problem, failure.explanation)
+        XCTAssertFalse(failed.connected)
+
+        let both = SettingsPane.spotifyConnection(
+            connected: false, needsReconnect: true, signIn: .failed(failure), apiBlocked: false,
+            problem: .browserDidNotOpen
+        )
+        XCTAssertEqual(both.problem, SpotifyAccount.SignInProblem.browserDidNotOpen.explanation)
+
+        let revoked = SettingsPane.spotifyConnection(connected: false, needsReconnect: true, signIn: nil, apiBlocked: false)
+        XCTAssertEqual(revoked.problem, localized("Spotify ended Isla’s access. Connect again."))
+
+        let cancelled = SettingsPane.spotifyConnection(connected: false, needsReconnect: false, signIn: .cancelled, apiBlocked: false)
+        XCTAssertEqual(cancelled.problem, localized("Spotify sign-in was cancelled."))
+
+        let fine = SettingsPane.spotifyConnection(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
+        XCTAssertNil(fine.problem, "a working account says nothing but Connected")
+
+        let unsaved = SettingsPane.spotifyConnection(
+            connected: true, needsReconnect: false, signIn: nil, apiBlocked: false, storage: .unavailable
+        )
+        XCTAssertEqual(unsaved.problem, localized("Cannot be stored on this Mac."))
     }
 
     // MARK: - Renamed keys are written back

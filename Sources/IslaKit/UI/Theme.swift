@@ -837,6 +837,15 @@ enum Theme {
     /// The system green, `#30D158`: the charging bolt and its level.
     static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
 
+    /// The system red on a dark surface, `#FF453A`: a battery at 20 percent or
+    /// less on either Charging activity, as the battery menu fills one.
+    static let lowBatteryRed = Color(red: 255.0 / 255, green: 69.0 / 255, blue: 58.0 / 255)
+
+    /// The two charge colours under Increase Contrast: the system's own
+    /// accessible dark variants, `#30DB5B` and `#FF6961`.
+    static let chargingGreenContrast = Color(red: 48.0 / 255, green: 219.0 / 255, blue: 91.0 / 255)
+    static let lowBatteryRedContrast = Color(red: 255.0 / 255, green: 105.0 / 255, blue: 97.0 / 255)
+
     /// The island's stroke (spec §19.2), which replaced §3.3's key line: 2 pt
     /// centred on the outline, the activity's tint at 0.21 or white at 0.14,
     /// raised to 0.42 and 0.30 under Increase Contrast. Measured from the
@@ -894,14 +903,15 @@ enum Theme {
     /// label's backdrop is stated once and measured by `ContrastRampTests`.
     enum Fill {
         case surface, surfaceHover, selectedChip
-        /// The form's group and the sidebar's selected row (spec §10): a
-        /// footnote or a value sits on the first, a sidebar label on the second.
-        case settingsGroup, settingsSidebarSelection
+        /// The form's group (spec §10): a value or a row's second line sits on
+        /// it. The sidebar's selected row is the system accent since the
+        /// native pass (2026-10-25), and its white label is the system's
+        /// own pairing, so it is not a fill of this ramp.
+        case settingsGroup
 
         func opacity(increaseContrast: Bool) -> Double {
             switch self {
             case .settingsGroup: return Theme.settingsGroupOpacity(increaseContrast: increaseContrast)
-            case .settingsSidebarSelection: return Theme.settingsSidebarSelectionOpacity(increaseContrast: increaseContrast)
             case .surface: return Theme.surfaceOpacity(increaseContrast: increaseContrast)
             case .surfaceHover: return Theme.surfaceHoverOpacity(increaseContrast: increaseContrast)
             case .selectedChip: return Theme.selectedChipOpacity(increaseContrast: increaseContrast)
@@ -1023,23 +1033,25 @@ enum Theme {
     /// whether the window is key, which is the whole point.
     static let switchOnFill = Color(nsColor: .controlAccentColor)
 
-    /// Off is a well shaded into the card, not a lighter fill on top of it.
+    /// Off is a faint light fill on the group, as the system's own off track
+    /// is — not the recess it was (native pass, 2026-10-25: the probe's
+    /// native off track measured 43/255 on black, a fill, and the dark well
+    /// vanished into the black panel).
     ///
-    /// The plan said `surfaceHover`, and the arithmetic said no: a white fill
-    /// on a white-0.16 card brightens the very thing the accent has to stand
-    /// out from, and graphite on that measured 1.86:1 and blue 1.55:1 —
-    /// on and off told apart by the knob again. Shading the card by 0.30
-    /// leaves every accent macOS offers at 3.47:1 or more (purple is the
-    /// lowest, graphite 5.04), and 0.50 holds it at 3.19 once Increase
-    /// Contrast has brightened the card itself. `ContrastRampTests` measures
-    /// all eight against the card. The well is still a shape — the hairline
-    /// draws its edge — the way AppKit's own off track is a recess.
-    static func switchWellOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.50 : 0.30
+    /// White 0.08 rather than `quaternaryLabelColor`'s 0.10: on the group's
+    /// 0.065 the 0.10 left purple, the dimmest accent macOS offers, at
+    /// 2.99:1 against the off track, a hair under WCAG's 3:1 for telling the
+    /// states apart; 0.08 holds it at 3.18. Increase Contrast keeps the dark
+    /// well with its outline, because on that setting's brighter group a
+    /// light fill cannot leave the accent its 3:1. `ContrastRampTests`
+    /// measures all eight accents against both.
+    static func switchOffGrey(increaseContrast: Bool) -> Double {
+        let group = settingsGroupOpacity(increaseContrast: increaseContrast)
+        return increaseContrast ? group * (1 - 0.50) : composite([group, 0.08])
     }
 
     @MainActor static var switchOffFill: Color {
-        Color.black.opacity(switchWellOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+        SystemAppearance.shared.increaseContrast ? Color.black.opacity(0.50) : Color.white.opacity(0.08)
     }
 
     /// The knob, white in both states as AppKit's is, with the faint shadow
@@ -1053,12 +1065,11 @@ enum Theme {
     /// relies on fill alone is exactly what the setting is for.
     static let switchContrastOutline = Color.white.opacity(0.7)
 
-    /// A little bigger than the 24×14 mini switch it replaces, so the state is
-    /// worth seeing from across a call, and still well inside the 26 pt row.
-    /// The size is no longer the target — the row is — so it can be sized for
-    /// the eye alone.
-    static let switchTrackSize = CGSize(width: 30, height: 17)
-    static let switchKnobDiameter: CGFloat = 13
+    /// The grouped form's own switch on macOS 27: `NSSwitch` at `.mini`,
+    /// 36 × 16 (native pass, 2026-10-25, measured in the probe; it was a
+    /// hand-picked 30 × 17). The knob fills the track less a point each side.
+    static let switchTrackSize = CGSize(width: 36, height: 16)
+    static let switchKnobDiameter: CGFloat = 14
 
     // MARK: - The lock card's own ramp
     //
@@ -1183,6 +1194,10 @@ enum Theme {
     /// The glyph's gradient and Install's capsule (at 0.22): the system's
     /// blue, as the Shelf's is.
     static var updateBlue: Color { SettingsTint.blue.color }
+    /// The Settings update card's progress bar: the person's accent, as every
+    /// native progress indicator is (native pass 2026-10-25; it was the fixed
+    /// system blue whatever accent the Mac was set to).
+    static var updateAccent: Color { Color(nsColor: .controlAccentColor) }
     /// Install's title, `#3E8EF7`: a lighter blue than the capsule's, so the
     /// default button's word still reads on blue 0.22 over black.
     static let updateInstallTitle = Color(red: 62.0 / 255, green: 142.0 / 255, blue: 247.0 / 255)
@@ -1190,11 +1205,28 @@ enum Theme {
     static var updateLaterFill: Color { SettingsTint.grey.color }
 
     /// A tile's plate: white 0.10, 0.14 under the pointer; picked, white 0.18
-    /// inside a 1.5 pt blue ring (§19.7).
+    /// and nothing more (§19.7, amended 2026-10-26).
+    ///
+    /// A picked tile wore a 1.5 pt ring in a fixed blue until 2026-10-26. That
+    /// is the Photos grid's way of saying "picked", and the Shelf holds files,
+    /// not photos; the owner asked for Apple's own pattern, which for files is
+    /// Finder's icon view: a grey backdrop behind the icon and the name filled
+    /// with the accent colour (`shelfCaptionHighlight`). No ring.
     static let shelfTilePlate = Color.white.opacity(0.10)
     static let shelfHoverWell = Color.white.opacity(0.14)
     static let shelfSelectedWell = Color.white.opacity(0.18)
-    static let shelfSelectedRingWidth: CGFloat = 1.5
+    /// A picked tile's caption, each line in its own rounded fill, as Finder
+    /// highlights a selected file's name. The person's accent colour, never a
+    /// fixed blue: `controlAccentColor` resolves at draw time, so a change in
+    /// System Settings › Appearance reaches the next frame. Finder greys the
+    /// fill in a window that is not key; this panel never becomes key (Shell,
+    /// CLAUDE.md) while it is plainly the thing being used, so it keeps the
+    /// active look, as the switches do (`switchOnFill`).
+    static let shelfCaptionHighlight = Color(nsColor: .controlAccentColor)
+    static let shelfCaptionHighlightRadius: CGFloat = 4
+    /// Room either side of a highlighted line, so the fill does not end on the
+    /// glyphs' edges.
+    static let shelfCaptionHighlightInset: CGFloat = 3
     /// A tile's name: white 0.86.
     static let shelfTileNameOpacity: Double = 0.86
 
@@ -1304,55 +1336,43 @@ enum Theme {
 
     // MARK: - Settings: the sidebar and the grouped form (spec §10)
 
-    /// The colour of a section's 18 pt icon in the sidebar, by name so the five
-    /// the boards use are tokens and not hex in a view. The values are the
-    /// system's own: the grey System Settings gives General and Keyboard, the
-    /// blue of Privacy & Security, the pink of Music, the orange of the lyric
-    /// bubble and the indigo of the lock screen.
+    /// The colour of a drawn section tile in the sidebar: the system's own
+    /// colours by name, never hex (native pass 2026-10-25; they were the dark
+    /// variants' hex values, which froze them against a macOS that retunes
+    /// its palette and against Increase Contrast). The grey System Settings
+    /// gives General and Keyboard, the blue of Privacy & Security, the pink
+    /// of Music, the orange of the lyric bubble and the indigo of the lock
+    /// screen — `ISEnclosureColor`'s names.
     enum SettingsTint: CaseIterable {
         case grey, blue, rose, orange, indigo
 
-        var hex: UInt32 {
+        var nsColor: NSColor {
             switch self {
-            case .grey: return 0x8E8E93
-            case .blue: return 0x0A84FF
-            case .rose: return 0xFF375F
-            case .orange: return 0xFF9F0A
-            case .indigo: return 0x5E5CE6
+            case .grey: return .systemGray
+            case .blue: return .systemBlue
+            case .rose: return .systemPink
+            case .orange: return .systemOrange
+            case .indigo: return .systemIndigo
             }
         }
 
-        var color: Color {
-            Color(
-                red: Double((hex >> 16) & 0xFF) / 255,
-                green: Double((hex >> 8) & 0xFF) / 255,
-                blue: Double(hex & 0xFF) / 255
-            )
-        }
+        var color: Color { Color(nsColor: nsColor) }
     }
 
-    /// "Connected" under Spotify's name (spec §2.1's `green`): the colour of the
-    /// charging bolt, because green means "on and working" in both places.
-    static let settingsConnected = chargingGreen
-
-    /// A form group's fill, white at 0.055 (spec §10). So faint a step is the
-    /// board's whole point — System Settings groups are a shade off the
-    /// window, not a card — and Increase Contrast raises it to 0.14 so the
-    /// group is still a shape (§2.1: every translucent fill steps up).
+    /// A form group's fill (native pass, 2026-10-25). System Settings' box is
+    /// +9/255 over its window; the system's own box vanishes on black (6/255,
+    /// probe), so Isla draws one at white 0.065 (≈ 17/255) — the native step,
+    /// re-derived for the black panel — with no outer edge, as native boxes
+    /// have none. Increase Contrast raises it to 0.14 so the group is still a
+    /// shape (§2.1: every translucent fill steps up).
     static func settingsGroupOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.14 : 0.055
+        increaseContrast ? 0.14 : 0.065
     }
 
-    /// The selected sidebar row, white at 0.12 (spec §10), 0.24 with Increase
-    /// Contrast.
-    static func settingsSidebarSelectionOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.24 : 0.12
-    }
-
-    /// A group header's white, 0.85 (spec §10): a step under the label so the
-    /// header reads as the heading of what is under it. Full white with
-    /// Increase Contrast, where a step down is the thing the setting asks
-    /// against.
+    /// A row label's and a header's white: `labelColor` under the dark
+    /// appearance is white at 0.85 (measured 224/255 on black), and so is
+    /// this. Full white with Increase Contrast, which the panel's fixed
+    /// `.darkAqua` appearance does not otherwise pass to the system colours.
     static func settingsHeaderOpacity(increaseContrast: Bool) -> Double {
         increaseContrast ? 1.0 : 0.85
     }
@@ -1360,34 +1380,49 @@ enum Theme {
     @MainActor static var settingsGroupFill: Color {
         Color.white.opacity(settingsGroupOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
-    @MainActor static var settingsSidebarSelection: Color {
-        Color.white.opacity(settingsSidebarSelectionOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    /// The selected sidebar row: the system accent, as System Settings draws
+    /// its selection while you use it (driver decision for the owner,
+    /// 2026-10-25: the active look, because the panel is plainly the thing
+    /// in use though it is never key — the same reasoning as the switches).
+    static let settingsSidebarSelection = Color(nsColor: .selectedContentBackgroundColor)
+    /// Labels and headers: `labelColor`, white under Increase Contrast.
+    @MainActor static var settingsLabel: Color {
+        SystemAppearance.shared.increaseContrast ? Color.white : Color(nsColor: .labelColor)
     }
-    @MainActor static var settingsHeader: Color {
-        Color.white.opacity(settingsHeaderOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    @MainActor static var settingsHeader: Color { settingsLabel }
+    /// Footers and a row's second line: `secondaryLabelColor` (white 0.55
+    /// under the dark appearance), white 0.75 under Increase Contrast.
+    @MainActor static var settingsSecondaryLabel: Color {
+        SystemAppearance.shared.increaseContrast
+            ? Color.white.opacity(secondaryOpacity(increaseContrast: true))
+            : Color(nsColor: .secondaryLabelColor)
+    }
+    /// The hairline between rows: `separatorColor`, which lands +13/255 over
+    /// the group as the native separator does over its box (probe), and the
+    /// panel's stronger hairline under Increase Contrast.
+    @MainActor static var settingsSeparator: Color {
+        SystemAppearance.shared.increaseContrast ? hairline : Color(nsColor: .separatorColor)
     }
 
-    /// The glyph on a sidebar icon's tile and the tile's lit top edge (the
-    /// board's half-point inset highlight), so a flat swatch reads as an icon.
+    /// The glyph on a drawn sidebar tile. The tile's 0.5 pt lit top edge went
+    /// in the native pass: IconServices' own tiles carry a gradient, and the
+    /// drawn ones copy that instead (`SettingsSectionIcon`).
     static let settingsIconGlyph = Color.white
-    static let settingsIconEdge = Color.white.opacity(0.25)
+    /// System Settings' pane icons sit their tile in 832 of a 1024 canvas on
+    /// macOS 27 (104/128 at 128 pt, 26/32 at 32 pt, probe), so an icon drawn
+    /// at `side × 1024 / 832` shows a `side` tile.
+    static let systemPaneIconOpticalScale: CGFloat = 1024.0 / 832.0
     /// The Lock Screen section's style previews: the ring round the chosen one
     /// (spec §10, accent 2 pt) and the hairline round the others.
     static let settingsPreviewRingWidth: CGFloat = 2
     static let settingsPreviewEdge = Color.white.opacity(0.2)
 
-    /// A group's inner edge, white at 0.06 (the board's half-point inset line);
-    /// the contrast variant is the panel's own hairline step.
-    static func settingsGroupEdgeOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? hairlineOpacity(increaseContrast: true) : 0.06
-    }
-    @MainActor static var settingsGroupEdge: Color {
-        Color.white.opacity(settingsGroupEdgeOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
-    }
-
-    /// The field that is recording a shortcut: the accent at 0.18 under a 1.5 pt
-    /// accent ring (spec §2.1, "the recording field").
-    static let recordingFill = accent.opacity(0.18)
+    /// The field that is recording a shortcut: the system accent at 0.18 under
+    /// a 1.5 pt accent ring (spec §2.1, "the recording field"). It was Isla's
+    /// own red until the native pass (2026-10-25): in Settings, "active" is
+    /// the person's accent, as everywhere else on their Mac.
+    static let recordingFill = Color(nsColor: .controlAccentColor).opacity(0.18)
+    static let recordingRing = Color(nsColor: .controlAccentColor)
     static let recordingRingWidth: CGFloat = 1.5
 
     /// How much larger than its frame an app's icon is drawn so its squircle
@@ -1498,8 +1533,9 @@ struct ToolbarPushButtonStyle: ButtonStyle {
     }
 }
 
-/// The default button of a form: the toolbar push button's shape in the system
-/// blue with white type, the one control a card offers when there is one thing
+/// The default button of a form: the toolbar push button's shape in the
+/// person's accent with white type (native pass 2026-10-25: it was the fixed
+/// system blue), the one control a card offers when there is one thing
 /// to do (Update Now). Same height, radius and padding as `ToolbarPushButtonStyle`
 /// so the two sit on one line; dims on press and steps back when disabled, as
 /// every panel button does.
@@ -1521,7 +1557,7 @@ struct ProminentPushButtonStyle: ButtonStyle {
                 .frame(height: ToolbarPushButtonStyle.height)
                 .background(
                     RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous)
-                        .fill(Theme.SettingsTint.blue.color)
+                        .fill(Color(nsColor: .controlAccentColor))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
                 .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)

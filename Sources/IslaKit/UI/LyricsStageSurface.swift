@@ -8,6 +8,10 @@ import SwiftUI
 /// the strip above.
 struct StageLayout: Equatable {
     var bodyWidth: CGFloat
+    /// Show Translation is in the row, which makes five tools: at the narrow
+    /// end of the width setting they then close up rather than run into the
+    /// transport (`toolSpacing`).
+    var translationShown = false
 
     /// The lines: from x 24, `bw − 48` wide, from the content's top to 8 above
     /// the hairline, so the bottom fade ends before the foot begins.
@@ -62,16 +66,50 @@ struct StageLayout: Equatable {
     private var textWidth: CGFloat { max(0, transport(.previous).minX - 8 - 76) }
 
     /// The tools at y 336, 28 × 28, 6 apart, the last ending at `bw − 26`:
-    /// Show Translation (when a translation is possible), More, Output, Hide
-    /// Lyrics — so counted from the right, Hide Lyrics is 0.
+    /// Show Translation (when a translation is possible), More, Volume,
+    /// Output, Hide Lyrics — so counted from the right, Hide Lyrics is 0.
+    /// Volume sits beside Output (amended 2026-10-26): how loud and where to,
+    /// as the menu bar's Sound module pairs them.
     enum Tool: Int, CaseIterable {
-        case hideLyrics, output, more, translation
+        case hideLyrics, output, volume, more, translation
     }
 
     func tool(_ which: Tool) -> CGRect {
         let side = StageToolFrames.side
-        let x = bodyWidth - 26 - side - CGFloat(which.rawValue) * (side + StageToolFrames.spacing)
+        let x = bodyWidth - 26 - side - CGFloat(which.rawValue) * (side + toolSpacing)
         return SurfaceLayout.inContent(CGRect(x: x, y: 336, width: side, height: side))
+    }
+
+    /// The gap between tools: the board's 6, or less where the row would
+    /// otherwise come within 6 of Next. Five tools at 6 apart need a body of
+    /// 502; the setting goes down to 480, where with Show Translation in the
+    /// row the gap is 3.25 — the targets still 28 wide and never overlapping.
+    var toolSpacing: CGFloat {
+        let count = CGFloat(translationShown ? Tool.allCases.count : Tool.allCases.count - 1)
+        let side = StageToolFrames.side
+        let transportEnd = (bodyWidth + transportWidth) / 2
+        let room = bodyWidth - 26 - count * side - (transportEnd + Self.toolClearance)
+        return min(StageToolFrames.spacing, max(Self.minimumToolSpacing, room / (count - 1)))
+    }
+
+    static let toolClearance: CGFloat = 6
+    static let minimumToolSpacing: CGFloat = 2
+
+    /// The volume slider while it is open: from the title's x to Next's right
+    /// edge, 30 tall on the transport's row. It stands where the title and the
+    /// transport were, which fade for it — the only span in the foot wide
+    /// enough for a bar a finger can place (219 pt at 480), and the song's
+    /// cover stays to say what is being turned up.
+    var volumeSlider: CGRect {
+        let end = (bodyWidth + transportWidth) / 2
+        return SurfaceLayout.inContent(CGRect(x: 76, y: 334, width: end - 76, height: Self.transportHeight))
+    }
+
+    /// The fallback line under an open slider, when the player refused
+    /// Automation: one line of 11 pt between the slider and the progress.
+    var volumeNotice: CGRect {
+        let slider = volumeSlider
+        return CGRect(x: slider.minX, y: slider.maxY + 1, width: slider.width, height: 13)
     }
 
     /// The progress, (24, 384), `bw − 48` × 3, radius 1.5.
@@ -107,18 +145,29 @@ struct LyricsStageSurface: View {
     var moreMenu: LyricsMoreMenuController?
     var translateMenu: LyricsTranslateMenuController?
     var hideLyrics: () -> Void = {}
-    @ObservedObject var audio: AudioWatch = MediaPane.quietAudio()
+    ///
+    /// Held, not observed (2026-10-25): the pane only starts and stops it and
+    /// hands it to the Output button, which subscribes to the route alone
+    /// (`OutputButtonState`). Observing the whole watch redrew the player for
+    /// every change it published.
+    var audio: AudioWatch = MediaPane.quietAudio()
     @ObservedObject var translation: LyricTranslation = .idle
     var coverTint: NSColor = CoverTint.fallback.nsColor
     /// The song as the panel draws it (`NowPlayingPresenter`), nil outside
     /// the panel, where the stage draws the controller live.
     var nowPlaying: NowPlayingPresenter.Frame? = nil
+    /// The speaker's control (owner 2026-10-26): Music's or Spotify's own
+    /// volume, the Mac's for any other source. One for the app, so the glyph
+    /// keeps the last level it read; it reads nothing while it is closed.
+    @ObservedObject var volume: PlayerVolume = .shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(NotchViewModel.volumeAndOutputKey) private var outputButtonOn = true
     /// The line a bound file was refused at, read when the state says it was.
     @State private var invalidFileLine: Int?
 
-    private var layout: StageLayout { StageLayout(bodyWidth: bodyWidth) }
+    private var layout: StageLayout {
+        StageLayout(bodyWidth: bodyWidth, translationShown: translation.isEnabled && translateMenu != nil)
+    }
 
     var body: some View {
         let layout = layout
@@ -164,6 +213,18 @@ struct LyricsStageSurface: View {
 
             foot(layout)
         }
+        // A click anywhere but the slider, its speaker or its line folds an
+        // open slider, as a click outside Control Center's does. Simultaneous,
+        // so the click still does what it would have — a lyric line still
+        // seeks — rather than being spent on closing.
+        .simultaneousGesture(
+            SpatialTapGesture().onEnded { tap in
+                guard volume.isOpen else { return }
+                let keep = [layout.volumeSlider, layout.tool(.volume), layout.volumeNotice]
+                if !keep.contains(where: { $0.contains(tap.location) }) { volume.close() }
+            }
+        )
+        .animation(Theme.trackSwap(reduceMotion: reduceMotion), value: volume.isOpen)
         .task(id: lyrics.availability) {
             if case .invalidLocalFile = lyrics.availability {
                 invalidFileLine = invalidLine()
@@ -172,6 +233,7 @@ struct LyricsStageSurface: View {
             }
         }
         .onAppear {
+            volume.sourceChanged(bundleID: media.displayedSourceBundleID)
             media.refreshPlaybackModes()
             if outputButtonOn { audio.start() }
             if DebugTrail.openLyrics {
@@ -181,7 +243,16 @@ struct LyricsStageSurface: View {
         .onChange(of: outputButtonOn) { _, on in
             if on { audio.start() } else { audio.stop() }
         }
-        .onDisappear { audio.stop() }
+        .onChange(of: media.track?.key) { _, _ in
+            volume.sourceChanged(bundleID: media.displayedSourceBundleID)
+        }
+        .onChange(of: media.sourceName) { _, _ in
+            volume.sourceChanged(bundleID: media.displayedSourceBundleID)
+        }
+        .onDisappear {
+            audio.stop()
+            volume.close()
+        }
         .sheet(item: editingSession) { session in
             if let localLibrary {
                 LocalLyricsEditorView(
@@ -202,42 +273,21 @@ struct LyricsStageSurface: View {
             .placedAt(layout.cover)
             .accessibilityHidden(true)
 
-        if let track = media.shownTrack(nowPlaying) {
-            Text(track.title)
-                .font(.system(size: 13, weight: .semibold))
-                .tracking(Theme.tracking(forSize: 13))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .help(track.title)
-                .trackSwapText(track.key, reduceMotion: reduceMotion)
-                .placedAt(layout.title)
-            Text(track.artist)
-                .font(.system(size: 12, weight: .regular))
-                .tracking(Theme.tracking(forSize: 12))
-                .foregroundStyle(.white.opacity(Theme.stageArtistOpacity))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .help(track.artist)
-                .trackSwapText(track.key, reduceMotion: reduceMotion)
-                .placedAt(layout.artist)
+        // The open slider stands where the song's name and the transport were
+        // (`StageLayout.volumeSlider`); they fade for it and come back when it
+        // folds, three seconds after the last touch.
+        if volume.isOpen {
+            StageVolumeSlider(volume: volume)
+                .placedAt(layout.volumeSlider)
+                .transition(.opacity)
+            if let app = volume.refused {
+                StageVolumeNotice(app: app)
+                    .placedAt(layout.volumeNotice, alignment: .leading)
+                    .transition(.opacity)
+            }
+        } else {
+            songAndTransport(layout)
         }
-
-        // The player's own three buttons, in the stage's wells: the glyphs are
-        // the player's, scaled to the 30 pt row, and the 32 / 34 × 30 hit
-        // targets are what they were (`TransportGlyphButton`).
-        TransportGlyphButton(
-            .previous, enabled: media.canSkip, hitTarget: StageLayout.Transport.previous.hitTarget
-        ) { media.previous() }
-            .placedAt(layout.transport(.previous))
-        TransportGlyphButton(
-            .playPause, isPlaying: media.shownIsPlaying(nowPlaying), hitTarget: StageLayout.Transport.playPause.hitTarget
-        ) { media.togglePlayPause() }
-            .placedAt(layout.transport(.playPause))
-        TransportGlyphButton(
-            .next, enabled: media.canSkip, hitTarget: StageLayout.Transport.next.hitTarget
-        ) { media.next() }
-            .placedAt(layout.transport(.next))
 
         if translation.isEnabled, let translateMenu {
             TranslationToolButton(isShown: translation.isShown, controller: translateMenu) {
@@ -249,6 +299,8 @@ struct LyricsStageSurface: View {
             LyricsMoreButton(controller: moreMenu)
                 .placedAt(layout.tool(.more))
         }
+        StageVolumeButton(volume: volume)
+            .placedAt(layout.tool(.volume))
         if outputButtonOn {
             PlayerOutputButton(audio: audio)
                 .placedAt(layout.tool(.output))
@@ -257,6 +309,51 @@ struct LyricsStageSurface: View {
             .placedAt(layout.tool(.hideLyrics))
 
         progress(layout)
+    }
+
+    @ViewBuilder
+    private func songAndTransport(_ layout: StageLayout) -> some View {
+        if let track = media.shownTrack(nowPlaying) {
+            Text(track.title)
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(Theme.tracking(forSize: 13))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(track.title)
+                .trackSwapText(track.key, reduceMotion: reduceMotion)
+                .placedAt(layout.title)
+                .transition(.opacity)
+            Text(track.artist)
+                .font(.system(size: 12, weight: .regular))
+                .tracking(Theme.tracking(forSize: 12))
+                .foregroundStyle(.white.opacity(Theme.stageArtistOpacity))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(track.artist)
+                .trackSwapText(track.key, reduceMotion: reduceMotion)
+                .placedAt(layout.artist)
+                .transition(.opacity)
+        }
+
+        // The player's own three buttons, in the stage's wells: the glyphs are
+        // the player's, scaled to the 30 pt row, and the 32 / 34 × 30 hit
+        // targets are what they were (`TransportGlyphButton`).
+        TransportGlyphButton(
+            .previous, enabled: media.canSkip, hitTarget: StageLayout.Transport.previous.hitTarget
+        ) { media.previous() }
+            .placedAt(layout.transport(.previous))
+            .transition(.opacity)
+        TransportGlyphButton(
+            .playPause, isPlaying: media.shownIsPlaying(nowPlaying), hitTarget: StageLayout.Transport.playPause.hitTarget
+        ) { media.togglePlayPause() }
+            .placedAt(layout.transport(.playPause))
+            .transition(.opacity)
+        TransportGlyphButton(
+            .next, enabled: media.canSkip, hitTarget: StageLayout.Transport.next.hitTarget
+        ) { media.next() }
+            .placedAt(layout.transport(.next))
+            .transition(.opacity)
     }
 
     private var cover: some View {

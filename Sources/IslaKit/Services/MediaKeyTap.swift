@@ -149,8 +149,11 @@ typealias MediaKeyTapFactory = @MainActor (
 ) -> MediaKeyTapping
 
 /// The signposts an Instruments run reads the key path's latency from:
-/// "media key" around the tap's callback, "level write" around the hardware
-/// write. They cost nothing while nobody is recording.
+/// "media key" around the tap's callback, "level queued" when a volume press's
+/// target is in the writer's slot (its reading already on its way to the
+/// island), "level write" around each hardware write, and "hud presented" when
+/// a reading reaches the island on the main thread. They cost nothing while
+/// nobody is recording.
 enum HUDSignpost {
     static let signposter = OSSignposter(subsystem: Log.subsystem, category: "hud")
 }

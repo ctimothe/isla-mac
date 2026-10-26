@@ -364,8 +364,9 @@ private struct ShelfTile: View {
         }
     }
 
-    /// White 0.10, 0.14 under the pointer; picked, 0.18 inside a blue ring;
-    /// a drop it already held, the drop target's lit look.
+    /// White 0.10, 0.14 under the pointer; picked, 0.18 and no ring — the
+    /// caption carries the accent (`captionLine`); a drop it already held, the
+    /// drop target's lit look.
     @ViewBuilder
     private var plate: some View {
         let shape = RoundedRectangle(cornerRadius: ShelfLayout.tileRadius, style: .continuous)
@@ -376,7 +377,6 @@ private struct ShelfTile: View {
             shape.fill(Theme.shelfHoverWell)
         case .selected:
             shape.fill(Theme.shelfSelectedWell)
-                .overlay(shape.strokeBorder(Theme.shelfBlue, lineWidth: Theme.shelfSelectedRingWidth))
         case .alreadyKept:
             shape.fill(Theme.shelfDropWellLit)
                 .overlay(shape.strokeBorder(Theme.shelfBlue, lineWidth: Theme.shelfDropRingWidth))
@@ -419,21 +419,31 @@ private struct ShelfTile: View {
             }
         } else {
             VStack(spacing: 0) {
-                ForEach(Array(ShelfTileName.drawnLines(item.name, selected: false).enumerated()), id: \.offset) { _, line in
+                ForEach(Array(ShelfTileName.drawnLines(item.name, selected: isSelected).enumerated()), id: \.offset) { _, line in
                     captionLine(line, weight: .semibold, color: Color.white.opacity(Theme.shelfTileNameOpacity))
                 }
             }
         }
     }
 
+    /// One line of the caption. Picked, it is white on the accent, each line
+    /// in its own rounded fill hugging its words — Finder's selected name —
+    /// and the second line's grey goes with it, since grey on the accent
+    /// would not read.
     private func captionLine(_ text: String, weight: Font.Weight, color: Color) -> some View {
-        Text(text)
+        let picked = isSelected && !item.isOffline
+        return Text(text)
             .font(.system(size: ShelfLayout.nameSize, weight: weight))
             .tracking(Theme.tracking(forSize: ShelfLayout.nameSize))
-            .foregroundStyle(item.isOffline ? Theme.tertiary : color)
+            .foregroundStyle(item.isOffline ? Theme.tertiary : picked ? Color.white : color)
             .lineLimit(1)
             .fixedSize()
+            .padding(.horizontal, Theme.shelfCaptionHighlightInset)
             .frame(height: ShelfLayout.nameLineHeight)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.shelfCaptionHighlightRadius, style: .continuous)
+                    .fill(picked ? Theme.shelfCaptionHighlight : Color.clear)
+            )
     }
 
     /// The badge: `xmark.circle.fill` 17 at the tile's (57.75, 5.5), white 0.62

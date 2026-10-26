@@ -5,6 +5,9 @@ struct NotchContentView: View {
     /// The pages on their way between two (spec §19.16): watched here, where
     /// the outline and the pages are drawn from it, and nowhere else.
     @ObservedObject private var travel: PageTravel
+    /// The vertical pull's give (`IslandPull`): watched here, where the
+    /// outline is drawn, and nowhere else.
+    @ObservedObject private var pull: IslandPullStretch
     /// Reduce Motion and Increase Contrast from the app's one source rather than
     /// from SwiftUI's environment. The environment answers Reduce Motion on
     /// macOS — it is the only one of the three display settings it carries —
@@ -34,6 +37,7 @@ struct NotchContentView: View {
     init(vm: NotchViewModel, outline: IslandOutlineHost? = nil) {
         _vm = ObservedObject(wrappedValue: vm)
         _travel = ObservedObject(wrappedValue: vm.pageTravel)
+        _pull = ObservedObject(wrappedValue: vm.pullStretch)
         self.outline = outline
     }
 
@@ -183,13 +187,22 @@ struct NotchContentView: View {
     private var outlineState: OutlineState {
         let height = shapeSize.height
         return OutlineState(
-            width: Double(shapeSize.width), height: Double(height),
+            width: Double(drawnShapeSize.width), height: Double(drawnShapeSize.height),
             topRadius: Double(shapeTopRadius), bottomRadius: Double(shapeBottomRadius),
             fill: OutlineColor(shapeFill),
             stroke: OutlineColor(strokeColor).scalingAlpha(by: strokeShown ? 1 : 0),
             strokeWidth: Double(Theme.islandStrokeWidth),
             shadowOpacity: IslandStroke.castsShadow(height: height) ? Theme.islandShadowOpacity : 0
         )
+    }
+
+    /// The outline as drawn: `shapeSize` with the pull's give on its height
+    /// (owner, 2026-10-25). Only the outline and what it cuts take it — the
+    /// shadow's threshold, the content's frame and the hit region are the
+    /// shape's own size, so a pull a few points long neither lights a shadow
+    /// on a compact pill nor moves anything the pointer aims at.
+    private var drawnShapeSize: CGSize {
+        CGSize(width: shapeSize.width, height: max(0, shapeSize.height + pull.points))
     }
 
     private var shapeSize: CGSize {
@@ -414,7 +427,7 @@ struct NotchContentView: View {
             } else {
                 NotchShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
                 .fill(shapeFill)
-                .frame(width: shapeSize.width, height: shapeSize.height)
+                .frame(width: drawnShapeSize.width, height: drawnShapeSize.height)
                 // A surface or an alert separates from a busy window under it; a
                 // compact activity sits on the menu bar's strip and casts nothing
                 // (spec §19.2). Faded rather than switched, so it grows with the
@@ -502,7 +515,7 @@ struct NotchContentView: View {
             // view's whole layer instead, on the render server's clock, so this
             // cut is not made twice (and not on the main thread).
             .modifier(OutlineMask(
-                active: outline == nil, topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius, size: shapeSize
+                active: outline == nil, topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius, size: drawnShapeSize
             ))
 
             // Over the black *and over the content*, centred on its edge, so
@@ -518,7 +531,7 @@ struct NotchContentView: View {
             if outline == nil {
                 IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)
                     .stroke(strokeColor, lineWidth: Theme.islandStrokeWidth)
-                    .frame(width: shapeSize.width, height: shapeSize.height)
+                    .frame(width: drawnShapeSize.width, height: drawnShapeSize.height)
                     .opacity(strokeShown ? 1 : 0)
                     .allowsHitTesting(false)
             }
@@ -835,7 +848,7 @@ struct NotchContentView: View {
     @ViewBuilder
     private func ambientHeader(_ ambient: AmbientActivity) -> some View {
         switch ambient {
-        case .charging(let level, _):
+        case .charging(let level, _, _, _):
             // `showsOnIsland` keeps a Mac with no level off the island; the
             // guard is for the type, not a state that is drawn.
             if let level { chargingHeader(ambient, level: level) }
@@ -844,45 +857,14 @@ struct NotchContentView: View {
         }
     }
 
-    /// Charging (spec §19.4): "Charging" in the left wing, 14 regular, white
-    /// 0.88, from 18.5; in the right the level, 14 regular in the green
-    /// gradient, 6 pt, and a drawn battery ending 19.3 from the edge. A battery
-    /// that only holds is not charging, so it says nothing it would have to
-    /// take back: the plug in the word's place, and the level and battery in
-    /// white — as its stroke is white (`IslandStroke.tint`).
+    /// Charging (spec §19.4, amended 2026-10-26): MagSafe's ring or USB-C's
+    /// battery, each with its own words in the left wing — see
+    /// `ChargingActivityView`, which draws both.
     private func chargingHeader(_ ambient: AmbientActivity, level: Int) -> some View {
-        let charging = ambient.usesChargingGreen
-        let scale = CompactIslandLayout.glyphScale(height: size.height)
-        let tone: AnyShapeStyle = charging ? AnyShapeStyle(Theme.chargingGreen.gradient) : AnyShapeStyle(Color.white)
-        let track = (charging ? Theme.chargingGreen : Color.white).opacity(CompactIslandLayout.batteryTrackOpacity)
-        return HStack(spacing: 0) {
-            Group {
-                if charging {
-                    Text(localized("Charging"))
-                        .islandFont(CompactIslandLayout.chargingTextSize)
-                        .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingTextOpacity))
-                        .lineLimit(1)
-                } else {
-                    Image(systemName: ambient.chargeSymbol)
-                        .font(.system(size: CompactIslandLayout.chargingTextSize * scale, weight: .semibold))
-                        .foregroundStyle(Color.white)
-                }
-            }
-            .padding(.leading, CompactIslandLayout.chargingTextInset)
-            Spacer(minLength: 0)
-            Text(localized("%d%%", level))
-                .font(.system(size: CompactIslandLayout.chargingTextSize).monospacedDigit())
-                .tracking(Theme.tracking(forSize: CompactIslandLayout.chargingTextSize))
-                .foregroundStyle(tone)
-                .lineLimit(1)
-                .fixedSize()
-            IslandBattery(level: level, fill: tone, track: track, scale: scale)
-                .padding(.leading, CompactIslandLayout.levelToBatteryGap)
-                .padding(.trailing, CompactIslandLayout.batteryTrailing - CompactIslandLayout.shoulder)
-        }
-        .frame(width: size.width, height: size.height)
-        // No element of its own: the moment is the island's value, set on the
-        // stack above it — see `islandAccessibility(open:)`.
+        ChargingActivityView(
+            activity: ambient, level: level, size: size, notchWidth: vm.geometry.notchSize.width,
+            reduceMotion: reduceMotion, increaseContrast: appearance.increaseContrast
+        )
     }
 
     /// Headphones connected (spec §19.5 c), an expanded alert: the device's

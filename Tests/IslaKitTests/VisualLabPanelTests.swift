@@ -353,7 +353,7 @@ final class VisualLabPanelTests: VisualLabCase {
         // A picked tile wears its ring and its remove badge (decision 9); the
         // selection bar went with the grid (§19.11).
         try await shoot.shoot("two-selected", variants: [.base, .contrast, .russian], size: size, settle: 0.8,
-                              notes: note + " Two tiles picked: each wears a blue ring and its remove badge.") { variant in
+                              notes: note + " Two tiles picked: each wears the grey backdrop, its caption in the accent, and its remove badge.") { variant in
             Self.scene(try await self.openPanel(session, surface: .tray, prepare: { stores in
                 self.stock(stores.shelf, session: session, urls: few)
             }, configure: { vm in
@@ -653,14 +653,26 @@ final class VisualLabPanelTests: VisualLabCase {
                 vm.settingsSection = .lyrics
             }), variant, height: size.height)
         }
-        try await shoot.shoot("section-spotify-connected", variants: [.base], size: size, settle: 0.4,
+        try await shoot.shoot("section-connections-spotify-connected", variants: [.base, .russian], size: size, settle: 0.4,
                               notes: "A connected Spotify account, stood in by the lab's isolated account and its temporary credential file.") { variant in
             await session.connectSpotify(liked: false)
             return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
-                vm.settingsSection = .spotify
+                vm.settingsSection = .connections
             }), variant, height: size.height)
         }
         await session.disconnectSpotify()
+        // MR-H17: a Connect that Spotify refused shows Spotify's own reason as
+        // one line under the row (here Development Mode's unlisted account).
+        try await shoot.shoot("section-connections-spotify-refused", variants: [.base, .russian], size: size, settle: 0.4,
+                              notes: "Connect refused by Spotify's token endpoint: its own words and status, one line under the row.") { variant in
+            SpotifyAccount.shared.presentSignInForTests(.failed(SpotifyAccount.SignInFailure(
+                stage: .exchange, status: 403, error: "access_denied", detail: "User not registered in the Developer Dashboard"
+            )))
+            return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
+                vm.settingsSection = .connections
+            }), variant, height: size.height)
+        }
+        SpotifyAccount.shared.presentSignInForTests(nil)
     }
 
     // MARK: Welcome

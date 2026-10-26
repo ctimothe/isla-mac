@@ -268,12 +268,14 @@ final class ShelfLayoutTests: XCTestCase {
                        "a picked tile under the pointer keeps its stronger well")
         XCTAssertEqual(ShelfWell.state(isSelected: true, isHovered: true, isAlreadyKept: true), .alreadyKept,
                        "the flash is the one that has to be seen in its second")
-        // White 0.10, 0.14 under the pointer; picked, white 0.18 inside a 1.5 pt
-        // blue ring.
+        // White 0.10, 0.14 under the pointer; picked, white 0.18 with no ring,
+        // the caption filled with the person's accent colour (Finder's
+        // selection, 2026-10-26).
         XCTAssertEqual(Theme.shelfTilePlate, Color.white.opacity(0.10))
         XCTAssertEqual(Theme.shelfHoverWell, Color.white.opacity(0.14))
         XCTAssertEqual(Theme.shelfSelectedWell, Color.white.opacity(0.18))
-        XCTAssertEqual(Theme.shelfSelectedRingWidth, 1.5)
+        XCTAssertEqual(Theme.shelfCaptionHighlight, Color(nsColor: .controlAccentColor),
+                       "the system accent, never a fixed blue")
     }
 
     /// The remove badge shows on the hovered and the selected tile (decision 9).

@@ -27,7 +27,7 @@
 "Show Screenshots Folder" = "Показать папку скриншотов";
 "Clear Screenshots Folder" = "Очистить папку скриншотов";
 "Clear Screenshots Folder (%@)" = "Очистить папку скриншотов (%@)";
-"Privacy" = "Конфиденциальность";
+"Privacy" = "Приватность";
 "About %@" = "О программе %@";
 
 /* Полка */
@@ -112,12 +112,9 @@
 "Remove from Liked Songs" = "Убрать из любимых треков";
 "Connect Spotify Account…" = "Подключить аккаунт Spotify…";
 "Disconnect Spotify Account" = "Отключить аккаунт Spotify";
-"Spotify" = "Spotify";
 
 /* Spotify credential storage */
 "Import Account from Keychain…" = "Импортировать аккаунт из связки ключей…";
-"Stored in your keychain." = "Хранится в связке ключей.";
-"Stored in a file only you can read." = "Хранится в файле, доступном только вам.";
 "Cannot be stored on this Mac." = "Не удаётся сохранить на этом Mac.";
 
 /* Lyrics stage */
@@ -156,7 +153,7 @@
 "Back to the current line" = "Вернуться к текущей строке";
 "Sound Output" = "Выход звука";
 "Solid" = "Сплошное";
-"Lock Screen" = "Экран блокировки";
+"Lock Screen" = "Блокировка";
 "Transparent" = "Прозрачное";
 "Tinted" = "Тонированное";
 "Card Size" = "Размер карточки";
@@ -167,6 +164,7 @@
 "Lyrics are off." = "Текст песни выключен.";
 "No output devices." = "Нет устройств вывода.";
 "Open on Hover" = "Открывать при наведении";
+"Swipe to Open and Close" = "Открывать и закрывать смахиванием";
 "Output" = "Выход";
 
 /* Первый запуск */
@@ -265,8 +263,6 @@
 "Clipboard history is off in Settings." = "История буфера обмена выключена в Настройках.";
 
 /* Отказы Spotify */
-"Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify отказал этой учётной записи. Пока Spotify не проверит Isla, доступ есть только у вручную добавленных учётных записей, поэтому «Любимые треки» здесь пока не работают.";
-"Spotify refused this account's library request." = "Spotify отказал в доступе к медиатеке этой учётной записи.";
 
 /* Диагностика */
 "Collecting…" = "Сбор данных…";
@@ -304,7 +300,16 @@
 
 /* Зарядка и наушники */
 "Power adapter connected" = "Адаптер питания подключён";
-"Power adapter connected, %d percent" = "Адаптер питания подключён: %d %%";
+
+/* Charging: MagSafe and USB-C (spec §19.4, 2026-10-26) */
+"Not Charging" = "Не заряжается";
+"Charged" = "Заряжено";
+"MagSafe" = "MagSafe";
+"%d W" = "%d Вт";
+"Charging over MagSafe, %d percent" = "Зарядка через MagSafe: %d %%";
+"Charging over USB-C, %d percent" = "Зарядка через USB-C: %d %%";
+"Power adapter connected, not charging, %d percent" = "Адаптер питания подключён, не заряжается: %d %%";
+"Power adapter connected, charged, %d percent" = "Адаптер питания подключён, заряжено: %d %%";
 
 /* Полка: карточка, чей диск не подключён */
 "Disk not connected" = "Диск не подключён";
@@ -349,7 +354,6 @@
 "Edited %@" = "Изменено %@";
 "%d points" = "%d пт";
 "%.2f seconds" = "%.2f секунды";
-"Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify отказал в «Любимых треках» и сослался на Premium. Spotify требует его от регистрации самой Isla, так что дело может быть не в вашей подписке.";
 "Instrumental" = "Проигрыш";
 "Edit Lyrics for %@" = "Редактировать текст: %@";
 "Insert Line After" = "Вставить строку ниже";
@@ -405,12 +409,9 @@
 "Isla could not open your browser for Spotify sign-in." = "Isla не смогла открыть браузер для входа в Spotify.";
 "The account was not imported. Try again, or connect it anew." = "Учётная запись не перенесена. Повторите попытку или подключите её заново.";
 "Spotify signed you in, but Isla could not save the account on this Mac." = "Вход в Spotify выполнен, но Isla не смогла сохранить учётную запись на этом Mac.";
-"Spotify ended Isla's access. Connect again to use Liked Songs." = "Spotify отозвал доступ Isla. Подключитесь снова, чтобы пользоваться «Любимыми треками».";
 "Spotify sign-in was cancelled." = "Вход в Spotify отменён.";
 "Spotify sign-in did not finish. Try connecting again." = "Вход в Spotify не завершился. Попробуйте подключиться ещё раз.";
 "Disconnect" = "Отключить";
-"Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla забудет аккаунт на этом Mac. Ваша медиатека Spotify останется как есть.";
-"The star on the lock screen adds the song to your Liked Songs." = "Звёздочка на экране блокировки добавляет песню в «Любимые треки».";
 "Show next line early" = "Следующая строка заранее";
 "Auto" = "Авто";
 "0.5 s" = "0,5 с";
@@ -509,8 +510,7 @@
 "History is kept in memory and empties when Isla quits. Keep Pinned Items saves only your pins, on this Mac." = "История хранится в памяти и очищается при выходе из Isla. «Хранить закреплённые» сохраняет только закреплённое и только на этом Mac.";
 
 /* Settings: the sidebar and the grouped form (R4) */
-"About" = "О программе";
-"Account" = "Учётная запись";
+"About" = "Об Isla";
 "Acknowledgements…" = "Благодарности…";
 "Automation" = "Автоматизация";
 "Click the notch to open the panel. Open on Hover also opens it when the pointer rests there." = "Нажмите на вырез, чтобы открыть панель. «Открывать при наведении» открывает её, когда указатель задерживается на нём.";
@@ -521,13 +521,12 @@
 "History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice." = "История хранит последние 20 переводов в памяти. «Произнести» читает перевод вслух системным голосом.";
 "Keep History" = "Хранить историю";
 "New Tracks" = "Новые треки";
-"Not connected" = "Не подключено";
 "Now Playing" = "Сейчас играет";
 "Now Playing reader" = "Чтение «Сейчас играет»";
 "Online" = "Онлайн";
 "Permission" = "Разрешение";
 "Settings sections" = "Разделы настроек";
-"Shortcuts" = "Сочетания клавиш";
+"Shortcuts" = "Клавиши";
 "Speak Button" = "Кнопка «Произнести»";
 "The island shows" = "Остров показывает";
 "Version %@" = "Версия %@";
@@ -575,3 +574,31 @@
 
 /* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
 "Show the clipboard" = "Показать буфер обмена";
+
+/* Громкость на сцене текстов (спец. §19.6, поправка 2026-10-26): чью громкость она меняет, и строка под ней, если плеер запретил Автоматизацию. */
+"Music volume" = "Громкость Музыки";
+"Spotify volume" = "Громкость Spotify";
+"Allow Isla to control %@…" = "Разрешить Isla управлять %@…";
+
+/* Settings › Connections (native pass 2026-10-25): one row per player, and Spotify's own reason when Connect fails. */
+"Connections" = "Сервисы";
+"Connect…" = "Подключить…";
+"Other Services" = "Другие сервисы";
+"Favorites, no sign-in" = "Избранное, без входа";
+"Liked Songs" = "Любимые треки";
+"Sign in for Liked Songs" = "Войдите для «Любимых треков»";
+"Controls and lyrics, no favorites" = "Управление и тексты, без избранного";
+"Isla couldn’t reach Spotify." = "Isla не удалось связаться со Spotify.";
+"Spotify doesn’t recognise Isla’s registration." = "Spotify не узнаёт регистрацию Isla.";
+"The sign-in expired before it finished. Try Connect again." = "Вход истёк, не успев завершиться. Нажмите «Подключить» ещё раз.";
+"Spotify refused the permissions Isla asked for." = "Spotify отклонил разрешения, которые запросила Isla.";
+"Spotify had a problem. Try again later." = "У Spotify сбой. Попробуйте позже.";
+"Spotify is busy right now. Try again in a minute." = "Spotify сейчас занят. Попробуйте через минуту.";
+"Spotify doesn’t allow Isla to sign in this way." = "Spotify не разрешает Isla входить таким способом.";
+"Spotify isn’t answering (HTTP %ld). Try again later." = "Spotify не отвечает (HTTP %ld). Попробуйте позже.";
+"Spotify said: %@" = "Ответ Spotify: %@";
+"Spotify said: %@ (HTTP %ld)" = "Ответ Spotify: %@ (HTTP %ld)";
+"Spotify hasn’t admitted this account to Isla yet." = "Spotify пока не допустил этот аккаунт к Isla.";
+"Spotify asks for Premium on Isla’s registration." = "Spotify требует Premium для регистрации Isla.";
+"Spotify refused this account." = "Spotify отказал этому аккаунту.";
+"Spotify ended Isla’s access. Connect again." = "Spotify отозвал доступ Isla. Подключитесь снова.";

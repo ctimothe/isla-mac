@@ -53,6 +53,15 @@ final class NotchController {
     /// media tab with no way out but the hotkey itself. A global monitor sees
     /// clicks the app never receives, which is exactly the signal needed.
     private var pinnedClickMonitor: Any?
+    /// Hears every scroll event that lands on the panel, for the vertical
+    /// pull that opens and closes it (`IslandPull`). A local monitor, as the
+    /// pages' is: the panel is never key, and only the events AppKit already
+    /// delivers to this app — the pointer over the island's hit region, or
+    /// over the open panel — ever reach it, so it costs nothing anywhere else
+    /// on the screen. Installed for the session, not per panel: `build`
+    /// replaces the panel and the model, and the monitor asks for the current
+    /// ones at each event.
+    private var pullMonitor: Any?
     /// Escape, held system-wide for exactly as long as a pinned panel without
     /// the keyboard stands — see `NotchViewModel.claimsEscape`. A Carbon hot
     /// key for the same reason the three shortcuts are: it needs no
@@ -96,6 +105,9 @@ final class NotchController {
         stores.ambient.onEvent = { [weak self] activity in
             self?.presentAmbient(activity)
         }
+        stores.ambient.onChargeUpdate = { [weak self] activity in
+            self?.updateShownCharge(activity)
+        }
         // The volume and brightness pop-up (spec §12). Both closures are read at
         // each key, so the lock and the reading land on whatever is current.
         stores.hud.isLocked = { [weak self] in
@@ -118,6 +130,9 @@ final class NotchController {
         // once-per-build repair when the setting is already on.
         stores.hud.launched()
         build()
+        pullMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            MainActor.assumeIsolated { self?.pullScrolled(event) ?? false } ? nil : event
+        }
         observerTokens.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -736,6 +751,8 @@ final class NotchController {
     }
 
     func teardown() {
+        if let pullMonitor { NSEvent.removeMonitor(pullMonitor) }
+        pullMonitor = nil
         lockPresence.stop()
         pointer.stop()
         stopGeometryWatchdog()
@@ -1046,7 +1063,15 @@ final class NotchController {
         // The update alert is answered by its buttons alone; a click beside
         // them is not an answer, and opening the panel would take it down.
         if surface == nil, vm.islandClick == .nothing { return }
+        openFromIsland(opening: surface)
+    }
 
+    /// A click's open, after the click has decided to open: the surface, the
+    /// lift and the pin, then the panel. Shared with the pull, so the two
+    /// gestures open the panel by one path rather than two that merely end up
+    /// open.
+    private func openFromIsland(opening surface: NotchViewModel.Surface?) {
+        guard let vm = viewModel else { return }
         // Everything the hover route used to do, in the same order, so a click
         // opens the panel the way a hover did rather than by a second path that
         // merely ends up open too. The surface, the lift and the pin are the
@@ -1064,6 +1089,82 @@ final class NotchController {
         pointer.setInside(true)
         setOpen(true)
         updatePinnedClickMonitor()
+    }
+
+    /// One scroll event on the panel, for the vertical pull: whether it is
+    /// kept. The verdict is `NotchViewModel.pullScroll`'s; the open, the close
+    /// and the refusal are played out here, the way a click's are.
+    private func pullScrolled(_ event: NSEvent) -> Bool {
+        guard let vm = viewModel else { return false }
+        let outcome = vm.pullScroll(PageScroll(event), region: pullRegion(of: event))
+        switch outcome {
+        case .pass:
+            return false
+        case .swallow, .stretch, .settle:
+            return true
+        case .refuse:
+            vm.nudgeLockedIsland()
+            return true
+        case .open(let surface):
+            islandPulledOpen(opening: surface)
+            return true
+        case .close:
+            islandPulledShut()
+            return true
+        }
+    }
+
+    /// Where on the panel a scroll event landed, for `IslandPull`: the shut
+    /// island's hit region and the bubble's, or the open body's header row
+    /// and the rest of it. Read off the event's own location against the
+    /// rects `hitTest` answers from, so the pull is heard exactly where a
+    /// click would be.
+    private func pullRegion(of event: NSEvent) -> IslandPull.Region {
+        guard let panel, let rootView, let vm = viewModel, event.window === panel else { return .outside }
+        let point = event.locationInWindow
+        guard vm.isOpen else {
+            if rootView.activeRect.contains(point) { return .island }
+            if rootView.bubbleRect.contains(point) { return .bubble }
+            return .outside
+        }
+        guard rootView.activeRect.contains(point) else { return .outside }
+        // The header row is the top `notchHeight` of the body on every
+        // surface (`SurfaceLayout.headerCentreY`); the window's top is the
+        // body's.
+        let headerFloor = vm.geometry.windowSize.height - vm.geometry.notchSize.height
+        return point.y >= headerFloor ? .header : .body
+    }
+
+    /// Two fingers down over the shut island: what a click opens. An alert
+    /// folds first rather than instead — the owner asked for the island to be
+    /// *shown*, and a pull is the more deliberate of the two gestures — and
+    /// the update alert, answered by its buttons alone, is left standing as
+    /// a click leaves it. Internal so a test can pull without a trackpad.
+    func islandPulledOpen(opening surface: NotchViewModel.Surface? = nil) {
+        guard let vm = viewModel, !vm.isOpen else { return }
+        if vm.isLockedPresentation {
+            vm.nudgeLockedIsland()
+            return
+        }
+        if surface == nil {
+            switch vm.islandClick {
+            case .nothing: return
+            case .foldAlert: foldAlert()
+            case .open: break
+            }
+        }
+        openFromIsland(opening: surface)
+    }
+
+    /// Two fingers up on the open panel: back to the shut island, pinned or
+    /// not — the gesture is as explicit as the click on the notch that closes
+    /// a pinned panel too. The click's own close, `closedByHand` included, so
+    /// Open on Hover does not reopen the panel under the pointer that pushed
+    /// it shut.
+    func islandPulledShut() {
+        guard let vm = viewModel, vm.isOpen else { return }
+        setOpen(false)
+        pointer.closedByHand()
     }
 
     /// Whether the cursor is standing where the open panel holds itself open
@@ -2893,7 +2994,23 @@ final class NotchController {
         // panel open, Mac locked, displays asleep — is not shown, and a
         // sentence for something nobody can see would be the voice lying.
         Announcer.shared.announce(activity.accessibilityLabel)
+        // The quiet window counts from a moment shown, never from one refused
+        // (`AmbientWatch.lastChargerShown`).
+        if case .charging = activity { stores.ambient.chargerShown() }
         scheduleAmbientFold(after: activity.holdDuration)
+    }
+
+    /// A Charging moment on the island takes a later reading in place: the
+    /// battery that began charging a moment after the plug, the adapter's
+    /// watts. Nothing is announced again and the hold is not restarted — it
+    /// is the same moment, told more exactly. Ignored when no Charging moment
+    /// is up, so a reading that lands after the fold puts nothing back.
+    private func updateShownCharge(_ activity: AmbientActivity) {
+        guard let vm = viewModel, case .charging? = vm.ambient, case .charging = activity,
+              vm.ambient != activity else { return }
+        withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.ambient = activity
+        }
     }
 
     /// Folds the moment after `delay`, or, with the pointer resting on the

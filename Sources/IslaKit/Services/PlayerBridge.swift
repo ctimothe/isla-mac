@@ -286,6 +286,9 @@ enum PlayerBridge {
         /// Music only (`setFavorite`); Spotify's body is a no-op the bridge
         /// never sends.
         case favorite(Bool)
+        /// The player's own volume, 0…100 (`setSoundVolume`): both players
+        /// script it as `sound volume`, separate from the Mac's output.
+        case soundVolume(Int)
 
         func body(for app: PlayerApp) -> String {
             switch (self, app) {
@@ -309,6 +312,7 @@ enum PlayerBridge {
             case let (.repeatMode(mode), .spotify): return "set repeating to \(mode != .off)"
             case let (.favorite(isOn), .music): return "set favorited of current track to \(isOn)"
             case (.favorite, .spotify): return "return"
+            case let (.soundVolume(percent), _): return "set sound volume to \(min(max(percent, 0), 100))"
             }
         }
 
@@ -316,6 +320,7 @@ enum PlayerBridge {
         static let everyKind: [Transport] = [
             .play, .pause, .next, .previous, .seek(seconds: 0),
             .shuffle(true), .repeatMode(.one), .repeatMode(.off), .favorite(true),
+            .soundVolume(40),
         ]
     }
 
@@ -324,6 +329,48 @@ enum PlayerBridge {
     static func send(_ action: Transport, to app: PlayerApp) {
         guard app.isRunning else { return }
         runScript(Script.command(action.body(for: app), on: app), app: app, priority: .transport) { _ in }
+    }
+
+    // MARK: - The player's own volume (lyrics stage, owner 2026-10-26)
+
+    /// Music's or Spotify's own volume, 0…100, read once — when the stage's
+    /// volume control opens or the song's source changes under it, never on a
+    /// timer (`PlayerVolume`). The owner asked for "a button to change the
+    /// volume of the song" on the lyrics screen, and for these two players
+    /// that is their `sound volume`, which leaves the Mac's output alone.
+    ///
+    /// The outcome travels with the answer because the caller acts on it: a
+    /// refusal (-1743) sends the control to the Mac's volume instead.
+    /// Transport priority, so a position poll queued in front yields to it.
+    static func soundVolume(
+        of app: PlayerApp,
+        completion: @escaping @MainActor (_ percent: Int?, _ outcome: OSStatus) -> Void
+    ) {
+        guard app.isRunning else {
+            return DispatchQueue.main.async { MainActor.assumeIsolated { completion(nil, OSStatus(procNotFound)) } }
+        }
+        runScript(Script.soundVolume(of: app), app: app, priority: .transport) { result, outcome in
+            MainActor.assumeIsolated {
+                completion(result?.stringValue.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }, outcome)
+            }
+        }
+    }
+
+    /// Sets the player's own volume. One call per value: the caller
+    /// (`PlayerVolume`) keeps a single one in flight and the newest value
+    /// waiting, so a drag never queues a backlog of Apple Events here.
+    static func setSoundVolume(
+        _ percent: Int, of app: PlayerApp,
+        completion: @escaping @MainActor (_ outcome: OSStatus) -> Void
+    ) {
+        guard app.isRunning else {
+            return DispatchQueue.main.async { MainActor.assumeIsolated { completion(OSStatus(procNotFound)) } }
+        }
+        runScript(
+            Script.command(Transport.soundVolume(percent).body(for: app), on: app), app: app, priority: .transport
+        ) { _, outcome in
+            MainActor.assumeIsolated { completion(outcome) }
+        }
     }
 
     // MARK: - Artwork
@@ -456,6 +503,18 @@ enum PlayerBridge {
             """, seconds: pollSeconds)
         }
 
+        /// The player's own volume as text, 0…100. Checks first that the
+        /// player still runs: an Apple Event to one that quit launches it.
+        static func soundVolume(of app: PlayerApp) -> String {
+            timed("""
+            tell application id "\(app.bundleID)"
+                if it is running then
+                    return (sound volume as text)
+                end if
+            end tell
+            """, seconds: transportSeconds)
+        }
+
         static func playbackModes(of app: PlayerApp) -> String {
             timed(untimedPlaybackModes(of: app), seconds: pollSeconds)
         }
@@ -545,6 +604,7 @@ enum PlayerBridge {
                 ("state", state(for: app)),
                 ("position", position(of: app)),
                 ("playback modes", playbackModes(of: app)),
+                ("sound volume", soundVolume(of: app)),
             ]
             switch app {
             case .spotify: sources.append(("track id", spotifyTrackID))
@@ -670,8 +730,21 @@ enum PlayerBridge {
         priority: Priority = .background,
         completion: @escaping (NSAppleEventDescriptor?) -> Void
     ) {
+        runScript(source, app: app, priority: priority) { result, _ in completion(result) }
+    }
+
+    /// The same, handing the caller the outcome as well: the stage's volume
+    /// control must tell a refusal (-1743) from a player that only went quiet,
+    /// and reading it back out of `AutomationAccess` would race the next
+    /// script's answer.
+    static func runScript(
+        _ source: String,
+        app: PlayerApp,
+        priority: Priority = .background,
+        completion: @escaping (NSAppleEventDescriptor?, OSStatus) -> Void
+    ) {
         if isRunningTests {
-            DispatchQueue.main.async { completion(nil) }
+            DispatchQueue.main.async { completion(nil, OSStatus(noErr)) }
             return
         }
         if priority == .transport { changePendingTransport(1) }
@@ -682,7 +755,7 @@ enum PlayerBridge {
                 // Something the user pressed is behind this, and this is a poll
                 // the next tick repeats — so skip it rather than make a button
                 // wait on an answer nobody is missing.
-                DispatchQueue.main.async { completion(nil) }
+                DispatchQueue.main.async { completion(nil, OSStatus(noErr)) }
                 return
             }
             var error: NSDictionary?
@@ -697,7 +770,7 @@ enum PlayerBridge {
             let said = PlayerBridge.outcome(errorNumber: errorNumber, result: result?.stringValue)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { AutomationAccess.shared.learn(app, outcome: said) }
-                completion(result)
+                completion(result, said)
             }
         }
     }

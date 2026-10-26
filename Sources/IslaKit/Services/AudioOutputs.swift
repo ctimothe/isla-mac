@@ -360,6 +360,15 @@ final class AudioWatch: ObservableObject {
     /// Runs the device-list re-read once a burst of notifications has settled.
     private let debounce: (@escaping @Sendable () -> Void) -> Void
 
+    /// Whether this watch reads and listens to the level and the mute at all.
+    /// The lock card's does (its bar); the player's does not (2026-10-25): it
+    /// has had no volume control since 2026-10-16, yet its watch kept a volume
+    /// and mute listener on the main queue that read some fourteen properties
+    /// per event and republished `volume`, and the player, observing the whole
+    /// watch, redrew on every press of a held volume key. Its Output button
+    /// needs the route — the outputs and the current device — and nothing else.
+    let followsLevel: Bool
+
     /// The device the volume listener is attached to. The listener must follow
     /// the default, and this is what tells the watch when it has to move.
     private var listeningTo: AudioDeviceID?
@@ -378,9 +387,13 @@ final class AudioWatch: ObservableObject {
         readMuted: (() -> Bool)? = nil,
         installListeners: (() -> Void)? = nil,
         removeListeners: (() -> Void)? = nil,
-        debounce: ((@escaping @Sendable () -> Void) -> Void)? = nil
+        debounce: ((@escaping @Sendable () -> Void) -> Void)? = nil,
+        followsLevel: Bool = true
     ) {
-        self.read = read ?? { (AudioOutputs.available(), AudioOutputs.current(), SystemVolume.current()) }
+        self.followsLevel = followsLevel
+        self.read = read ?? {
+            (AudioOutputs.available(), AudioOutputs.current(), followsLevel ? SystemVolume.current() : nil)
+        }
         // An injected `read` answers for the volume too, unless the test says
         // otherwise: the card's render tests inject only `read`, and must
         // never reach the machine's own level through the default here.
@@ -414,18 +427,33 @@ final class AudioWatch: ObservableObject {
             self.installListeners = { [weak self] in
                 guard let self else { return }
                 self.installCoreAudioListeners(
-                    attachingVolumeTo: self.current,
-                    removingVolumeFrom: self.listeningTo
+                    attachingVolumeTo: self.volumeListenerDevice,
+                    removingVolumeFrom: self.followsLevel ? self.listeningTo : nil
                 )
             }
         }
         if removeListeners == nil {
             self.removeListeners = { [weak self] in
                 guard let self else { return }
-                self.removeCoreAudioListeners(removingVolumeFrom: self.listeningTo)
+                self.removeCoreAudioListeners(removingVolumeFrom: self.followsLevel ? self.listeningTo : nil)
             }
         }
     }
+
+    /// The player's watch: the route only (see `followsLevel`). Quiet — it
+    /// reads an empty machine and installs nothing — under test.
+    static func player(quiet: Bool = PlayerBridge.isRunningTests) -> AudioWatch {
+        quiet
+            ? AudioWatch(
+                read: { ([], nil, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {},
+                followsLevel: false
+            )
+            : AudioWatch(followsLevel: false)
+    }
+
+    /// The device the glue attaches the volume and mute listener to: the
+    /// current one, or none for a watch that does not follow the level.
+    var volumeListenerDevice: AudioDeviceID? { followsLevel ? current : nil }
 
     /// The full re-read: the entry the default-output listener calls, the
     /// tests drive in its place, and the card calls on a pane change. Every
@@ -448,12 +476,14 @@ final class AudioWatch: ObservableObject {
     /// as well), so the mute is read here too: one more property, not a
     /// device enumeration.
     func volumeChanged() {
+        guard followsLevel else { return }
         let fresh = readVolume()
         if volume != fresh { volume = fresh }
         readMute()
     }
 
     private func readMute() {
+        guard followsLevel else { return }
         let fresh = readMuted()
         if muted != fresh { muted = fresh }
     }
@@ -519,7 +549,8 @@ final class AudioWatch: ObservableObject {
     private func apply(_ fresh: (outputs: [AudioOutputs.Output], current: AudioDeviceID?, volume: Float?)) {
         if outputs != fresh.outputs { outputs = fresh.outputs }
         if current != fresh.current { current = fresh.current }
-        if volume != fresh.volume { volume = fresh.volume }
+        let level = followsLevel ? fresh.volume : nil
+        if volume != level { volume = level }
     }
 
     func start() {
@@ -546,7 +577,7 @@ final class AudioWatch: ObservableObject {
         // at dismiss, and this only catches a watch torn down without its
         // stop. Without it, the listeners would outlive the object owning
         // them, firing into a block that holds nothing.
-        if running { removeCoreAudioListeners(removingVolumeFrom: listeningTo) }
+        if running { removeCoreAudioListeners(removingVolumeFrom: followsLevel ? listeningTo : nil) }
     }
 
     // MARK: - CoreAudio glue (deliberately untested)

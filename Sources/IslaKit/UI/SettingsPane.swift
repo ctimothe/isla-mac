@@ -205,27 +205,28 @@ struct SettingsPane: View {
     /// rather than to nothing.
     static let automationSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!
 
-    /// One line of the Spotify section.
-    enum SpotifyRow: Hashable {
-        case note(String)
-        case connect
-        /// Disconnect, armed by a first press like Clear and Quit.
-        case confirm(title: String, armedTitle: String)
-        case importAccount
+    /// The Spotify row of Connections, as a pure function of the account so
+    /// the branching is tested without a view.
+    ///
+    /// The Spotify section this replaces (2026-10-25) carried up to five
+    /// footnotes — where the tokens were kept, what disconnecting keeps, what
+    /// the lock-screen star does — and said a failed sign-in in one generic
+    /// sentence whatever Spotify had answered. Owner rule: cut helper text.
+    /// The row now says Connected or not in its own second line, and at most
+    /// one line under it: what went wrong, in Spotify's own words where Isla
+    /// has none of its own.
+    struct SpotifyConnectionState: Equatable {
+        var connected = false
+        var offersImport = false
+        /// The one line under the row, or nil when nothing is wrong.
+        var problem: String? = nil
     }
 
-    /// What the Spotify section shows, as a pure function of the account so the
-    /// branching is tested without a view. The section used to be inline and
-    /// read none of `needsReconnect`, `signInOutcome` or the sign-in problems,
-    /// so a revoked grant, a cancelled approval and a browser that never opened
-    /// all looked like a Connect button that did nothing; and Disconnect, the
-    /// account's one action, happened on a single unconfirmed click.
-    ///
-    /// Order: what just happened, then the action, then storage, refusal, what
-    /// disconnecting keeps, and what the lock-screen star does. One event gets
-    /// one note: an outcome replaces the reconnect note instead of stacking
-    /// under it.
-    static func spotifyRows(
+    /// One event, one line, in this order: a problem on this Mac (no browser,
+    /// tokens not saved, an import that moved nothing), then how the last
+    /// sign-in ended, then a grant Spotify revoked, then a refusal that hides
+    /// the heart, then tokens that cannot be kept.
+    static func spotifyConnection(
         connected: Bool,
         needsReconnect: Bool,
         signIn: SpotifyAccount.SignInOutcome?,
@@ -234,50 +235,34 @@ struct SettingsPane: View {
         canImport: Bool = false,
         storage: TokenStore.Backing = .keychain,
         refusal: SpotifyAccount.Refusal? = nil
-    ) -> [SpotifyRow] {
-        var rows: [SpotifyRow] = []
-        if let problem { rows.append(.note(problem.explanation)) }
-        switch signIn {
-        case .cancelled:
-            rows.append(.note(localized("Spotify sign-in was cancelled.")))
-        case .expired, .failed:
-            rows.append(.note(localized("Spotify sign-in did not finish. Try connecting again.")))
-        case nil:
-            if needsReconnect, !connected {
-                rows.append(.note(localized("Spotify ended Isla's access. Connect again to use Liked Songs.")))
-            }
-        }
-        if connected {
-            rows.append(.confirm(title: localized("Disconnect Spotify Account"), armedTitle: localized("Disconnect")))
+    ) -> SpotifyConnectionState {
+        var line: String?
+        if let problem {
+            line = problem.explanation
         } else {
-            rows.append(.connect)
+            switch signIn {
+            case .cancelled:
+                line = localized("Spotify sign-in was cancelled.")
+            case .expired:
+                line = localized("Spotify sign-in did not finish. Try connecting again.")
+            case .failed(let failure):
+                line = failure.explanation
+            case nil:
+                if needsReconnect, !connected {
+                    line = localized("Spotify ended Isla’s access. Connect again.")
+                } else if connected, apiBlocked, let refusal {
+                    // Said whenever a refusal has hidden the star, with what
+                    // Spotify said: a control that disappears owes a sentence.
+                    line = refusal.explanation
+                } else if connected, storage == .unavailable {
+                    line = localized("Cannot be stored on this Mac.")
+                }
+            }
         }
         // Offered only when there is actually something to bring across.
         // Finding that out asks the keychain for attributes and never for
-        // contents, so the offer itself costs no prompt — pressing it is what
-        // asks, once.
-        if canImport { rows.append(.importAccount) }
-        if connected {
-            switch storage {
-            case .keychain: rows.append(.note(localized("Stored in your keychain.")))
-            case .file: rows.append(.note(localized("Stored in a file only you can read.")))
-            case .unavailable: rows.append(.note(localized("Cannot be stored on this Mac.")))
-            }
-            // Said whenever a refusal has hidden the lock-screen star, with the
-            // sentence for what Spotify said: a permission when it named one, the
-            // generic "refused this account's library request" when it did not.
-            // The generic line was dropped once, on the reasoning that an `.other`
-            // 403 is not known to be about permission, and the star then
-            // vanished from the lock screen with no word anywhere — a control
-            // that disappears owes a sentence. The sentence claims only what is
-            // known (a refusal), which is why `.other` can say it. There is no
-            // "Liked Songs: Allowed" value row beside it: that began as "Allowed"
-            // before the API had been asked anything.
-            if apiBlocked, let refusal { rows.append(.note(refusal.explanation)) }
-            rows.append(.note(localized("Isla forgets the account on this Mac. Your Spotify library stays as it is.")))
-            rows.append(.note(localized("The star on the lock screen adds the song to your Liked Songs.")))
-        }
-        return rows
+        // contents, so the offer itself costs no prompt.
+        return SpotifyConnectionState(connected: connected, offersImport: canImport, problem: line)
     }
 
     /// What the Music section says about Automation, from what
@@ -442,7 +427,10 @@ struct SettingsPane: View {
         c.libraryHasFolders = !localLyrics.selectedFolders.isEmpty
         c.hasUnassignedCorrections = !lyrics.unassignedLegacyOffsets.isEmpty
         c.showOnLockScreen = flag(.showOnLockScreen)
-        c.spotify = spotifyRows
+        c.spotify = spotifyState
+        // Asked of the cache only while Connections is on screen, as the
+        // Music section's players are.
+        if selection.wrappedValue == .connections { c.otherConnections = PlayerConnections.installedOthers(in: icons) }
         // Only About draws it, and `manualReason` looks at the disk: not work
         // for a section that is not on screen.
         if selection.wrappedValue == .about { c.update = updatePresentation }
@@ -451,8 +439,8 @@ struct SettingsPane: View {
         return c
     }
 
-    private var spotifyRows: [SpotifyRow] {
-        Self.spotifyRows(
+    private var spotifyState: SpotifyConnectionState {
+        Self.spotifyConnection(
             connected: spotify.isConnected,
             needsReconnect: spotify.needsReconnect,
             signIn: spotify.signInOutcome,
@@ -485,8 +473,8 @@ struct SettingsPane: View {
         let blocks = SettingsTable.blocks(for: section, context: context)
         return ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                    blockView(block, width: width)
+                ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                    blockView(block, width: width, first: index == 0)
                 }
             }
             .frame(width: width, alignment: .topLeading)
@@ -498,33 +486,41 @@ struct SettingsPane: View {
         // use. One scroll per section: coming back to a section starts at its top.
         .id(section)
         .scrollEdgeFade()
+        // Sliders, segmented controls and buttons draw their active look in
+        // this never-key panel (native pass 2026-10-25, probe: with this the
+        // slider's fill is the accent; without it, grey). AppKit's switch
+        // ignores it, which is why `PanelSwitchStyle` stays (H-002).
+        .environment(\.appearsActive, true)
+        .environment(\.colorScheme, .dark)
     }
 
     @ViewBuilder
-    private func blockView(_ block: SettingsBlock, width: CGFloat) -> some View {
+    private func blockView(_ block: SettingsBlock, width: CGFloat, first: Bool) -> some View {
         switch block {
         case .header(let title):
             // A heading, named in the title's own case, so the headings rotor
             // has a stop per group and VoiceOver reads it as it is drawn
-            // (H-024).
+            // (H-024). 13 pt semibold in `labelColor`, 18 pt below the group
+            // before it and 6 above its own, as the grouped form spaces them.
             Text(title)
-                .islandFont(.reading, weight: .semibold)
+                .islandFont(SettingsLayout.labelRole, weight: .semibold)
                 .foregroundStyle(Theme.settingsHeader)
-                .padding(.leading, 2)
-                .padding(.bottom, 4)
+                .padding(.leading, SettingsLayout.rowInset)
+                .padding(.top, first ? 0 : 12)
+                .padding(.bottom, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
         case .group(let rows):
             groupCard(rows)
                 .padding(.bottom, 6)
         case .footnote(let text):
+            // 11 pt in `secondaryLabelColor`, under the group it explains.
             Text(text)
-                .islandFont(.caption, weight: .regular)
-                .foregroundStyle(Theme.tertiary)
+                .islandFont(SettingsLayout.footnoteRole, weight: .regular)
+                .foregroundStyle(Theme.settingsSecondaryLabel)
                 .lineSpacing(1)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, SettingsLayout.rowInset)
-                .padding(.top, -2)
                 .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .buttons(let rows):
@@ -542,8 +538,8 @@ struct SettingsPane: View {
         }
     }
 
-    /// A card of rows: white 0.055 at radius 9, the rows 28 tall with an inset
-    /// hairline between each.
+    /// A group of rows: white 0.065 at radius 10, no edge, the rows at their
+    /// native heights with an inset `separatorColor` line between each.
     private func groupCard(_ rows: [SettingsRowID]) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
@@ -559,15 +555,11 @@ struct SettingsPane: View {
             RoundedRectangle(cornerRadius: SettingsLayout.groupRadius, style: .continuous)
                 .fill(Theme.settingsGroupFill)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: SettingsLayout.groupRadius, style: .continuous)
-                .strokeBorder(Theme.settingsGroupEdge, lineWidth: 0.5)
-        )
     }
 
     private var rowDivider: some View {
         Rectangle()
-            .fill(Theme.hairline)
+            .fill(Theme.settingsSeparator)
             .frame(height: SettingsLayout.hairlineHeight)
             .padding(.horizontal, SettingsLayout.hairlineInset)
             .accessibilityHidden(true)
@@ -610,7 +602,7 @@ struct SettingsPane: View {
         // General
         case .launchAtLogin:
             switchRow(row, isOn: launchAtLoginBinding)
-        case .openOnHover:
+        case .openOnHover, .swipeToOpen:
             switchRow(row, isOn: flagBinding(row))
         case .hoverDelay:
             // How long a pointer has to rest on the notch before the panel
@@ -796,9 +788,17 @@ struct SettingsPane: View {
             // Off stops anything being read aloud; the tab hides the button.
             switchRow(row, isOn: flagBinding(row) { setTranslateSpeakButton($0) })
 
-        // Spotify
-        case .spotifyAccount, .spotifyImport:
+        // Connections
+        case .appleMusicConnection:
+            connectionRow(PlayerConnections.Row(
+                service: PlayerConnections.appleMusic, installed: icons.app(PlayerConnections.appleMusic.bundleID)
+            ), name: row.title, detail: PlayerConnections.detail(.local))
+        case .spotifyConnection:
+            spotifyConnectionRow
+        case .spotifyImport:
             SettingsRowChrome(label: row.title) { pushButton(row) }
+        case .otherConnections:
+            otherConnectionRows
 
         // Screenshots
         case .saveClipboardScreenshots:
@@ -822,15 +822,15 @@ struct SettingsPane: View {
                 disabled: collectingDiagnostics, action: copyDiagnostics
             )
         case .reportProblem:
-            linkRow(row) { NSWorkspace.shared.open(Diagnostics.reportURL) }
+            linkRow(row, chevron: true) { NSWorkspace.shared.open(Diagnostics.reportURL) }
         case .acknowledgements:
-            linkRow(row, action: openAcknowledgements)
+            linkRow(row, chevron: true, action: openAcknowledgements)
 
         // Rows that are not drawn in a card: see `freeView` and `pushButton`.
         case .openLoginItems, .restoreShortcuts, .resetLyricDelay, .openLyricsFolder, .addLyricsFolder,
              .importLRC, .rescanLocalLyrics, .clearImportedLyrics, .clearBindings, .translationLanguages,
              .showScreenshotsFolder, .clearScreenshotsFolder, .quit,
-             .cardStyle, .spotifyHead, .aboutHead:
+             .cardStyle, .aboutHead:
             EmptyView()
         }
     }
@@ -851,59 +851,47 @@ struct SettingsPane: View {
                 ),
                 formWidth: width
             )
-        case .spotifyHead:
-            HStack(spacing: 10) {
-                SettingsSectionIcon(glyph: .spotify, side: 40, icons: icons)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: row.title)
-                        .islandFont(.subhead, weight: .semibold)
-                        .foregroundStyle(.white)
-                    // "Connected" in green (spec §10): the one place the section
-                    // says where the account stands, so it says it in a colour.
-                    Text(spotify.isConnected ? localized("Connected") : localized("Not connected"))
-                        .islandFont(.reading, weight: .regular)
-                        .foregroundStyle(spotify.isConnected ? Theme.settingsConnected : Theme.secondary)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 6)
-            .padding(.bottom, 10)
-            .accessibilityElement(children: .combine)
         case .aboutHead:
             // The app icon, its name and its version; pressing it opens the
             // standard About panel, as the footer's About button always did.
             Button {
                 AboutWindow.show()
             } label: {
+                // 48, not 56: the native rows are 38 tall now, and Quit has
+                // to stay inside the 340 pt form without a scroll (H-003,
+                // `SettingsWayfindingTests`).
                 HStack(spacing: 12) {
-                    SettingsSectionIcon(glyph: .isla, side: 56)
+                    SettingsSectionIcon(glyph: .isla, side: 48)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(verbatim: ProductIdentity.displayName)
                             .islandFont(.title, weight: .semibold)
                             .foregroundStyle(.white)
                         Text(localized("Version %@", updates.runningVersion))
-                            .islandFont(.reading, weight: .regular)
-                            .foregroundStyle(Theme.secondary)
+                            .islandFont(SettingsLayout.labelRole, weight: .regular)
+                            .foregroundStyle(Theme.settingsSecondaryLabel)
                     }
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, 4)
-                .padding(.bottom, 10)
+                // The icon's optical overhang (`AppIconImage`) reaches past
+                // its 48 pt box; the form's top edge cut it.
+                .padding(.top, 6)
+                .padding(.bottom, 2)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PanelButtonStyle())
             .accessibilityLabel(row.title)
         case .updatePanel:
             UpdateCard(presentation: updatePresentation)
-                .padding(.bottom, 8)
+                .padding(.bottom, 2)
         case .quit:
             // Quit is the only way out of an app that Force Quit does not list,
             // so it is a button in the last section of the pane the welcome page
             // points at, not a footer to scroll to (H-003).
             HStack(alignment: .center, spacing: 8) {
                 Text(localized("Nothing but update checks leaves your Mac unasked."))
-                    .islandFont(.caption, weight: .regular)
-                    .foregroundStyle(Theme.tertiary)
+                    .islandFont(SettingsLayout.footnoteRole, weight: .regular)
+                    .foregroundStyle(Theme.settingsSecondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 2)
                 Spacer(minLength: 8)
@@ -933,8 +921,8 @@ struct SettingsPane: View {
             HStack(spacing: 8) {
                 if let icon = row.icon { RowIcon(symbol: icon) }
                 Text(row.title)
-                    .islandFont(.reading, weight: .regular)
-                    .foregroundStyle(.white)
+                    .islandFont(SettingsLayout.labelRole, weight: .regular)
+                    .foregroundStyle(Theme.settingsLabel)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -943,19 +931,29 @@ struct SettingsPane: View {
         .disabledWithReason(disabledReason)
     }
 
-    /// A plain tappable row with a glyph — Copy Diagnostics and its neighbours.
-    /// Not a destructive action, so not a push button and not red.
+    /// A plain tappable row — Copy Diagnostics and its neighbours — drawn as
+    /// System Settings draws an action row: the label alone, and a trailing
+    /// chevron in `tertiaryLabelColor` when it opens something elsewhere
+    /// (native pass 2026-10-25: the leading glyph went; System Settings'
+    /// action rows carry none). Not destructive, so not a push button and
+    /// not red.
     private func linkRow(
-        _ row: SettingsRowID, title: String? = nil, disabled: Bool = false, action: @escaping () -> Void
+        _ row: SettingsRowID, title: String? = nil, disabled: Bool = false, chevron: Bool = false,
+        action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                if let icon = row.icon { RowIcon(symbol: icon) }
                 Text(title ?? row.title)
-                    .islandFont(.reading, weight: .regular)
-                    .foregroundStyle(.white)
+                    .islandFont(SettingsLayout.labelRole, weight: .regular)
+                    .foregroundStyle(Theme.settingsLabel)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
+                if chevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, SettingsLayout.rowInset)
             .frame(minHeight: SettingsLayout.rowHeight)
@@ -967,9 +965,14 @@ struct SettingsPane: View {
         .accessibilityLabel(title ?? row.title)
     }
 
+    /// A push button, AppKit's own: `.bordered` at the regular size, which
+    /// draws its active look here because the form says `appearsActive`
+    /// (native pass 2026-10-25; it was the Shelf toolbar's white plate).
     private func push(_ title: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
-            .buttonStyle(ToolbarPushButtonStyle())
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .lineLimit(1)
             .disabled(disabled)
     }
 
@@ -1011,22 +1014,26 @@ struct SettingsPane: View {
         case .rescanLocalLyrics:
             push(row.title) { rescanLocalLyrics() }
         case .clearImportedLyrics:
-            ConfirmPushButton(title: row.title, armedTitle: localized("Delete These Files")) {
+            ConfirmPushButton(title: row.title, armedTitle: localized("Delete These Files"), native: true) {
                 clearImportedLyrics()
             }
         case .clearBindings:
-            ConfirmPushButton(title: row.title, armedTitle: localized("Delete These Files")) {
+            ConfirmPushButton(title: row.title, armedTitle: localized("Delete These Files"), native: true) {
                 clearBindingsAndTimingCorrections()
             }
         case .translationLanguages:
             push(row.title) { Translator.openTranslationLanguages() }
-        case .spotifyAccount:
+        case .spotifyConnection:
             if spotify.isConnected {
-                ConfirmPushButton(title: localized("Disconnect Spotify Account"), armedTitle: localized("Disconnect")) {
+                ConfirmPushButton(
+                    title: localized("Disconnect"), armedTitle: localized("Disconnect Spotify Account"), native: true
+                ) {
                     SpotifyAccount.shared.disconnect()
                 }
+                .accessibilityLabel(localized("Disconnect Spotify Account"))
             } else {
-                push(localized("Connect Spotify Account…")) { SpotifyAccount.shared.beginAuthorization() }
+                push(localized("Connect…")) { SpotifyAccount.shared.beginAuthorization() }
+                    .accessibilityLabel(localized("Connect Spotify Account…"))
             }
         case .spotifyImport:
             push(localized("Import Account from Keychain…")) { SpotifyAccount.shared.importLegacyAccount() }
@@ -1035,7 +1042,7 @@ struct SettingsPane: View {
         case .clearScreenshotsFolder:
             ConfirmPushButton(
                 title: clearTitle, armedTitle: localized("Delete These Files"),
-                disabled: screenshotUsage.files == 0 || clearingScreenshots
+                disabled: screenshotUsage.files == 0 || clearingScreenshots, native: true
             ) {
                 clearScreenshots()
             }
@@ -1047,10 +1054,14 @@ struct SettingsPane: View {
         case .updateNow:
             // The one thing that starts a download, and so the consent for
             // everything Update Now then does.
+            // The default button, in the person's accent: AppKit's
+            // `.borderedProminent`, not the fixed blue plate it was.
             Button(row.title) {
                 if let release = updatePresentation.release { installer.install(release) }
             }
-            .buttonStyle(ProminentPushButtonStyle())
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .keyboardShortcut(.defaultAction)
         case .updateMoreInfo:
             push(row.title) {
                 if let release = updatePresentation.release { NSWorkspace.shared.open(release.page) }
@@ -1089,11 +1100,87 @@ struct SettingsPane: View {
                 // identifier; none when the app is not installed.
                 SettingsRowChrome(label: status.player, appIcon: icons.icon(status.bundleID)) {
                     Text(status.state)
-                        .islandFont(.reading, weight: .regular)
-                        .foregroundStyle(Theme.secondary)
+                        .islandFont(SettingsLayout.labelRole, weight: .regular)
+                        .foregroundStyle(Theme.settingsSecondaryLabel)
                 }
                 .accessibilityElement(children: .combine)
                 .overlay(alignment: .top) { if index > 0 { rowDivider } }
+            }
+        }
+    }
+
+    // MARK: Connections
+
+    /// One service: its real icon from the installed app (a drawn stand-in
+    /// for the two that are listed when they are not installed), its name,
+    /// and a second line saying what the star can do there — the way System
+    /// Settings' Internet Accounts lists what an account is used for.
+    /// `problem` is the row's one failure line (Spotify only), drawn under
+    /// the second line in red, as a field's error is: the person acted on this
+    /// row, so this row answers, and nothing else on screen says it again.
+    private func connectionRow<Trailing: View>(
+        _ row: PlayerConnections.Row, name: String, detail: String, problem: String? = nil,
+        @ViewBuilder trailing: () -> Trailing = { EmptyView() }
+    ) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            connectionIcon(row)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: name)
+                    .islandFont(SettingsLayout.labelRole, weight: .regular)
+                    .foregroundStyle(Theme.settingsLabel)
+                Text(detail)
+                    .islandFont(SettingsLayout.footnoteRole, weight: .regular)
+                    .foregroundStyle(Theme.settingsSecondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let problem {
+                    Text(problem)
+                        .islandFont(SettingsLayout.footnoteRole, weight: .regular)
+                        .foregroundStyle(Color(nsColor: .systemRed))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(.horizontal, SettingsLayout.rowInset)
+        .padding(.vertical, 6)
+        .frame(minHeight: SettingsLayout.connectionRowHeight)
+    }
+
+    @ViewBuilder
+    private func connectionIcon(_ row: PlayerConnections.Row) -> some View {
+        let side = SettingsLayout.connectionIconSide
+        if let icon = row.installed?.icon {
+            AppIconImage(image: icon, side: side)
+        } else if row.service == PlayerConnections.spotify {
+            SpotifyMark().frame(width: side, height: side)
+        } else {
+            DrawnPaneTile(symbol: "music.note", tint: .rose, side: side)
+        }
+    }
+
+    private var spotifyConnectionRow: some View {
+        let row = PlayerConnections.Row(
+            service: PlayerConnections.spotify, installed: icons.app(PlayerConnections.spotify.bundleID)
+        )
+        return connectionRow(
+            row, name: SettingsRowID.spotifyConnection.title,
+            detail: PlayerConnections.spotifyDetail(connected: spotify.isConnected),
+            problem: spotifyState.problem
+        ) {
+            pushButton(.spotifyConnection)
+        }
+    }
+
+    /// Every other service installed on this Mac, one row each, read-only.
+    private var otherConnectionRows: some View {
+        let rows = PlayerConnections.installedOthers(in: icons)
+        return VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                connectionRow(row, name: row.installed?.name ?? row.service.bundleID, detail: PlayerConnections.detail(.none))
+                    .overlay(alignment: .top) { if index > 0 { rowDivider } }
             }
         }
     }
@@ -1121,7 +1208,7 @@ struct SettingsPane: View {
                 VStack(spacing: 0) {
                     SettingsRowChrome(label: folder.lastPathComponent) {
                         Button(localized("Remove")) { removeLocalLyricsFolder(folder) }
-                            .buttonStyle(ToolbarPushButtonStyle())
+                            .buttonStyle(.bordered)
                             .accessibilityLabel(localized("Remove %@", folder.lastPathComponent))
                     }
                     let unreadable = localLyrics.unreadableFiles(in: folder)
@@ -1151,8 +1238,8 @@ struct SettingsPane: View {
                     HStack(spacing: 8) {
                         RowIcon(symbol: SettingsIcon.dismiss)
                         Text(localized("Dismiss %@", correction.filename))
-                            .islandFont(.reading, weight: .regular)
-                            .foregroundStyle(.white)
+                            .islandFont(SettingsLayout.labelRole, weight: .regular)
+                            .foregroundStyle(Theme.settingsLabel)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 8)
                     }
@@ -1335,8 +1422,8 @@ struct SettingsRowChrome<Trailing: View>: View {
 
     private func labelText(_ text: String) -> some View {
         Text(text)
-            .islandFont(.reading, weight: .regular)
-            .foregroundStyle(.white)
+            .islandFont(SettingsLayout.labelRole, weight: .regular)
+            .foregroundStyle(Theme.settingsLabel)
     }
 
     var body: some View {
@@ -1660,11 +1747,13 @@ enum AboutWindow {
 struct RowIcon: View {
     let symbol: String
 
+    /// 13 pt in `secondaryLabelColor`, in a 20 pt column so the labels of a
+    /// group line up whatever the glyph's width (native pass 2026-10-25).
     var body: some View {
         Image(systemName: symbol)
-            .islandFont(.body)
-            .foregroundStyle(Theme.secondary)
-            .frame(width: 16)
+            .font(.system(size: SettingsLayout.labelRole.size))
+            .foregroundStyle(Theme.settingsSecondaryLabel)
+            .frame(width: 20)
             .accessibilityHidden(true)
     }
 }
@@ -1731,8 +1820,8 @@ struct SettingsSliderRow: View {
         HStack(spacing: 8) {
             if let symbol { RowIcon(symbol: symbol) }
             Text(title)
-                .islandFont(.reading, weight: .regular)
-                .foregroundStyle(.white)
+                .islandFont(SettingsLayout.labelRole, weight: .regular)
+                .foregroundStyle(Theme.settingsLabel)
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
                 .accessibilityHidden(true)
@@ -1740,8 +1829,8 @@ struct SettingsSliderRow: View {
             slider
                 .frame(minWidth: Self.minimumSliderWidth, idealWidth: Self.idealSliderWidth, maxWidth: Self.maximumSliderWidth)
             Text(drawnValue)
-                .font(Theme.TypeRole.caption.font().monospacedDigit())
-                .foregroundStyle(Theme.tertiary)
+                .font(SettingsLayout.footnoteRole.font(weight: .regular).monospacedDigit())
+                .foregroundStyle(Theme.settingsSecondaryLabel)
                 .lineLimit(1)
                 .frame(width: drawnValueWidth, alignment: .trailing)
                 .layoutPriority(1)
@@ -1757,8 +1846,10 @@ struct SettingsSliderRow: View {
             guard !editing else { return }
             commit?()
         })
-        .controlSize(.mini)
-        .tint(Theme.secondary)
+        // AppKit's small slider, filled with the accent: the form's
+        // `appearsActive` draws it active in this never-key panel (native
+        // pass 2026-10-25; it was a mini slider tinted grey).
+        .controlSize(.small)
         .accessibilityLabel(title)
         // A native slider does not vend a hint to assistive clients (the
         // probe read an empty help on it, disabled or not), so the reason is
@@ -2031,7 +2122,7 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
                 capsules
             }
             .padding(.horizontal, SettingsLayout.rowInset)
-            .frame(minHeight: SettingsLayout.rowHeight)
+            .frame(minHeight: SettingsLayout.segmentedRowHeight)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -2058,49 +2149,26 @@ struct SettingsChoiceRow<Option: Identifiable & Hashable>: View {
 
     private var titleText: some View {
         Text(title)
-            .islandFont(.reading, weight: .regular)
-            .foregroundStyle(.white)
+            .islandFont(SettingsLayout.labelRole, weight: .regular)
+            .foregroundStyle(Theme.settingsLabel)
     }
 
+    /// AppKit's segmented control (native pass 2026-10-25, superseding owner
+    /// decision 4 of 2026-10-15, the drawn capsules). The form's
+    /// `appearsActive` draws its selected segment in the active look though
+    /// the panel is never key. VoiceOver keeps reading the row as the radio
+    /// group above (`accessibilityRepresentation`): a segmented `Picker`
+    /// alone read as "radio button, 1 of 4" without the row's title.
     private var capsules: some View {
-        let increaseContrast = SystemAppearance.shared.increaseContrast
-        return HStack(spacing: 2) {
+        Picker(title, selection: $selection) {
             ForEach(options) { option in
-                let isSelected = option == selection
-                Button { selection = option } label: {
-                    Text(optionTitle(option))
-                        .islandFont(.body)
-                        // Raised to clear 4.5:1 over the fills it really
-                        // sits on, which the base ramp does not (3.26:1
-                        // on the stacked capsules, F-052).
-                        .foregroundStyle(isSelected ? .white : Theme.tertiary(
-                            over: Theme.choiceOptionFills(increaseContrast: increaseContrast)
-                        ))
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isSelected ? Theme.surfaceHover : .clear)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-                .buttonStyle(PanelButtonStyle())
+                Text(optionTitle(option)).tag(option)
             }
         }
-        .padding(2)
-        .background {
-            // Increase Contrast swaps the group's fill for the defined
-            // edge that setting asks for: stacked on the section card the
-            // fill left white text at 4.24:1 at best (see
-            // `Theme.choiceOptionFills`).
-            if increaseContrast {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Theme.hairline, lineWidth: 1)
-            } else {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface)
-            }
-        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.regular)
+        .fixedSize()
     }
 }
 
@@ -2126,8 +2194,8 @@ struct SettingsPopUpRow<Option: Identifiable & Hashable>: View {
         HStack(spacing: 8) {
             if let symbol { RowIcon(symbol: symbol) }
             Text(title)
-                .islandFont(.reading, weight: .regular)
-                .foregroundStyle(.white)
+                .islandFont(SettingsLayout.labelRole, weight: .regular)
+                .foregroundStyle(Theme.settingsLabel)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             Menu {
@@ -2141,19 +2209,24 @@ struct SettingsPopUpRow<Option: Identifiable & Hashable>: View {
                     if dividerAfter(option) { Divider() }
                 }
             } label: {
-                HStack(spacing: 6) {
+                // The grouped form's pop-up, as System Settings draws it: the
+                // value in `secondaryLabelColor` and the up-down chevrons, with
+                // no plate (native pass 2026-10-25). Still a SwiftUI `Menu`,
+                // not an NSPopUpButton: whether AppKit's own opens from this
+                // never-key panel is unproven headless (spec risk 2), and
+                // this one is known to.
+                HStack(spacing: 5) {
                     Text(optionTitle(selection))
-                        .islandFont(.body)
-                        .foregroundStyle(.white)
+                        .islandFont(SettingsLayout.labelRole, weight: .regular)
+                        .foregroundStyle(Theme.settingsSecondaryLabel)
                         .lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down")
-                        .islandFont(.caption, weight: .semibold)
-                        .foregroundStyle(Theme.secondary)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.settingsSecondaryLabel)
+                        .accessibilityHidden(true)
                 }
-                .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.surface))
-                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .contentShape(Rectangle())
             }
             .menuStyle(.button)
             .buttonStyle(PanelButtonStyle())

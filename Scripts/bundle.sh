@@ -113,7 +113,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSSupportsAutomaticTermination</key><false/>
     <key>NSSupportsSuddenTermination</key><false/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Isla asks Music and Spotify for shuffle, repeat and the exact position of the song, and controls them when Now Playing is unavailable.</string>
+    <string>Isla asks Music and Spotify for shuffle, repeat and the exact position of the song, sets their volume from the lyrics stage, and controls them when Now Playing is unavailable.</string>
     <key>NSDesktopFolderUsageDescription</key>
     <string>Isla shows new screenshots and recordings saved to the Desktop and files you put on the Shelf from there, and reads lyrics folders you add there.</string>
     <key>NSDocumentsFolderUsageDescription</key>

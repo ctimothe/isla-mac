@@ -953,6 +953,14 @@ final class MediaController: ObservableObject {
         return PlayerApp.allCases.first { $0.bundleID == bundle }
     }
 
+    /// The bundle id behind the displayed session, nil when there is none or
+    /// it cannot be named. The lyric stage's volume control reads it when it
+    /// opens and when the song's source changes, to pick whose volume it moves
+    /// (`PlayerVolumeTarget.forSource`, owner 2026-10-26).
+    var displayedSourceBundleID: String? {
+        displayedPlayerPID.flatMap(bundleIdentifierForPID)
+    }
+
     /// A coarse player class for lyric matching. It is metadata, never an
     /// account or a process identifier, and lets timing policy distinguish
     /// scriptable players from unmeasured Now Playing publishers.

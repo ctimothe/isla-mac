@@ -51,7 +51,7 @@ struct ShortcutRecorderRow: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .strokeBorder(
-                                isRecording ? Theme.accent : Theme.hairline,
+                                isRecording ? Theme.recordingRing : Theme.hairline,
                                 lineWidth: isRecording ? Theme.recordingRingWidth : 1
                             )
                     )

@@ -26,6 +26,21 @@ final class AmbientWatch {
 
     var onEvent: ((AmbientActivity) -> Void)?
 
+    /// A charging moment's reading changed while it may still be on the
+    /// island — the battery began taking charge, the adapter reported its
+    /// watts. The controller applies it only to a Charging moment that is up,
+    /// without announcing it again or restarting its hold.
+    var onChargeUpdate: ((AmbientActivity) -> Void)?
+
+    /// How long after power arrives the moment is read and shown. Measured on
+    /// the owner's MacBook Pro (powerd's log, 2026-10-26 09:55:43): the power
+    /// source turns AC at .987 with the battery not yet charging, and powerd
+    /// reports "State:Charging" 47 ms later and the adapter's contract at
+    /// 0.53 s. Read at the edge, every plug-in said "Not Charging" in white —
+    /// the plug where "Charging" belongs — for the whole hold. Short enough
+    /// to still be the answer to the cable going in.
+    nonisolated static let chargeSettle: TimeInterval = 0.6
+
     /// How long after announcing a device the same device stays quiet.
     /// AirPods hopping between a phone and this Mac, or a coreaudiod restart,
     /// reappear within seconds, and each reappearance is not news.
@@ -33,6 +48,13 @@ final class AmbientWatch {
 
     private var powerSource: CFRunLoopSource?
     private var lastPower: Power?
+    /// Stamps each arrival, so a reading that settles after the charger was
+    /// pulled, or after a newer arrival, is dropped.
+    private var arrivalGeneration = 0
+    /// Until when power notifications may update a charging moment in place:
+    /// the settle plus the hold. Past it nothing is on the island to update,
+    /// and the minute-by-minute capacity notifications cost no registry read.
+    private var chargeUpdatesUntil: Date?
     private var knownHeadphones: Set<String> = []
     private var lastAnnounced: [String: Date] = [:]
     private var devicesListener: AudioObjectPropertyListenerBlock?
@@ -97,13 +119,72 @@ final class AmbientWatch {
         guard let now = Self.readPower() else { return }
         defer { lastPower = now }
         let date = Date()
-        guard Self.pluggedIn(previous: lastPower, now: now, lastAnnounced: lastPowerAnnounced, at: date) else { return }
-        lastPowerAnnounced = date
-        onEvent?(.charging(level: now.level, isCharging: now.isCharging))
+        guard now.onExternalPower else {
+            // Pulled: an arrival still settling is not one any more.
+            arrivalGeneration &+= 1
+            chargeUpdatesUntil = nil
+            return
+        }
+        if arrives(previous: lastPower, now: now, at: date) {
+            scheduleArrival()
+        } else if let until = chargeUpdatesUntil, date < until, now != lastPower {
+            readCharge { [weak self] activity in self?.onChargeUpdate?(activity) }
+        }
     }
 
-    /// When the charger was last announced, for `repeatQuiet`.
-    private var lastPowerAnnounced: Date?
+    /// When a Charging moment was last on the island, for `repeatQuiet`.
+    ///
+    /// Stamped by the controller when it shows one (`chargerShown`), never
+    /// here at the edge. Stamped here, a plug-in the controller refused — the
+    /// pointer on the island, the panel open past its second, a lid opening
+    /// as the cable went in — still spent the 30 s window, and the owner's
+    /// charger re-negotiates seconds after every plug-in (pmset log,
+    /// 2026-10-23 to 26: AC, then Battery 1–5 s later, then AC again): the
+    /// edge that came once the island was free fell inside the window of a
+    /// moment nobody saw.
+    private var lastChargerShown: Date?
+
+    /// The controller put a Charging moment on the island.
+    func chargerShown(at date: Date = Date()) {
+        lastChargerShown = date
+    }
+
+    /// Whether a reading is a plug-in to show, against the last moment that
+    /// was actually shown. Its own function so the measured flap is a test.
+    func arrives(previous: Power?, now: Power, at date: Date) -> Bool {
+        Self.pluggedIn(previous: previous, now: now, lastAnnounced: lastChargerShown, at: date)
+    }
+
+    /// Reads the settled charge off the main thread, `chargeSettle` after the
+    /// edge, and hands it over unless power left, or a newer edge came, first.
+    private func scheduleArrival() {
+        arrivalGeneration &+= 1
+        let generation = arrivalGeneration
+        chargeUpdatesUntil = Date().addingTimeInterval(Self.chargeSettle + AmbientActivity.chargingHold + 1)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.chargeSettle) { [weak self] in
+            self?.readCharge { [weak self] activity in
+                guard let self, generation == self.arrivalGeneration else { return }
+                self.onEvent?(activity)
+            }
+        }
+    }
+
+    /// The battery, the port and the adapter, read on a utility queue — the
+    /// registry is IPC to the kernel, and IOPS a round trip to powerd — and
+    /// delivered on the main actor. Nothing if power is gone by then.
+    private func readCharge(_ deliver: @escaping @MainActor (AmbientActivity) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            guard let power = Self.readPower(), power.onExternalPower else { return }
+            let port = ChargePortReading.read()
+            let activity = Self.chargeActivity(power: power, port: port.port, watts: port.watts)
+            DispatchQueue.main.async { MainActor.assumeIsolated { deliver(activity) } }
+        }
+    }
+
+    /// The moment a settled reading makes. Pure, so the mapping is a test.
+    nonisolated static func chargeActivity(power: Power, port: ChargePort, watts: Int?) -> AmbientActivity {
+        .charging(level: power.level, isCharging: power.isCharging, port: port, watts: watts)
+    }
 
     /// Only the moment external power arrives, and not again within `quiet`
     /// of the last time it was announced. A level change while charging, or a

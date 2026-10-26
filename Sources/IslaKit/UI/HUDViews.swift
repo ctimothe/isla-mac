@@ -128,8 +128,9 @@ struct HUDStripContent: View {
 /// and the collapse check never see it.
 ///
 /// What it watches is small on purpose: whether it is up (`hudStripShown`,
-/// changed on arrival and fold only), the body it sits under, and — in the
-/// capsule — the live level. A held key redraws the capsule, not this.
+/// changed on arrival and fold only); while it is up, the outline it sits
+/// under (`HUDStripPlaced`); and, in the capsule, the live level. A held key
+/// redraws the capsule, not this.
 struct HUDStripLayer: View {
     @ObservedObject var vm: NotchViewModel
     @ObservedObject private var appearance = SystemAppearance.shared
@@ -137,15 +138,12 @@ struct HUDStripLayer: View {
     private var reduceMotion: Bool { appearance.reduceMotion }
 
     var body: some View {
-        let frame = HUDStripLayout.frame(
-            bodySize: vm.openBodySize, bottomRadius: vm.openBottomRadius, windowSize: vm.geometry.windowSize
-        )
         ZStack(alignment: .top) {
             if vm.hudStripShown {
-                HUDStripContent(
-                    live: vm.hudLive, width: frame.width, increaseContrast: appearance.increaseContrast
+                HUDStripPlaced(
+                    vm: vm, travel: vm.pageTravel, pull: vm.pullStretch,
+                    increaseContrast: appearance.increaseContrast, reduceMotion: reduceMotion
                 )
-                .offset(y: frame.minY)
                 .transition(Theme.hudStripArrival(reduceMotion: reduceMotion))
                 // VoiceOver hears the level once, 250 ms after the last press
                 // (`NotchController.presentHUD`, announced whether or not
@@ -156,9 +154,61 @@ struct HUDStripLayer: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hudStripShown)
-        // The body changing height under a standing capsule — a page turned
-        // to a shorter one — moves it on the outline's own spring.
-        .animation(Theme.island(reduceMotion: reduceMotion), value: frame.minY)
+    }
+
+    /// The capsule under the outline as it is drawn this instant: the
+    /// presented surface's body, or between two pages the mix the travel has
+    /// reached (`drawnOpenBodySize`, what the shell draws the open island at),
+    /// with the pull's give on its height as the outline takes it.
+    ///
+    /// Not `openBodySize`. While the pages travel that is every page the leg
+    /// can reach, together — the clickable region, cut once per leg — and the
+    /// capsule sat under the tallest of them: a dot from Clipboard to Music
+    /// left it a hundred points under Music's outline, in the middle of the
+    /// screen, until it folded (owner, 2026-10-26;
+    /// `HUDStripPlacementTests`).
+    static func capsuleFrame(for vm: NotchViewModel) -> CGRect {
+        var body = vm.drawnOpenBodySize
+        body.height = max(0, body.height + vm.pullStretch.points)
+        return HUDStripLayout.frame(
+            bodySize: body, bottomRadius: vm.openBottomRadius, windowSize: vm.geometry.windowSize
+        )
+    }
+}
+
+/// The capsule where the outline is: mounted only while it is up.
+///
+/// The outline moves on two things the view model does not publish — the
+/// pages travelling (`PageTravel`) and the pull's give
+/// (`IslandPullStretch`) — and a leg ends with no publish of the view model
+/// at all. The layer used to watch the view model alone, so a capsule up
+/// through a page turn kept the frame it was given mid-leg until it folded.
+/// This view watches both, and exists only while the capsule does: with it
+/// folded, the frames of a swipe re-run nothing of the layer, and with it
+/// up they move it exactly as they move the outline — on the travel's still
+/// transactions under the fingers, on the island's spring otherwise.
+struct HUDStripPlaced: View {
+    @ObservedObject var vm: NotchViewModel
+    @ObservedObject var travel: PageTravel
+    @ObservedObject var pull: IslandPullStretch
+    let increaseContrast: Bool
+    let reduceMotion: Bool
+
+    /// How many times a body was asked for, for the test that a folded
+    /// capsule watches nothing (`HUDStripPlacementTests`). Main-actor state a
+    /// test reads; the app never does.
+    static var bodies = 0
+
+    var body: some View {
+        Self.bodies &+= 1
+        let frame = HUDStripLayer.capsuleFrame(for: vm)
+        return HUDStripContent(live: vm.hudLive, width: frame.width, increaseContrast: increaseContrast)
+            .offset(y: frame.minY)
+            // The body changing height under a standing capsule — a page
+            // turned to a shorter one — moves it on the outline's own spring.
+            // The travel's frames carry animations disabled, so under the
+            // fingers it follows them one to one, as the outline does.
+            .animation(Theme.island(reduceMotion: reduceMotion), value: frame.minY)
     }
 }
 

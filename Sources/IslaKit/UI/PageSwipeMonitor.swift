@@ -75,7 +75,8 @@ extension PageScroll {
         self.init(
             deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
             phase: ScrollSample.Phase(event.phase), momentumPhase: ScrollSample.Phase(event.momentumPhase),
-            precise: event.hasPreciseScrollingDeltas, time: event.timestamp
+            precise: event.hasPreciseScrollingDeltas, time: event.timestamp,
+            invertedFromDevice: event.isDirectionInvertedFromDevice
         )
     }
 }

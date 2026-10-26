@@ -59,7 +59,7 @@ struct LockStylePicker: View {
                 .overlay {
                     if isSelected {
                         RoundedRectangle(cornerRadius: SettingsLayout.previewRadius + 3, style: .continuous)
-                            .strokeBorder(Theme.accent, lineWidth: Theme.settingsPreviewRingWidth)
+                            .strokeBorder(Color(nsColor: .controlAccentColor), lineWidth: Theme.settingsPreviewRingWidth)
                             .padding(-3)
                     }
                 }

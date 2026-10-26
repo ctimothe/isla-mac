@@ -68,10 +68,6 @@ struct UpdateCard: View {
             RoundedRectangle(cornerRadius: SettingsLayout.groupRadius, style: .continuous)
                 .fill(Theme.settingsGroupFill)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: SettingsLayout.groupRadius, style: .continuous)
-                .strokeBorder(Theme.settingsGroupEdge, lineWidth: 0.5)
-        )
         .animation(Theme.expand(reduceMotion: reduceMotion), value: presentation.stage.kind)
         .accessibilityElement(children: .contain)
     }
@@ -112,7 +108,7 @@ struct UpdateCard: View {
             ProgressTrack {
                 GeometryReader { geometry in
                     Capsule()
-                        .fill(Theme.SettingsTint.blue.color)
+                        .fill(Theme.updateAccent)
                         .frame(width: max(geometry.size.width * fraction, fraction > 0 ? Self.barHeight : 0))
                         // The bar steps with the bytes, a short linear glide
                         // between them; a bar that springs is travel, so with
@@ -186,13 +182,13 @@ private struct IndeterminateFill: View {
                 if reduceMotion {
                     let pulse = 0.5 - 0.5 * cos(phase * 2 * .pi)
                     Capsule()
-                        .fill(Theme.SettingsTint.blue.color)
+                        .fill(Theme.updateAccent)
                         .frame(width: geometry.size.width * 0.5)
                         .opacity(0.35 + 0.5 * pulse)
                         .offset(x: geometry.size.width * 0.25)
                 } else {
                     Capsule()
-                        .fill(Theme.SettingsTint.blue.color)
+                        .fill(Theme.updateAccent)
                         .frame(width: segment)
                         .offset(x: -segment + (geometry.size.width + segment) * phase)
                 }

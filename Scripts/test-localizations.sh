@@ -198,6 +198,7 @@ for locale in others:
 # language are allowed to match.
 same_in_every_language = {
     "AirDrop": "Apple's own product name, left in Latin script by Apple's Russian UI",
+    "MagSafe": "Apple's own port name, left in Latin script by Apple's Russian UI",
     "Spotify": "a brand name",
     "Isla %@": "the product name and a format value",
 }

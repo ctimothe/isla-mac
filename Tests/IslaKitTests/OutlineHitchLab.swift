@@ -146,6 +146,113 @@ private final class CPUStress {
     deinit { for process in processes where process.isRunning { process.terminate() } }
 }
 
+// MARK: - A held volume key, end to end (2026-10-25)
+//
+// The owner: "only the volume pop-up lags and delays … if ours lags while
+// replacing the Mac's own HUD the app is meaningless". The `hud-repeat` case
+// above sets the view model's level straight from a timer, so it measures the
+// drawing and nothing else; what lagged was everything in front of it — the
+// write each press waited for. This case drives the real key path instead: a
+// synthetic key repeat on a thread of its own (the tap's), through
+// `MediaKeyRoute`, `MediaKeyGate` and the real `SystemLevelApplier`, over a
+// fake output whose every write sleeps (20 ms, a quiet Mac; 50 ms, CoreAudio
+// while music plays on a busy one), then the same mailbox and main hop
+// `MediaKeyHUD` uses, onto the island's pop-up. No real volume is ever read or
+// written.
+//
+// Recorded per hold: press→frame latency (the first frame whose bar shows that
+// press or a later one), p50 and p95 over every press; how many frames still
+// changed the bar after the key was let go, and how long after it the last one
+// came; and how many writes the fake took.
+
+/// An output that takes `delay` seconds per write and holds the level in
+/// memory. Never a device.
+final class SleepyVolumeOutput: VolumeOutput, @unchecked Sendable {
+    private let lock = NSLock()
+    private var level: Float
+    private var muted = false
+    private let delay: TimeInterval
+    private(set) var writes = 0
+
+    init(level: Float, delay: TimeInterval) {
+        self.level = level
+        self.delay = delay
+    }
+
+    func read() -> VolumeState? {
+        lock.withLock { VolumeState(device: 42, level: level, muted: muted) }
+    }
+
+    func write(level: Float, muted: Bool, from old: VolumeState) -> VolumeWriteResult {
+        Thread.sleep(forTimeInterval: delay)
+        lock.withLock {
+            self.level = level
+            self.muted = muted
+            writes += 1
+        }
+        return .written
+    }
+
+    var writeCount: Int { lock.withLock { writes } }
+}
+
+/// What one held key left behind: when each press was made, and when and
+/// which press each reading that reached the main thread belonged to.
+final class HUDHoldProbe: @unchecked Sendable {
+    struct Run {
+        var name: String
+        var pressTimes: [CFTimeInterval] = []
+        /// (when it reached the main thread, the press it shows)
+        var arrivals: [(time: CFTimeInterval, press: Int)] = []
+        var writes = 0
+    }
+
+    private let lock = NSLock()
+    private var current: Run?
+    private var cursor = -1
+    private var expected: [Float] = []
+    private(set) var runs: [Run] = []
+
+    func begin(_ name: String, expected: [Float]) {
+        lock.withLock {
+            current = Run(name: name)
+            self.expected = expected
+            cursor = -1
+        }
+    }
+
+    func pressed(at time: CFTimeInterval) {
+        lock.withLock { current?.pressTimes.append(time) }
+    }
+
+    /// Readings arrive in press order (both architectures deliver in order and
+    /// only ever skip ahead), so the press a level belongs to is the first one
+    /// after the last matched whose expected level it is.
+    func arrived(level: Float, at time: CFTimeInterval) {
+        lock.withLock {
+            let next = expected.indices.first { $0 > cursor && expected[$0] == level } ?? cursor
+            cursor = max(cursor, next)
+            current?.arrivals.append((time, cursor))
+        }
+    }
+
+    func reset() {
+        lock.withLock {
+            runs = []
+            current = nil
+        }
+    }
+
+    func end(writes: Int) {
+        lock.withLock {
+            guard var run = current else { return }
+            run.writes = writes
+            runs.append(run)
+            current = nil
+        }
+    }
+}
+
 /// The real island on a real screen: the panel the controller cuts, the root
 /// view, the hosting view, built the way `NotchController.build` builds them.
 @MainActor
@@ -156,6 +263,10 @@ final class HitchRig {
     let hosting: NSHostingView<NotchContentView>
     /// The main thread's deliberate blocks, in order, taken by the case.
     fileprivate var stalls: [ClosedRange<CFTimeInterval>] = []
+    /// The `hud-hold` case's records.
+    let hudProbe = HUDHoldProbe()
+    /// Keeps the hold's route and applier alive while its presses run.
+    private var hudHoldParts: [AnyObject] = []
 
     init(session: LabSession) async throws {
         guard let geometry = NotchGeometry.current() else { throw XCTSkip("no display") }
@@ -187,6 +298,88 @@ final class HitchRig {
             Thread.sleep(forTimeInterval: duration)
             stalls.append(began...CACurrentMediaTime())
         }
+    }
+
+    static let hudHoldInterval: TimeInterval = 0.030
+    static let hudHoldSeconds: TimeInterval = 3.0
+    /// ⌥⇧ quarter steps from silence: sixty up, then forty down, so that no
+    /// press lands on a clamped end and every level says which press it is.
+    static let hudHoldUp = 60
+
+    /// A held volume key through the real key path (see the note above
+    /// `SleepyVolumeOutput`). Returns at once; the presses run on a thread of
+    /// their own for `hudHoldSeconds`.
+    func hudHold(name: String, writeDelay: TimeInterval) {
+        let presses = Int(Self.hudHoldSeconds / Self.hudHoldInterval)
+        let expected = (0..<presses).map { i -> Float in
+            i < Self.hudHoldUp ? Float(i + 1) / 64 : Float(2 * Self.hudHoldUp - 1 - i) / 64
+        }
+        let output = SleepyVolumeOutput(level: 0, delay: writeDelay)
+        let applier = SystemLevelApplier(
+            volume: output,
+            displays: FakeDisplayResolver(client: nil),
+            topology: { DisplayTopology(builtIn: nil, active: [], main: 0) },
+            keyboards: FakeKeyboardResolver(client: nil),
+            watch: InertLevelWatch(),
+            describe: { _ in DeviceLabel(symbol: "speaker.wave.2.fill", name: "MacBook Pro Speakers") }
+        )
+        applier.prepare()
+        let gate = MediaKeyGate()
+        gate.mirror(enabled: true, locked: false)
+        let mailbox = LatestReadingMailbox()
+        let probe = hudProbe
+        let vm = vm
+        let reduceMotion = SystemAppearance.shared.reduceMotion
+        let route = MediaKeyRoute(
+            gate: gate, applier: applier,
+            deliver: { reading in
+                // `MediaKeyHUD`'s own hop, as it is in the app.
+                guard mailbox.post(reading) else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let latest = mailbox.take() else { return }
+                        probe.arrived(level: latest.level, at: CACurrentMediaTime())
+                        let moment = HUDMoment(latest)
+                        if vm.hud == nil {
+                            withAnimation(Theme.hud(reduceMotion: reduceMotion)) { vm.hud = moment }
+                        } else {
+                            vm.hud = moment
+                        }
+                    }
+                }
+            },
+            settingWentOff: {}
+        )
+        hudHoldParts = [applier, route, output]
+        probe.begin(name, expected: expected)
+        let thread = Thread {
+            let start = CACurrentMediaTime()
+            let fine = MediaKeyModifiers(fine: true)
+            for i in 0..<presses {
+                let deadline = start + Double(i) * Self.hudHoldInterval
+                let wait = deadline - CACurrentMediaTime()
+                if wait > 0 { Thread.sleep(forTimeInterval: wait) }
+                let key: MediaKey = i < Self.hudHoldUp ? .volumeUp : .volumeDown
+                if i == Self.hudHoldUp {
+                    _ = route.receive(MediaKeyPress(key: .volumeUp, isDown: false, isRepeat: false),
+                                      modifiers: fine, now: ProcessInfo.processInfo.systemUptime)
+                }
+                let isRepeat = i != 0 && i != Self.hudHoldUp
+                probe.pressed(at: CACurrentMediaTime())
+                _ = route.receive(MediaKeyPress(key: key, isDown: true, isRepeat: isRepeat),
+                                  modifiers: fine, now: ProcessInfo.processInfo.systemUptime)
+            }
+            _ = route.receive(MediaKeyPress(key: .volumeDown, isDown: false, isRepeat: false),
+                              modifiers: fine, now: ProcessInfo.processInfo.systemUptime)
+        }
+        thread.qualityOfService = .userInteractive
+        thread.start()
+    }
+
+    /// The hold that ran last is over: its writes are counted.
+    func endHUDHold() {
+        if let output = hudHoldParts.last as? SleepyVolumeOutput { hudProbe.end(writes: output.writeCount) }
+        hudHoldParts = []
     }
 
     func tearDown() {
@@ -241,6 +434,8 @@ final class OutlineHitchLab: VisualLabCase {
         /// How long each step is watched, where the morph is not one second
         /// long: a held key is two.
         var window: TimeInterval?
+        /// A step's own window, where it differs from the scenario's.
+        var stepWindows: [String: TimeInterval] = [:]
     }
 
     private func scenarios() -> [Scenario] {
@@ -366,6 +561,23 @@ final class OutlineHitchLab: VisualLabCase {
                 steps: [("hold-2s", hold(strip: true)), ("fold", fold(strip: true))],
                 window: 2.0
             ),
+            // The real key path under a held key, over an output whose writes
+            // take 20 ms and then 50 ms (see `SleepyVolumeOutput`). Each hold
+            // is watched for six seconds: a path that queues a write per press
+            // is still drawing the 50 ms hold's backlog five seconds in, and
+            // that tail is what is measured.
+            Scenario(
+                name: "hud-hold",
+                prepare: { rig in rig.vm.isOpen = false; rig.vm.hud = nil },
+                steps: [
+                    ("hold-3s-write-20ms", { rig in rig.hudHold(name: "hold-3s-write-20ms", writeDelay: 0.020) }),
+                    ("fold-20ms", { rig in rig.endHUDHold(); fold(strip: false)(rig) }),
+                    ("hold-3s-write-50ms", { rig in rig.hudHold(name: "hold-3s-write-50ms", writeDelay: 0.050) }),
+                    ("fold-50ms", { rig in rig.endHUDHold(); fold(strip: false)(rig) }),
+                ],
+                window: 1.0,
+                stepWindows: ["hold-3s-write-20ms": 6.0, "hold-3s-write-50ms": 6.0]
+            ),
             Scenario(
                 name: "alert-stall",
                 prepare: { rig in rig.vm.isOpen = false; rig.vm.ambient = nil },
@@ -455,7 +667,7 @@ final class OutlineHitchLab: VisualLabCase {
                         let id = signposter.makeSignpostID()
                         let state = signposter.beginInterval("morph", id: id, "\(scenario.name)/\(step.name) \(load)")
                         step.run(rig)
-                        try await settle(scenario.window ?? window)
+                        try await settle(scenario.stepWindows[step.name] ?? scenario.window ?? window)
                         signposter.endInterval("morph", state)
                         if cycle >= 2 {
                             windows.append(HitchWindow(
@@ -470,10 +682,15 @@ final class OutlineHitchLab: VisualLabCase {
                 frames.stop()
                 stress.stop()
 
-                report.append(summarise(
+                var summary = summarise(
                     scenario: scenario.name, load: load, windows: windows,
                     ticks: frames.ticks
-                ))
+                )
+                if scenario.name == "hud-hold" {
+                    summary["holds"] = Self.holdSummary(runs: rig.hudProbe.runs, ticks: frames.ticks)
+                    rig.hudProbe.reset()
+                }
+                report.append(summary)
             }
         }
         return report
@@ -561,6 +778,55 @@ final class OutlineHitchLab: VisualLabCase {
         return ["scenario": scenario, "load": load, "periodMs": period * 1000, "steps": steps]
     }
 
+    /// Press→frame latency and the tail, per hold, over the measured cycles
+    /// (the first two of each are warm-up, as everywhere in this lab).
+    ///
+    /// A reading that reaches the main thread at `t` is drawn in the frame of
+    /// the first display-link callback that runs after it: that callback's
+    /// target timestamp is when the bar is on the glass.
+    private static func holdSummary(runs: [HUDHoldProbe.Run], ticks: [FrameRecorder.Tick]) -> [[String: Any]] {
+        func frame(after time: CFTimeInterval) -> CFTimeInterval? {
+            ticks.first { $0.ranAt >= time }?.target
+        }
+        func percentile(_ values: [Double], _ p: Double) -> Double {
+            guard !values.isEmpty else { return 0 }
+            let sorted = values.sorted()
+            return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
+        }
+        var result: [[String: Any]] = []
+        for name in Set(runs.map(\.name)).sorted() {
+            let measured = runs.filter { $0.name == name }.dropFirst(2)
+            var latencies: [Double] = []
+            var tailFrames: [Double] = []
+            var tailMs: [Double] = []
+            var writes: [Double] = []
+            for run in measured {
+                let shown = run.arrivals.compactMap { arrival in frame(after: arrival.time).map { ($0, arrival.press) } }
+                for (index, pressed) in run.pressTimes.enumerated() {
+                    guard let first = shown.first(where: { $0.1 >= index }) else { continue }
+                    latencies.append((first.0 - pressed) * 1000)
+                }
+                guard let last = run.pressTimes.last else { continue }
+                let after = Set(run.arrivals.filter { $0.time > last }.compactMap { frame(after: $0.time) })
+                tailFrames.append(Double(after.count))
+                tailMs.append(((shown.map(\.0).max() ?? last) - last) * 1000)
+                writes.append(Double(run.writes))
+            }
+            func mean(_ v: [Double]) -> Double { v.reduce(0, +) / Double(max(1, v.count)) }
+            result.append([
+                "hold": name,
+                "samples": measured.count,
+                "pressToFrameP50Ms": percentile(latencies, 0.5),
+                "pressToFrameP95Ms": percentile(latencies, 0.95),
+                "pressToFrameMaxMs": latencies.max() ?? 0,
+                "meanFramesChangedAfterRelease": mean(tailFrames),
+                "meanLastChangeAfterReleaseMs": mean(tailMs),
+                "meanWrites": mean(writes),
+            ])
+        }
+        return result
+    }
+
     private static func loadAverage() -> Double {
         var loads = [Double](repeating: 0, count: 3)
         getloadavg(&loads, 3)
@@ -583,6 +849,20 @@ final class OutlineHitchLab: VisualLabCase {
                     step["meanMainCPUMs"] as? Double ?? 0, step["worstGapMs"] as? Double ?? 0,
                     step["worstFrameCPUMs"] as? Double ?? 0, step["meanHeavyFrames"] as? Double ?? 0,
                     step["meanCPUOverrunMs"] as? Double ?? 0
+                ))
+            }
+        }
+        for result in results {
+            for hold in (result["holds"] as? [[String: Any]]) ?? [] {
+                lines.append(String(
+                    format: "%-18@ %-9@ %-26@ press→frame p50 %6.1f ms  p95 %6.1f ms  max %6.1f ms  after release: %4.1f frames, last %6.1f ms  writes %5.1f",
+                    "hud-hold" as NSString, (result["load"] as? String ?? "") as NSString,
+                    (hold["hold"] as? String ?? "") as NSString,
+                    hold["pressToFrameP50Ms"] as? Double ?? 0, hold["pressToFrameP95Ms"] as? Double ?? 0,
+                    hold["pressToFrameMaxMs"] as? Double ?? 0,
+                    hold["meanFramesChangedAfterRelease"] as? Double ?? 0,
+                    hold["meanLastChangeAfterReleaseMs"] as? Double ?? 0,
+                    hold["meanWrites"] as? Double ?? 0
                 ))
             }
         }

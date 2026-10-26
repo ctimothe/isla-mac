@@ -1,6 +1,21 @@
 import AppKit
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
+
+/// Where System Settings keeps one of its own pane icons (native pass,
+/// 2026-10-25). The system describes these rather than shipping images —
+/// a `com.apple.graphic-icon.*` type declared in CoreTypes, or a Settings
+/// extension's own bundle — and IconServices draws both through public API.
+/// Isla reads them at runtime and ships none.
+enum SystemPaneIcon: Equatable, Hashable {
+    /// `NSWorkspace.icon(for: UTType(identifier))`, when the type is declared.
+    case graphicIcon(String)
+    /// `NSWorkspace.icon(forFile: path)`, only when the bundle at `path` is
+    /// the one named: an extension's identifier does not resolve through
+    /// LaunchServices, so it is found by path, and a path alone is not proof.
+    case settingsExtension(path: String, bundleID: String)
+}
 
 /// The real icon and the real name of an app the person has installed.
 ///
@@ -48,13 +63,46 @@ final class AppIcons: ObservableObject {
         var applicationURL: (String) -> URL?
         var icon: (URL) -> NSImage
         var displayName: (URL) -> String
+        /// A System Settings pane icon, or nil when this macOS has none — a
+        /// type an older release does not declare, or an extension that is not
+        /// where it was. Defaults to none, so a test's fake Mac draws the
+        /// fallback tiles and never asks IconServices.
+        var systemIcon: (SystemPaneIcon) -> NSImage? = { _ in nil }
 
         static let system = Lookups(
             applicationURL: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) },
             icon: { NSWorkspace.shared.icon(forFile: $0.path) },
-            displayName: { AppIcons.cleaned(FileManager.default.displayName(atPath: $0.path)) }
+            displayName: { AppIcons.cleaned(FileManager.default.displayName(atPath: $0.path)) },
+            systemIcon: { source in
+                switch source {
+                case .graphicIcon(let identifier):
+                    guard AppIcons.graphicIconTypeExists(identifier), let type = UTType(identifier) else { return nil }
+                    return NSWorkspace.shared.icon(for: type)
+                case .settingsExtension(let path, let bundleID):
+                    guard AppIcons.extensionMatches(path: path, bundleID: bundleID) else { return nil }
+                    return NSWorkspace.shared.icon(forFile: path)
+                }
+            }
         )
     }
+
+    /// True when the system declares the type. `UTType(_:)` answers a
+    /// dynamic type for an identifier nobody declared, and `icon(for:)` of
+    /// that is a blank document — "not available", not an icon.
+    nonisolated static func graphicIconTypeExists(_ identifier: String) -> Bool {
+        guard let type = UTType(identifier) else { return false }
+        return type.isDeclared && !type.isDynamic
+    }
+
+    nonisolated static func extensionMatches(path: String, bundleID: String) -> Bool {
+        Bundle(path: path)?.bundleIdentifier == bundleID
+    }
+
+    /// Isla's own icon for About. The running app's, except in the visual
+    /// lab, whose xctest host has none of its own (it drew a red-tinted
+    /// folder there and misled every render of About).
+    static var islaIconOverride: NSImage?
+    static var islaIcon: NSImage { islaIconOverride ?? NSApplication.shared.applicationIconImage }
 
     /// Apple Music is «Music» on disk — and «Музыка» on a Russian Mac — while
     /// every other line of Isla (the Automation rows, the Open buttons, the
@@ -74,6 +122,8 @@ final class AppIcons: ObservableObject {
     /// `nil` inside is "asked, not installed": asking again would cost the same
     /// IPC for the same answer.
     private var cache: [String: Installed?] = [:]
+    /// The same for System Settings' pane icons; `nil` inside is "asked, none".
+    private var systemCache: [SystemPaneIcon: NSImage?] = [:]
 
     /// Counts `refresh()`. Views that draw an icon observe this object, so a
     /// refresh that finds a newly installed app redraws them; it is not read.
@@ -105,6 +155,15 @@ final class AppIcons: ObservableObject {
     /// The icon alone, for the views that draw one.
     func icon(_ bundleID: String) -> NSImage? { app(bundleID)?.icon }
 
+    /// One of System Settings' own pane icons, asked once per source between
+    /// refreshes, or nil for the caller's drawn tile.
+    func systemIcon(_ source: SystemPaneIcon) -> NSImage? {
+        if let cached = systemCache[source] { return cached }
+        let image = lookups.systemIcon(source)
+        systemCache[source] = .some(image)
+        return image
+    }
+
     /// The installed ones among `bundleIDs`, in the order given.
     func installed<S: Sequence>(_ bundleIDs: S) -> [Installed] where S.Element == String {
         bundleIDs.compactMap(app)
@@ -114,6 +173,7 @@ final class AppIcons: ObservableObject {
     /// needs an icon, and only for the apps it draws.
     func refresh() {
         cache.removeAll()
+        systemCache.removeAll()
         generation += 1
     }
 

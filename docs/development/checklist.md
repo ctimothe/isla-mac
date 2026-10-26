@@ -29,7 +29,11 @@ went with them. The app now claims one entitlement of its own,
 keychain access group at bundle time, see `Scripts/bundle.sh`), which the hardened runtime
 requires before Isla can script Music or Spotify at all. That covers the
 fallback, and also shuffle, repeat, the Spotify track id behind the heart,
-and, while lyrics are on, the per-second position correction. So macOS asks
+and, while lyrics are on, the per-second position correction. Since
+2026-10-26 it also reads and sets Music's and Spotify's own `sound volume`
+from the lyric stage's Volume control, only once that control is pressed
+(spec §19.6); every other app's volume there is the Mac's output, so no audio
+capture or new permission is involved. So macOS asks
 the first time the panel opens on Music or Spotify, not only when the
 fallback is used; the consent is refusable, and refusing it costs those
 controls and nothing else. Corrected 2026-09-23: this note and the prompt's
@@ -193,6 +197,14 @@ are the exception the design did not anticipate:
   a scope would make every connected user consent again, so it is the
   owner's call. A refusal is asked about again after ten minutes, and a
   disconnect or a new grant clears it (`SpotifyAccountTests`).
+  Since 2026-10-25 (Settings › Connections) a completed grant is followed by
+  one `GET /v1/me`, which asks for nothing new under the same scopes and
+  only after the person pressed Connect: Development Mode refuses an unlisted
+  account on the first Web-API call, and this one call makes Connect say so
+  at once instead of at the first Spotify song. Nothing new is off by
+  default because nothing runs before Connect, which stays the consent. The
+  sign-in steps are logged under `com.ctimothe.isla` / `spotify` with no
+  token, code or verifier.
 - **Lock-screen card** (Settings › Lock Screen, default on) presents the
   player over the shield, in a window of its own, finished as Transparent,
   Tinted or Solid and sized Standard or Compact. The
@@ -2502,3 +2514,105 @@ Mac model and macOS version when run):
   cover fades in; the lyrics are never of the wrong song, and with slow online
   lyrics only the subtitle turns to the sung line. Under Reduce Motion the
   swap is a fade. Previous a few seconds in restarts without a hold.
+- [ ] **MR-H10** The volume pop-up keeps pace with the key (spec §12, amended
+  2026-10-25: predicted level, one writer). With music playing, hold volume
+  up for 3 s and then down, on the built-in speakers, on EarPods and on
+  AirPods: the bar moves with every repeat, stops the instant the key is
+  released, and takes no catch-up steps afterwards; the sound follows within a
+  step. Move the menu-bar volume slider, then press volume up: it steps from
+  where the slider left it. Connect AirPods in the middle of a hold: the
+  AirPods are never set to the speakers' level. The mute key still toggles,
+  and with Volume and Brightness off (or Accessibility missing) the system's
+  own pop-up appears instead, unchanged. With the panel open on the player,
+  holding the key redraws nothing but the capsule (Instruments, "hud"
+  signposts: "level queued" to "hud presented" within one frame). Lab
+  numbers: spec §12's amendment.
+- [ ] **MR-H11** Swipe to Open and Close (spec §19.16, amended 2026-10-25).
+  Two fingers down over the shut island open the panel on what a click opens,
+  and over the Shelf's bubble the tray; two fingers up on the header row (and
+  anywhere on the player) close it to the shut island, pinned or not. Check
+  with natural scrolling on and off, on a trackpad and a Magic Mouse; a notched
+  wheel never opens it. A short or taken-back pull settles back; the outline
+  gives a few points as the fingers track and springs back (none under Reduce
+  Motion). Up-and-down scrolling in the Shelf's grid, Clipboard's list, the
+  lyric stage, Settings and Translate is untouched, and the glide of a flick
+  there that reaches the header never closes the panel; a sideways swipe still
+  turns pages. Notification Center's two-finger swipe from the right edge and
+  Mission Control still work. Over the lock screen a pull down shakes and opens
+  nothing. With the setting off, nothing happens.
+- [ ] **MR-H12** The level capsule sits under the panel that is on screen
+  (spec §19.5 d, amended 2026-10-26). Press volume, and brightness, with the
+  panel open on the player, the Shelf, Clipboard, Translate, the lyric stage and
+  Settings; then with the capsule up click a dot (and ⌃Tab) from Clipboard to
+  Music; press during a sideways swipe, released both to turn the page and to
+  spring back; and press right after a song skip on the player and on the
+  stage. Every time the capsule is 6 pt under the visible panel's bottom edge,
+  centred, and follows the outline as it springs to a new size, never left
+  under a taller page.
+- [ ] **MR-H13** The Shelf's selection is Finder's (spec §8, amended
+  2026-10-26). A clicked tile shows a grey backdrop and no ring; its date and
+  time (or name) sit white on rounded fills in the accent colour set in System
+  Settings › Appearance — change the accent with the tray open and the next
+  click shows the new one. ⌘- and ⇧-clicks pick several the same way; a file
+  dropped that is already on the Shelf still flashes its ring.
+- [ ] **MR-H14** The lyric stage's Volume (spec §19.6, amended 2026-10-26).
+  With Spotify playing, open the stage and press the speaker: macOS asks
+  once whether Isla may control Spotify (only if it has not been asked yet;
+  never at launch or on opening the stage). Drag the slider: Spotify's own
+  volume follows the finger, the menu bar's Sound level does not move, and
+  the speaker's glyph tracks the level; it folds 3 s after letting go or on a
+  click on the lyrics. The same with Music. With Safari (YouTube) playing,
+  the slider moves the Mac's volume and the menu bar's level follows. Deny
+  Isla under Privacy & Security › Automation for Spotify, reopen the slider:
+  it moves the Mac's volume and shows one line, "Allow Isla to control
+  Spotify…", which opens that Settings pane. With VoiceOver, the speaker is
+  heard as "Spotify volume, N percent" and VO-Up / VO-Down step it 5 %.
+- [ ] **MR-H15** MagSafe and USB-C each have their Charging activity (spec
+  §19.4, amended 2026-10-26). On a MacBook with MagSafe, pointer away from
+  the notch, panel shut: plug in **MagSafe** → about 0.6 s later the island
+  shows "MagSafe", the level and a green ring drawing round to it with a bolt
+  inside, a green stroke, for 3 s; VoiceOver says "Charging over MagSafe, N
+  percent" once. Unplug, plug a **USB-C charger** → "61 W" (the adapter's
+  rating), the level and the battery with the bolt; "Charging over USB-C".
+  With MagSafe charging and a USB-C display plugged in as well → MagSafe.
+  A **USB-C display or hub alone**, on battery → nothing. **Unplug** →
+  nothing. Below 20 percent → the level, ring or battery and the stroke are
+  red. With Optimized Battery Charging **holding at 80 %** → "Not Charging",
+  white, and VoiceOver says "not charging". Plug in with the pointer resting
+  on the island, move it away and wait for the adapter's renegotiation
+  (unplug and replug within 5 s): the second plug-in shows. Replugging within
+  30 s of a moment that showed does not show again. Record the Mac model,
+  macOS version and adapter.
+- [ ] **MR-H16** Settings looks native (spec §10, amended 2026-10-25). Open
+  Settings on every section, beside System Settings on the same Mac, in dark
+  and in Russian, at 480, 560 and 620: labels 13 pt, footers 11 pt grey, rows
+  as tall as System Settings', no edge round the groups. The sidebar's
+  General, Privacy, Shortcuts, Screenshots, Lock Screen and Connections show
+  System Settings' own icons; About shows Isla's. Change the accent colour in
+  System Settings › Appearance with Settings open: the sidebar selection, the
+  switches, the sliders, the segmented controls, the bordered buttons, Update
+  Now, the shortcut recorder's ring and the Lock Screen style ring all follow
+  it, and nothing in Settings is Isla's red or a fixed blue. Click every
+  segment of Show Next Line Early and of the Lock Screen style: the panel is
+  not key, and each still draws its selected segment active and takes one
+  click; with VoiceOver the row reads as a radio group named by its title.
+  Open every pop-up (Translate To, the language rows) from the panel while
+  another app is active: the menu opens on the first click and its choice
+  lands. Under Increase Contrast the groups and the switch's off track keep
+  their outline. Russian sidebar titles fit without truncating. Record the
+  Mac model and macOS version.
+- [ ] **MR-H17** Connections lists the players and Spotify says why (spec
+  §10, amended 2026-10-25). Settings › Connections lists Apple Music and
+  Spotify first, then each of YouTube Music, Amazon Music, Deezer, TIDAL,
+  Yandex Music, Pandora and Qobuz that is installed, each with its real icon
+  and the name the Finder shows; uninstall one and reopen the panel: its row
+  is gone. With Spotify not installed its row still offers Connect…. Press
+  Connect… with an account that is not listed in Isla's Spotify dashboard:
+  one line under the row says Spotify has not admitted the account (not a
+  generic failure), and the star never appears on the player or the lock
+  card. Cancel on the consent page: "Spotify sign-in was cancelled.". With the
+  network off: "Isla couldn't reach Spotify.". With a listed account: the
+  line clears, the row shows Disconnect, and the star works. Meanwhile
+  `log show --last 5m --predicate 'subsystem == "com.ctimothe.isla"'` shows
+  each step (browser opened, consent approved, exchange succeeded or its
+  status and Spotify's error, the access check), and no token or code.

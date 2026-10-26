@@ -84,6 +84,10 @@ enum SystemVolume {
     /// 0…1 for `device`, or nil when nothing on it can be set.
     static func level(device: AudioDeviceID) -> Float? {
         guard let control = control(device: device) else { return nil }
+        return level(device: device, control: control)
+    }
+
+    private static func level(device: AudioDeviceID, control: Control) -> Float? {
         // Read through the control the write goes through, so the bar at
         // release shows the level the drag set rather than an average that a
         // kept balance pulls off the finger.
@@ -128,6 +132,86 @@ enum SystemVolume {
         let wroteLeft = write(levels.left, device: device, channel: 1)
         let wroteRight = write(levels.right, device: device, channel: 2)
         return wroteLeft || wroteRight
+    }
+
+    // MARK: - Resolved once (the volume keys, 2026-10-25)
+
+    /// Which control a device's level goes through, and whether its mute can
+    /// be set, found once — when the tap starts or the default output moves —
+    /// so a volume key's write is one set call rather than a lookup, two
+    /// capability questions and the set (`SystemVolumeOutput`).
+    struct Resolved: Equatable, Sendable {
+        var device: AudioDeviceID
+        var control: Control
+        var hasMute: Bool
+        var muteSettable: Bool
+    }
+
+    /// Nil when nothing on `device` can be set (K-008).
+    static func resolve(device: AudioDeviceID) -> Resolved? {
+        guard let control = control(device: device) else { return nil }
+        var address = muteAddress
+        let hasMute = AudioObjectHasProperty(device, &address)
+        var settable: DarwinBoolean = false
+        let muteSettable = hasMute
+            && AudioObjectIsPropertySettable(device, &address, &settable) == noErr && settable.boolValue
+        return Resolved(device: device, control: control, hasMute: hasMute, muteSettable: muteSettable)
+    }
+
+    static func level(_ resolved: Resolved) -> Float? {
+        level(device: resolved.device, control: resolved.control)
+    }
+
+    static func isMuted(_ resolved: Resolved) -> Bool {
+        guard resolved.hasMute else { return false }
+        var address = muteAddress
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(resolved.device, &address, 0, nil, &size, &value) == noErr else {
+            return false
+        }
+        return value != 0
+    }
+
+    /// One set call through the resolved control; the per-channel fallback
+    /// (rare: a device with neither main control) still reads both channels to
+    /// keep their balance (G-023).
+    static func set(_ value: Float, _ resolved: Resolved) -> OSStatus {
+        let clamped = min(max(value, 0), 1)
+        let device = resolved.device
+        switch resolved.control {
+        case .virtualMain:
+            return setScalar(clamped, device: device, selector: virtualMainSelector, channel: kAudioObjectPropertyElementMain)
+        case .main:
+            return setScalar(clamped, device: device, channel: kAudioObjectPropertyElementMain)
+        case .channels:
+            let left = scalar(device: device, channel: 1)
+            let right = scalar(device: device, channel: 2)
+            let levels = channelLevels(setting: clamped, from: (left ?? right ?? 0, right ?? left ?? 0))
+            let wroteLeft = setScalar(levels.left, device: device, channel: 1)
+            let wroteRight = setScalar(levels.right, device: device, channel: 2)
+            return wroteLeft == noErr || wroteRight == noErr ? noErr : wroteLeft
+        }
+    }
+
+    static func setMuted(_ muted: Bool, _ resolved: Resolved) -> OSStatus {
+        guard resolved.muteSettable else { return OSStatus(kAudioHardwareUnknownPropertyError) }
+        var address = muteAddress
+        var value: UInt32 = muted ? 1 : 0
+        let size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectSetPropertyData(resolved.device, &address, 0, nil, size, &value)
+    }
+
+    private static func setScalar(
+        _ value: Float,
+        device: AudioDeviceID,
+        selector: AudioObjectPropertySelector = kAudioDevicePropertyVolumeScalar,
+        channel: AudioObjectPropertyElement
+    ) -> OSStatus {
+        var address = address(selector, channel: channel)
+        var scalar = Float32(value)
+        let size = UInt32(MemoryLayout<Float32>.size)
+        return AudioObjectSetPropertyData(device, &address, 0, nil, size, &scalar)
     }
 
     // MARK: - Mute

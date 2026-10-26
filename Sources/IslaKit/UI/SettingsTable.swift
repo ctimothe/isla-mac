@@ -9,7 +9,7 @@ import Foundation
 /// from the table, or the other way round. `SettingsTableTests` holds the
 /// order, the titles, the icons and the colours.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, privacy, shortcuts, music, lyrics, lockScreen, translate, spotify, screenshots, about
+    case general, privacy, shortcuts, music, lyrics, lockScreen, translate, connections, screenshots, about
 
     var id: String { rawValue }
 
@@ -23,7 +23,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// is stored is a section this build does not have, which a downgrade or a
     /// hand-written default can leave.
     static func stored(in defaults: UserDefaults) -> SettingsSection {
-        defaults.string(forKey: storageKey).flatMap(SettingsSection.init(rawValue:)) ?? .default
+        let stored = defaults.string(forKey: storageKey)
+        // Connections took the Spotify section's place on 2026-10-25; a Mac
+        // last left on Spotify opens where Spotify now lives.
+        if stored == "spotify" { return .connections }
+        return stored.flatMap(SettingsSection.init(rawValue:)) ?? .default
     }
 
     func store(in defaults: UserDefaults) {
@@ -42,32 +46,56 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .lyrics: return localized("Lyrics")
         case .lockScreen: return localized("Lock Screen")
         case .translate: return localized("Translate")
-        case .spotify: return localized("Spotify")
+        case .connections: return localized("Connections")
         case .screenshots: return localized("Screenshots")
         case .about: return localized("About")
         }
     }
 
-    /// What the 18 pt tile at the head of the row draws: a symbol on the
-    /// section's colour, or — for the two sections that are an app — that app's
-    /// own mark, as System Settings draws one for each app that has a pane.
+    /// What the tile at the head of the row draws (native pass, 2026-10-25,
+    /// redesign spec §10 amended): System Settings' own icon for the pane
+    /// Isla's section mirrors, read from the system at runtime; a tile drawn
+    /// the System Settings way — a white symbol on a system colour — where the
+    /// system has no such pane or this macOS cannot draw it; and Isla's own
+    /// icon for About. Nothing is shipped.
     enum Glyph: Equatable {
         case symbol(String, Theme.SettingsTint)
-        case spotify
+        case system(SystemPaneIcon, fallback: String, Theme.SettingsTint)
         case isla
+
+        /// The symbol a drawn tile carries, when the glyph can be one.
+        var fallbackSymbol: String? {
+            switch self {
+            case .symbol(let name, _), .system(_, let name, _): return name
+            case .isla: return nil
+            }
+        }
     }
+
+    private static let extensions = "/System/Library/ExtensionKit/Extensions/"
 
     var glyph: Glyph {
         switch self {
-        case .general: return .symbol("gearshape", .grey)
-        case .privacy: return .symbol("hand.raised", .blue)
-        case .shortcuts: return .symbol("keyboard", .grey)
+        case .general: return .system(.graphicIcon("com.apple.graphic-icon.gear"), fallback: "gearshape.fill", .grey)
+        case .privacy: return .system(.graphicIcon("com.apple.graphic-icon.privacy"), fallback: "hand.raised.fill", .blue)
+        case .shortcuts: return .system(.graphicIcon("com.apple.graphic-icon.keyboard"), fallback: "keyboard.fill", .grey)
+        // The section governs every player, not only Apple Music, so not the
+        // Music app's icon (spec 2026-10-25-settings-native-polish §2).
         case .music: return .symbol("music.note", .rose)
         case .lyrics: return .symbol("quote.bubble.fill", .orange)
-        case .lockScreen: return .symbol("lock.display", .indigo)
+        case .lockScreen:
+            return .system(.settingsExtension(
+                path: Self.extensions + "LockScreen.appex", bundleID: "com.apple.Lock-Screen-Settings.extension"
+            ), fallback: "lock.display", .indigo)
+        // No Translate pane exists, and Language & Region's globe would mislead.
         case .translate: return .symbol("translate", .blue)
-        case .spotify: return .spotify
-        case .screenshots: return .symbol("photo.on.rectangle", .grey)
+        // Internet Accounts: where a Mac lists the accounts its apps use.
+        case .connections:
+            return .system(.settingsExtension(
+                path: Self.extensions + "InternetAccountsSettingsExtension.appex",
+                bundleID: "com.apple.Internet-Accounts-Settings.extension"
+            ), fallback: "at", .blue)
+        case .screenshots: return .system(.graphicIcon("com.apple.graphic-icon.screenshots"), fallback: "camera.viewfinder", .grey)
         case .about: return .isla
         }
     }
@@ -100,7 +128,7 @@ enum SettingsDefault: Equatable {
 @MainActor
 enum SettingsRowID: String, CaseIterable, Hashable {
     // General
-    case launchAtLogin, openLoginItems, openOnHover, hoverDelay, panelWidth
+    case launchAtLogin, openLoginItems, openOnHover, hoverDelay, swipeToOpen, panelWidth
     case charging, headphones, newTracks, volumeAndBrightness, accessibilityPermission
     // Privacy
     case clipboardHistory, includeImages, keepPinned
@@ -119,8 +147,8 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     case showOnLockScreen, cardStyle, restAsBanner, cardSize
     // Translate
     case translateOnline, keepHistory, speakButton, translationLanguages
-    // Spotify
-    case spotifyHead, spotifyAccount, spotifyImport
+    // Connections
+    case appleMusicConnection, spotifyConnection, spotifyImport, otherConnections
     // Screenshots
     case saveClipboardScreenshots, showScreenCaptures, showScreenshotsFolder, clearScreenshotsFolder
     // About
@@ -146,7 +174,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
 
     var kind: Kind {
         switch self {
-        case .launchAtLogin, .openOnHover, .charging, .headphones, .newTracks, .volumeAndBrightness,
+        case .launchAtLogin, .openOnHover, .swipeToOpen, .charging, .headphones, .newTracks, .volumeAndBrightness,
              .clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording,
              .musicOnly, .volumeAndOutput, .lyricBand, .showLyrics, .wordKaraoke, .translateLyrics,
              .lookUpLyricsOnline, .showOnLockScreen, .restAsBanner, .translateOnline, .keepHistory, .speakButton,
@@ -163,7 +191,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .openLoginItems, .restoreShortcuts, .nowPlayingReader, .automationPermission, .accessibilityPermission,
              .resetLyricDelay,
              .openLyricsFolder, .addLyricsFolder, .importLRC, .rescanLocalLyrics, .clearImportedLyrics,
-             .clearBindings, .translationLanguages, .spotifyAccount, .spotifyImport, .showScreenshotsFolder,
+             .clearBindings, .translationLanguages, .spotifyImport, .showScreenshotsFolder,
              .clearScreenshotsFolder, .updateStatus, .updateNow, .updateMoreInfo, .updateCancel, .updateRetry,
              .updateQuit, .downloadUpdate, .quit:
             return .push
@@ -171,8 +199,8 @@ enum SettingsRowID: String, CaseIterable, Hashable {
             return .link
         case .automationStatus:
             return .value
-        case .lyricDelay, .cardStyle, .libraryFolders, .unassignedCorrections, .installedPlayers, .spotifyHead, .aboutHead,
-             .updatePanel:
+        case .lyricDelay, .cardStyle, .libraryFolders, .unassignedCorrections, .installedPlayers, .aboutHead,
+             .updatePanel, .appleMusicConnection, .spotifyConnection, .otherConnections:
             return .custom
         }
     }
@@ -186,6 +214,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .openLoginItems: return localized("Open Login Items…")
         case .openOnHover: return localized("Open on Hover")
         case .hoverDelay: return localized("Hover Delay")
+        case .swipeToOpen: return localized("Swipe to Open and Close")
         case .panelWidth: return localized("Panel Width")
         // Not "Charging": that is the island's word since spec §19.14
         // («Зарядка»), and the row's Russian was an accusative («Зарядку»)
@@ -238,9 +267,11 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .keepHistory: return localized("Keep History")
         case .speakButton: return localized("Speak Button")
         case .translationLanguages: return localized("Translation Languages…")
-        case .spotifyHead: return localized("Spotify")
-        case .spotifyAccount: return localized("Account")
+        case .appleMusicConnection: return PlayerApp.music.displayName
+        case .spotifyConnection: return PlayerApp.spotify.displayName
         case .spotifyImport: return localized("From another Mac")
+        // What VoiceOver calls the list of the other services.
+        case .otherConnections: return localized("Other Services")
         case .saveClipboardScreenshots: return localized("Save Clipboard Screenshots")
         case .showScreenCaptures: return localized("Show Screen Captures")
         case .showScreenshotsFolder: return localized("Show Screenshots Folder")
@@ -289,6 +320,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         switch self {
         case .openOnHover: return NotchViewModel.opensOnHoverKey
         case .hoverDelay: return NotchViewModel.hoverDelayKey
+        case .swipeToOpen: return NotchViewModel.swipeToOpenKey
         case .panelWidth: return NotchViewModel.bodyWidthKey
         case .charging: return NotchViewModel.chargingKey
         case .headphones: return NotchViewModel.headphonesKey
@@ -330,6 +362,9 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .launchAtLogin: return .off
         case .openOnHover: return .off
         case .hoverDelay: return .number(NotchMetrics.openDelay)
+        // On: the gesture is local, reaches nothing beyond the Mac, and is
+        // heard only over the island's own hit region (owner, 2026-10-25).
+        case .swipeToOpen: return .on
         case .panelWidth: return .number(Double(NotchMetrics.defaultBodyWidth))
         case .charging, .headphones, .newTracks: return .on
         case .volumeAndBrightness: return .off
@@ -459,8 +494,11 @@ struct SettingsContext: Equatable {
     var hasUnassignedCorrections = false
     // Lock Screen
     var showOnLockScreen = true
-    // Spotify: `SettingsPane.spotifyRows`, as it already was.
-    var spotify: [SettingsPane.SpotifyRow] = [.connect]
+    // Connections: the Spotify row's state (`SettingsPane.spotifyConnection`)
+    // and the other services installed here (`PlayerConnections`). Only
+    // filled while Connections is on screen.
+    var spotify = SettingsPane.SpotifyConnectionState()
+    var otherConnections: [PlayerConnections.Row] = []
     // About
     /// The update card and its buttons (`UpdatePresentation`).
     var update = UpdatePresentation.initial
@@ -493,7 +531,7 @@ enum SettingsTable {
         case .lyrics: return lyrics(c)
         case .lockScreen: return lockScreen(c)
         case .translate: return translate(c)
-        case .spotify: return spotify(c)
+        case .connections: return connections(c)
         case .screenshots: return screenshots(c)
         case .about: return about(c)
         }
@@ -512,7 +550,7 @@ enum SettingsTable {
         // The hover delay is only worth a row while a hover is what opens the
         // panel; the default is nearly instant, which suits a real notch.
         if c.opensOnHover { first.append(.hoverDelay) }
-        first.append(.panelWidth)
+        first += [.swipeToOpen, .panelWidth]
         blocks.append(.group(first))
         if let note = c.launchNote { blocks.append(.footnote(note)) }
         if c.offersLoginItems { blocks.append(.buttons([.openLoginItems])) }
@@ -733,19 +771,17 @@ enum SettingsTable {
         ]
     }
 
-    /// The Spotify section from `SettingsPane.spotifyRows`: what just happened,
-    /// the action, storage, refusal, what disconnecting keeps. Notes are inline,
-    /// never a toast: the person acted on this section, so this section answers.
-    private static func spotify(_ c: SettingsContext) -> [SettingsBlock] {
-        var account: [SettingsRowID] = [.spotifyAccount]
-        if c.spotify.contains(.importAccount) { account.append(.spotifyImport) }
-        var blocks: [SettingsBlock] = [
-            .header(localized("Spotify")),
-            .free(.spotifyHead),
-            .group(account),
-        ]
-        for case let .note(text) in c.spotify { blocks.append(.footnote(text)) }
-        return blocks
+    /// Connections (2026-10-25): one group, one row per service — Apple Music
+    /// and Spotify always, Import under Spotify only when there is an account
+    /// to bring across, then every other service installed here. No footnote:
+    /// each row says what is true in its own second line, and a Spotify
+    /// failure is the one line under the Spotify row (one failure surface;
+    /// the person acted on that row, so that row answers).
+    private static func connections(_ c: SettingsContext) -> [SettingsBlock] {
+        var rows: [SettingsRowID] = [.appleMusicConnection, .spotifyConnection]
+        if c.spotify.offersImport { rows.append(.spotifyImport) }
+        if !c.otherConnections.isEmpty { rows.append(.otherConnections) }
+        return [.header(localized("Connections")), .group(rows)]
     }
 
     private static func screenshots(_ c: SettingsContext) -> [SettingsBlock] {

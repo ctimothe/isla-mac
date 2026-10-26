@@ -261,6 +261,10 @@ final class NotchViewModel: ObservableObject {
                 endCollectedMoment()
                 pageTravel.finish()
                 pageSwipe = PageSwipe()
+                // A pull under way does not cross the lock: the shell it was
+                // stretching is not drawn over the shield.
+                islandPull = IslandPull()
+                pullStretch.track(0)
             }
         }
     }
@@ -398,6 +402,12 @@ final class NotchViewModel: ObservableObject {
     /// The swipe under way: what its first 10 pt decided, and where its
     /// fingers have the pages.
     private var pageSwipe = PageSwipe()
+    /// The vertical two-finger pull that opens and closes the panel
+    /// (`IslandPull`), fed by the controller's scroll monitor.
+    private var islandPull = IslandPull()
+    /// What the pull draws while the fingers track: watched by the shell's
+    /// outline alone.
+    let pullStretch = IslandPullStretch()
     /// Set while the pages turn `surface` themselves, so their own turn does
     /// not end their travel.
     private var isTurningByTravel = false
@@ -986,14 +996,13 @@ final class NotchViewModel: ObservableObject {
     /// What every surface draws of the song, swapped once per song
     /// (`NowPlayingPresenter`). Owned here, beside the tint it now carries.
     let nowPlaying: NowPlayingPresenter
-    /// The machine's audio state for the player's volume slider and Output
-    /// menu. Started and stopped by the Music pane while it is on screen — a
-    /// listener on CoreAudio costs nothing while nobody looks — and *quiet*
-    /// under test: a pane built in a test must never reach the owner's output
-    /// devices, even to read them.
-    let playerAudio: AudioWatch = PlayerBridge.isRunningTests
-        ? AudioWatch(read: { ([], nil, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {})
-        : AudioWatch()
+    /// The machine's audio route for the player's Output button and menu —
+    /// the outputs and the current device, never the volume
+    /// (`AudioWatch.followsLevel`, 2026-10-25). Started and stopped by the
+    /// Music pane while it is on screen — a listener on CoreAudio costs nothing
+    /// while nobody looks — and *quiet* under test: a pane built in a test must
+    /// never reach the owner's output devices, even to read them.
+    let playerAudio: AudioWatch = AudioWatch.player()
     /// The session's stores, borrowed rather than owned — see `NotchStores`.
     private let stores: NotchStores
 
@@ -1999,6 +2008,11 @@ final class NotchViewModel: ObservableObject {
         UserDefaults.standard.bool(forKey: opensOnHoverKey)
     }
 
+    /// Swipe to Open and Close (`IslandPull`), on unless switched off. Read at
+    /// each gesture's began, so the switch takes effect on the next swipe.
+    static let swipeToOpenKey = "island.swipeToOpen"
+    static var swipeToOpenEnabled: Bool { SettingsRowID.swipeToOpen.isOn(in: .standard) }
+
     /// How long a pointer rests on the notch before the panel opens.
     static let hoverDelayKey = "hoverOpenDelay"
 
@@ -2231,6 +2245,33 @@ final class NotchViewModel: ObservableObject {
             pageTravel.settle(to: target, velocity: velocity, reduceMotion: SystemAppearance.shared.reduceMotion)
             return true
         }
+    }
+
+    /// One scroll event that landed on the panel, for the vertical pull: what
+    /// the pull says, with its stretch drawn here. The controller swallows the
+    /// event for anything but `.pass` and plays out an open, a close or a
+    /// refusal — the panel's machinery is its, as a click's is.
+    ///
+    /// It runs beside `pageScroll`, not inside it: the pages hear events only
+    /// while a page is open, and the pull is mostly for the shut island. The
+    /// two cannot both take a gesture — the first 10 pt give it to one or the
+    /// other, by its direction — so neither asks the other.
+    func pullScroll(_ event: PageScroll, region: IslandPull.Region) -> IslandPull.Outcome {
+        let context = IslandPull.Context(
+            enabled: Self.swipeToOpenEnabled, isOpen: isOpen, locked: isLockedPresentation, region: region,
+            surface: presented, travelling: pageTravel.leg != nil
+        )
+        let outcome = islandPull.handle(event, context)
+        let reduceMotion = SystemAppearance.shared.reduceMotion
+        switch outcome {
+        case .stretch(let points):
+            pullStretch.track(reduceMotion || isLockedPresentation ? 0 : points)
+        case .open, .close, .refuse, .settle:
+            pullStretch.settle(reduceMotion: reduceMotion)
+        case .pass, .swallow:
+            break
+        }
+        return outcome
     }
 
     /// A dot, VoiceOver's increment and decrement, ⌃Tab (§19.16): the page

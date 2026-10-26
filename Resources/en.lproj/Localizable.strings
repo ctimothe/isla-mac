@@ -106,12 +106,9 @@
 "Remove from Liked Songs" = "Remove from Liked Songs";
 "Connect Spotify Account…" = "Connect Spotify Account…";
 "Disconnect Spotify Account" = "Disconnect Spotify Account";
-"Spotify" = "Spotify";
 
 /* Spotify credential storage */
 "Import Account from Keychain…" = "Import Account from Keychain…";
-"Stored in your keychain." = "Stored in your keychain.";
-"Stored in a file only you can read." = "Stored in a file only you can read.";
 "Cannot be stored on this Mac." = "Cannot be stored on this Mac.";
 
 /* Lyrics stage */
@@ -161,6 +158,7 @@
 "Lyrics are off." = "Lyrics are off.";
 "No output devices." = "No output devices.";
 "Open on Hover" = "Open on Hover";
+"Swipe to Open and Close" = "Swipe to Open and Close";
 "Output" = "Output";
 
 /* First run */
@@ -259,8 +257,6 @@
 "Clipboard history is off in Settings." = "Clipboard history is off in Settings.";
 
 /* Spotify refusals */
-"Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet." = "Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet.";
-"Spotify refused this account's library request." = "Spotify refused this account's library request.";
 
 /* Diagnostics */
 "Collecting…" = "Collecting…";
@@ -298,7 +294,16 @@
 
 /* Charging and headphones */
 "Power adapter connected" = "Power adapter connected";
-"Power adapter connected, %d percent" = "Power adapter connected, %d percent";
+
+/* Charging: MagSafe and USB-C (spec §19.4, 2026-10-26) */
+"Not Charging" = "Not Charging";
+"Charged" = "Charged";
+"MagSafe" = "MagSafe";
+"%d W" = "%d W";
+"Charging over MagSafe, %d percent" = "Charging over MagSafe, %d percent";
+"Charging over USB-C, %d percent" = "Charging over USB-C, %d percent";
+"Power adapter connected, not charging, %d percent" = "Power adapter connected, not charging, %d percent";
+"Power adapter connected, charged, %d percent" = "Power adapter connected, charged, %d percent";
 
 /* Shelf: a card whose disk is not plugged in */
 "Disk not connected" = "Disk not connected";
@@ -343,7 +348,6 @@
 "Edited %@" = "Edited %@";
 "%d points" = "%d points";
 "%.2f seconds" = "%.2f seconds";
-"Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause." = "Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause.";
 "Instrumental" = "Instrumental";
 "Edit Lyrics for %@" = "Edit Lyrics for %@";
 "Insert Line After" = "Insert Line After";
@@ -399,12 +403,9 @@
 "Isla could not open your browser for Spotify sign-in." = "Isla could not open your browser for Spotify sign-in.";
 "The account was not imported. Try again, or connect it anew." = "The account was not imported. Try again, or connect it anew.";
 "Spotify signed you in, but Isla could not save the account on this Mac." = "Spotify signed you in, but Isla could not save the account on this Mac.";
-"Spotify ended Isla's access. Connect again to use Liked Songs." = "Spotify ended Isla's access. Connect again to use Liked Songs.";
 "Spotify sign-in was cancelled." = "Spotify sign-in was cancelled.";
 "Spotify sign-in did not finish. Try connecting again." = "Spotify sign-in did not finish. Try connecting again.";
 "Disconnect" = "Disconnect";
-"Isla forgets the account on this Mac. Your Spotify library stays as it is." = "Isla forgets the account on this Mac. Your Spotify library stays as it is.";
-"The star on the lock screen adds the song to your Liked Songs." = "The star on the lock screen adds the song to your Liked Songs.";
 "Show next line early" = "Show next line early";
 "Auto" = "Auto";
 "0.5 s" = "0.5 s";
@@ -504,7 +505,6 @@
 
 /* Settings: the sidebar and the grouped form (R4) */
 "About" = "About";
-"Account" = "Account";
 "Acknowledgements…" = "Acknowledgements…";
 "Automation" = "Automation";
 "Click the notch to open the panel. Open on Hover also opens it when the pointer rests there." = "Click the notch to open the panel. Open on Hover also opens it when the pointer rests there.";
@@ -515,7 +515,6 @@
 "History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice." = "History keeps your last 20 translations in memory. Speak reads a translation aloud with the system voice.";
 "Keep History" = "Keep History";
 "New Tracks" = "New Tracks";
-"Not connected" = "Not connected";
 "Now Playing" = "Now Playing";
 "Now Playing reader" = "Now Playing reader";
 "Online" = "Online";
@@ -569,3 +568,31 @@
 
 /* The fourth global hot key, ⌃⌥⌘V (spec §19.8). */
 "Show the clipboard" = "Show the clipboard";
+
+/* The lyric stage's volume control (spec §19.6, amended 2026-10-26): whose volume it moves, and the line under it when the player refused Automation. */
+"Music volume" = "Music volume";
+"Spotify volume" = "Spotify volume";
+"Allow Isla to control %@…" = "Allow Isla to control %@…";
+
+/* Settings › Connections (native pass 2026-10-25): one row per player, and Spotify's own reason when Connect fails. */
+"Connections" = "Connections";
+"Connect…" = "Connect…";
+"Other Services" = "Other Services";
+"Favorites, no sign-in" = "Favorites, no sign-in";
+"Liked Songs" = "Liked Songs";
+"Sign in for Liked Songs" = "Sign in for Liked Songs";
+"Controls and lyrics, no favorites" = "Controls and lyrics, no favorites";
+"Isla couldn’t reach Spotify." = "Isla couldn’t reach Spotify.";
+"Spotify doesn’t recognise Isla’s registration." = "Spotify doesn’t recognise Isla’s registration.";
+"The sign-in expired before it finished. Try Connect again." = "The sign-in expired before it finished. Try Connect again.";
+"Spotify refused the permissions Isla asked for." = "Spotify refused the permissions Isla asked for.";
+"Spotify had a problem. Try again later." = "Spotify had a problem. Try again later.";
+"Spotify is busy right now. Try again in a minute." = "Spotify is busy right now. Try again in a minute.";
+"Spotify doesn’t allow Isla to sign in this way." = "Spotify doesn’t allow Isla to sign in this way.";
+"Spotify isn’t answering (HTTP %ld). Try again later." = "Spotify isn’t answering (HTTP %ld). Try again later.";
+"Spotify said: %@" = "Spotify said: %@";
+"Spotify said: %@ (HTTP %ld)" = "Spotify said: %@ (HTTP %ld)";
+"Spotify hasn’t admitted this account to Isla yet." = "Spotify hasn’t admitted this account to Isla yet.";
+"Spotify asks for Premium on Isla’s registration." = "Spotify asks for Premium on Isla’s registration.";
+"Spotify refused this account." = "Spotify refused this account.";
+"Spotify ended Isla’s access. Connect again." = "Spotify ended Isla’s access. Connect again.";
