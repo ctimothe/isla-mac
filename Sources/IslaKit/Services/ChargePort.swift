@@ -162,6 +162,14 @@ enum ChargeHold: Equatable, Sendable {
     /// Anything else, an unknown reason included: too hot or too cold, a
     /// fault, no battery, a charger it will not take power from.
     case notCharging
+    /// Just plugged in and not charging yet, with no reason given: the
+    /// battery is still bringing the charger up. Drawn as Charging, as the
+    /// menu bar draws its bolt at once (owner's screenshot, 2026-10-27
+    /// 17:58:39, Apple's 61 W USB-C at 57 percent: the island said "Not
+    /// Charging" 3 s after the plug while the menu bar showed the bolt and
+    /// the battery was charging moments later; the reason reads only bit 7,
+    /// stale, for 5.5 s after each plug-in — recorder, 2026-10-26 15:37).
+    case settling
 }
 
 /// `AppleSmartBattery`'s `ChargerData.NotChargingReason`, read and sorted.

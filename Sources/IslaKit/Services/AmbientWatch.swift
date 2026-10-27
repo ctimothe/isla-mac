@@ -198,7 +198,9 @@ final class AmbientWatch {
             let port = ChargePortReading.read()
             // Only asked of a battery that is not charging: a charging one has
             // no reason to give, and the read is one more registry round trip.
-            let hold = power.isCharging ? nil : ChargeHoldReading.read()
+            // A battery not charging with no reason to give is one still
+            // settling: every read here is within seconds of a plug-in.
+            let hold = power.isCharging ? nil : (ChargeHoldReading.read() ?? .settling)
             let activity = Self.chargeActivity(power: power, port: port.port, watts: port.watts, hold: hold)
             DispatchQueue.main.async { MainActor.assumeIsolated { deliver(activity) } }
         }

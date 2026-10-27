@@ -307,6 +307,29 @@ final class ChargePortTests: XCTestCase {
         XCTAssertEqual(AmbientActivity.chargingHold, 3, "the hold is today's ambient alert's")
     }
 
+    /// The owner's screenshot, 2026-10-27 17:58:39, 57 percent on Apple's
+    /// 61 W USB-C: 3 s after the plug the island said "Not Charging" while
+    /// the menu bar showed the bolt. A battery not yet charging with no
+    /// reason given is still settling, and is drawn as Charging; a named
+    /// reason, a hold among them, still wins.
+    func testAPlugInStillSettlingIsDrawnAsCharging() {
+        let settling = AmbientWatch.chargeActivity(
+            power: .init(onExternalPower: true, level: 57, isCharging: false), port: .usbC, watts: 61, hold: .settling
+        )
+        XCTAssertEqual(settling.chargeState, .charging)
+        XCTAssertEqual(settling.chargeTint, .green)
+        XCTAssertNil(ChargeHoldReading.classify(1 << 7, encoding: .bitfield), "bit 7 alone gives no reason")
+        let held = AmbientWatch.chargeActivity(
+            power: .init(onExternalPower: true, level: 80, isCharging: false), port: .usbC, watts: 61,
+            hold: ChargeHoldReading.classify(16_777_344, encoding: .bitfield)
+        )
+        XCTAssertEqual(held.chargeState, .onHold, "a hold read while settling is still a hold")
+        let full = AmbientWatch.chargeActivity(
+            power: .init(onExternalPower: true, level: 100, isCharging: false), port: .usbC, watts: 61, hold: .settling
+        )
+        XCTAssertEqual(full.chargeState, .charged)
+    }
+
     /// The hold's reason lags the plug (owner's recording, 2026-10-26): read
     /// once at the settle it said "Not Charging", and nothing asked again.
     /// The re-reads land while the moment is still up, so each can correct it.

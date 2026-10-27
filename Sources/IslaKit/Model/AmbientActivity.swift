@@ -80,9 +80,11 @@ enum AmbientActivity: Equatable {
     /// only holds or is full — a white charge says nothing it would have to
     /// take back.
     var chargeTint: ChargeTint? {
-        guard case .charging(let level?, let isCharging, _, _, _) = self else { return nil }
+        guard case .charging(let level?, _, _, _, _) = self else { return nil }
         if level <= ChargeState.lowLevel { return .red }
-        return isCharging ? .green : nil
+        // From the state, not the raw flag: a plug-in still settling is
+        // drawn as Charging, green and all (`ChargeHold.settling`).
+        return chargeState == .charging ? .green : nil
     }
 
     /// The left wing's first words: the way the power comes in, named on
@@ -161,6 +163,8 @@ enum ChargeState: Equatable {
 
     init(level: Int, isCharging: Bool, hold: ChargeHold? = nil) {
         if isCharging {
+            self = .charging
+        } else if level < 100, hold == .settling {
             self = .charging
         } else if level >= 100 || hold == .full {
             self = .charged
