@@ -69,6 +69,12 @@ enum AmbientActivity: Equatable {
 
     /// What the battery is doing, for the word in the left wing. Nil for
     /// headphones and for a Mac that reports no level.
+    /// The charger's moment, as against the headphones'.
+    var isChargerMoment: Bool {
+        if case .charging = self { return true }
+        return false
+    }
+
     var chargeState: ChargeState? {
         guard case .charging(let level?, let isCharging, _, _, let hold) = self else { return nil }
         return ChargeState(level: level, isCharging: isCharging, hold: hold)

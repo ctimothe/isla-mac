@@ -266,44 +266,28 @@ final class ChargePortTests: XCTestCase {
 
     // MARK: Why the activity was so rarely seen
 
-    /// The owner's charger, from the pmset log (2026-10-23 to 26): power
-    /// arrives, drops to battery one to five seconds later as the adapter
-    /// renegotiates, and arrives again. The first edge was often refused — a
-    /// lid opening as the cable went in, the pointer on the island, the panel
-    /// open past its second — and the watch had already spent its 30 s quiet
-    /// window on it, so the edge that came once the island was free was
-    /// swallowed too. The window now counts only from a moment shown.
-    func testARefusedPlugInDoesNotSilenceTheNextEdge() {
+    /// Two pulls a few seconds apart are two plug-ins, each shown: the 30 s
+    /// quiet window that used to follow a shown moment is gone (owner,
+    /// 2026-10-27).
+    func testAReplugSecondsLaterIsAnotherPlugIn() {
         let watch = AmbientWatch()
-        let battery = AmbientWatch.Power(onExternalPower: false, level: 19)
-        let ac = AmbientWatch.Power(onExternalPower: true, level: 19, isCharging: true)
+        let battery = AmbientWatch.Power(onExternalPower: false, level: 57)
+        let ac = AmbientWatch.Power(onExternalPower: true, level: 57, isCharging: true)
         let t0 = Date()
-        XCTAssertTrue(watch.arrives(previous: battery, now: ac, at: t0), "09:55:44, power arrives")
-        // Refused: the controller never calls `chargerShown`.
-        XCTAssertTrue(
-            watch.arrives(previous: battery, now: ac, at: t0.addingTimeInterval(7)),
-            "09:55:51, the edge after the renegotiation is shown"
-        )
-        watch.chargerShown(at: t0.addingTimeInterval(7))
-        XCTAssertFalse(
-            watch.arrives(previous: battery, now: ac, at: t0.addingTimeInterval(12)),
-            "a flap after a moment that was shown stays quiet (G-033)"
-        )
-        XCTAssertTrue(watch.arrives(previous: battery, now: ac, at: t0.addingTimeInterval(7 + AmbientWatch.repeatQuiet + 1)))
+        XCTAssertTrue(watch.arrives(previous: battery, now: ac, at: t0))
+        XCTAssertTrue(watch.arrives(previous: battery, now: ac, at: t0.addingTimeInterval(7)))
     }
 
-    /// The first reading at the edge has the battery not yet charging (powerd
-    /// said "State:Charging" 47 ms after the source turned AC), and the moment
-    /// was drawn from it: a white plug and no "Charging", every time. It is
-    /// read after a settle, and later readings update it in place.
-    func testTheMomentIsReadOnceTheChargeHasSettled() {
-        XCTAssertGreaterThan(AmbientWatch.chargeSettle, 0.047)
-        XCTAssertLessThan(AmbientWatch.chargeSettle, 1, "still the answer to the cable going in")
-        let settled = AmbientWatch.chargeActivity(
-            power: .init(onExternalPower: true, level: 64, isCharging: true), port: .magSafe, watts: 96
+    /// The moment is read at the edge, not after a settle (owner, 2026-10-27:
+    /// late behind the menu bar's bolt). A battery not yet charging there is
+    /// settling and drawn as Charging; the adapter's watts, late by up to
+    /// 0.53 s, arrive through the first re-reads.
+    func testTheMomentIsReadAtTheEdge() {
+        let edge = AmbientWatch.chargeActivity(
+            power: .init(onExternalPower: true, level: 64, isCharging: false), port: .magSafe, watts: nil, hold: .settling
         )
-        XCTAssertEqual(settled, .charging(level: 64, isCharging: true, port: .magSafe, watts: 96))
-        XCTAssertEqual(settled.chargeState, .charging)
+        XCTAssertEqual(edge.chargeState, .charging)
+        XCTAssertLessThan(AmbientWatch.chargeRereads.first ?? 1, 0.53, "the first re-read beats the adapter's contract")
         XCTAssertEqual(AmbientActivity.chargingHold, 3, "the hold is today's ambient alert's")
     }
 
@@ -337,8 +321,8 @@ final class ChargePortTests: XCTestCase {
         let rereads = AmbientWatch.chargeRereads
         XCTAssertFalse(rereads.isEmpty)
         XCTAssertEqual(rereads, rereads.sorted())
-        XCTAssertGreaterThan(rereads.first ?? 0, AmbientWatch.chargeSettle)
-        XCTAssertLessThanOrEqual(rereads.last ?? .infinity, AmbientWatch.chargeSettle + AmbientActivity.chargingHold,
+        XCTAssertGreaterThan(rereads.first ?? 0, 0)
+        XCTAssertLessThanOrEqual(rereads.last ?? .infinity, AmbientActivity.chargingHold,
                                  "a read after the fold has nothing to correct")
         let early = AmbientWatch.chargeActivity(
             power: .init(onExternalPower: true, level: 80, isCharging: false), port: .usbC, watts: 61, hold: nil

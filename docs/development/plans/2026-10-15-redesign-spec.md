@@ -2640,6 +2640,36 @@ what the wings say and draw.
   under the pill, displays asleep, full screen or mirrored, the second's
   patience behind an open panel or the lock) are unchanged.
 
+*Amended 2026-10-27 (owner: "when the system noticed the battery is
+charging, the island is not instantly giving the charging HUD"; "I plug it
+out and then I plug it in, and sometimes it didn't show"; "listen to the
+system natively").* Supersedes the timing, quiet window and wording rules
+of the 2026-10-26 amendment below where they differ.
+
+- *At the edge.* The moment is read the instant the power source turns AC
+  (the IOPS notification) and shown at once; the 0.6 s settle is withdrawn.
+  The reads take 0.2 ms (worst 1.3 ms, measured 2026-10-27). Re-reads at 0.3,
+  0.6, 1, 2 and 3 s correct it in place: the adapter's watts, which powerd
+  has reported as late as 0.53 s, and the battery's reason.
+- *Every plug-in shows.* The 30 s quiet window after a shown moment is
+  withdrawn; only power back within 1 s of leaving (a loose dock's dropout,
+  G-033) is not news. The charger also shows under a resting pointer and over
+  a full-screen app; a mirror or a lid shut on a projector still quiets it,
+  as do the switch and dark displays. Headphones keep their 30 s window and
+  their restraint.
+- *The system's own reason.* macOS exposes no public hold flag (the IOPS
+  description carries `Is Charging`, `Is Finishing Charge` and the source
+  state, nothing more, read 2026-10-27), so the battery's
+  `NotChargingReason` stays the source. For about 5.5 s after each plug-in it
+  still carries bit 7, no bus power, from the unplug (16777344 at a hold;
+  recorder 2026-10-26 15:37); read only on external power, bit 7 is ignored.
+  A battery not yet charging with no reason left is *settling* and drawn as
+  Charging, green, as the menu bar draws its bolt at once (owner's
+  screenshot, 2026-10-27 17:58:39, 57 percent).
+- *Words that fit.* The wing tries the whole line, then the status alone at
+  its shortest ("On Hold", never "Charging On Hold"), then that shrunk; the
+  ring or the battery on the right still names the port.
+
 *Amended 2026-10-26 (owner on hardware: Apple's 61 W USB-C charger, 80
 percent, charging held; `ioreg` read `ExternalConnected` Yes, `IsCharging`
 No, `ChargerData.NotChargingReason` 16777216, `FullyCharged` No — the pill

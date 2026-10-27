@@ -32,14 +32,19 @@ final class AmbientWatch {
     /// without announcing it again or restarting its hold.
     var onChargeUpdate: ((AmbientActivity) -> Void)?
 
-    /// How long after power arrives the moment is read and shown. Measured on
-    /// the owner's MacBook Pro (powerd's log, 2026-10-26 09:55:43): the power
-    /// source turns AC at .987 with the battery not yet charging, and powerd
-    /// reports "State:Charging" 47 ms later and the adapter's contract at
-    /// 0.53 s. Read at the edge, every plug-in said "Not Charging" in white —
-    /// the plug where "Charging" belongs — for the whole hold. Short enough
-    /// to still be the answer to the cable going in.
-    nonisolated static let chargeSettle: TimeInterval = 0.6
+    /// How long power must have been away for its return to be a plug-in.
+    ///
+    /// The moment used to wait 0.6 s after the edge before it was even read
+    /// (`chargeSettle`, 2026-10-26), and kept a 30 s quiet window after each
+    /// one it showed. The owner, 2026-10-27: the island was visibly late
+    /// behind the menu bar's bolt, and a cable pulled and put back sometimes
+    /// showed nothing. The recorder (2026-10-26 15:37) showed what the edge
+    /// already knows: AC, the adapter's 61 W and the battery's reason all
+    /// arrive in the same 100 ms sample, so the moment is read and shown at
+    /// the edge, and corrected in place by `chargeRereads`. Every plug-in is
+    /// shown; only a return within this blip — a loose dock's dropout (G-033)
+    /// — is not news. The owner's own pulls lasted 2.3 s and 3.7 s.
+    nonisolated static let blip: TimeInterval = 1
 
     /// When the charge is read again after the edge, while the moment is up.
     /// The battery's reason lags the plug (owner's recording, 2026-10-26
@@ -47,10 +52,12 @@ final class AmbientWatch {
     /// moment said "61 W Not Charging"; the same registry read a moment later
     /// gave the hold, 16777216, and nothing asked again — the level and
     /// `IsCharging` never change across a hold, so no power notification
-    /// came to prompt `onChargeUpdate`. Three more reads inside the hold, each
+    /// came to prompt `onChargeUpdate`. The first two catch the adapter's
+    /// contract, which powerd has logged as late as 0.53 s after the edge
+    /// (2026-10-26 09:55:43). Reads inside the hold, each
     /// one dropped if power left or a newer plug came, and each a no-op when
     /// the answer is unchanged (`NotchController.updateShownCharge`).
-    nonisolated static let chargeRereads: [TimeInterval] = [1, 2, 3]
+    nonisolated static let chargeRereads: [TimeInterval] = [0.3, 0.6, 1, 2, 3]
 
     /// How long after announcing a device the same device stays quiet.
     /// AirPods hopping between a phone and this Mac, or a coreaudiod restart,
@@ -134,6 +141,7 @@ final class AmbientWatch {
             // Pulled: an arrival still settling is not one any more.
             arrivalGeneration &+= 1
             chargeUpdatesUntil = nil
+            if lastPower?.onExternalPower == true { unpluggedAt = date }
             return
         }
         if arrives(previous: lastPower, now: now, at: date) {
@@ -143,40 +151,25 @@ final class AmbientWatch {
         }
     }
 
-    /// When a Charging moment was last on the island, for `repeatQuiet`.
-    ///
-    /// Stamped by the controller when it shows one (`chargerShown`), never
-    /// here at the edge. Stamped here, a plug-in the controller refused — the
-    /// pointer on the island, the panel open past its second, a lid opening
-    /// as the cable went in — still spent the 30 s window, and the owner's
-    /// charger re-negotiates seconds after every plug-in (pmset log,
-    /// 2026-10-23 to 26: AC, then Battery 1–5 s later, then AC again): the
-    /// edge that came once the island was free fell inside the window of a
-    /// moment nobody saw.
-    private var lastChargerShown: Date?
+    /// When external power last went away, for `blip`.
+    private var unpluggedAt: Date?
 
-    /// The controller put a Charging moment on the island.
-    func chargerShown(at date: Date = Date()) {
-        lastChargerShown = date
-    }
-
-    /// Whether a reading is a plug-in to show, against the last moment that
-    /// was actually shown. Its own function so the measured flap is a test.
+    /// Whether a reading is a plug-in to show. Its own function so the
+    /// measured pulls are a test.
     func arrives(previous: Power?, now: Power, at date: Date) -> Bool {
-        Self.pluggedIn(previous: previous, now: now, lastAnnounced: lastChargerShown, at: date)
+        Self.pluggedIn(previous: previous, now: now, unpluggedAt: unpluggedAt, at: date)
     }
 
-    /// Reads the settled charge off the main thread, `chargeSettle` after the
-    /// edge, and hands it over unless power left, or a newer edge came, first.
+    /// Reads the charge off the main thread at once and hands it over unless
+    /// power left, or a newer edge came, first; the re-reads correct it in
+    /// place.
     private func scheduleArrival() {
         arrivalGeneration &+= 1
         let generation = arrivalGeneration
-        chargeUpdatesUntil = Date().addingTimeInterval(Self.chargeSettle + AmbientActivity.chargingHold + 1)
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.chargeSettle) { [weak self] in
-            self?.readCharge { [weak self] activity in
-                guard let self, generation == self.arrivalGeneration else { return }
-                self.onEvent?(activity)
-            }
+        chargeUpdatesUntil = Date().addingTimeInterval(AmbientActivity.chargingHold + 1)
+        readCharge { [weak self] activity in
+            guard let self, generation == self.arrivalGeneration else { return }
+            self.onEvent?(activity)
         }
         for delay in Self.chargeRereads {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -193,7 +186,9 @@ final class AmbientWatch {
     /// registry is IPC to the kernel, and IOPS a round trip to powerd — and
     /// delivered on the main actor. Nothing if power is gone by then.
     private func readCharge(_ deliver: @escaping @MainActor (AmbientActivity) -> Void) {
-        DispatchQueue.global(qos: .utility).async {
+        // User-initiated, not utility: this read is what stands between the
+        // cable and the island.
+        DispatchQueue.global(qos: .userInitiated).async {
             guard let power = Self.readPower(), power.onExternalPower else { return }
             let port = ChargePortReading.read()
             // Only asked of a battery that is not charging: a charging one has
@@ -213,21 +208,15 @@ final class AmbientWatch {
         .charging(level: power.level, isCharging: power.isCharging, port: port, watts: watts, hold: hold)
     }
 
-    /// Only the moment external power arrives, and not again within `quiet`
-    /// of the last time it was announced. A level change while charging, or a
-    /// desktop Mac that was on AC all along, is not an event.
-    ///
-    /// The window is G-033: a loose USB-C dock drops and restores power every
-    /// few seconds, each restore is a genuine false-to-true edge, and with no
-    /// window each one re-grew the pill. Headphones had the same window from
-    /// the start for the same reason; the charger now keeps it too.
+    /// Only the moment external power arrives, and not a return within
+    /// `blip` of it leaving. A level change while charging, or a desktop Mac
+    /// that was on AC all along, is not an event.
     nonisolated static func pluggedIn(
-        previous: Power?, now: Power, lastAnnounced: Date?, at date: Date,
-        quiet: TimeInterval = repeatQuiet
+        previous: Power?, now: Power, unpluggedAt: Date?, at date: Date, blip: TimeInterval = blip
     ) -> Bool {
         guard let previous, !previous.onExternalPower, now.onExternalPower else { return false }
-        guard let lastAnnounced else { return true }
-        return date.timeIntervalSince(lastAnnounced) >= quiet
+        guard let unpluggedAt else { return true }
+        return date.timeIntervalSince(unpluggedAt) >= blip
     }
 
     /// The internal battery, or nil on a Mac that has none.

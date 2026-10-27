@@ -2719,3 +2719,19 @@ Mac model and macOS version when run):
   correct result, and the charger still shows. Repeat with Show on Lock
   Screen off: the system's OSD, nothing from Isla. Record the Mac model and
   macOS version.
+- [ ] **MR-H24** The charger at the edge (spec §19.4, amended 2026-10-27).
+  With the island shut, plug Apple's 61 W USB-C in below 80 percent: the
+  island grows with the menu bar's bolt, not after it, reading "61 W" in
+  green with the bolt. Pull it, wait 2 s, plug it back: it shows again. Do
+  it with the pointer resting on the island and over a full-screen app: it
+  shows both times. Plug in at the 80 percent hold: "On Hold" from the first
+  frame. Repeat with MagSafe at home: the ring, "MagSafe". Record the Mac
+  model and macOS version.
+- [ ] **MR-H25** Volume crackle A/B (owner, 2026-10-27: "the sound comes a
+  little bit distorted for a millisecond" when changing volume quickly with
+  music playing and memory high). Each Isla key press is one CoreAudio write
+  to the virtual main volume, the same control the system's key uses, and
+  Isla plays no sound; the Mac had 7.8 of 9.2 GB swap in use. With the same
+  song, hold volume up and down for 10 s with Volume and Brightness on, then
+  off (the system's own HUD). Crackle in both: memory pressure, not Isla.
+  Crackle only with it on: report it, with the time, for a trace.

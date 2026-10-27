@@ -197,6 +197,18 @@ final class AlertCapsuleTests: XCTestCase {
         XCTAssertNil(vm.stripNotice, "quiet now: the waiting charger is refused, not shown")
     }
 
+    /// Codex review 2026-10-27: a plug-in that waited for the capsule shows
+    /// the newest reading, not the edge's.
+    func testAWaitingChargerShowsItsNewestReading() throws {
+        let (controller, vm, isolated) = try rig()
+        defer { isolated.release() }
+        vm.isOpen = true
+        let edge = AmbientActivity.charging(level: 80, isCharging: false, port: .usbC, watts: nil, hold: .settling)
+        controller.latestCharge = (held, Date())
+        controller.presentAmbient(edge)
+        XCTAssertEqual(vm.stripNotice, .ambient(held), "the re-read's On Hold, 61 W, not the edge's Charging")
+    }
+
     func testTheHandBackRule() {
         XCTAssertTrue(StripNotice.handsBack(shownFor: 0))
         XCTAssertTrue(StripNotice.handsBack(shownFor: 0.5))

@@ -103,6 +103,8 @@ final class NotchController {
             self?.viewModel?.receivedScreenshot(at: url)
         }
         stores.ambient.onEvent = { [weak self] activity in
+            // A plug-in's own reading is the newest there is.
+            if activity.isChargerMoment { self?.latestCharge = (activity, Date()) }
             self?.presentAmbient(activity)
         }
         stores.ambient.onChargeUpdate = { [weak self] activity in
@@ -302,7 +304,11 @@ final class NotchController {
                 peekWork = nil
                 vm.isPeeking = false
             }
-            if vm.ambient != nil { clearAmbient() }
+            // Not the charger, which stays over a full-screen app (spec §19.4,
+            // amended 2026-10-27), unless the quiet is a presentation.
+            if let ambient = vm.ambient, !ambient.isChargerMoment || momentsAreQuiet(presentingOnly: true) {
+                clearAmbient()
+            }
             // An offer still unanswered goes too, and comes back once the
             // quiet ends; an install under way stays, it is the person's.
             if let offer = vm.updateOffer, updateStage(for: offer).isTimed { clearUpdateOffer() }
@@ -3117,7 +3123,7 @@ final class NotchController {
         }
         return activity.showsOnIsland && Self.ambientAllowed(
             switchOn: switchOn, pointerInside: false, pointerUnderGrownPill: false,
-            screensAsleep: screensAreAsleep, quiet: momentsAreQuiet()
+            screensAsleep: screensAreAsleep, quiet: momentsAreQuiet(presentingOnly: activity.isChargerMoment)
         )
     }
 
@@ -3166,7 +3172,19 @@ final class NotchController {
     /// `sneakPeek`). Headphones outrank the charger, and a peek already on
     /// screen gives way to either, because the Mac did something and the song
     /// has not changed.
+    /// The newest charger reading and when it came, for a plug-in that
+    /// waited in a queue (Codex review 2026-10-27): the re-reads land while
+    /// nothing is on screen to take them, and the moment promoted a second
+    /// later would show, and announce, the edge's reading — Charging for On
+    /// Hold, no watts.
+    var latestCharge: (activity: AmbientActivity, at: Date)?
+
     func presentAmbient(_ activity: AmbientActivity) {
+        var activity = activity
+        if activity.isChargerMoment, let latest = latestCharge,
+           Date().timeIntervalSince(latest.at) < AmbientActivity.chargingHold + 1 {
+            activity = latest.activity
+        }
         // A Mac that reports no battery level shows no Charging (spec §19.4).
         guard let vm = viewModel, activity.showsOnIsland else { return }
         let switchOn: Bool
@@ -3191,7 +3209,6 @@ final class NotchController {
             guard stripStillAllows(.ambient(activity)) else { return }
             if presentInStrip(.ambient(activity)) {
                 Announcer.shared.announce(activity.accessibilityLabel)
-                if case .charging = activity { stores.ambient.chargerShown() }
             }
             return
         }
@@ -3202,13 +3219,17 @@ final class NotchController {
         // is always inside, and that says nothing about the pill this will
         // grow once the panel has gone. `promoteWaitingAlert` comes back here,
         // and asks it then.
+        // The charger shows under the pointer and over a full-screen app
+        // (owner, 2026-10-27: every plug-in, as the menu bar's bolt); the
+        // headphones keep the pointer's and the film's restraint.
+        let charger = activity.isChargerMoment
         guard Self.ambientAllowed(
             switchOn: switchOn,
-            pointerInside: !blocked && pointer.isInside,
-            pointerUnderGrownPill: !blocked
+            pointerInside: !charger && !blocked && pointer.isInside,
+            pointerUnderGrownPill: !charger && !blocked
                 && vm.geometry.grownAlertRect(for: .ambient(activity), body: grown).contains(NSEvent.mouseLocation),
             screensAsleep: screensAreAsleep,
-            quiet: momentsAreQuiet()
+            quiet: momentsAreQuiet(presentingOnly: charger)
         ) else { return }
         guard postAlert(.ambient(activity), to: vm) == .show else { return }
 
@@ -3228,9 +3249,6 @@ final class NotchController {
         // panel open, Mac locked, displays asleep — is not shown, and a
         // sentence for something nobody can see would be the voice lying.
         Announcer.shared.announce(activity.accessibilityLabel)
-        // The quiet window counts from a moment shown, never from one refused
-        // (`AmbientWatch.lastChargerShown`).
-        if case .charging = activity { stores.ambient.chargerShown() }
         scheduleAmbientFold(after: activity.holdDuration)
     }
 
@@ -3243,14 +3261,13 @@ final class NotchController {
         guard let vm = viewModel, vm.hud == nil,
               Self.ambientAllowed(
                   switchOn: switchOn, pointerInside: false, pointerUnderGrownPill: false,
-                  screensAsleep: screensAreAsleep, quiet: momentsAreQuiet()
+                  screensAsleep: screensAreAsleep, quiet: momentsAreQuiet(presentingOnly: true)
               ) else { return }
         ambientWork?.cancel()
         withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
             vm.ambient = activity
         }
         Announcer.shared.announce(activity.accessibilityLabel)
-        stores.ambient.chargerShown()
         scheduleAmbientFold(after: activity.holdDuration)
     }
 
@@ -3261,6 +3278,7 @@ final class NotchController {
     /// is up, so a reading that lands after the fold puts nothing back.
     private func updateShownCharge(_ activity: AmbientActivity) {
         guard let vm = viewModel, case .charging = activity else { return }
+        latestCharge = (activity, Date())
         // The capsule's Charging moment takes it the same way.
         if case .ambient(.charging)? = vm.stripNotice, vm.stripNotice != .ambient(activity) {
             withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
@@ -3337,7 +3355,12 @@ final class NotchController {
 
     /// The live reading behind `momentsQuiet`. Read when a moment is about to
     /// show, never cached: a display plugged in a second ago has to count.
-    private func momentsAreQuiet() -> Bool {
+    ///
+    /// `presentingOnly` asks only the presentation reasons — a mirror, a
+    /// shut lid on a projector — and not a full-screen app: the charger
+    /// (owner, 2026-10-27: a plug-in must always show, as the menu bar's
+    /// bolt does) is the Mac's own state, not a song title over a film.
+    private func momentsAreQuiet(presentingOnly: Bool = false) -> Bool {
         if let momentsQuietForTesting { return momentsQuietForTesting }
         let options = NSApplication.shared.currentSystemPresentationOptions
         var count: UInt32 = 0
@@ -3348,7 +3371,7 @@ final class NotchController {
             // `.hideMenuBar` rather than `.autoHideMenuBar`: the latter is a
             // preference many people keep on all day, the former is an app
             // that took the whole screen.
-            fullScreenFrontmost: options.contains(.fullScreen) || options.contains(.hideMenuBar),
+            fullScreenFrontmost: !presentingOnly && (options.contains(.fullScreen) || options.contains(.hideMenuBar)),
             displayMirrored: active.contains { CGDisplayIsInMirrorSet($0) != 0 },
             soleExternalDisplay: Self.isSoleExternalDisplay(
                 displaysAreBuiltIn: active.map { CGDisplayIsBuiltin($0) != 0 },
