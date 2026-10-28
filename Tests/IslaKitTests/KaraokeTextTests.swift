@@ -121,8 +121,12 @@ final class KaraokeTextTests: XCTestCase {
             "a word-timed line being sung is clock-driven"
         )
 
+        // What was published, not 10: `apply` ages the reading by the wall
+        // clock since `takenAt`, and on a Mac at load 160 that was 18 ms —
+        // past a 0.01 tolerance on a test about the fake clock (2026-10-29).
+        let published = media.position
         clock.now += 0.25
-        XCTAssertEqual(media.position, 10, accuracy: 0.01, "no tick ran, so nothing was published")
+        XCTAssertEqual(media.position, published, "no tick ran, so nothing was published")
         XCTAssertEqual(sweep(), 0.25, accuracy: 0.001, "half through the first of two equal words")
         clock.now += 0.5
         XCTAssertEqual(sweep(), 0.75, accuracy: 0.001)
