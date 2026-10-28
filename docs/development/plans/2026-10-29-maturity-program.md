@@ -113,6 +113,18 @@ works; a fan-out of more than six agents, or any Opus fan-out, without a yes
   API), then make Isla draw nothing over Apple's island. Research now, from
   Apple's developer documentation and specifications; code once the facts are
   known; one owner run on the new Mac, or a borrowed one. Decision D1.
+
+  What was known on 2026-10-29: Apple's model list
+  (support.apple.com/108052) did not yet name the new models, so there is no
+  identifier to match. The island sits on a camera cutout at the centre top
+  of the panel, as on the iPhone, not on a notch. If macOS reports no top
+  safe area there, Isla takes the display for one without a notch and draws
+  its synthetic island in the same place. Apple's developer material
+  (WWDC 2026 session 223, "Live Activities essentials") puts Live Activities
+  in the macOS menu bar and the Dynamic Island only on iOS 27, so no public
+  API for the Mac's island was found. So the guard needs either the new
+  identifiers, once Apple's list names them (by 2026-11-06), or the screen
+  properties read on the hardware, plus a switch in Settings meanwhile.
 - **B0.2 Scorecard baseline.** Score every feature with the evidence that
   exists today; empty cells are the backlog.
 - **B0.3 Accessibility sweep.** One AXProbe test per surface under every
