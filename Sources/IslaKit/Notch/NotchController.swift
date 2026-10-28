@@ -98,9 +98,16 @@ final class NotchController {
         }
         // The volume and brightness pop-up (spec §12). Both closures are read at
         // each key, so the lock and the reading land on whatever is current.
+        //
+        // An island that stands aside (`NotchGeometry.stepsAside`) passes every
+        // key through the same way: its pop-up would be drawn into an invisible
+        // panel, and a key the tap took would have swallowed the system's own
+        // pop-up too, leaving the volume moving with nothing on screen (review
+        // of the native-island guard, 2026-10-29). `build` mirrors it again.
         stores.hud.isLocked = { [weak self] in
             guard let self else { return false }
             return self.lockPresence.isLocked || self.viewModel?.isLockedPresentation == true
+                || self.viewModel?.geometry.stepsAside == true
         }
         stores.hud.onReading = { [weak self] reading in
             self?.presentHUD(reading)
@@ -1632,6 +1639,10 @@ final class NotchController {
         self.rootView = root
 
         applyActiveRect(open: false)
+        // The volume keys' tap reads whether to leave every key to the system
+        // from a mirror on its own thread; a rebuilt geometry that steps aside,
+        // or stops, has to reach it now, not at the next lock.
+        stores.hud.lockChanged()
 
         // `applyActiveRect` has just zeroed these when the island stands
         // aside; cutting them again here would hand the hover back.
@@ -1963,7 +1974,12 @@ final class NotchController {
         // instead popped the panel open on any display change that happened to
         // find the cursor in the top-centre 644×220 of the screen, which is
         // where a document's own toolbar lives.
-        let pointerOnTarget = geometry
+        //
+        // Never on an island that stands aside: its target is not drawn, and
+        // the cursor resting at the top centre is on Apple's island or the
+        // menu bar, so a display change or a wake would have opened the panel
+        // over them (review of the native-island guard, 2026-10-29).
+        let pointerOnTarget = !geometry.stepsAside && geometry
             .collapsedHoverRect(for: vm.bodySize.width)
             .contains(NSEvent.mouseLocation)
         let pointerOnBody = geometry.hoverRect(for: vm.openBodySize).contains(NSEvent.mouseLocation)
@@ -3338,6 +3354,7 @@ final class NotchController {
         // fold has settled (`collapseRectShrinkDelay`), so the fade starts on a
         // panel that has already gone back into the notch.
         let asideNow = !open && vm.geometry.stepsAside
+        rootView.refusesDrops = asideNow
         if asideNow {
             rootView.activeRect = .zero
             rootView.dropRect = .zero

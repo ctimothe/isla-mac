@@ -120,9 +120,11 @@ final class NativeIslandTests: XCTestCase {
         XCTAssertEqual(controller.pointer.openRect, .zero)
         XCTAssertEqual(controller.pointer.bubbleRect, .zero)
         XCTAssertEqual(controller.pointer.shelfRect, .zero)
+        XCTAssertTrue(root.refusesDrops, "an empty drop rect must not read as \"accept anywhere\"")
 
         vm.isOpen = true
         controller.refreshOpenRects(animated: false)
+        XCTAssertFalse(root.refusesDrops)
         XCTAssertFalse(root.activeRect.isEmpty, "opened by a hot key or the menu, the panel is clickable")
         XCTAssertFalse(controller.pointer.interactiveRect.isEmpty)
         XCTAssertFalse(controller.pointer.openRect.isEmpty)

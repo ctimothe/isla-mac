@@ -2456,7 +2456,10 @@ macOS version when run):
   display: nothing is drawn at the notch and clicks and hovers there reach
   the menu bar; ⌃⌥⌘I, ⌃⌥⌘V, ⌃⌥⌘T and opening Isla from Spotlight open the
   panel, which fades out after it folds; no peek, charger or headphones pill
-  shows. Turning the switch back on brings the island back at once.
+  shows. With Volume and Brightness on, a volume key shows macOS's own
+  pop-up. Plugging a display in or waking the Mac with the pointer resting
+  at the top centre opens nothing. Turning the switch back on brings the
+  island back at once.
 - [ ] **NI-H3** The same with an external display connected: the island moves
   to the external display, synthetic, and works there as on any display
   without a notch; unplugging it falls back to NI-H2.
