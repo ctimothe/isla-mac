@@ -815,6 +815,41 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(readings.isEmpty)
     }
 
+    /// R5-H7, from the flags the keyboard sends to the step that is applied:
+    /// ⌥+volume is Sound settings and ⇧+volume is macOS's silent step, so Isla
+    /// takes neither — it neither applies nor consumes them, and the system
+    /// does what it does. ⌥⇧ is Isla's own: consumed, forwarded as the fine
+    /// step, and a fine step is a quarter of a coarse one.
+    ///
+    /// What stays on the Mac is the system's half — that macOS really opens
+    /// Sound settings for ⌥ and really steps silently for ⇧ with Isla's tap
+    /// listening — which no fake can show.
+    func testOptionAndShiftAreLeftToTheSystemAndOptionShiftStepsInQuarters() {
+        let hud = hud()
+        on(hud)
+        for key in [MediaKey.volumeUp, .volumeDown, .brightnessUp, .brightnessDown] {
+            for (name, flags) in [("⌥", CGEventFlags.maskAlternate), ("⇧", .maskShift)] {
+                let modifiers = MediaKeyModifiers(flags: flags)
+                XCTAssertTrue(modifiers.leavesToTheSystem, "\(name) is the system's")
+                XCTAssertFalse(hud.handle(down(key), modifiers: modifiers), "\(name)+\(key) goes to the system")
+                XCTAssertFalse(hud.handle(up(key), modifiers: modifiers), "and so does its release")
+            }
+        }
+        XCTAssertTrue(applier.applied.isEmpty, "Isla applied nothing for ⌥ or ⇧ alone")
+
+        let fine = MediaKeyModifiers(flags: [.maskAlternate, .maskShift])
+        XCTAssertFalse(fine.leavesToTheSystem)
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: fine), "⌥⇧ is Isla's")
+        XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: fine))
+        XCTAssertEqual(applier.applied.count, 1)
+        XCTAssertEqual(applier.applied.first?.0, .volumeUp)
+        XCTAssertEqual(applier.applied.first?.1, true, "forwarded as the fine step")
+
+        XCTAssertEqual(HUDStep.coarse / HUDStep.fine, 4, "a fine step is a quarter")
+        XCTAssertEqual(HUDStep.stepped(0.5, raising: true, fine: true) - 0.5, HUDStep.coarse / 4, accuracy: 1e-6)
+        XCTAssertEqual(HUDStep.stepped(0.5, raising: true, fine: false) - 0.5, HUDStep.coarse, accuracy: 1e-6)
+    }
+
     // MARK: A press-and-hold is decided once
 
     func testAHoldDecidedPassStaysPassThroughItsRepeatsWhateverChanges() {

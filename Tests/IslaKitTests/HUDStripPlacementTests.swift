@@ -281,6 +281,51 @@ final class HUDStripPlacementTests: XCTestCase {
         withExtendedLifetime(watch) {}
     }
 
+    // MARK: A song skip
+
+    /// MR-H12's last clause: "press right after a song skip on the player and
+    /// on the stage". A skip is the next song reported straight away, or — from
+    /// a player that clears Now Playing between two songs — an empty report and
+    /// then the next song. The stage is 400 pt with a song and the player's
+    /// 200 without one, so the second form resizes the body under a capsule
+    /// that is already up; the first changes nothing but the title. Either way
+    /// the capsule is 6 pt under the outline as it is drawn.
+    func testACapsuleUpThroughASongSkipStaysUnderThePlayerAndTheStage() throws {
+        for surface in [Surface.player, .stage] {
+            let vm = try openModel(on: surface)
+            isolated.stores.media.apply(playing())
+            XCTAssertEqual(vm.presented, surface, "the fixture: a song is playing on \(surface)")
+            let host = Host(vm: vm)
+            defer { host.close() }
+            press(vm)
+            host.settle(0.8)
+            XCTAssertEqual(try XCTUnwrap(host.capsuleTop()), underTheOutline(vm), accuracy: 2, "\(surface) before the skip")
+
+            // Straight to the next song.
+            var next = playing()
+            next.title = "The Next Song"
+            isolated.stores.media.apply(next)
+            press(vm, 0.6)
+            host.settle(0.8)
+            XCTAssertEqual(vm.presented, surface)
+            XCTAssertEqual(try XCTUnwrap(host.capsuleTop()), underTheOutline(vm), accuracy: 2, "\(surface) after a straight skip")
+
+            // Through an empty report: the stage is the player for the gap.
+            isolated.stores.media.apply(NowPlayingFeed.Snapshot())
+            press(vm, 0.7)
+            host.settle(0.8)
+            XCTAssertEqual(vm.presented, .player, "the gap")
+            XCTAssertEqual(try XCTUnwrap(host.capsuleTop()), underTheOutline(vm), accuracy: 2, "\(surface) in the gap")
+            var third = playing()
+            third.title = "A Third Song"
+            isolated.stores.media.apply(third)
+            press(vm, 0.8)
+            host.settle(0.8)
+            XCTAssertEqual(vm.presented, surface, "the song is back")
+            XCTAssertEqual(try XCTUnwrap(host.capsuleTop()), underTheOutline(vm), accuracy: 2, "\(surface) after the gap")
+        }
+    }
+
     // MARK: The tall surfaces
 
     /// On the stage and on Settings the capsule is where it always was: 6 pt

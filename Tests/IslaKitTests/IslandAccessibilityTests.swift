@@ -83,6 +83,59 @@ final class IslandAccessibilityTests: XCTestCase {
                        charging.dump)
     }
 
+    /// R8d-H7, in the order VoiceOver walks it (spec §19.12): the island first,
+    /// as "Isla", then — with a file kept on the Shelf while Music holds the
+    /// island — the Shelf's bubble beside it, as a button of its own with the
+    /// Shelf activity's label, and pressing it opens the Shelf. The bubble's
+    /// glyph and count are one element, not two more to swipe through, and the
+    /// Core Animation layer views that draw the island's shape (backdrop and
+    /// overlay, `IslandOutlineHost`) are not elements at all.
+    ///
+    /// The bubble is drawn here by the shell itself (no outline host is
+    /// handed in); in the app it is the same view in a hosting view of its own
+    /// that sits above the island's, and "above" is the order VoiceOver reads.
+    func testTheIslandReadsAsIslaThenTheShelfBubbleAndNoLayerIsAnnounced() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let shelf = isolated.stores.shelf
+        shelf.requestThumbnail = { _, done in done(nil) }
+        shelf.makeBookmark = { _ in nil }
+        let urls = (0..<3).map { isolated.temp.appendingPathComponent("kept-\($0).txt") }
+        for url in urls { FileManager.default.createFile(atPath: url.path, contents: Data("x".utf8)) }
+        shelf.add(urls)
+        await LabFixtures.play(LabFixtures.Track(), on: isolated.stores.media)
+        let vm = try makeVM(isolated)
+        var bubbleClicks = 0
+        vm.onBubbleClick = { bubbleClicks += 1 }
+        XCTAssertEqual(vm.bubbleCount, 3, "the fixture: Music holds the island, three files wait beside it")
+
+        let root = await AXProbe.tree(of: NotchContentView(vm: vm), size: Self.pillProbe)
+        let nodes = root.flattened
+        let island = try XCTUnwrap(nodes.firstIndex { $0.role == "AXButton" && $0.label == ProductIdentity.displayName }, root.dump)
+        let bubbleLabel = IslandBubble.label(count: 3)
+        let bubble = try XCTUnwrap(nodes.firstIndex { $0.role == "AXButton" && $0.label == bubbleLabel }, root.dump)
+        XCTAssertLessThan(island, bubble, "the island first, then the bubble\n\(root.dump)")
+        XCTAssertEqual(islands(in: root).count, 1, "one Isla\n\(root.dump)")
+        XCTAssertEqual(nodes.filter { $0.label == bubbleLabel }.count, 1, "the bubble is one element\n\(root.dump)")
+        XCTAssertEqual(bubbleLabel, "Shelf, 3 items")
+
+        // Its glyph and its count are not announced a second time.
+        let strays = nodes.filter { node in
+            node.role != "AXButton" && (node.label == "3" || node.value == "3" || node.label.contains("tray"))
+        }
+        XCTAssertTrue(strays.isEmpty, "the bubble's content is hidden from VoiceOver\n\(root.dump)")
+
+        // Pressing it is a click on the bubble: the Shelf opens.
+        XCTAssertTrue(nodes[bubble].press(), root.dump)
+        XCTAssertEqual(bubbleClicks, 1)
+
+        // The shell's own tree holds exactly those two buttons and nothing
+        // unnamed beside them (the layer views draw; they are not elements).
+        XCTAssertTrue(AccessibilitySweepTests.unnamedControls(in: root).isEmpty, root.dump)
+        let buttons = root.all(role: "AXButton").map(\.label)
+        XCTAssertEqual(Set(buttons), [ProductIdentity.displayName, bubbleLabel], "\(buttons)\n\(root.dump)")
+    }
+
     // MARK: - Open
 
     func testTheOpenPanelClosesFromItsHeaderAndFromCancel() async throws {

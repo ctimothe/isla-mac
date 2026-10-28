@@ -210,6 +210,83 @@ final class PlayerPaneTests: XCTestCase {
         assertTheArtistIsOnlyInTheTitle(s)
     }
 
+    /// R8b-H10 on a song written the way the owner's is: an LRC with end
+    /// stamps — an empty stamp where the voice stops — so each pause is the
+    /// file's own. The subtitle holds the line coming next through every pause
+    /// the sweep honours (1.5 s or more, `LyricSweep.minimumHonouredGap`; a
+    /// shorter breath keeps the line before it lit), unswept — the dim — and
+    /// the artist stands only in the title's row; when the voice returns the
+    /// same row is sung, so the line fills in place with nothing turning.
+    ///
+    /// The checklist says "a second or more"; the sweep's own floor is 1.5 s
+    /// so that a file's empty stamp a breath before the next line does not
+    /// blink the line off and on. A pause between one and 1.5 s therefore
+    /// holds the line just sung, not the coming one — held below too, so the
+    /// difference is on record rather than a surprise on hardware.
+    func testEveryHonouredPauseOfAnLrcWithEndStampsHoldsTheComingLineDim() async throws {
+        let lrc = """
+        [ti:Song]
+        [ar:Artist]
+        [00:05.00]First line
+        [00:08.00]
+        [00:12.00]Second line
+        [00:14.00]
+        [00:15.50]Third line
+        [00:17.00]
+        [00:18.00]Fourth line
+        [00:21.00]
+        """
+        let document = try LocalLyricsDocument.parse(lrc)
+        let lines = document.lines
+        XCTAssertEqual(lines.map(\.text), ["First line", "Second line", "Third line", "Fourth line"])
+        XCTAssertEqual(lines.map(\.end), [8, 14, 17, 21], "the empty stamps are the lines' ends")
+        XCTAssertEqual(lines.indices.map { LyricSweep.effectiveEnd(of: $0, in: lines) }, [8, 14, nil, 21],
+                       "a 4 s and a 1.5 s pause are honoured, a 1 s breath is not")
+
+        func band(at position: TimeInterval) -> MediaPane.SungLine {
+            let inputs = LyricInputs(
+                position: position, precisionSync: true, userOffset: 0, trackOffset: 0, wordTiming: false
+            )
+            return MediaPane.SungLine(
+                isOn: true, lines: lines, resolution: MediaPane.captionResolution(lines: lines, inputs: inputs)
+            )
+        }
+        // Every instant of every honoured pause, up to the moment the lead
+        // lights the coming line: that line, dim.
+        let lead = LyricSweep.lead(precisionSync: true, userOffset: 0)
+        let beforeTheVoice = lead + 0.05
+        for (pause, coming) in [(8.1..<(12 - beforeTheVoice), 1), (14.1..<(15.5 - beforeTheVoice), 2)] {
+            var position = pause.lowerBound
+            while position < pause.upperBound {
+                let held = band(at: position)
+                XCTAssertEqual(held.index, coming, "at \(position) s the band holds line \(coming)")
+                XCTAssertFalse(held.isSung, "at \(position) s it waits, unsung")
+                XCTAssertEqual(held.fraction, 0, "at \(position) s nothing of it is lit")
+                position += 0.1
+            }
+        }
+        // The voice returning: the same row, now sung, filling from the left.
+        XCTAssertEqual(band(at: 12 - beforeTheVoice).index, band(at: 12.4).index, "no turn when the voice returns")
+        XCTAssertFalse(band(at: 12 - beforeTheVoice).isSung)
+        XCTAssertTrue(band(at: 12.4).isSung)
+        XCTAssertGreaterThan(band(at: 12.4).fraction, 0)
+        XCTAssertEqual(band(at: 15.5 - beforeTheVoice).index, band(at: 15.9).index)
+        // A 1 s breath is not a pause: the line just sung stays lit through it.
+        XCTAssertEqual(band(at: 17.5).index, 2)
+        XCTAssertTrue(band(at: 17.5).isSung)
+
+        // Hosted, as the owner sees it: the subtitle's text is the coming line
+        // and the artist is in the title and nowhere else.
+        for (elapsed, expected) in [(9.0, "Second line"), (11.5, "Second line"), (14.6, "Third line")] {
+            let s = await scene(elapsed: elapsed, lines: lines)
+            XCTAssertNotNil(
+                s.root.all { $0.label == "Lyrics" && $0.value == expected }.first,
+                "at \(elapsed) s the subtitle holds \(expected)\n\(s.root.dump)"
+            )
+            assertTheArtistIsOnlyInTheTitle(s)
+        }
+    }
+
     /// The artist appears once while the band is on: in "Title · Artist".
     private func assertTheArtistIsOnlyInTheTitle(_ s: Scene, file: StaticString = #filePath, line: UInt = #line) {
         let artist = LabFixtures.Track().artist

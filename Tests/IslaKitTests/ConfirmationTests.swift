@@ -86,6 +86,44 @@ final class ConfirmationTests: XCTestCase {
         XCTAssertEqual(cleared, 0, "a disarm never acts")
     }
 
+    /// The whole two-press life of Clear without a pointer on it: the first
+    /// press asks and speaks, the second acts, and an unanswered question
+    /// lapses by itself after 3 s (8 s under VoiceOver, which this test cannot
+    /// switch on — the allowance itself is held above). A pointer resting on the
+    /// word holds the red until 3 s after it leaves (`ConfirmationArming.hover`),
+    /// and a hover cannot be delivered to a window that is never ordered in, so
+    /// that half stays a hardware check.
+    func testAnUnansweredClearLapsesAfterThreeSecondsAndASecondPressActs() async throws {
+        try XCTSkipIf(NSWorkspace.shared.isVoiceOverEnabled, "VoiceOver is on: the allowance is 8 s, not 3")
+        var cleared = 0
+        let root = await AXProbe.tree(
+            of: ConfirmTextButton(title: "Clear", armedTitle: "Clear Everything") { cleared += 1 },
+            size: CGSize(width: 200, height: 60)
+        )
+        func button(_ label: String, in tree: AXNode) throws -> AXNode {
+            try XCTUnwrap(tree.all(role: "AXButton").first { $0.label == label }, tree.dump)
+        }
+
+        // Asked, then answered: the second press acts, once, and the word is
+        // back to Clear.
+        XCTAssertTrue(try button("Clear", in: root).press())
+        let armed = await root.reread()
+        XCTAssertNotNil(try? button("Clear Everything", in: armed), armed.dump)
+        XCTAssertTrue(try button("Clear Everything", in: armed).press())
+        let answered = await root.reread()
+        XCTAssertEqual(cleared, 1, "the second press acts")
+        XCTAssertNotNil(try? button("Clear", in: answered), answered.dump)
+
+        // Asked, then left alone: still red a second later, back by 3 s.
+        XCTAssertTrue(try button("Clear", in: answered).press())
+        let waiting = await root.reread(settle: 1.0)
+        XCTAssertNotNil(try? button("Clear Everything", in: waiting), "still asking after a second\n\(waiting.dump)")
+        let lapsed = await root.reread(settle: 2.4)
+        XCTAssertNotNil(try? button("Clear", in: lapsed), "lapsed by itself\n\(lapsed.dump)")
+        XCTAssertEqual(cleared, 1, "a lapse never acts")
+        XCTAssertFalse(ArmedConfirmations.shared.disarmAll(), "and it left nothing registered for Escape to take")
+    }
+
     /// The caption word alone measured 27x13 in the lab dump, beside
     /// Deselect: a near miss armed Clear or hit the row underneath.
     func testCaptionButtonsAreBigEnough() async {
