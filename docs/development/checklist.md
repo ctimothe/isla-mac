@@ -2457,6 +2457,12 @@ Mac model and macOS version when run):
   password grace) and with another user switched in.
 - [ ] **DU-H7** `rm -rf .dev-updates`, then publish: the new folder is found and
   the build offered within a few seconds, without relaunching Isla.
+- [ ] **DU-H8** Install from a build that judges the detach by `hdiutil info`
+  (`fix/update-detach-judged-by-state`) installs even when macOS is slow to
+  eject the image; the log says "a detach try did not exit cleanly, but the
+  disk image is gone" when it was. Failed on 2026-10-28 before that fix:
+  0.4.0.8 refused 0.4.0.9 with "Isla couldn't open the downloaded update" on
+  every Try Again, because the eject took 12.6 s and each detach try 10 s.
 
 ### Small refinements (`feat/mobbin-refinements`, 2026-10-25)
 
