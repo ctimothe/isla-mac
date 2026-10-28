@@ -7,7 +7,7 @@ How to use it. Do the sittings in order; each needs one setup and leaves the Mac
 Counts, by where each of the 175 lines ended up:
 
 - Owner runs in ten sittings: 130
-- Could be a test: 17
+- Could be a test: 17 (16 held by tests since Batch 1, some with a clause left for the owner; 413 stays an owner run)
 - Stale: 8
 - Not an owner check (umbrella lines, release process, backlog and debt, a marketing task): 18
 - Waiting on something outside the Mac: 2
@@ -228,27 +228,44 @@ Stale in part, kept as owner runs or tests with the clause dropped:
 - **413** and **1157** say "lyrics page" and "Clipboard tab", now the stage and the Clipboard page; the behaviour is unchanged.
 - **1397** asks for the copy in `build/` to be launched from Finder; CLAUDE.md forbids opening that bundle because each launch registers a second Isla with LaunchServices.
 
-## Could be a test
+## Held by tests since Batch 1 (2026-10-29)
 
-The repo already hosts views headlessly (`AccessibilityProbe`, `VisualLabSupport`); each line names the kind of test that would hold the outcome.
+These no longer need a sitting, except for the clause named after "owner".
+Each was either already held by a test (named) or got one; all run in
+`./scripts/check`.
 
-- **413** Hosted-view test on the lyric stage: scroll both ways, assert the offset holds, and that the Sync pill brings the sung line back (`LyricsStageScrollTests` is the home).
-- **415** State-table test over the caption states (disabled, settling, finding, ready, none, invalid file, retry, import, binding removal, ambiguous choice) asserting a non-empty caption in each.
-- **422** Logic test on the local library: an indexed timeline is readable before any panel opens, and a rescan never replaces a displayed lyric with a lower-confidence candidate (`LocalLyricsLibraryTests`).
-- **982** Migration test that stores the old delay sign in a defaults fixture and asserts the new value and the unchanged line positions (`LyricDelayCopyTests`).
-- **1113** Logic test of the two-press Clear (armed for 8 s, red until 3 s after the pointer leaves, Escape disarms, second Escape closes) plus an accessibility-tree assertion for "Clear Everything. Press again to confirm." and "Copied" (`ConfirmationTests`).
-- **R4-H7** Layout test of Translate's alert cards and pop-up labels in Russian at 480, asserting fit and tail truncation.
-- **R5-H7** Decoder test that maps modifiers to action (Option opens Sound settings through an injected opener, Shift is silent, Option+Shift steps a quarter) in `MediaKeyDecoderTests`.
-- **R8-H1** Geometry test over every surface at 480 and 620 in Russian asserting no clipping, no overlap and centred header items (`HeaderNotchBandTests` pattern); drop the Tools clause.
-- **R8b-H5** Accessibility-tree test that the dots read "Pages, Page n of 4, name" and that increment and decrement turn one page and stop at the ends; the keyboard-claim clause still wants one real VoiceOver pass.
-- **R8b-H8** Layout and string test that in Russian at 480 and 620 the dots and gear clear the content and the tooltips read Музыка, Полка, Буфер обмена, Перевод (`PageDotsTests`).
-- **R8b-H10** Logic test on a synthetic LRC with end stamps asserting the subtitle holds the coming line, dim, through pauses of a second or more, shows the artist only after the title, and fills in place without a turn.
-- **R8c-H6** Geometry and string test that Remove All's trash is no larger than the gear's, Clipboard's search and filter share one height, and Translate's Paste reads in full in English and Russian; drop the day-over-time clause.
-- **R8c-H7** Extend `ClipboardImageMemoryTests` with ten 20 MB copies, asserting resident bytes return near the start and the oldest item still pastes in full.
-- **R8d-H7** Accessibility-tree test that the island reads "Isla", then the bubble when a file is kept, that Open and Close actions work, and that the layer views are not exposed (`IslandAccessibilityTests`).
-- **MR-H1** Accessibility and layout test that every page and the stage carry the gear with its update dot, Settings carries the X, and Remove All sits beside the gear with no gap.
-- **MR-H12** Geometry test with the outline hosted (`IslandOutlineHostTests`) that the capsule is 6 pt under the visible panel's bottom edge, centred, across a page turn, a spring-back and a post-skip resize.
-- **MR-H20** Geometry test over every page and the stage that the icons, wells and tools are one size in 26 pt wells at 560 and 480, with no header taller than before.
+- **415** `LyricCaptionStatesTests`: every caption state says something.
+- **422** `LocalLyricsLibraryTests.testAnIndexedFolderIsReadyAfterLaunch`,
+  `testARescanNeverReplacesAShownLyricWithALowerConfidenceCandidate`, and
+  `LyricsCoordinatorTests.testARescanThatTiesWithTheShownLyricKeepsItShown`.
+  The last one found a bug, now fixed: a rescan that found a second copy of
+  the playing song replaced the lyric on screen with "Choose local lyrics…".
+- **982** `LyricSweepTests.testTheSignMigrationKeepsEveryListenersTiming`,
+  `LyricDelayCopyTests.testAnUpgradedDelayReadsPlusWhereItReadMinusAndMovesNoLine`.
+- **1113** `ConfirmationTests` (durations, Escape, VoiceOver, the lapse and the
+  second press). Owner: the word stays red while the pointer rests on it.
+- **R4-H7** `PanelLayoutSweepTests.testTranslatesAlertCardsFitTheCardInRussianAt480`.
+  Owner: the "…" is drawn on a cut pop-up label.
+- **R5-H7** `MediaKeyDecoderTests`, `MediaKeyHUDTests`. Owner: macOS's own
+  answer to ⌥ (Sound settings) and ⇧ (silent step), which Isla leaves to it.
+- **R8-H1**, **R8b-H8**, **R8c-H6**, **MR-H1**, **MR-H20**
+  `PanelLayoutSweepTests` (every surface in Russian at 480 and 620, the dots
+  and gear, the headers, one well size). Owner: text that truncates inside its
+  own box, and a hover lightening each well.
+- **R8b-H5** `PageDotsTests`. Owner: one real VoiceOver pass for the keyboard
+  claim.
+- **R8b-H10** `PlayerPaneTests.testEveryHonouredPauseOfAnLrcWithEndStampsHoldsTheComingLineDim`.
+  Note: the sweep honours pauses of 1.5 s or more (`LyricSweep.minimumHonouredGap`),
+  not "a second or more" as the check says; a 1 s breath keeps the line lit.
+- **R8c-H7** `ClipboardImageMemoryTests` (ten 20 MB copies grew memory by
+  23 MB against a 50 MB bound; the oldest pastes byte for byte).
+- **R8d-H7** `IslandAccessibilityTests`, `IslandOutlineHostTests.testTheLayerViewsTakeNoEvents`.
+- **MR-H12** `HUDStripPlacementTests`, `HUDStripTests`.
+
+Still an owner run: **413** (the lyric stage scrolled both ways). A test that
+fed real scroll events through the app passed once and then failed on the same
+code, because whether the events arrive depends on the window server and the
+pointer, so it was not kept.
 
 ## Waiting on something outside the Mac
 
