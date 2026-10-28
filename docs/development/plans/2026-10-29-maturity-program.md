@@ -142,7 +142,9 @@ works; a fan-out of more than six agents, or any Opus fan-out, without a yes
 
 ## Owner decisions
 
-- **D1 — on a Mac with Apple's island.** Recommended: draw nothing on that
+- **D1 — on a Mac with Apple's island.** *Decided 2026-10-29 (owner: "Yes,
+  step aside"): Isla steps aside, as built in Batch 0 (spec §3.8).*
+  Recommended: draw nothing on that
   display and keep working on external displays; the hot keys and the
   right-click menu still open Clipboard, Translate, the Shelf and Settings
   under Apple's island. Alternatives: quit with a one-time notice, or keep
