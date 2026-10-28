@@ -849,6 +849,31 @@ final class MediaController: ObservableObject {
     /// when the Spotify account can save the song instead.
     @Published private(set) var musicFavorite: Bool?
 
+    /// The star's last tap, held until Music says the same: a catalogue
+    /// song's favourite reads back false for seconds after it was set.
+    private(set) var favoriteHold = MusicFavoriteHold()
+
+    /// The player's shuffle, repeat and favourite, read over AppleScript.
+    /// Injectable, like `heldPlayerState`, so a test can answer stale, late
+    /// or not at all without Music.
+    var playbackModesReader: (PlayerApp, @escaping @MainActor (PlayerBridge.PlaybackModes?) -> Void) -> Void = {
+        app, reply in PlayerBridge.playbackModes(of: app, completion: reply)
+    }
+
+    /// Music's favourite, written over AppleScript; the reply says whether
+    /// Music took the command. Injectable for the same reason.
+    var favoriteWriter: (PlayerApp, Bool, @escaping @MainActor (Bool) -> Void) -> Void = {
+        app, isFavorite, reply in PlayerBridge.setFavorite(app, isFavorite, completion: reply)
+    }
+
+    /// Runs the star's read-backs and the end of its hold, `delay` seconds on.
+    /// Injectable so a test can step through fifteen seconds without waiting.
+    var favoriteTimer: (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            MainActor.assumeIsolated { work() }
+        }
+    }
+
     /// Asks the displayed player where its switches stand. Cheap enough to
     /// call on pane appearance and after every toggle; a no-op for sessions
     /// that cannot answer.
@@ -860,15 +885,24 @@ final class MediaController: ObservableObject {
             shuffleEnabled = nil
             repeatMode = nil
             musicFavorite = nil
+            favoriteHold.forget()
             return
         }
         supportsRepeatOne = app == .music
         guard mayScript(app) else { return }
-        PlayerBridge.playbackModes(of: app) { [weak self] modes in
+        let askedAbout = track?.key
+        playbackModesReader(app) { [weak self] modes in
             guard let self, self.displayedPlayerApp == app else { return }
             self.shuffleEnabled = modes?.shuffle
             self.repeatMode = modes?.repeatMode
-            self.musicFavorite = app == .music ? modes?.favorite : nil
+            // Asked about the song before this one: its favourite is that
+            // song's, and the new song's own question is already queued
+            // behind it. Taken as this one's, the star wore the last song's
+            // answer until the next read.
+            guard self.track?.key == askedAbout else { return }
+            self.musicFavorite = app == .music
+                ? self.favoriteHold.shown(answer: modes?.favorite, trackKey: askedAbout, at: self.monotonicNow())
+                : nil
         }
     }
 
@@ -882,14 +916,37 @@ final class MediaController: ObservableObject {
     }
 
     /// Music's star, optimistic like shuffle: the star answers the click now
-    /// and the read-back corrects it if Music refused.
+    /// and stays there until Music agrees (`MusicFavoriteHold`). Music refusing
+    /// the command puts it back at once; Music never catching up puts it back
+    /// when the hold's window runs out.
     func toggleMusicFavorite() {
         guard let current = musicFavorite else { return }
-        musicFavorite = !current
-        if musicFavoriteForTests != nil { return }
-        guard let app = displayedPlayerApp, app == .music else { return }
-        PlayerBridge.setFavorite(app, !current)
-        readBackModes()
+        if musicFavoriteForTests != nil {
+            musicFavorite = !current
+            return
+        }
+        guard let app = displayedPlayerApp, app == .music, let key = track?.key else { return }
+        let tap = favoriteHold.tapped(trackKey: key, wants: !current, at: monotonicNow())
+        musicFavorite = tap.wants
+        favoriteWriter(app, tap.wants) { [weak self] accepted in
+            guard let self, !accepted, self.favoriteHold.refused(tap) else { return }
+            // Back where it was before the tap, then asked: a refresh that may
+            // not ask (no consent) would otherwise leave the tap's star up.
+            self.musicFavorite = current
+            self.refreshPlaybackModes()
+        }
+        for delay in MusicFavoriteHold.readBacks {
+            favoriteTimer(delay) { [weak self] in
+                // Music agreed, a later tap replaced this one, or the song
+                // moved on: nothing left to ask about.
+                guard let self, self.favoriteHold.tap == tap else { return }
+                self.refreshPlaybackModes()
+            }
+        }
+        favoriteTimer(MusicFavoriteHold.window) { [weak self] in
+            guard let self, self.favoriteHold.expired(tap) else { return }
+            self.refreshPlaybackModes()
+        }
     }
 
     func toggleShuffle() {
@@ -1976,6 +2033,7 @@ final class MediaController: ObservableObject {
             // Music is asked again rather than wearing the last one's answer.
             if musicFavoriteForTests == nil {
                 musicFavorite = nil
+                favoriteHold.forget()
                 if trackChanged, !playerChanged, isActive { refreshPlaybackModes() }
             }
         }
@@ -2331,6 +2389,7 @@ final class MediaController: ObservableObject {
         shuffleEnabled = nil
         repeatMode = nil
         if musicFavoriteForTests == nil { musicFavorite = nil }
+        favoriteHold.forget()
         // The rest of the clock's state, which used to survive the session it
         // belonged to: a leftover `pendingSeek` gated the *next* session's
         // first snapshot through the seek-settle path, and the precision loop

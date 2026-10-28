@@ -2078,7 +2078,10 @@ Owed on hardware (record the Mac model and macOS version when run):
 - [ ] **R8-H5** The sung line in the player on a synced song: it turns with
   the voice, and a long line wraps to two on the stage.
 - [ ] **R8-H6** Favourite in Music (the star follows Music's own heart both
-  ways) and in Spotify with the account connected.
+  ways) and in Spotify with the account connected. In Music, on a catalogue
+  song that is not in the library: one tap fills the star and it stays filled
+  (failed on 2026-10-28 before §19.6's amendment of that day: the star emptied
+  0.4 s after each tap until the third).
 - [ ] **R8-H7** A new track peeks: click its far end, cover side, a few
   points in from the edge — the player opens and stays while the pointer
   rests there, folds when the pointer walks away, and Escape in another app

@@ -225,13 +225,16 @@ enum PlayerBridge {
         case off, all, one
     }
 
+    /// One answer to `playbackModes`.
+    typealias PlaybackModes = (shuffle: Bool, repeatMode: RepeatMode, favorite: Bool?)
+
     /// Both flags in one round trip, or nil when the player refuses to answer —
     /// and, from Music, whether the song is a favourite (spec §19.6), in the
     /// same trip. Spotify's scripting has no such property (its `starred` is a
     /// corpse, see `SpotifyAccount`), so its answer carries none.
     static func playbackModes(
         of app: PlayerApp,
-        completion: @escaping @MainActor ((shuffle: Bool, repeatMode: RepeatMode, favorite: Bool?)?) -> Void
+        completion: @escaping @MainActor (PlaybackModes?) -> Void
     ) {
         guard app.isRunning else {
             Task { @MainActor in completion(nil) }
@@ -267,9 +270,23 @@ enum PlayerBridge {
     /// Music's favourite, set through the scripting bridge the fallback already
     /// uses — the one Apple Events entitlement the app has. Music only: nothing
     /// else answers the question, and Spotify's is the Web API's.
-    static func setFavorite(_ app: PlayerApp, _ isFavorite: Bool) {
-        guard app == .music else { return }
-        send(.favorite(isFavorite), to: app)
+    ///
+    /// The completion says whether Music took the command. A refusal is an
+    /// AppleScript error (no current track, a stream that cannot be a
+    /// favourite); a catalogue song's cloud edit is not one — the command
+    /// returns at once and Music catches up seconds later, which is what
+    /// `MusicFavoriteHold` waits out.
+    static func setFavorite(
+        _ app: PlayerApp, _ isFavorite: Bool, completion: @escaping @MainActor (_ accepted: Bool) -> Void
+    ) {
+        guard app == .music, app.isRunning else {
+            Task { @MainActor in completion(false) }
+            return
+        }
+        let body = Transport.favorite(isFavorite).body(for: app)
+        runScript(Script.command(body, on: app), app: app, priority: .transport) { result in
+            MainActor.assumeIsolated { completion(result != nil) }
+        }
     }
 
     static func setShuffle(_ app: PlayerApp, enabled: Bool) { send(.shuffle(enabled), to: app) }
@@ -721,6 +738,16 @@ enum PlayerBridge {
         return OSStatus(noErr)
     }
 
+    /// A script's result, or nil when it threw. Swift's `executeAndReturnError`
+    /// returns a descriptor either way — on an error an empty one, type 0, no
+    /// string, no data — so every reader of a string or data already took a
+    /// failure for "no answer", while a command, which reads neither, could
+    /// not tell a refusal from success. The Favourite star needs that
+    /// difference (`setFavorite`).
+    static func answer(_ result: NSAppleEventDescriptor?, error: NSDictionary?) -> NSAppleEventDescriptor? {
+        error == nil ? result : nil
+    }
+
     /// Runs one script against `app` and tells `AutomationAccess` what the
     /// outcome said about consent, so a refusal stops the background asking
     /// and a grant lets it ask again without waiting for the next check.
@@ -759,8 +786,10 @@ enum PlayerBridge {
                 return
             }
             var error: NSDictionary?
-            let result = script(for: source, cacheable: priority != .transport)?
-                .executeAndReturnError(&error)
+            let result = answer(
+                script(for: source, cacheable: priority != .transport)?.executeAndReturnError(&error),
+                error: error
+            )
             let errorNumber = error?[NSAppleScript.errorNumber] as? Int
             if let error, let code = errorNumber, code != 0 {
                 // The message can echo a value from the script, a track name
