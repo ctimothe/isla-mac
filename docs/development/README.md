@@ -20,6 +20,7 @@ removed from the tree to keep it readable; they are still in the git history.
 | [plans/2026-10-19-dev-update-channel.md](plans/2026-10-19-dev-update-channel.md) | The private update channel on the owner's Mac and the island's update alert. |
 | [plans/2026-10-29-maturity-program.md](plans/2026-10-29-maturity-program.md) | Proposed: the scorecard, scenario matrix and batch loop that make Isla the best island on Macs without Apple's, and its behaviour on Macs with one. |
 | [scorecard.md](scorecard.md) | The maturity program's bar: every feature scored 0–4 on design, accessibility, speed, efficiency, reliability and usability, with the evidence. |
+| [run-sheet.md](run-sheet.md) | Every open hardware check sorted into ten ordered sittings, with the stale ones, the ones that could be tests and the ones waiting on Apple. |
 | [design/](design/) | Design sources kept for reference, such as the app icon's directions. |
 | [plans/](plans/) | Plans for each piece of work, before it was built. |
 | [specs/](specs/) | Feature designs. `shell-music-mvp.md` describes an earlier prototype, not this app. |
