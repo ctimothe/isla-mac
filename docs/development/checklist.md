@@ -2442,3 +2442,21 @@ Mac model and macOS version when run):
   password grace) and with another user switched in.
 - [ ] **DU-H7** `rm -rf .dev-updates`, then publish: the new folder is found and
   the build offered within a few seconds, without relaunching Isla.
+
+### Apple's own island (`feat/native-island-guard`, 2026-10-29)
+
+Spec §3.8, amended 2026-10-29. Owed on hardware (record the Mac model and
+macOS version when run):
+
+- [ ] **NI-H1** Once Apple names the new MacBook Pro's model identifiers
+  (support.apple.com/108052), add them to `NativeIsland.models`. On that Mac,
+  read `sysctl hw.model` and what `NSScreen.safeAreaInsets` and the auxiliary
+  areas report for the built-in display, and record them here.
+- [ ] **NI-H2** On a notched Mac, Show on Built-in Display off with no other
+  display: nothing is drawn at the notch and clicks and hovers there reach
+  the menu bar; ⌃⌥⌘I, ⌃⌥⌘V, ⌃⌥⌘T and opening Isla from Spotlight open the
+  panel, which fades out after it folds; no peek, charger or headphones pill
+  shows. Turning the switch back on brings the island back at once.
+- [ ] **NI-H3** The same with an external display connected: the island moves
+  to the external display, synthetic, and works there as on any display
+  without a notch; unplugging it falls back to NI-H2.

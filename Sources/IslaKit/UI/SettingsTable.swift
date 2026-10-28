@@ -100,7 +100,7 @@ enum SettingsDefault: Equatable {
 @MainActor
 enum SettingsRowID: String, CaseIterable, Hashable {
     // General
-    case launchAtLogin, openLoginItems, openOnHover, hoverDelay, panelWidth
+    case launchAtLogin, openLoginItems, openOnHover, hoverDelay, panelWidth, showOnBuiltInDisplay
     case charging, headphones, newTracks, volumeAndBrightness, accessibilityPermission
     // Privacy
     case clipboardHistory, includeImages, keepPinned
@@ -147,6 +147,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     var kind: Kind {
         switch self {
         case .launchAtLogin, .openOnHover, .charging, .headphones, .newTracks, .volumeAndBrightness,
+             .showOnBuiltInDisplay,
              .clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording,
              .musicOnly, .volumeAndOutput, .lyricBand, .showLyrics, .wordKaraoke, .translateLyrics,
              .lookUpLyricsOnline, .showOnLockScreen, .restAsBanner, .translateOnline, .keepHistory, .speakButton,
@@ -187,6 +188,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .openOnHover: return localized("Open on Hover")
         case .hoverDelay: return localized("Hover Delay")
         case .panelWidth: return localized("Panel Width")
+        case .showOnBuiltInDisplay: return localized("Show on Built-in Display")
         // Not "Charging": that is the island's word since spec §19.14
         // («Зарядка»), and the row's Russian was an accusative («Зарядку»)
         // no status line could use. One key cannot be both.
@@ -271,6 +273,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     /// each row and read as a menu, which the grouped form is not.
     var icon: String? {
         switch self {
+        case .showOnBuiltInDisplay: return SettingsIcon.showOnBuiltInDisplay
         case .charging: return SettingsIcon.showCharging
         case .headphones: return SettingsIcon.showHeadphones
         case .newTracks: return "music.note"
@@ -290,6 +293,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .openOnHover: return NotchViewModel.opensOnHoverKey
         case .hoverDelay: return NotchViewModel.hoverDelayKey
         case .panelWidth: return NotchViewModel.bodyWidthKey
+        case .showOnBuiltInDisplay: return NativeIsland.showOnBuiltInKey
         case .charging: return NotchViewModel.chargingKey
         case .headphones: return NotchViewModel.headphonesKey
         case .newTracks: return NotchViewModel.newTracksKey
@@ -332,6 +336,10 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .hoverDelay: return .number(NotchMetrics.openDelay)
         case .panelWidth: return .number(Double(NotchMetrics.defaultBodyWidth))
         case .charging, .headphones, .newTracks: return .on
+        // Absent means show, as it did before the row existed. A Mac with
+        // Apple's own island reads absent as hide instead
+        // (`NativeIsland.avoidsBuiltIn`); the pane asks that function.
+        case .showOnBuiltInDisplay: return .on
         case .volumeAndBrightness: return .off
         case .clipboardHistory, .includeImages: return .on
         case .keepPinned: return .off
@@ -513,6 +521,10 @@ enum SettingsTable {
         // panel; the default is nearly instant, which suits a real notch.
         if c.opensOnHover { first.append(.hoverDelay) }
         first.append(.panelWidth)
+        // Only on a laptop, the one kind of Mac with a built-in display to be
+        // about: a Mini or a Studio has none. A battery is the app's existing
+        // way to say "laptop" (the Charger row below uses it too).
+        if c.hasBattery { first.append(.showOnBuiltInDisplay) }
         blocks.append(.group(first))
         if let note = c.launchNote { blocks.append(.footnote(note)) }
         if c.offersLoginItems { blocks.append(.buttons([.openLoginItems])) }

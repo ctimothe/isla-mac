@@ -328,6 +328,25 @@ at rest (the menu bar's height; today it is 180 wide), centred, and grows and
 opens exactly like the physical one. The open panel hangs from the menu bar's
 bottom edge.
 
+> **Amended 2026-10-29 (maturity program B0.1: Apple's own island).** Apple's
+> touchscreen MacBook Pro (announced 2026-10-28) has a Dynamic Island of its
+> own on a camera cutout at the centre top of the built-in display. If macOS
+> reports no notch there, this section's synthetic island would be drawn on
+> top of Apple's. So Isla can step aside on the built-in display: when the
+> Mac's model identifier is one of Apple's island Macs (`NativeIsland.models`,
+> filled once Apple names them), or when **Show on Built-in Display**
+> (General, shown on a Mac with a battery, `showOnBuiltInDisplay`, true when
+> unset) is off. Stepping aside, Isla lives on another display when one is
+> connected, with this section's synthetic island there; with only the
+> built-in display it draws nothing and takes no clicks or hovers while shut,
+> and the transient moments (the peek, the charger, the headphones) stay
+> away. A summons — a hot key, opening Isla again from Spotlight or Finder,
+> a Shortcut, the welcome — still opens the panel at the top centre, and
+> the panel fades out once it has folded. The person's own choice beats the
+> model list in both directions. The update alert is one of the moments
+> that stay away, so on a Mac with only the built-in display an update is
+> offered by the gear's badge and Settings › About, on the next summons.
+
 ## 4. The Music player (208 tall)
 
 > **Amended 2026-10-17 (owner: activities first, §19).** The player is §19.6:
@@ -1462,6 +1481,10 @@ so).
 > **Amended 2026-10-15 (R4).** Added `island.charging`, `island.headphones`
 > and `island.newTracks` (all true when unset, General, R4, no), the renamed
 > rows' keys (§10).
+
+> **Amended 2026-10-29 (§3.8).** Added `showOnBuiltInDisplay` (true when unset,
+> and false when unset on a Mac in `NativeIsland.models`; General, on a Mac
+> with a battery; no).
 
 ## 15. New strings
 

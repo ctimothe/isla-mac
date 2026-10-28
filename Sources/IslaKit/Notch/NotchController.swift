@@ -118,6 +118,18 @@ final class NotchController {
         // once-per-build repair when the setting is already on.
         stores.hud.launched()
         build()
+        // "Show on Built-in Display" flipped in Settings: pick the display
+        // again now. `screenParametersChanged` rebuilds only when the fresh
+        // geometry fails `matches`, which `stepsAside` is part of, so the
+        // switch costs nothing when it changes nothing (an external display
+        // is attached and the island is on it either way).
+        observerTokens.append(NotificationCenter.default.addObserver(
+            forName: NativeIsland.changedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.screenParametersChanged() }
+        })
         observerTokens.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -432,7 +444,11 @@ final class NotchController {
         // The notch panel keeps taking hovers so the pill can answer one with a
         // nudge, and takes no clicks at all: the card is a window of its own
         // now, and everywhere else on the shield belongs to the password field.
-        panel?.ignoresMouseEvents = false
+        //
+        // Except on a display the island stands aside from: the pill is not
+        // drawn there and answers nothing, and a transparent window that does
+        // not ignore events still swallows the clicks under it.
+        panel?.ignoresMouseEvents = viewModel?.geometry.stepsAside ?? false
         // A cut, not a transition. Nothing interpolates between the island and
         // the locked pill.
         withTransaction(Self.cut) { viewModel?.isLockedPresentation = true }
@@ -506,8 +522,19 @@ final class NotchController {
             width: pill.width,
             height: pill.height
         )
+        // Stepping aside, the pill is not drawn over the shield either — it
+        // would sit on Apple's island exactly as the shut one does — so it has
+        // nothing to nudge or shake and no region. The card, a window of its
+        // own, is unaffected.
+        if vm.geometry.stepsAside {
+            rootView.lockedHoverRect = .zero
+            rootView.activeRect = .zero
+            setPanelVisible(false, animated: false)
+            return
+        }
         rootView.lockedHoverRect = rect
         rootView.activeRect = NotchRootView.reachingTopEdge(rect, windowHeight: window.height)
+        setPanelVisible(true, animated: false)
     }
 
     /// Unconditional, unlike the lock side: the toggle may have been flipped
@@ -1595,6 +1622,10 @@ final class NotchController {
         panel.contentView = root
         panel.ignoresMouseEvents = true
         panel.setFrame(geometry.windowFrame, display: false)
+        // Born invisible when the island stands aside, before it is ordered
+        // front: ordering a visible one in and fading it out would flash the
+        // synthetic island over Apple's for a frame on every rebuild.
+        panel.alphaValue = geometry.stepsAside ? 0 : 1
         panel.orderFrontRegardless()
 
         self.panel = panel
@@ -1602,9 +1633,13 @@ final class NotchController {
 
         applyActiveRect(open: false)
 
-        pointer.openRect = geometry.collapsedHoverRect(for: vm.bodySize.width)
-        // The drawn shape, not the padded target: what lights is what you are on.
-        pointer.hoverRect = geometry.collapsedIslandHoverRect(for: vm.bodySize.width)
+        // `applyActiveRect` has just zeroed these when the island stands
+        // aside; cutting them again here would hand the hover back.
+        if !geometry.stepsAside {
+            pointer.openRect = geometry.collapsedHoverRect(for: vm.bodySize.width)
+            // The drawn shape, not the padded target: what lights is what you are on.
+            pointer.hoverRect = geometry.collapsedIslandHoverRect(for: vm.bodySize.width)
+        }
         pointer.warmZone = geometry.warmZone
         pointer.coolZone = geometry.coolZone
         pointer.approachZone = geometry.approachZone
@@ -2793,10 +2828,14 @@ final class NotchController {
     /// from a hardware mirror, so the pill cannot be left to hide itself. Only
     /// the transient moments are quieted: the resting pill's presence on every
     /// Space is the tested contract (S9-b).
+    ///
+    /// And an island that stands aside (`NotchGeometry.stepsAside`) has nowhere
+    /// to show one: the panel is invisible, so a moment would run its whole
+    /// 2.2 s unseen, holding the alert queue and the island's rank for nothing.
     nonisolated static func momentsQuiet(
-        fullScreenFrontmost: Bool, displayMirrored: Bool, soleExternalDisplay: Bool
+        fullScreenFrontmost: Bool, displayMirrored: Bool, soleExternalDisplay: Bool, stepsAside: Bool
     ) -> Bool {
-        fullScreenFrontmost || displayMirrored || soleExternalDisplay
+        fullScreenFrontmost || displayMirrored || soleExternalDisplay || stepsAside
     }
 
     /// Only external displays on a Mac that has a battery is a laptop with its
@@ -2824,7 +2863,8 @@ final class NotchController {
             soleExternalDisplay: Self.isSoleExternalDisplay(
                 displaysAreBuiltIn: active.map { CGDisplayIsBuiltin($0) != 0 },
                 hasInternalBattery: Self.hasInternalBattery()
-            )
+            ),
+            stepsAside: viewModel?.geometry.stepsAside ?? false
         )
     }
 
@@ -3287,6 +3327,47 @@ final class NotchController {
             rootView.bubbleRect = .zero
             pointer.bubbleRect = .zero
         }
+        // The built-in display belongs to Apple's island (`NativeIsland`) or to
+        // the person's choice, and the shut island is not drawn there: nothing
+        // clickable, nothing that lights on a hover, nothing that opens on one
+        // — and the panel itself invisible, since the island, its stroke and
+        // every moment are drawn into it. Open, the panel is what a hot key or
+        // the menu asked for, and it is shown at once, before the open's first
+        // frame: every road to an open (`setOpen`, `refreshOpenRects`) cuts
+        // through here first. Closing comes back through here too, after the
+        // fold has settled (`collapseRectShrinkDelay`), so the fade starts on a
+        // panel that has already gone back into the notch.
+        let asideNow = !open && vm.geometry.stepsAside
+        if asideNow {
+            rootView.activeRect = .zero
+            rootView.dropRect = .zero
+            rootView.bubbleRect = .zero
+            pointer.interactiveRect = .zero
+            pointer.hoverRect = .zero
+            pointer.openRect = .zero
+            pointer.bubbleRect = .zero
+            pointer.shelfRect = .zero
+        }
+        setPanelVisible(!asideNow, animated: true)
+    }
+
+    /// Fades the panel in or out as a whole. Instant under Reduce Motion, when
+    /// asked not to animate, and when it is already there.
+    ///
+    /// The instant path goes through the animator with a zero duration rather
+    /// than assigning `alphaValue` alone: a fade still in flight would
+    /// otherwise carry on past the assignment and leave an opening panel
+    /// transparent.
+    private func setPanelVisible(_ visible: Bool, animated: Bool) {
+        guard let panel else { return }
+        let target: CGFloat = visible ? 1 : 0
+        guard panel.alphaValue != target else { return }
+        let fade = animated && !visible && !SystemAppearance.shared.reduceMotion
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = fade ? 0.15 : 0
+            panel.animator().alphaValue = target
+        }
+        if !fade { panel.alphaValue = target }
     }
 }
 

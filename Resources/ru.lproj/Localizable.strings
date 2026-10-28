@@ -151,6 +151,7 @@
 "This Track" = "Этот трек";
 "Hover Delay" = "Задержка открытия";
 "Panel Width" = "Ширина панели";
+"Show on Built-in Display" = "Показывать на встроенном дисплее";
 "Open %@" = "Открыть %@";
 "Sync" = "К строке";
 "Back to the current line" = "Вернуться к текущей строке";
