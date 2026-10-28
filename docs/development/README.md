@@ -18,6 +18,7 @@ removed from the tree to keep it readable; they are still in the git history.
 | [plans/2026-10-15-redesign-spec.md](plans/2026-10-15-redesign-spec.md) | The redesign: the island, its activities, and the pages and dots that replaced the tabs (§19 binds). Amended in place, dated. |
 | [plans/2026-10-17-activities-build-plan.md](plans/2026-10-17-activities-build-plan.md) | How the redesign was built, release by release (R7 onward). |
 | [plans/2026-10-19-dev-update-channel.md](plans/2026-10-19-dev-update-channel.md) | The private update channel on the owner's Mac and the island's update alert. |
+| [plans/2026-10-29-maturity-program.md](plans/2026-10-29-maturity-program.md) | Proposed: the scorecard, scenario matrix and batch loop that make Isla the best island on Macs without Apple's, and its behaviour on Macs with one. |
 | [design/](design/) | Design sources kept for reference, such as the app icon's directions. |
 | [plans/](plans/) | Plans for each piece of work, before it was built. |
 | [specs/](specs/) | Feature designs. `shell-music-mvp.md` describes an earlier prototype, not this app. |
