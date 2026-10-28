@@ -29,7 +29,7 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses | 1 | 1 | 2 — 146 tests | 1 |
 | Clipboard | 2 — spec §9 | 3 — sweep; 27 AX uses | 1 | 1 | 2 — 203 tests | 1 |
 | Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 1 | 1 | 2 — 214 tests, offline consent | 1 |
-| Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 1 — staged mount measured once (2026-10-19) | 1 | 2 — 128 tests | 1 |
+| Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2) | 1 | 2 — 128 tests | 1 |
 | Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 1 | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
 | Charger and headphones | 2 — spec §3.6 | 2 — every charger state with its level, headphones by model (B1) | 1 | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
 | Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
@@ -49,6 +49,20 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
   sheet, "Held by tests since Batch 1"); one of them found a second bug, now
   fixed: a folder rescan that found a second copy of the playing song took the
   lyric off the screen mid-song.
+- **Batch 2, speed, 2026-10-29.** A new headless harness,
+  `Scripts/measure-mounts.sh` (`MountCostLab`), times each surface's build and
+  first layout on the main thread's own CPU clock, with no window on screen
+  and no idle Mac needed. Release, median of 15 builds: shelf 5 ms, empty
+  player 7, clipboard 10, translate 12, playing player 12, lyric stage 15,
+  Settings sections 15–32 (Lyrics 32), against a 8.3 ms frame at 120 Hz. A
+  sample of the Lyrics section found Isla's own code at about a fifth of that
+  and SwiftUI the rest. One bug found and fixed: every opening of Settings
+  asked the login-items daemon for Launch at Login twice on the main thread,
+  2.5 ms median and up to 9 ms each on a busy Mac, with the thread waiting
+  (`LaunchAtLoginReadTests`). Tried and dropped: one hidden probe per row
+  instead of one per word, pixel-identical over 178 renders but no faster.
+  Settings speed 1 → 2. The swap's dropped frames still want
+  `measure-hitches.sh` (B0.6, the owner's go).
 
 ## Scenario matrix, 2026-10-29
 

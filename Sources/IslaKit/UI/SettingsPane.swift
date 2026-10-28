@@ -116,7 +116,10 @@ struct SettingsPane: View {
     private var showsContent: Bool { mountsAfter <= 0 || contentMounted }
 
     @State private var flags: [SettingsRowID: Bool] = [:]
-    @State private var launchAtLogin = LaunchAtLogin.read()
+    /// What was last known, never a read: one is a round trip to the
+    /// login-items daemon, and this runs as the pane is made, inside the frame
+    /// a swap to Settings starts. `onAppear` reads again, off the main thread.
+    @State private var launchAtLogin = LaunchAtLogin.lastKnown()
     @State private var hoverDelay = NotchViewModel.hoverOpenDelay
     @State private var bodyWidth = NotchViewModel.bodyWidth
     @State private var lockCardStyle = NotchViewModel.lockCardStyle
@@ -328,8 +331,9 @@ struct SettingsPane: View {
         // this replaces).
         .onAppear {
             // Also how the approval note clears: the way back from Open
-            // Login Items… is to reopen this tab.
-            launchAtLogin = LaunchAtLogin.read()
+            // Login Items… is to reopen this tab. Off the main thread: the
+            // switch shows what was last known until the answer is in.
+            LaunchAtLogin.refresh { launchAtLogin = $0 }
             // Every switch is read afresh: Save Clipboard Screenshots and Show
             // Screen Captures are also written by the Shelf's own prompts.
             flags = [:]
@@ -1333,7 +1337,7 @@ struct SettingsPane: View {
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(
             get: { launchAtLogin.isOn },
-            set: { wants in launchAtLogin = LaunchAtLogin.set(wants) }
+            set: { wants in launchAtLogin = LaunchAtLogin.apply(wants) }
         )
     }
 

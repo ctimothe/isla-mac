@@ -62,6 +62,64 @@ enum LaunchAtLogin {
         state(status: service.status, error: nil)
     }
 
+    /// The login item Settings shows: the app's own, or a test's stand-in.
+    @MainActor static var serviceOverride: LoginItemService?
+    @MainActor static var service: LoginItemService { serviceOverride ?? SMAppService.mainApp }
+
+    /// What the last read or flip found.
+    ///
+    /// `status` is a round trip to the login-items daemon — 2.5 ms median and
+    /// up to 9 ms on a busy Mac, with the caller waiting (2026-10-29) — and
+    /// Settings asked it twice on the main thread every time it opened, in a
+    /// `@State` initial value and again on appear: 5 to 18 ms of waiting at
+    /// the start of a swap, against a 8.3 ms frame. A pane now begins from
+    /// this, and `refresh` asks again off the main thread as it appears
+    /// (`LaunchAtLoginReadTests`).
+    @MainActor private static var remembered: State?
+    /// Moves on every flip, so a read that set off before one is dropped.
+    @MainActor private static var generation = 0
+
+    /// The state to draw now: what was last found, or — once a launch, the
+    /// first time Settings is drawn — a read made here.
+    @MainActor static func lastKnown() -> State {
+        if let remembered { return remembered }
+        let fresh = read(service)
+        remembered = fresh
+        return fresh
+    }
+
+    /// Reads the status off the main thread and hands it to `deliver` on it,
+    /// unless the switch was flipped meanwhile: that read began before the
+    /// flip and would put the switch back where it was.
+    @MainActor static func refresh(then deliver: @escaping @MainActor (State) -> Void) {
+        let service = self.service
+        let asked = generation
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fresh = read(service)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard asked == generation else { return }
+                    remembered = fresh
+                    deliver(fresh)
+                }
+            }
+        }
+    }
+
+    /// The switch flipped: asks macOS and remembers where it left it. On the
+    /// main thread, as the press that asked for it is.
+    @MainActor static func apply(_ wants: Bool) -> State {
+        generation += 1
+        let state = set(wants, service: service)
+        remembered = state
+        return state
+    }
+
+    @MainActor static func forgetForTests() {
+        remembered = nil
+        generation += 1
+    }
+
     /// Asks for `wants` and reports where macOS left it.
     static func set(_ wants: Bool, service: LoginItemService = SMAppService.mainApp) -> State {
         var failure: Error?
