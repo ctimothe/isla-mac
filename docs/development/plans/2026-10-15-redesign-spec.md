@@ -2658,6 +2658,24 @@ squircle on macOS 26 and later, so every player stands the same height.
 `PlayerLayoutTests` (`testTheCoverSitsEvenlyBetweenTheHeaderIconsAndTheTimes`,
 `testTheTitleAndArtistAreJoinedByADash`, `testALongTitleScrollsAndAShortOneStandsStill`).
 
+*Amended 2026-10-28 (owner, filmed on hardware: starring a song took two or
+three taps).* **A tap on Music's star stays where it put the star until Music
+agrees.** A song not yet in the library is favourited by a cloud edit that
+Music finishes seconds later (3.05 s measured), and until then Music answers
+that it is not a favourite; the one read-back, 0.4 s after the tap, believed
+that answer and emptied the star. Now a disagreeing answer, or none, leaves
+the star as tapped while Music is asked again (0.4, 1, 2, 3, 4, 6, 8 and 11 s
+after the tap). Music agreeing ends the wait; an AppleScript error from the
+command puts the star back at once; at 15 s the wait ends, Music is asked once
+more, and its answer is the star whatever it says. A second tap replaces the
+first. One that reverses a tap still waiting is not ended by Music agreeing,
+because the first tap's cloud edit may still land, and waits the full 15 s.
+An answer asked about one song never moves the next song's star.
+`PlayerFavouriteTests` (`testMusicsStaleAnswerDoesNotUndoTheTap`,
+`testATapReversingAHeldOneIsHeldToTheEndOfTheWindow`, `testTheLatestTapWins`),
+`MusicFavoriteWiringTests` (`testTheStarStaysFilledWhileMusicCatchesUp`,
+`testTheWindowsEndBelievesMusic`, `testAnAnswerAboutTheLastSongIsDropped`).
+
 ### 19.7 The Shelf: drag, tray, bubble
 
 **Dragging in** — `R2-Shelf-Drag`. A file drag entering the drop rect (the
