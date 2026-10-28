@@ -45,6 +45,10 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
   reliability 1 → 3, updates accessibility 1 → 2. One bug found and fixed:
   during an install the island's progress bar reached VoiceOver as an unknown
   element with no value, so how far the download had got was never said.
+  Sixteen of the run sheet's hardware checks are now held by tests (run
+  sheet, "Held by tests since Batch 1"); one of them found a second bug, now
+  fixed: a folder rescan that found a second copy of the playing song took the
+  lyric off the screen mid-song.
 
 ## Scenario matrix, 2026-10-29
 
