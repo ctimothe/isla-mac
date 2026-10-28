@@ -695,6 +695,57 @@ final class LocalLyricsLibraryTests: XCTestCase {
         XCTAssertEqual(reads.count, launched, "the launch scan's stamps serve the next rescan")
     }
 
+    /// "A folder rescan must not replace a displayed lyric with an ambiguous or
+    /// lower-confidence candidate" (checklist, local-library prefetch). The
+    /// song is showing one document found in a watched folder; a rescan then
+    /// finds more files for the same song, each less sure than the one on
+    /// screen: a different album, no album at all, and a file too far off in
+    /// length to count. None of them takes the song. (A file with the *same*
+    /// album and a length within the ±2 s window is not lower confidence to the
+    /// library but a tie, which is `.ambiguous`; the coordinator's side of that
+    /// is `LyricsCoordinatorTests.testARescanThatTiesWithTheShownLyricKeepsItShown`.)
+    func testARescanNeverReplacesAShownLyricWithALowerConfidenceCandidate() throws {
+        let folder = try makeFolder(named: "Library")
+        func file(_ album: String, length: String, line: String) -> String {
+            "[ti:Song]\n[ar:Artist]\n[al:\(album)]\n[length:\(length)]\n[00:01.00]\(line)"
+        }
+        try write(file("Album", length: "03:00", line: "Shown"), to: folder.appendingPathComponent("shown.lrc"))
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        guard case .ready(let shown) = library.lookup(identity: identity()) else {
+            return XCTFail("the fixture: the song shows its folder file")
+        }
+        XCTAssertEqual(shown.timeline.lines.first?.text, "Shown")
+
+        let rivals: [(name: String, contents: String)] = [
+            ("another album", file("Greatest Hits", length: "03:00", line: "Other album")),
+            ("no album at all", file("", length: "03:00", line: "No album")),
+            ("too far off to count", file("Album", length: "03:09", line: "Nine seconds out")),
+        ]
+        for (index, rival) in rivals.enumerated() {
+            try write(rival.contents, to: folder.appendingPathComponent("rival-\(index).lrc"))
+            let revision = library.revision
+            try library.rescanFolders()
+            XCTAssertGreaterThan(library.revision, revision, "the fixture: the rescan saw \(rival.name)")
+            guard case .ready(let after) = library.lookup(identity: identity()) else {
+                return XCTFail("\(rival.name) turned the shown lyric into \(library.lookup(identity: identity()))")
+            }
+            XCTAssertEqual(after.id, shown.id, "\(rival.name) did not replace the shown lyric")
+            XCTAssertEqual(after.timeline.lines.first?.text, "Shown", rival.name)
+        }
+
+        // A song the listener bound by hand is held the same way: a rescan that
+        // finds an exact tag match for it does not take it over.
+        let bound = identity(title: "Song", album: "Album", duration: 200)
+        library.bind(shown, to: bound)
+        try write(file("Album", length: "03:20", line: "Exact for the bound song"), to: folder.appendingPathComponent("exact.lrc"))
+        try library.rescanFolders()
+        guard case .ready(let held) = library.lookup(identity: bound) else {
+            return XCTFail("the binding still answers: \(library.lookup(identity: bound))")
+        }
+        XCTAssertEqual(held.id, shown.id, "a binding outranks any rescan's candidate")
+    }
+
     /// The launch scan runs while the listener can already act. A Rescan or a
     /// removed folder in that window must not be undone when the scan, read
     /// before either, lands afterwards.

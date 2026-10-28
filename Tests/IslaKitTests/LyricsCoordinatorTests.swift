@@ -137,6 +137,82 @@ final class LyricsCoordinatorTests: XCTestCase {
         )
     }
 
+    /// "A folder rescan must not replace a displayed lyric with an ambiguous or
+    /// lower-confidence candidate" (checklist, local-library prefetch), on the
+    /// coordinator that decides what a surface shows. The song shows the one
+    /// file its folder holds; a rescan finds a second file for it that is less
+    /// sure (another album, no album, a length too far out), and what is on
+    /// screen is the same timeline afterwards.
+    func testARescanThatFindsOnlyLowerConfidenceFilesKeepsTheShownLyric() throws {
+        let folder = root.appendingPathComponent("Library", isDirectory: true)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Shown".utf8)
+            .write(to: folder.appendingPathComponent("shown.lrc"), options: .atomic)
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+        media.apply(playingSnapshot())
+        guard case .ready(let shown) = coordinator.availability else {
+            return XCTFail("the fixture: the folder's file is showing: \(coordinator.availability)")
+        }
+
+        let rivals = [
+            "[ti:Song]\n[ar:Artist]\n[al:Greatest Hits]\n[length:03:00]\n[00:01.00]Other album",
+            "[ti:Song]\n[ar:Artist]\n[length:03:00]\n[00:01.00]No album",
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:09]\n[00:01.00]Nine seconds out",
+        ]
+        for (index, contents) in rivals.enumerated() {
+            try Data(contents.utf8).write(to: folder.appendingPathComponent("rival-\(index).lrc"), options: .atomic)
+            try library.rescanFolders()
+            guard case .ready(let after) = coordinator.availability else {
+                return XCTFail("rival \(index) took the lyric off the screen: \(coordinator.availability)")
+            }
+            XCTAssertEqual(after, shown, "rival \(index) replaced the shown lyric")
+        }
+    }
+
+    /// The same, for a second file that is *as* sure as the shown one — the
+    /// same tags, a length a second out: to the library that is a tie, and an
+    /// ambiguous song asks the listener to choose. The checklist says a rescan
+    /// must not replace a displayed lyric with an ambiguous candidate; today
+    /// the coordinator re-resolves from the library alone, remembers nothing
+    /// of what is on screen, and so the song's words are swapped for "Choose
+    /// local lyrics…" mid-song. This holds the checklist's wording.
+    func testARescanThatTiesWithTheShownLyricKeepsItShown() throws {
+        let folder = root.appendingPathComponent("Library", isDirectory: true)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Shown".utf8)
+            .write(to: folder.appendingPathComponent("shown.lrc"), options: .atomic)
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+        media.apply(playingSnapshot())
+        guard case .ready(let shown) = coordinator.availability else {
+            return XCTFail("the fixture: the folder's file is showing: \(coordinator.availability)")
+        }
+
+        try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:01]\n[00:01.00]A second copy".utf8)
+            .write(to: folder.appendingPathComponent("copy.lrc"), options: .atomic)
+        try library.rescanFolders()
+
+        XCTAssertEqual(
+            coordinator.availability, .ready(shown),
+            "a rescan replaced the shown lyric with \(String(describing: coordinator.localLookup))"
+        )
+    }
+
     /// Off by default, and off means no request is ever made.
     ///
     /// The switch is the whole privacy claim. A coordinator built without an

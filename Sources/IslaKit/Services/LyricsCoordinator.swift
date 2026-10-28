@@ -522,18 +522,40 @@ final class LyricsCoordinator: ObservableObject {
 
     private func recheckCurrentTrack() {
         guard currentIdentity != nil else { return }
-        resolveCurrentTrack()
+        resolveCurrentTrack(keepingShown: true)
     }
 
-    private func resolveCurrentTrack() {
+    /// `keepingShown` is a second look at the same song — a folder rescan,
+    /// an import elsewhere, Retry — rather than a new song.
+    private func resolveCurrentTrack(keepingShown: Bool = false) {
         guard let identity = currentIdentity else { return }
+        var shown: LocalLyricsCandidate?
+        if keepingShown, case .ready(let candidate) = localLookup { shown = candidate }
         localLookup = nil
         publishAvailability()
-        localLookup = library.lookup(identity: identity)
+        localLookup = Self.keepingShown(shown, over: library.lookup(identity: identity))
         // After the lookup, which prunes a binding whose document is gone.
         syncLocalOverride()
         publishAvailability()
         lookUpOnlineIfNeeded(for: identity)
+    }
+
+    /// What a second look at the song shows, given the file already on screen.
+    ///
+    /// A rescan that found a second copy of the shown file's song, tied with
+    /// it (same tags, a length within the match), answered `.ambiguous`, and
+    /// the lyric on screen gave way to "Choose local lyrics…" in the middle of
+    /// the song — the one thing hardware check 422 says a rescan must never
+    /// do. The shown file is still one of the candidates, so it stays; a song
+    /// that shows nothing yet still asks, as ambiguity always has. A file
+    /// keeps its id across rescans (`LocalLyricsLibrary`, by path), and the
+    /// fresh candidate is the one kept, so an edit to that file shows.
+    nonisolated static func keepingShown(
+        _ shown: LocalLyricsCandidate?, over lookup: LocalLyricsLookup
+    ) -> LocalLyricsLookup {
+        guard let shown, case .ambiguous(let candidates) = lookup,
+              let same = candidates.first(where: { $0.id == shown.id }) else { return lookup }
+        return .ready(same)
     }
 
     /// The network, and only where nothing else can answer.
