@@ -18,6 +18,8 @@ enum SettingsIcon {
     static let openOnHover = "cursorarrow.rays"
     static let hoverDelay = "cursorarrow.motionlines"
     static let panelWidth = "arrow.left.and.right"
+    /// The Mac's own screen, as against one plugged in.
+    static let showOnBuiltInDisplay = "laptopcomputer"
     /// The island's moments without music: what each one shows.
     static let showCharging = "bolt"
     static let showHeadphones = "headphones"
@@ -121,7 +123,7 @@ enum SettingsIcon {
     static let quit = "power"
 
     static let all: [String] = [
-        launchAtLogin, openOnHover, hoverDelay, panelWidth, showCharging, showHeadphones,
+        launchAtLogin, openOnHover, hoverDelay, panelWidth, showOnBuiltInDisplay, showCharging, showHeadphones,
         shortcutOpenPanel, shortcutClipboard, shortcutLyrics, shortcutTranslate, restoreShortcuts,
         saveScreenshots, importRecordings, showFolder, clear,
         musicOnly, lyrics, wordKaraoke, readAhead, importLyrics, addFolder, removeFolder, rescan, tryAgain, dismiss,
