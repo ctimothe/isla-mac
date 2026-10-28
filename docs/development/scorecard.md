@@ -30,12 +30,21 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Clipboard | 2 — spec §9 | 3 — sweep; 27 AX uses | 1 | 1 | 2 — 203 tests | 1 |
 | Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 1 | 1 | 2 — 214 tests, offline consent | 1 |
 | Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 1 — staged mount measured once (2026-10-19) | 1 | 2 — 128 tests | 1 |
-| Volume and brightness pop-up | 2 — spec §12 | 1 — spoken by `Announcer`; no AX test | 1 | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
-| Charger and headphones | 2 — spec §3.6 | 1 — sweep only | 1 | 1 | 1 — tested inside the moment tests only | 1 |
-| Updates | 2 — spec §19.5 f | 1 — 1 AX use | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
+| Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 1 | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
+| Charger and headphones | 2 — spec §3.6 | 2 — every charger state with its level, headphones by model (B1) | 1 | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
+| Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
 | Welcome | 2 | 2 — sweep; 2 AX uses | 1 | 1 | 1 — 22 tests | 1 |
 | Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 1 | 1 | 3 — 165 tests, `SurfaceContractTests` | 1 |
 | On a Mac with Apple's island | — | — | — | — | 2 — `NativeIslandTests`; identifiers unknown | 0 — NI runs owed |
+
+## History
+
+- **Batch 1, 2026-10-29** (`feat/maturity-batch-0-on-mobbin`, on top of the
+  held refinements, so test counts there run higher than the baseline's).
+  Pop-up accessibility 1 → 2, charger and headphones accessibility 1 → 2 and
+  reliability 1 → 3, updates accessibility 1 → 2. One bug found and fixed:
+  during an install the island's progress bar reached VoiceOver as an unknown
+  element with no value, so how far the download had got was never said.
 
 ## Scenario matrix, 2026-10-29
 
@@ -57,7 +66,6 @@ switching, Low Power Mode, a real Spotify and Music, Apple's island Mac.
    has been taken since the redesign. B0.6, one sitting with the owner's go.
 2. **Usability everywhere (1).** Only owner runs move it. B0.5's run sheet
    turns 149 open checks into one ordered sitting.
-3. **The pop-up, the charger and updates in accessibility (1).** Add AX tests
-   for what VoiceOver hears when each appears.
-4. **Charger and headphones reliability (1).** Their own tests, outside the
-   moment tests.
+3. ~~The pop-up, the charger and updates in accessibility (1).~~ Batch 1.
+   What remains is a VoiceOver pass by hand (run sheet, Sitting 4).
+4. ~~Charger and headphones reliability (1).~~ Batch 1.
