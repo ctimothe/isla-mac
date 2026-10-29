@@ -110,42 +110,68 @@ Never: an agent driving the live app or setting `DI_*` hooks while the owner
 works; a fan-out of more than six agents, or any Opus fan-out, without a yes
 (an overnight Opus build once took about 22 percent of the weekly limit).
 
-## The loop in practice (2026-10-29, after eight batches)
+## The loop in practice (2026-10-29, after thirteen batches)
 
-What worked, run by one driver session with no fan-out: pick a source of
-work, write the test or measurement that shows the gap, break the code to see
-the new test fail, fix, run the gate, commit, publish to the dev feed, and
-re-score. One gate per batch, about seven minutes.
+This is the recommended setup, settled by thirteen batches in one day. One
+driver session runs one batch at a time with no fan-out: Haiku scouts only
+for inventories, and no implementer agents, because every fix so far was
+small enough that briefing an agent cost more than writing it. Each batch is
+seven steps:
 
-Where the bugs came from:
+1. **Pick** the lowest scorecard cell that a headless lab can measure.
+2. **Measure** it with one of the five instruments, none of which launches
+   Isla or needs the screen:
+   - `Scripts/measure-mounts.sh`: how long each surface takes to build.
+   - `Scripts/measure-idle-lab.sh`: CPU and wake-ups in resting states.
+   - `Scripts/measure-hitches.sh`: missed frames in open, close, swap and
+     page turns. Take a `sample` of its xctest process when the CPU columns
+     look fine but frames still miss: a main thread waiting on Core
+     Animation shows only there.
+   - The visual lab plus the Vision OCR sweep: English and Russian, at 480
+     and 620, for cut text.
+   - The accessibility sweep and `AXProbe.spokenOrder`: names and reading
+     order.
+3. **Fix only on evidence.** Write the test first and break the old code to
+   see it fail (mutation check). A number that does not move is a reason to
+   drop the change, not to keep it.
+4. **Gate.** Run `./scripts/check` with the xctest domain set aside.
+5. **Commit** on the held batch branch. If app code changed, publish to the
+   dev feed.
+6. **Re-score.** Record the result in the scorecard, the checklist and the
+   run sheet.
+7. **Stop** at a red gate, a product decision, anything that would leave the
+   Mac, or the pointer sampler and the watchdog (owner decision 19).
 
-- **Russian and VoiceOver sweeps through the headless lab:** four bugs.
-  Three sentences said "1 items", the welcome read its headline last, the
-  Russian headphones capsule cut the device's name, and Russian VoiceOver
-  read Panel Width as "560 пт" (Friday's abbreviation).
-- **Headless profiling (`Scripts/measure-mounts.sh`):** one. Settings asked
-  macOS for the login item's state twice on every opening.
-- **Run-sheet clauses turned into tests:** the "пт" bug in Batch 5 and one
-  wrong comment in Batch 6; Batches 6 to 8 found the rest already held.
-  That source is spent.
+What each source found, which is the reason for that order:
 
-So the next autonomous batches should come from the scenario matrix, run
-through the lab: every surface in English and Russian, at 480 and 620, under
-Increase Contrast, Reduce Transparency and Reduce Motion, checking for cut
-text, missing names and contrast. That is the source that found most bugs.
+| Source | Batches | Bugs |
+|---|---|---|
+| Russian and VoiceOver sweeps | 3–5 | 4 |
+| OCR over the visual lab | 10 | 2 |
+| Mount lab | 2 | 1 (login item read twice) |
+| Hitch lab with `sample` | 9 | 1 (gear swap, 27 → 4 missed frames) |
+| Idle-cost lab | 11 | 1 (marquee, 100+ wake-ups a second → under 1) |
+| Run-sheet clauses turned into tests | 5–8 | 1, now spent |
+| Lock-card and page-turn labs | 12–13 | 0 |
 
-What stays with the owner, and why:
+The next queue for the cells still at 1, in order:
 
-- **Starting Isla.** Agents never launch the app, and the idle half of B0.6
-  measures the running copy. On 2026-10-29 it had been quit since 23:50 the
-  night before (its own Quit, not a crash), so the idle numbers and every
-  feed build from 0.4.0.10 on were waiting for it.
-- **One hardware sitting.** Usability scores 1 everywhere until one is run;
-  Sitting 1 (about 100 minutes) covers the most features.
-- **The gallery verdicts.** They set the design baseline.
-- **Install, merge and the decisions D2 and D3.** A nightly routine that
-  runs one spelled-out batch, stops at the first red gate and leaves a
-  morning summary needs the owner's yes on its budget (D3).
+- Welcome and the update alert in the mount and idle labs.
+- The media-key tap's callback cost, timed on synthesised events.
+- The charger and headphones watchers at rest.
+
+What only the owner can do, and what it unblocks:
+
+- **Start Isla once.** This unblocks the idle half of B0.6.
+- **Press Install.** The feed builds reach the running copy only this way.
+- **Run hardware Sitting 1** (about 100 minutes). Until it runs, Usability is
+  1 in every row.
+- **Give the gallery verdicts.** They set the design baseline.
+- **Merge.** Merging to `main` ships to every user. It is on hold until the
+  owner says otherwise.
+- **D3.** Whether one spelled-out batch may run each night as a routine. It
+  would run on Sonnet `high`, stop at the first red gate, and leave a
+  morning summary.
 
 ## Batch 0 — the instruments, before the fixes
 
