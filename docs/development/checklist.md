@@ -2458,6 +2458,17 @@ Core Graphics layer, and no RenderBox layer appears in any frame.
   as quickly as before, with nothing jumping beside it; with Reduce Motion on,
   they cross-fade.
 
+### B15 — the media-key tap and the charger watch, costed (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+Two hand-run labs. `MediaKeyCostLab` (`ISLA_KEYS_OUT`) times
+`MediaKeyTapContext.receive` on synthesised events through the real route
+and applier: a volume key 0.46 µs median, 13 µs p99; anything passed on
+0.13–0.21 µs. `AmbientCostLab` (`ISLA_AMBIENT_OUT`, `ISLA_AMBIENT_LISTEN`)
+times the watch's reads — battery 39 µs on the main thread, outputs
+0.41 ms, port 0.17 ms off it — and counted 5 power notifications in 3
+minutes of charging. No behaviour changed and no hardware check is added;
+the window server's hand-off to the tap is only seen with a real one.
+
 ### B14 — the welcome and the update alert, measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
 `Scripts/measure-mounts.sh` builds the welcome (5.1 ms in release) and the

@@ -157,8 +157,17 @@ What each source found, which is the reason for that order:
 The next queue for the cells still at 1, in order:
 
 - ~~Welcome and the update alert in the mount and idle labs.~~ Batch 14.
-- The media-key tap's callback cost, timed on synthesised events.
-- The charger and headphones watchers at rest.
+- ~~The media-key tap's callback cost, timed on synthesised events.~~ Batch 15.
+- ~~The charger and headphones watchers at rest.~~ Batch 15.
+
+After Batch 15 no cell outside Usability is at 1. A 3 needs a measurement
+that meets its budget, so the next headless queue is the cells over it:
+
+- Translate at rest, about 0.2 % of a core with its 1 s paste check, against
+  the 0.1 % budget (S17).
+- The opening's missed frames (0.6–2.9 at idle), against the bar of none.
+  Any staged build there waits for the owner's R8e-H2 verdict on the
+  Settings morph, which asked the same question.
 
 What only the owner can do, and what it unblocks:
 
