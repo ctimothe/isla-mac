@@ -96,8 +96,17 @@ final class MediaController: ObservableObject {
     /// names it. `NowPlayingPresenter` starts its hold on this, so the song on
     /// screen stays drawn, still, rather than wearing the next one's 0:00.
     let trackChangeExpected = PassthroughSubject<Void, Never>()
-    @Published private(set) var position: TimeInterval = 0 {
-        didSet { holdLabelSecond() }
+    /// Where the position lives: on `clock`, which only the views that read
+    /// it observe, so a tick does not announce a change of the whole
+    /// controller (`PlaybackClock`). An unchanged value is not set again, so a
+    /// frozen anchor redraws nothing.
+    let clock = PlaybackClock()
+    private(set) var position: TimeInterval {
+        get { clock.position }
+        set {
+            if clock.position != newValue { clock.position = newValue }
+            holdLabelSecond()
+        }
     }
 
     /// The whole second the elapsed label last showed, and for which song.

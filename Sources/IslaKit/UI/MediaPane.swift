@@ -156,7 +156,10 @@ struct MediaPane: View {
 
     private func player(for track: MediaController.Track) -> some View {
         let layout = layout
-        let band = sungLine
+        // Whether the band is on reads no position; the line it shows does,
+        // and is read inside a `ClockReader` below, so a tick re-runs the
+        // subtitle and the times and nothing else of the player.
+        let bandOn = bandIsOn
         return ZStack(alignment: .topLeading) {
             // The content's own size, so the children are placed from its
             // top-left corner whatever they measure.
@@ -166,14 +169,14 @@ struct MediaPane: View {
                 .placedAt(layout.cover)
 
             if showsRest {
-                titleButton(for: track, withArtist: band.isOn && !(nowPlaying?.presented?.lyricsCameLate ?? false))
+                titleButton(for: track, withArtist: bandOn && !(nowPlaying?.presented?.lyricsCameLate ?? false))
                     .trackSwapText(track.key, reduceMotion: reduceMotion)
                     .placedAt(Self.textBox(
                         x: layout.textLeading, baseline: layout.titleBaseline, width: layout.titleWidth,
                         size: PlayerLayout.titleSize, weight: .medium
                     ))
 
-                subtitle(for: track, band: band)
+                ClockReader { subtitle(for: track, band: sungLine) }
                     .trackSwapText(track.key, reduceMotion: reduceMotion)
                     .placedAt(Self.textBox(
                         x: layout.textLeading, baseline: layout.subtitleBaseline, width: layout.subtitleWidth,
@@ -204,7 +207,7 @@ struct MediaPane: View {
         //
         // The band trades the artist line for the sung one and moves nothing,
         // so it fades under Reduce Motion too: a fade is not motion.
-        .animation(Theme.contentAnimation, value: band.isOn)
+        .animation(Theme.contentAnimation, value: bandOn)
     }
 
     /// The box a line of text is laid in so that its baseline lands at
@@ -394,9 +397,12 @@ struct MediaPane: View {
         var fraction: Double { isSung ? resolution?.fraction ?? 0 : 0 }
     }
 
+    private var bandIsOn: Bool {
+        Self.drawsLyricBand(setting: lyricBandOn, availability: lyrics.availability, state: lyrics.state)
+    }
+
     private var sungLine: SungLine {
-        guard Self.drawsLyricBand(setting: lyricBandOn, availability: lyrics.availability, state: lyrics.state),
-              case .synced(let lines) = lyrics.state else { return SungLine(isOn: false) }
+        guard bandIsOn, case .synced(let lines) = lyrics.state else { return SungLine(isOn: false) }
         let resolution = Self.captionResolution(lines: lines, inputs: LyricInputs(
             position: media.shownPosition(nowPlaying),
             precisionSync: media.precisionSync,
@@ -533,10 +539,14 @@ struct MediaPane: View {
         )
         let duration = media.shownDuration(nowPlaying)
         if duration > 0 {
-            let shown = previewFraction.map { $0 * duration } ?? min(media.shownLabelPosition(nowPlaying), duration)
+            // Read here, not in the reader, so a drag still re-runs the pane
+            // that owns it; only the clock is left for the reader to watch.
+            let preview = previewFraction
+            ClockReader {
+            let shown = preview.map { $0 * duration } ?? min(media.shownLabelPosition(nowPlaying), duration)
             Text(formatTime(shown))
                 .font(Self.timeFont)
-                .foregroundStyle(previewFraction == nil
+                .foregroundStyle(preview == nil
                                  ? Color.white.opacity(Theme.playerTimeOpacity) : Color.white.opacity(0.9))
                 .frame(width: timesBox.width, height: timesBox.height, alignment: .leading)
                 .offset(x: layout.elapsedLeading, y: layout.timesTop)
@@ -547,6 +557,7 @@ struct MediaPane: View {
                 .frame(width: timesBox.width, height: timesBox.height, alignment: .trailing)
                 .offset(x: layout.timesTrailing - timesBox.width, y: layout.timesTop)
                 .accessibilityHidden(true)
+            }
             // 23 pt to grab and 7 to draw (F-014); the stage's foot lays out
             // the same view in its own 3 pt bar.
             PlaybackScrubber(

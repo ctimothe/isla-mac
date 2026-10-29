@@ -262,6 +262,8 @@ final class IdleCostLab: VisualLabCase {
         window.contentView = hosting
         window.orderFrontRegardless()
         cardWindow = window
+        // The shield keeps the clock running for the card (`mediaClockWanted`).
+        rig.vm.media.setActive(true, surface: .lockCard)
     }
 
     /// Back to an unlocked Mac, with no welcome and no update alert, before
@@ -271,6 +273,7 @@ final class IdleCostLab: VisualLabCase {
         cardWindow?.contentView = nil
         cardWindow = nil
         rig.vm.isLockedPresentation = false
+        rig.vm.media.setActive(false)
         rig.vm.isShowingWelcome = false
         rig.vm.updateOffer = nil
         UpdateInstaller.sharedOverride = nil
@@ -296,11 +299,18 @@ final class IdleCostLab: VisualLabCase {
         func shut(_ rig: HitchRig) {
             rig.panel.orderFrontRegardless()
             rig.vm.isOpen = false
+            rig.vm.media.setActive(false)
         }
+        // The media clock as `NotchController` runs it: on for the player and
+        // the stage, off for every other surface. Until Batch 18 the lab
+        // never started it, so its open player had no position tick and read
+        // 0.01–0.2 % of a core while the running Isla, ticking ten times a
+        // second, read 6.9 % (B17-H1).
         func open(_ rig: HitchRig, on surface: NotchViewModel.Surface) {
             rig.panel.orderFrontRegardless()
             rig.vm.isOpen = true
             rig.vm.open(surface)
+            rig.vm.media.setActive(NotchController.mediaClockWanted(isOpen: true, surface: surface, locked: false))
         }
         return [
             State(name: "floor") { rig in
