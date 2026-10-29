@@ -62,7 +62,12 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
   (`LaunchAtLoginReadTests`). Tried and dropped: one hidden probe per row
   instead of one per word, pixel-identical over 178 renders but no faster.
   Settings speed 1 → 2. The swap's dropped frames still want
-  `measure-hitches.sh` (B0.6, the owner's go).
+  `measure-hitches.sh` (B0.6, the owner's go). Two tests that failed on
+  untouched code at load 50–160 now hold their claim without a clock: the
+  karaoke frame clock compares with what was published, and the staged-mount
+  shell tests assert the swap flag as the island opens instead of reading the
+  tree within 80 ms (a mutation that keeps the flag past a reopening fails
+  them every run).
 
 ## Scenario matrix, 2026-10-29
 
