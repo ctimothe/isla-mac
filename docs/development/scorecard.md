@@ -31,7 +31,7 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 2 — 12 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 214 tests, offline consent | 1 |
 | Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2) | 1 | 2 — 128 tests | 1 |
 | Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 1 | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
-| Charger and headphones | 2 — spec §3.6 | 2 — every charger state with its level, headphones by model (B1) | 1 | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
+| Charger and headphones | 3 — spec §3.6; the capsule's words held whole in English and Russian against their natural width (B4) | 2 — every charger state with its level, headphones by model (B1) | 1 | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
 | Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
 | Welcome | 2 | 3 — sweep; the headline is a heading and is read first, the legend next, Get Started last, held on VoiceOver's own navigation order (B3); fits in both languages | 1 | 1 | 2 — `FirstRunTests`, 23 tests: a pointer crossing, a drag, a screenshot and a shortcut each leave it or retire it as they should; never shown over the lock | 1 |
 | Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 1 | 1 | 3 — 165 tests, `SurfaceContractTests` | 1 |
@@ -39,6 +39,21 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 
 ## History
 
+- **Batch 4, 2026-10-29.** Efficiency: every repeating timer and frame
+  clock was read for work done while nothing is on screen. The always-on
+  ones (the pointer sampler at 8 Hz idle with half a beat of slack, the
+  2 s geometry watchdog that skips when nothing moved, the helper's
+  silence watch) already let the system batch their wake-ups, and the
+  fast ones (Translate's paste check, the lyric-delay preview) live only
+  while their page does; nothing to cut without a measurement on the
+  running app, which is B0.6. Design: one bug fixed. Under the open
+  island, Russian cut the headphones' name to "AirPods… Подключено" in a
+  capsule it fitted: the stack's 10 pt spacing stood before a zero-width
+  trailing spacer (`AlertCapsuleTests`, which now also holds every
+  confirmation's words whole). Charger and headphones design 2 → 3. Seen
+  and left: the charger's «Пауза» for On Hold — Apple's «приостановлена»
+  is 116 pt in a 76 pt wing, so the word is a call for the owner, who has
+  had it on screen since 2026-10-26.
 - **Batch 3, 2026-10-29.** Speed 1 → 2 for the player, the lyric stage,
   the Shelf, Clipboard and Translate, on the mount lab's numbers. A sample of
   the playing player's build (12 ms in release) found it nearly all SwiftUI's
