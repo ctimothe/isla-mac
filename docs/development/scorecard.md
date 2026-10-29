@@ -23,22 +23,35 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Feature | Design | Accessibility | Speed | Efficiency | Reliability | Usability |
 |---|---|---|---|---|---|---|
 | Island and activities | 2 — spec §3, §19; visual lab renders; R7–R8 runs owed | 2 — sweep; 6 AX uses; no VoiceOver run | 1 — `measure-hitches.sh` exists, no number since the redesign | 2 — idle budget recorded 2026-10-11 (CPU ≤ 0.1 %, RSS ≤ 88 MB), before the redesign | 3 — 210 tests: geometry, notch memory, moments, lock | 1 — runs owed |
-| Player | 2 — spec §4; R1 runs owed | 2 — sweep; 5 AX uses | 1 — as above | 2 — as above, music playing measured | 3 — 374 tests: helper failure policy, seek, hold, favourites | 1 |
-| Lyrics and stage | 2 — spec §5 | 3 — sweep; 39 AX uses | 1 — `measure-sync.sh` exists; 150 ms p95 target unmeasured | 1 | 3 — 428 tests: timelines, overrun, offline, 429 | 1 |
+| Player | 2 — spec §4; R1 runs owed | 2 — sweep; 5 AX uses | 2 — `measure-mounts.sh`: 7 ms to build empty, 12 ms playing (release, 2026-10-29); a sample puts 97 % of it in SwiftUI's first graph build and no Isla function above 3 % (B3) | 2 — as above, music playing measured | 3 — 374 tests: helper failure policy, seek, hold, favourites | 1 |
+| Lyrics and stage | 2 — spec §5 | 3 — sweep; 39 AX uses | 2 — the stage builds in 15 ms (`measure-mounts.sh`, 2026-10-29); `measure-sync.sh`'s 150 ms p95 target still unmeasured | 1 | 3 — 428 tests: timelines, overrun, offline, 429 | 1 |
 | Lock card | 2 — spec §7; R2 runs owed | 3 — sweep; 10 AX uses; picker labels | 1 | 1 | 2 — 116 tests; the private-space path only on hardware | 1 |
-| Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses | 1 | 1 | 2 — 146 tests | 1 |
-| Clipboard | 2 — spec §9 | 3 — sweep; 27 AX uses | 1 | 1 | 2 — 203 tests | 1 |
-| Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 1 | 1 | 2 — 214 tests, offline consent | 1 |
+| Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses; one card is "1 item" on the island and in Remove All (B3) | 2 — the tray builds in 5 ms (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 146 tests | 1 |
+| Clipboard | 2 — spec §9 | 3 — sweep; 27 AX uses | 2 — 10 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 203 tests | 1 |
+| Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 2 — 12 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 214 tests, offline consent | 1 |
 | Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2) | 1 | 2 — 128 tests | 1 |
 | Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 1 | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
 | Charger and headphones | 2 — spec §3.6 | 2 — every charger state with its level, headphones by model (B1) | 1 | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
 | Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
-| Welcome | 2 | 2 — sweep; 2 AX uses | 1 | 1 | 1 — 22 tests | 1 |
+| Welcome | 2 | 3 — sweep; the headline is a heading and is read first, the legend next, Get Started last, held on VoiceOver's own navigation order (B3); fits in both languages | 1 | 1 | 2 — `FirstRunTests`, 23 tests: a pointer crossing, a drag, a screenshot and a shortcut each leave it or retire it as they should; never shown over the lock | 1 |
 | Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 1 | 1 | 3 — 165 tests, `SurfaceContractTests` | 1 |
 | On a Mac with Apple's island | — | — | — | — | 2 — `NativeIslandTests`; identifiers unknown | 0 — NI runs owed |
 
 ## History
 
+- **Batch 3, 2026-10-29.** Speed 1 → 2 for the player, the lyric stage,
+  the Shelf, Clipboard and Translate, on the mount lab's numbers. A sample of
+  the playing player's build (12 ms in release) found it nearly all SwiftUI's
+  first graph build, with nothing of Isla's to cut, unlike Settings' daemon
+  read; left as it is. Two accessibility bugs fixed. Three counted
+  sentences said the plural at one: "Shelf, 1 items" (the island's value and
+  the bubble's name for a single dropped file), "Remove all 1 items?" and
+  "Clear 1 entries?" (`CountedSentenceTests`). And VoiceOver read the
+  welcome's legend before its headline, with no heading anywhere on the pane;
+  the headline is now a heading and read first
+  (`FirstRunTests.testTheWelcomeReadsItsHeadlineFirstAsAHeading`, on the new
+  `AXProbe.spokenOrder`, which follows VoiceOver's navigation order rather
+  than the layout). Welcome accessibility 2 → 3, reliability 1 → 2.
 - **Batch 1, 2026-10-29** (`feat/maturity-batch-0-on-mobbin`, on top of the
   held refinements, so test counts there run higher than the baseline's).
   Pop-up accessibility 1 → 2, charger and headphones accessibility 1 → 2 and
