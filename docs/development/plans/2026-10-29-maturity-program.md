@@ -163,11 +163,16 @@ The next queue for the cells still at 1, in order:
 After Batch 15 no cell outside Usability is at 1. A 3 needs a measurement
 that meets its budget, so the next headless queue is the cells over it:
 
-- Translate at rest, about 0.2 % of a core with its 1 s paste check, against
-  the 0.1 % budget (S17).
+- ~~Translate at rest, about 0.2 % of a core with its 1 s paste check, against
+  the 0.1 % budget (S17).~~ Batch 16: 0.03–0.06 % on quiet runs; the 0.2 %
+  was noise from outside the lab.
 - The opening's missed frames (0.6–2.9 at idle), against the bar of none.
   Any staged build there waits for the owner's R8e-H2 verdict on the
   Settings morph, which asked the same question.
+
+With Translate settled (Batch 16), that last item waits on the owner, and so
+does every other 3: efficiency's budget includes the footprint, which only
+the running Isla shows (`measure-idle.sh`), and usability needs Sitting 1.
 
 What only the owner can do, and what it unblocks:
 

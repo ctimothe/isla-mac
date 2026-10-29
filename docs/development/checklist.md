@@ -2458,6 +2458,14 @@ Core Graphics layer, and no RenderBox layer appears in any frame.
   as quickly as before, with nothing jumping beside it; with Reduce Motion on,
   they cross-fade.
 
+### B16 — Translate at rest, re-measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+An open, empty Translate is 0.03–0.06 % of a core in quiet runs, under the
+0.1 % budget; B11's 0.2 % came from wake-up bursts outside the lab. A Paste
+button that redrew only on a change was tried, A/B'd against the old
+`TimelineView` from alternating bundles, and dropped: no difference outside
+the noise. No behaviour changed and no hardware check is added.
+
 ### B15 — the media-key tap and the charger watch, costed (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
 Two hand-run labs. `MediaKeyCostLab` (`ISLA_KEYS_OUT`) times

@@ -28,7 +28,7 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Lock card | 2 — spec §7; R2 runs owed | 3 — sweep; 10 AX uses; picker labels | 2 — 7.5 ms to build on the player, 9.2 on the lyrics, 7.1 on the outputs (`measure-mounts.sh`, release, B12) | 2 — idle-cost lab (B12): locked with music, 0.03–0.36 % of a core on every pane and no frame clock |  2 — 116 tests; the private-space path only on hardware | 1 |
 | Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses; one card is "1 item" on the island and in Remove All (B3) | 2 — the tray builds in 5 ms (`measure-mounts.sh`, 2026-10-29) | 2 — idle-cost lab (B11): the open tray 0.01 % of a core, 0.1–0.2 loop wake-ups a second | 2 — 146 tests | 1 |
 | Clipboard | 2 — spec §9; the access notice held whole in English and Russian at every width (B10) | 3 — sweep; 27 AX uses | 2 — 10 ms to build (`measure-mounts.sh`, 2026-10-29) | 2 — idle-cost lab (B11): open, 0.01–0.2 % of a core, no frame clock | 2 — 203 tests | 1 |
-| Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 2 — 12 ms to build (`measure-mounts.sh`, 2026-10-29) | 2 — idle-cost lab (B11): open, about 0.2 % of a core, the paste check's 1 s clock and no frame clock | 2 — 214 tests, offline consent | 1 |
+| Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 2 — 12 ms to build (`measure-mounts.sh`, 2026-10-29) | 2 — idle-cost lab (B16, three quiet runs and an A/B): open, 0.03–0.06 % of a core with the paste check's 1 s clock and no frame clock, under the 0.1 % budget; B11's 0.2 % was a run with wake-up bursts from outside the lab, which hit the floor as well | 2 — 214 tests, offline consent | 1 |
 | Settings | 2 — spec §10; the Card Style picker held inside the form at every width (B10) | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2); the player-to-Settings swap missed 26.8 frames of 125 at idle load (B0.6); the gear's symbol replace was most of it, and with a plain transition it misses 3.5–4.0 with lyrics live (B9) | 2 — idle-cost lab (B11): open, 0.03–0.15 % of a core, no frame clock | 2 — 128 tests | 1 |
 | Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 2 — a 2 s hold misses 1.8–4.0 frames of 254, folding 0.2 (B0.6) | 2 — the tap's callback, on its own thread, answers a volume key in 0.46 µs (median; p99 13 µs, the hops to the writer and the main actor) and passes every other event — a key not Isla's, an aux mouse button — in 0.13–0.21 µs; 1.4 µs of CPU a key at most, and no poll while the tap is up (`MediaKeyCostLab`, B15) | 3 — 181 tests: decide per hold, lock, refusal | 1 |
 | Charger and headphones | 3 — spec §3.6; the capsule's words held whole in English and Russian against their natural width (B4) | 2 — every charger state with its level, headphones by model (B1) | 2 — the headphones alert misses 0–0.1 frames at idle load (B0.6) | 2 — polls nothing: each power notification costs one 39 µs battery read on the main thread (16 µs of CPU), and macOS sent 5 in 3 minutes of charging; a device-list change costs a 0.41 ms read of the outputs, and none came; the port's 0.17 ms read runs off the main thread, only after a plug-in (`AmbientCostLab`, B15) | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
@@ -37,6 +37,21 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 2 — `measure-hitches.sh` page-turn at idle load, 120 Hz (B13): a dot one page along misses 0.2–0.5 frames with 120–150 ms of main-thread CPU; the dot from Translate back to Music misses 1.9, all in its first 100 ms, where the player is built | 2 — every page at rest, from the idle-cost lab (B11): the player 0.01–0.2 % of a core, the tray 0.01, Clipboard 0.01–0.2, Translate about 0.2, none with a frame clock | 3 — 165 tests, `SurfaceContractTests` | 1 |
 
 ## History
+
+- **Batch 16, 2026-10-29.** Translate at rest is under budget; the reading
+  that said otherwise was noise. B11 put an open, empty Translate at about
+  0.2 % of a core, over the 0.1 % budget, and the Paste button's one-second
+  `TimelineView` was the suspect: it rebuilt the button on every tick. The
+  pasteboard reads behind it cost 3 µs. A version that looked every second
+  and redrew only on a change was built and tested (mutation-checked), then
+  compared against the old one by alternating their bundles three times:
+  0.24, 0.18 and 0.05 % before, 0.09, 0.03 and 0.15 % after, and every high
+  run, in both, had 8–17 wake-ups a second that the floor caught too. On the
+  quiet runs both sit at 0.03–0.06 %. The change was dropped — no number
+  moved, and the old timeline pauses on a window nobody can see, which a
+  plain loop would not. The idle lab's notes now say how to read it on a
+  Mac in use. Translate's efficiency stays 2, with corrected evidence; no
+  behaviour changed, nothing published.
 
 - **Batch 15, 2026-10-29.** The two system hooks, costed. `MediaKeyCostLab`
   drives the media-key tap's real path — the event's conversion, the
