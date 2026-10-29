@@ -1764,26 +1764,43 @@ extension View {
         }
     }
 
-    /// Replaces one SF Symbol with the next the way Apple's own controls do,
-    /// whenever `value` changes, and cuts under Reduce Motion.
+    /// Replaces one SF Symbol with the next whenever `value` changes: the old
+    /// glyph shrinks out as the new one grows in, and under Reduce Motion the
+    /// two cross-fade.
     ///
-    /// A symbol content transition only plays inside an animated transaction;
-    /// in a plain one the glyph is simply swapped. Play/pause flips when the
-    /// player says so (the helper's stream, a media key) and the Liked Songs
-    /// heart when the library answers, both outside any `withAnimation`, so the
+    /// This was a symbol content transition, Apple's own replace
+    /// (`.replace.downUp`), until the hitch lab found what it cost (2026-10-29).
+    /// SwiftUI draws a symbol content transition into an `RBDrawingLayer`,
+    /// even `.identity`, and every frame that layer's display waited in
+    /// `-[CAContext waitForCommitId:]` for the render server to finish the
+    /// frame before: the main thread sat blocked through the effect. The gear
+    /// turns into Settings' X in the same transaction that swaps the pane, so
+    /// player to Settings missed 27 frames of 125 with lyrics live; with this
+    /// transition, 4 (Settings back to the player: 7 to 4). A plain transition on an
+    /// image keyed by the value is ordinary layers, and the shape is the
+    /// same as the effect's.
+    ///
+    /// The transition only plays inside an animated transaction; in a plain
+    /// one the glyph is simply swapped. Play/pause flips when the player says
+    /// so (the helper's stream, a media key) and the Liked Songs heart when
+    /// the library answers, both outside any `withAnimation`, so the
     /// most-watched control in the app could hard-cut beside a comment saying
     /// it was replaced (F-046). The repeat toggle animated `isOn`, which stays
     /// true from "all" to "one" while the glyph changes. Carrying the
     /// animation here, on the value that moves the glyph, means a caller
-    /// cannot ask for the replace without the transaction that runs it.
+    /// cannot ask for the swap without the transaction that runs it.
     ///
-    /// The fade of a tint that changes with the same value rides along; under
-    /// Reduce Motion that is all that is left, since a fade is not motion.
-    /// `MotionValuesTests.testEverySymbolSwapCarriesItsAnimation` keeps the
-    /// bare transition out of the sources.
-    func symbolSwap<Value: Equatable>(value: Value, reduceMotion: Bool) -> some View {
-        contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
-            .animation(Theme.contentAnimation, value: value)
+    /// A tint that changes with the same value goes with its glyph. The value
+    /// is the view's identity here, so `self` must hold no state of its own:
+    /// every caller hands it a bare `Image`. `SymbolSwapLayerTests` holds the
+    /// layers; `MotionValuesTests.testEverySymbolSwapCarriesItsAnimation`
+    /// keeps the symbol effect out of the sources.
+    func symbolSwap<Value: Hashable>(value: Value, reduceMotion: Bool) -> some View {
+        ZStack {
+            self.id(value)
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
+        }
+        .animation(Theme.contentAnimation, value: value)
     }
 }
 

@@ -2429,6 +2429,34 @@ Owed on hardware (record the Mac model and macOS version when run):
   sidebar changes the form as before (it is not staged).
 - [ ] **R8e-H6** Settings → player, X pressed, twenty times: unchanged from R8d.
 
+### B9 — glyph swaps without RenderBox (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+What R8e was chasing was mostly not the form. The gear turning into Settings'
+X was a symbol content transition (`.replace.downUp`), and SwiftUI draws one
+into an `RBDrawingLayer` whose display waits in `-[CAContext waitForCommitId:]`
+for the render server every frame: a sample of the hitch lab found the main
+thread blocked there about 230 ms per swap, off the CPU, which is why the CPU
+columns above moved and the missed frames did not. Hitch lab, same bundle,
+the transition the only difference, after the lyric scenario (lyrics live),
+two interleaved rounds: player → Settings 27.0 and 26.5 missed frames of 125
+with the replace, 4.0 and 3.5 with a plain scale and fade; Settings → player
+6.6 and 6.8 against 4.9 and 3.8. A hard cut is no cure: `.identity` is still a
+content transition and still RenderBox (7.1, 6.6). Without lyrics the replace
+cost about 4 frames (6.1 against 2.1), so live lyrics multiply it.
+`View.symbolSwap` now keys a bare image by its value and scales the old glyph
+out as the new one grows in (0.5, on `Theme.contentAnimation`), a cross-fade
+under Reduce Motion, for all twelve glyph swaps (play/pause, the heart, the
+gear, Copy, the repeat and shuffle toggles, the lock card's). Held by
+`SymbolSwapLayerTests` (no RenderBox layer in any frame of a swap; it fails on
+the replace) and the scan in `MotionValuesTests`. R8e-H2 is judged on this
+build. The numeric-text transitions (the Shelf count, the update alert) are
+the same family and were not measured.
+
+- [ ] **B9-H1** Play/pause, the heart, the gear and its X, Copy, repeat and
+  shuffle: the old glyph shrinks away as the new one grows in its place, about
+  as quickly as before, with nothing jumping beside it; with Reduce Motion on,
+  they cross-fade.
+
 ### Dev update channel (`feat/dev-update-channel`, 2026-10-19)
 
 The local update feed and the island's update alert (spec §19.5 f, built ahead

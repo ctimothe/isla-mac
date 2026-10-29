@@ -50,7 +50,8 @@ Busy group (start `yes > /dev/null` once per core in a shell, stop it afterwards
 25. **R8e-H2** The same twenty presses with the Mac busy, judged better, equal or worse than the previous build; this decides whether the 80 ms delay changes or the commit is dropped.
 26. **R8e-H3** Open Settings straight from the shut island, and use "Lyrics Settings…" and Music Only from the open player, ten times each: from shut the form arrives with the opening, from the player as the gear does, never a blank body that fills late.
 27. **R8e-H6** Settings to player with the X, twenty times: unchanged from the previous build.
-28. **R8d-H9** In Activity Monitor watch GPU history and Energy for Isla with the panel shut and music playing and the caption on, then open on the player for a minute: no higher than on the previous build.
+28. **B9-H1** Play/pause, the heart, the gear and its X, Copy, repeat and shuffle: the old glyph shrinks away as the new one grows in its place, about as quickly as before, with nothing jumping beside it; the Reduce Motion half (a cross-fade) goes with Sitting 4.
+29. **R8d-H9** In Activity Monitor watch GPU history and Energy for Isla with the panel shut and music playing and the caption on, then open on the player for a minute: no higher than on the previous build.
 
 ### Sitting 2 — Real songs and accounts: Spotify account connected, Yandex Music and Apple Music, network switchable (about 100 minutes)
 

@@ -29,7 +29,7 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses; one card is "1 item" on the island and in Remove All (B3) | 2 — the tray builds in 5 ms (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 146 tests | 1 |
 | Clipboard | 2 — spec §9 | 3 — sweep; 27 AX uses | 2 — 10 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 203 tests | 1 |
 | Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 2 — 12 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 214 tests, offline consent | 1 |
-| Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2); the player-to-Settings swap misses 26.8 frames of 125 at idle load, 212 ms of hitch a second, the worst in the app (B0.6) | 1 | 2 — 128 tests | 1 |
+| Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2); the player-to-Settings swap missed 26.8 frames of 125 at idle load (B0.6); the gear's symbol replace was most of it, and with a plain transition it misses 3.5–4.0 with lyrics live (B9) | 1 | 2 — 128 tests | 1 |
 | Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 2 — a 2 s hold misses 1.8–4.0 frames of 254, folding 0.2 (B0.6) | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
 | Charger and headphones | 3 — spec §3.6; the capsule's words held whole in English and Russian against their natural width (B4) | 2 — every charger state with its level, headphones by model (B1) | 2 — the headphones alert misses 0–0.1 frames at idle load (B0.6) | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
 | Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
@@ -38,6 +38,20 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | On a Mac with Apple's island | — | — | — | — | 2 — `NativeIslandTests`; identifiers unknown | 0 — NI runs owed |
 
 ## History
+
+- **Batch 9, 2026-10-29.** The worst frame drop B0.6 found, the swap into
+  Settings, traced and mostly removed. A sample of the hitch lab showed the
+  main thread blocked, off the CPU, in `-[CAContext waitForCommitId:]` under
+  `-[RBLayer display]`; a census of the layers during the swap found one
+  transient `RBDrawingLayer`, 17 by 16 points: the gear turning into the X.
+  SwiftUI draws a symbol content transition through RenderBox and waits for
+  the render server every frame of it. With a plain scale and fade instead,
+  player → Settings misses 4.0 and 3.5 frames where the replace missed 27.0
+  and 26.5 (lyrics live, same bundle, interleaved), and the way back 4.9 and
+  3.8 where it missed 6.6 and 6.8. All twelve glyph swaps use the new
+  `symbolSwap`; `SymbolSwapLayerTests` fails on the old one. Scores unchanged:
+  4 missed frames is still short of none. B9-H1 (how the new swap looks) joins
+  Sitting 1.
 
 - **B0.6, half of it, 2026-10-29.** `Scripts/measure-hitches.sh` needs no
   running Isla (it builds its own panel at alpha 0.02), so it ran unattended

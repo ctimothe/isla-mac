@@ -371,6 +371,12 @@ final class MotionValuesTests: XCTestCase {
     /// reduceMotion:)` pairs the two by construction, and this scan holds the
     /// bare form out of the sources, the way `test-branding.sh` holds a name
     /// out: brittle by design.
+    ///
+    /// Since 2026-10-29 the helper does not use the symbol effect either: it
+    /// drew through RenderBox and blocked the main thread a frame at a time
+    /// (`SymbolSwapLayerTests`, 27 missed frames on the way into Settings).
+    /// So no source spells `.symbolEffect(` at all; the other symbol effects
+    /// were not measured, and one comes back only with the hitch lab's numbers.
     func testEverySymbolSwapCarriesItsAnimation() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -385,12 +391,12 @@ final class MotionValuesTests: XCTestCase {
             text[file.lastPathComponent] = try String(contentsOf: file, encoding: .utf8)
         }
 
-        // The replace is spelled once, inside the helper, and nowhere else.
+        // No symbol effect anywhere, the helper included.
         for (name, body) in text.sorted(by: { $0.key < $1.key }) {
-            let replaces = body.components(separatedBy: ".symbolEffect(.replace").count - 1
+            let effects = body.components(separatedBy: ".symbolEffect(").count - 1
             XCTAssertEqual(
-                replaces, name == "Theme.swift" ? 1 : 0,
-                "\(name) spells a symbol replace by hand; use .symbolSwap(value:reduceMotion:)"
+                effects, 0,
+                "\(name) uses a symbol effect, which draws through RenderBox; use .symbolSwap(value:reduceMotion:)"
             )
         }
 
