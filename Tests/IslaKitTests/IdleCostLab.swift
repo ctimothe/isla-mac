@@ -36,6 +36,16 @@ import XCTest
 // `floor` is the same process with the panel ordered out and the music
 // paused: the runner's own cost, which every other row stands on.
 //
+// The `lock-*` states (B12) are the Mac locked with music: the island's locked
+// pill in the panel, and the card in a window of its own as `LockCardWindow`
+// hosts it, at the same alpha and as deaf to the pointer. The shield and the
+// SkyLight space are not built, so these read the card's views and nothing of
+// the lock's own.
+//
+// A rate under about 40 wake-ups a second is not resolved on a busy Mac: the
+// runner's floor alone reached 38 on 2026-10-29, at a load of about 50. What
+// this finds is a frame clock, 100 or more.
+//
 // Run by hand with `Scripts/measure-idle-lab.sh`; `./scripts/check` skips it
 // (ISLA_IDLE_OUT unset).
 
@@ -192,6 +202,45 @@ final class IdleCostLab: VisualLabCase {
         var prepare: @MainActor (HitchRig) async -> Void
     }
 
+    /// The lock card's window while a `lock-*` state runs.
+    private var cardWindow: NSWindow?
+
+    /// The shield's two windows, as a locked Mac with music shows them: the
+    /// panel's locked pill and the card.
+    private func lock(_ rig: HitchRig, pane: LockScreenCard.Pane) {
+        rig.vm.isOpen = false
+        rig.vm.isLockedPresentation = true
+        rig.panel.orderFrontRegardless()
+        let size = LockScreenCard.size(for: .standard)
+        let screen = rig.panel.screen?.frame ?? NSScreen.screens.first?.frame ?? .zero
+        let window = NSWindow(
+            contentRect: NSRect(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2,
+                                width: size.width, height: size.height),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.level = .statusBar
+        window.alphaValue = 0.02
+        window.ignoresMouseEvents = true
+        let hosting = NSHostingView(rootView: LockScreenCard(
+            media: rig.vm.media, lyrics: rig.vm.lyrics, audio: VisualLabLockCardTests.audio(), initialPane: pane
+        ).frame(width: size.width, height: size.height))
+        hosting.wantsLayer = true
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        cardWindow = window
+    }
+
+    /// Back to an unlocked Mac before every state.
+    private func unlock(_ rig: HitchRig) {
+        cardWindow?.orderOut(nil)
+        cardWindow?.contentView = nil
+        cardWindow = nil
+        rig.vm.isLockedPresentation = false
+    }
+
     private func states() -> [State] {
         let playing = LabFixtures.Track()
         func shut(_ rig: HitchRig) {
@@ -275,6 +324,27 @@ final class IdleCostLab: VisualLabCase {
                 await LabFixtures.play(playing, on: rig.vm.media)
                 open(rig, on: .settings)
             },
+            State(name: "lock-player") { rig in
+                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                rig.vm.lyrics.present(LabFixtures.timeline())
+                self.lock(rig, pane: .player)
+            },
+            State(name: "lock-lyrics") { rig in
+                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                rig.vm.lyrics.present(LabFixtures.timeline())
+                self.lock(rig, pane: .lyrics)
+            },
+            State(name: "lock-long-title") { rig in
+                await LabFixtures.play(LabFixtures.longTitle, on: rig.vm.media)
+                rig.vm.lyrics.present(.disabled)
+                self.lock(rig, pane: .player)
+            },
+            State(name: "lock-paused") { rig in
+                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                LabFixtures.pause(.init(elapsed: 27), on: rig.vm.media)
+                rig.vm.lyrics.present(LabFixtures.timeline())
+                self.lock(rig, pane: .lyrics)
+            },
         ]
     }
 
@@ -331,6 +401,7 @@ final class IdleCostLab: VisualLabCase {
         defer { wakes.stop() }
         var report: [[String: Any]] = []
         for state in states() where stateFilter?.contains(state.name) ?? true {
+            unlock(rig)
             await state.prepare(rig)
             try await Task.sleep(for: .seconds(2))
             let before = IdleCounters.read(main: main, wakes: wakes)
@@ -344,9 +415,12 @@ final class IdleCostLab: VisualLabCase {
                 // And what is moving: a frame clock with no Isla code under it
                 // is an animation that has not ended, and the layer it moves
                 // says whose it is.
+                let card = cardWindow?.contentView?.layer
                 let first = LayerSnapshot.take(rig.root.layer)
+                let firstCard = LayerSnapshot.take(card)
                 try await Task.sleep(for: .milliseconds(50))
                 let moved = LayerSnapshot.changes(from: first, to: LayerSnapshot.take(rig.root.layer))
+                    + LayerSnapshot.changes(from: firstCard, to: LayerSnapshot.take(card)).map { "card " + $0 }
                 try? moved.joined(separator: "\n").write(
                     to: dump.appendingPathComponent("moving-\(state.name).txt"), atomically: true, encoding: .utf8
                 )
@@ -357,6 +431,7 @@ final class IdleCostLab: VisualLabCase {
             row["state"] = state.name
             report.append(row)
         }
+        unlock(rig)
         return report
     }
 

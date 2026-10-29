@@ -55,15 +55,10 @@ final class MountCostLab: VisualLabCase {
         ])
 
         var samples: [Sample] = []
-        func measure(_ name: String, height: CGFloat, _ build: () async throws -> NotchViewModel) async throws {
-            if let only = Self.only, !name.contains(only) { return }
-            let vm = try await build()
-            // Let the view model's own first-run work (`.task`, stores
-            // answering) settle, so only the tree is timed.
-            await LabRenderer.wait(0.2)
+        func time(_ name: String, size: CGSize, _ view: () -> AnyView) async {
             var times: [Double] = []
             for run in 0..<(Self.warmUp + Self.runs) {
-                let ms = Self.timeOneMount(Self.scene(vm, .base, height: height), height: height)
+                let ms = Self.timeOneMount(view(), size: size)
                 if run >= Self.warmUp { times.append(ms) }
                 // A turn of the run loop between builds, as between two swaps.
                 await LabRenderer.wait(0.01)
@@ -73,6 +68,33 @@ final class MountCostLab: VisualLabCase {
                 surface: name, medianMs: Self.round(times[times.count / 2]),
                 minMs: Self.round(times.first ?? 0), maxMs: Self.round(times.last ?? 0), runs: times.count
             ))
+        }
+        func measure(_ name: String, height: CGFloat, _ build: () async throws -> NotchViewModel) async throws {
+            if let only = Self.only, !name.contains(only) { return }
+            let vm = try await build()
+            // Let the view model's own first-run work (`.task`, stores
+            // answering) settle, so only the tree is timed.
+            await LabRenderer.wait(0.2)
+            await time(name, size: CGSize(width: VisualLab.windowSize.width, height: height)) {
+                Self.scene(vm, .base, height: height)
+            }
+        }
+        // The lock card is a window of its own, built on every lock
+        // (`LockCardWindow`), so its first layout is part of the lock's first
+        // frame (B12). Playing with lyrics, as a lock with music finds it.
+        func measureCard(_ pane: LockScreenCard.Pane) async {
+            let name = "lock-card-\(pane.rawValue)"
+            if let only = Self.only, !name.contains(only) { return }
+            let stores = session.makeStores()
+            await LabFixtures.play(.init(elapsed: 27), on: stores.media)
+            stores.lyrics.present(LabFixtures.timeline())
+            await LabRenderer.wait(0.2)
+            let size = LockScreenCard.size(for: .standard)
+            await time(name, size: size) {
+                AnyView(LockScreenCard(
+                    media: stores.media, lyrics: stores.lyrics, audio: VisualLabLockCardTests.audio(), initialPane: pane
+                ).frame(width: size.width, height: size.height))
+            }
         }
 
         let panel = Self.panelSize.height, tall = Self.stageSize.height
@@ -91,6 +113,7 @@ final class MountCostLab: VisualLabCase {
                 try await self.openPanel(session, surface: .settings, configure: { $0.settingsSection = section })
             }
         }
+        for pane in LockScreenCard.Pane.allCases { await measureCard(pane) }
 
         let folder = URL(fileURLWithPath: out, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -108,8 +131,7 @@ final class MountCostLab: VisualLabCase {
 
     /// One hosting view, built and laid out once in a window that is never
     /// ordered in; the main thread's CPU time for it, in milliseconds.
-    private static func timeOneMount(_ view: AnyView, height: CGFloat) -> Double {
-        let size = CGSize(width: VisualLab.windowSize.width, height: height)
+    private static func timeOneMount(_ view: AnyView, size: CGSize) -> Double {
         let window = NSWindow(
             contentRect: NSRect(x: -40_000, y: -40_000, width: size.width, height: size.height),
             styleMask: [.borderless], backing: .buffered, defer: true

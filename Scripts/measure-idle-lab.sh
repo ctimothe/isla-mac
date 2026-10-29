@@ -4,9 +4,9 @@
 # Run by hand, never a gate. It runs `IdleCostLab` (Tests/IslaKitTests), which
 # builds the island's own panel at an alpha of 0.02, deaf to the pointer, and
 # holds it in each state — shut and paused, shut and playing, shut with the
-# lyric caption, open on each page — for a fixed time, reading the process's
-# CPU, the main thread's, the main run loop's wake-ups and the kernel's
-# wake-up counters. Isla itself is never launched, quit or signalled, so this
+# lyric caption, open on each page, locked with the card — for a fixed time,
+# reading the process's CPU, the main thread's, the main run loop's wake-ups
+# and the kernel's wake-up counters. Isla itself is never launched, quit or signalled, so this
 # can run while the owner works; `Scripts/measure-idle.sh` is the same question
 # asked of the running app, and is the one that sees the always-on timers.
 #
