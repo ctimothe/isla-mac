@@ -114,6 +114,31 @@ final class MountCostLab: VisualLabCase {
             }
         }
         for pane in LockScreenCard.Pane.allCases { await measureCard(pane) }
+        // The welcome is the first thing a new install builds, over the
+        // player's page (B14).
+        try await measure("welcome", height: panel) {
+            try await self.openPanel(session, configure: { $0.isShowingWelcome = true })
+        }
+        // The update alert grows out of the shut island at an idle moment;
+        // its build is the island's, offered and then mid-download (B14).
+        // The installer is a stand-in that never installs, as the alert's
+        // accessibility tests use.
+        let release = UpdateCheck.Release(
+            version: "0.4.0.11", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.4.0.11")!
+        )
+        defer { UpdateInstaller.sharedOverride = nil }
+        for (name, phase) in [("update-alert-offer", UpdateInstaller.Phase.idle),
+                              ("update-alert-downloading", .downloading(received: 4_000_000, total: 10_000_000))] {
+            let installer = UpdateInstaller(environment: .neverInstalls)
+            installer.presentForTests(phase, release: release)
+            UpdateInstaller.sharedOverride = installer
+            try await measure(name, height: panel) {
+                let vm = NotchViewModel(geometry: try LabGeometry.make(physical: true),
+                                        stores: session.makeStores(), defaults: session.suite)
+                vm.updateOffer = UpdateOffer(release: release)
+                return vm
+            }
+        }
 
         let folder = URL(fileURLWithPath: out, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

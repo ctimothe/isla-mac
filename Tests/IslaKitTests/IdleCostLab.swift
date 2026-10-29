@@ -80,6 +80,12 @@ private enum LayerSnapshot {
         /// motion, which costs the main thread nothing and never shows as a
         /// change of the layer's own values.
         var animations: [String]
+        /// The ones among them whose time is over. Core Animation takes a
+        /// finished animation off its layer at the next commit, so on a
+        /// panel where nothing commits after it — the welcome over a paused
+        /// song, B14 — the outline's opening spring was still listed nine
+        /// seconds on, and read as motion that never ended.
+        var ended: Set<String>
         var frame: CGRect
         var opacity: Float
         var transform: [CGFloat]
@@ -95,8 +101,16 @@ private enum LayerSnapshot {
             var detail = layer.name ?? ""
             if let shape = layer as? CAShapeLayer, let path = shape.path { detail += " path \(path.boundingBox)" }
             if let delegate = layer.delegate { detail += " delegate \(type(of: delegate))" }
+            let keys = layer.animationKeys() ?? []
+            let local = layer.convertTime(CACurrentMediaTime(), from: nil)
+            let ended = Set(keys.filter { key in
+                guard let animation = layer.animation(forKey: key), animation.repeatCount.isFinite,
+                      animation.repeatDuration == 0 else { return false }
+                let runs = max(Double(animation.repeatCount), 1) * (animation.autoreverses ? 2 : 1)
+                return local > animation.beginTime + animation.duration * runs
+            })
             entries[path] = Entry(
-                kind: String(describing: type(of: layer)), animations: layer.animationKeys() ?? [],
+                kind: String(describing: type(of: layer)), animations: keys, ended: ended,
                 frame: frame, opacity: layer.opacity,
                 transform: [t.m11, t.m12, t.m21, t.m22, t.m41, t.m42],
                 contents: (layer.contents as AnyObject?).map(ObjectIdentifier.init), detail: detail
@@ -111,7 +125,14 @@ private enum LayerSnapshot {
         var lines: [String] = ["\(b.count) layers, \(Set(a.keys).symmetricDifference(b.keys).count) added or gone"]
         for key in b.keys.sorted() {
             guard let entry = b[key], !entry.animations.isEmpty else { continue }
-            lines.append("\(key) \(entry.kind) [\(entry.detail)] animating on Core Animation: \(entry.animations.joined(separator: ", "))")
+            let running = entry.animations.filter { !entry.ended.contains($0) }
+            let ended = entry.animations.filter { entry.ended.contains($0) }
+            if !running.isEmpty {
+                lines.append("\(key) \(entry.kind) [\(entry.detail)] animating on Core Animation: \(running.joined(separator: ", "))")
+            }
+            if !ended.isEmpty {
+                lines.append("\(key) \(entry.kind) [\(entry.detail)] ended, not yet collected: \(ended.joined(separator: ", "))")
+            }
         }
         for key in b.keys.sorted() {
             guard let new = b[key], let old = a[key], new != old else { continue }
@@ -233,12 +254,31 @@ final class IdleCostLab: VisualLabCase {
         cardWindow = window
     }
 
-    /// Back to an unlocked Mac before every state.
-    private func unlock(_ rig: HitchRig) {
+    /// Back to an unlocked Mac, with no welcome and no update alert, before
+    /// every state.
+    private func reset(_ rig: HitchRig) {
         cardWindow?.orderOut(nil)
         cardWindow?.contentView = nil
         cardWindow = nil
         rig.vm.isLockedPresentation = false
+        rig.vm.isShowingWelcome = false
+        rig.vm.updateOffer = nil
+        UpdateInstaller.sharedOverride = nil
+    }
+
+    /// The update alert on the shut island, with the installer at `phase`: a
+    /// stand-in that never installs. The controller that folds the alert after
+    /// its hold is not built here, so it stays up for the whole window.
+    private func offerUpdate(_ rig: HitchRig, phase: UpdateInstaller.Phase) {
+        let release = UpdateCheck.Release(
+            version: "0.4.0.11", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.4.0.11")!
+        )
+        let installer = UpdateInstaller(environment: .neverInstalls)
+        installer.presentForTests(phase, release: release)
+        UpdateInstaller.sharedOverride = installer
+        rig.panel.orderFrontRegardless()
+        rig.vm.isOpen = false
+        rig.vm.updateOffer = UpdateOffer(release: release)
     }
 
     private func states() -> [State] {
@@ -324,6 +364,24 @@ final class IdleCostLab: VisualLabCase {
                 await LabFixtures.play(playing, on: rig.vm.media)
                 open(rig, on: .settings)
             },
+            // B14: the welcome over the player, as a new install opens on
+            // it, and the update alert offered and mid-download.
+            State(name: "open-welcome") { rig in
+                LabFixtures.pause(playing, on: rig.vm.media)
+                rig.vm.lyrics.present(.disabled)
+                open(rig, on: .player)
+                rig.vm.isShowingWelcome = true
+            },
+            State(name: "update-offer") { rig in
+                await LabFixtures.play(playing, on: rig.vm.media)
+                rig.vm.lyrics.present(.disabled)
+                self.offerUpdate(rig, phase: .idle)
+            },
+            State(name: "update-downloading") { rig in
+                await LabFixtures.play(playing, on: rig.vm.media)
+                rig.vm.lyrics.present(.disabled)
+                self.offerUpdate(rig, phase: .downloading(received: 4_000_000, total: 10_000_000))
+            },
             State(name: "lock-player") { rig in
                 await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
                 rig.vm.lyrics.present(LabFixtures.timeline())
@@ -401,7 +459,7 @@ final class IdleCostLab: VisualLabCase {
         defer { wakes.stop() }
         var report: [[String: Any]] = []
         for state in states() where stateFilter?.contains(state.name) ?? true {
-            unlock(rig)
+            reset(rig)
             await state.prepare(rig)
             try await Task.sleep(for: .seconds(2))
             let before = IdleCounters.read(main: main, wakes: wakes)
@@ -431,7 +489,7 @@ final class IdleCostLab: VisualLabCase {
             row["state"] = state.name
             report.append(row)
         }
-        unlock(rig)
+        reset(rig)
         return report
     }
 
