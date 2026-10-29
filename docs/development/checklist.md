@@ -2591,6 +2591,10 @@ code's but one, which differs only in the cover tint's timing.
     mask on the outer layer, which nothing moves
     (`MarqueeTrackTests.testTheClipStaysPutWhileTheLineTravels`, red on the
     old code). Run B11-H1 again on the build after 0.4.0.20.
+  - 2026-10-29, owner on 0.4.0.21 (27), same Mac: the long title scrolls
+    inside its own room and no longer covers the cover. That clause
+    passes; the rest of B11-H1 (the rests, the jump back, Reduce Motion,
+    another page, Activity Monitor) was not reported, so the box stays open.
 
 ### B10 — no cut text at the narrow width (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
