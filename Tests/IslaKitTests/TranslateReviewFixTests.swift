@@ -476,6 +476,66 @@ final class TranslateReviewFixTests: XCTestCase {
         XCTAssertNotNil(rig.translator.notice)
     }
 
+    /// Run-sheet R4-H9, the half a test can hold: a letter typed into the
+    /// real editor of a full field is gone from the editor too, not only from
+    /// `input`. The tests above call `typed` directly, which proves the model
+    /// refuses; the editor has already taken the letter into its own storage
+    /// by then, and only a real `NSTextView` behind the `TextEditor` can show
+    /// that it gives the letter back. Typed in the middle, where the old cut
+    /// threw away the end. The Japanese input method's marked text stays an
+    /// owner check.
+    func testTheEditorOfAFullFieldDoesNotShowARefusedLetter() async throws {
+        let rig = TranslateRig()
+        defer { rig.release() }
+        let limit = Translator.commandInputLimit
+        let full = String(repeating: "a", count: limit - 1) + "z"
+        rig.translator.input = full
+        let pane = TranslatePane(translator: rig.translator, privacy: rig.privacy, wantsKeyboard: .constant(false))
+            .background(Color.black)
+        let host = AXProbe.present(pane, size: CGSize(width: 488, height: 154))
+        await AXProbe.wait(0.1)
+        let editor = try XCTUnwrap(Self.textView(in: host.hosting), "the TextEditor is backed by an NSTextView")
+        XCTAssertEqual(editor.string.count, limit, "the editor shows the full text before the letter")
+
+        editor.setSelectedRange(NSRange(location: 10, length: 0))
+        editor.insertText("X", replacementRange: NSRange(location: NSNotFound, length: 0))
+        await AXProbe.wait(0.1)
+        XCTAssertEqual(rig.translator.input, full, "the model refused it")
+        XCTAssertNotNil(rig.translator.notice, "and says why")
+        XCTAssertEqual(editor.string.count, limit, "the editor does not keep the letter")
+        XCTAssertFalse(editor.string.contains("X"))
+        XCTAssertTrue(editor.string.hasSuffix("z"), "and the end of the person's text is still there")
+
+        // A second letter while the notice already says the same is given
+        // back like the first.
+        editor.setSelectedRange(NSRange(location: 20, length: 0))
+        editor.insertText("W", replacementRange: NSRange(location: NSNotFound, length: 0))
+        await AXProbe.wait(0.1)
+        XCTAssertEqual(rig.translator.input, full)
+        XCTAssertFalse(editor.string.contains("W"), "a second refusal is put back like the first")
+        XCTAssertEqual(editor.string.count, limit)
+
+        // The same road accepts a letter once there is room, so the refusal
+        // above is the limit's doing and not an editor the test cannot type in.
+        editor.setSelectedRange(NSRange(location: limit, length: 0))
+        editor.deleteBackward(nil)
+        await AXProbe.wait(0.1)
+        XCTAssertEqual(rig.translator.input.count, limit - 1)
+        editor.insertText("Y", replacementRange: NSRange(location: NSNotFound, length: 0))
+        await AXProbe.wait(0.1)
+        XCTAssertEqual(rig.translator.input.count, limit)
+        XCTAssertTrue(rig.translator.input.hasSuffix("Y"))
+        XCTAssertEqual(editor.string, rig.translator.input)
+    }
+
+    private static func textView(in view: NSView) -> NSTextView? {
+        if let text = view as? NSTextView { return text }
+        for child in view.subviews {
+            if let found = textView(in: child) { return found }
+        }
+        return nil
+    }
+
     // MARK: - Paste under Don't Allow
 
     /// A named provider that offers a string type and never supplies it, the

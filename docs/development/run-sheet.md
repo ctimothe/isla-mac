@@ -80,7 +80,7 @@ Setup: a Spotify account that is not listed in Isla's Spotify dashboard and one 
 Setup: run `tccutil reset` for the Desktop, Documents and Downloads folder services only (never Accessibility), have fourteen files of different kinds and a Finder window in icon view, set screenshots to save to `~/Pictures`, and have an AirDrop-capable Mac or phone nearby.
 
 1. **1050** After the reset, with captures set to `~/Pictures`, opening the Shelf raises no Desktop prompt, and every prompt that does appear names what triggered it.
-2. **427** Protected Shelf files prompt only when the Shelf is opened or used, never at launch.
+2. **427** Protected Shelf files prompt only when the Shelf is opened or used, never at launch. Only macOS's prompt is left here: that a launch never passes over the files is held by tests (see Held by tests since Batch 6).
 3. **R3-H1** Three Finder files dragged in land as icons, and the same drag over AirDrop sends without keeping.
 4. **R8-H2** A Finder drag onto the notch lights Keep on Shelf and AirDrop under the pointer; a drop on Keep on Shelf keeps the file and one on AirDrop opens the AirDrop sheet with it.
 5. **R3-H2** Delete with the pointer on the Shelf removes the selection and never the files.
@@ -90,14 +90,14 @@ Setup: run `tccutil reset` for the Desktop, Documents and Downloads folder servi
 9. **1337** A Desktop card dragged into a Finder folder copies it (original stays, "+" badge), a ⌘-drag moves it and the double-click opens the moved file, ⌘-dragging onto the Trash removes the card, and pressing ⌘ mid-drag turns copy into move; the thumbnail stays under the pointer where grabbed.
 10. **MR-H5** "Lyrics imported", "Copied" (Return in Clipboard) and "Added to Shelf" show on the island for about 1.5 s when the panel is shut. Skip the "never over the open panel" clause, which was superseded (see Stale).
 11. **R3-H7** With Paste from Other Apps on Ask, copying a picture with history on asks once and never twice.
-12. **R4-H5** On Ask, opening Translate never asks and pressing Paste asks once; under Don't Allow Paste is disabled and its tooltip says why.
+12. **R4-H5** On Ask, opening Translate raises no alert and pressing Paste raises macOS's alert once. The rest is held by tests (see Held by tests since Batch 6).
 13. **R8c-H8** With a lyric playing and the panel on Clipboard, copy ten screenshots (⌃⌘⇧4) and ten browser or editor pictures and paste each into an agent window: the lyric sweep and hover never stutter, every picture is in the history (and on the Shelf with Save Clipboard Screenshots on), two copies within a second keep the second, ⌘V with ⌥⌘T pressed at once ten times with the Translate field focused does not crash, the Ask alert appears once with Isla staying responsive, and Instruments shows the `pasteboard read` interval off the main thread.
 14. **1157** Under Don't Allow the Clipboard page shows the sentence and Open Privacy Settings lands on Paste from Other Apps (record if it lands on the Privacy & Security root); set Allow, reopen, copy: the copy appears without a relaunch, and Copy Diagnostics shows the state each time.
 15. **R3-H3** An image copied in Safari appears under Images in Clipboard and pastes back.
-16. **R4-H9** Type into a Translate source holding 20,000 characters: the letter is refused and the field does not show it; repeat with a Japanese input method.
+16. **R4-H9** With a Japanese input method, type into a Translate source holding 20,000 characters: the letter is refused and the field does not show it. The plain-keyboard half is held by tests (see Held by tests since Batch 6).
 17. **R4-H2** Speak in a Russian and an English voice: each speaks, and Stop Speaking stops.
 18. **1077** ⌃⌥⌘I then Escape closes the panel; ⌃⌥⌘I then ⌘-Tab closes it; ⌃⌥⌘L then Escape closes it; with no pin up Escape still reaches TextEdit and Terminal; in Translate with text the first Escape clears and the second closes; a click-open never steals the caret; with Quick Look open from a pinned Shelf, Escape closes Quick Look and not the panel; and no "macOS refused the transient Escape hot key" line is logged.
-19. **431** Quit and relaunch, with launch at login on and the Mac logged out and in, and with one Shelf file deleted in Finder: the island returns each time and the missing file does not crash or confuse the tray. The unavailable-helper clause is covered by `NowPlayingLifecycleTests`.
+19. **431** Quit and relaunch, with launch at login on and the Mac logged out and in: the island returns each time. The deleted-file clause is held by tests (see Held by tests since Batch 6); the unavailable-helper clause by `NowPlayingLifecycleTests`.
 20. **1397** With the panel open, run the Show Isla Shortcut (the panel stays open) and Show Lyrics (the lyric page stays up), and open Spotlight then Isla while it runs; do not launch the copy in `build/` (the project forbids it, see Stale) and run `./scripts/check lifecycle` with the installed copy running.
 
 ### Sitting 4 — Mac in Russian, Settings, Panel Width sweeps, VoiceOver and Reduce Motion (about 70 minutes)
@@ -227,6 +227,35 @@ Stale in part, kept as owner runs or tests with the clause dropped:
 - **R8d-H1 and R8e-H2** compare with the R8c and R8d builds, which are no longer installed.
 - **413** and **1157** say "lyrics page" and "Clipboard tab", now the stage and the Clipboard page; the behaviour is unchanged.
 - **1397** asks for the copy in `build/` to be launched from Finder; CLAUDE.md forbids opening that bundle because each launch registers a second Isla with LaunchServices.
+
+## Held by tests since Batch 6 (2026-10-29)
+
+- **R4-H9**, all but the Japanese input method: a letter typed into the
+  middle of a full source is refused by the model
+  (`TranslateReviewFixTests.testAnInsertionPastTheLimitIsRefused`) and is
+  gone from the real `NSTextView` behind the field too, a second refusal
+  included, while a letter typed once there is room lands
+  (`testTheEditorOfAFullFieldDoesNotShowARefusedLetter`). Writing that test
+  showed the source's comment was wrong about why: the editor puts the old
+  text back by itself, with or without the refusal's publication. The
+  comment now says so; no behaviour changed.
+- **R4-H5**, all but macOS's own alert: opening Translate reads nothing
+  from the pasteboard and Paste reads once
+  (`TranslatePasteTests.testOpeningTheTabReadsNothingAndShowsPasteEnabled`,
+  `testPressingPasteFillsTheFieldAndReadsOnce`, counted by a lazy item that
+  is asked for bytes only on a real read); under Don't Allow, Paste is off
+  and its tooltip says why
+  (`TranslateReviewFixTests.testPasteIsDisabledUnderDontAllowWithAReason`).
+- **427** and **431**, the logic: a launch makes no pass over the Shelf's
+  files, and only the tray coming into view makes one, once per arrival
+  (`FirstRunTests.testALaunchNeverPassesOverTheShelfAndEachArrivalOnTheTrayDoesOnce`);
+  that pass evicts a card whose file was deleted
+  (`ShelfStoreTests.testRefreshFromDiskEvictsACardWhoseFileWasDeleted`)
+  or put in the Trash (`testAFileInTheTrashIsGoneAndIsNotReloaded`) and
+  keeps one it cannot read (`testRefreshFromDiskKeepsACardWhoseFileExistsButIsUnreadable`).
+  Until the tray is opened after a relaunch, the bubble still counts a
+  deleted file: by design, since looking sooner is what would raise the
+  folder prompts at launch.
 
 ## Held by tests since Batch 5 (2026-10-29)
 

@@ -132,11 +132,14 @@ struct TranslatePane: View {
             // After the text: setting `input` clears the notice.
             if let notice { translator.notice = notice }
         case .refused(let notice):
-            // The field keeps what it held. Assigned every time, not only the
-            // first: `@Published` publishes each assignment, and that
-            // publication is what makes the editor, which has already taken the
-            // rejected letter into its own storage, ask the binding for its text
-            // again and put the old one back.
+            // The field keeps what it held. The editor, which has already
+            // taken the rejected letter into its own storage, puts the old
+            // text back by itself once the binding answers with it: on
+            // 2026-10-29 it still did with this line removed
+            // (`testTheEditorOfAFullFieldDoesNotShowARefusedLetter` types
+            // into the real one). This line was once thought to be what made
+            // it; it is kept for the notice, assigned on every refusal so the
+            // line never lags one.
             translator.notice = notice
         }
     }

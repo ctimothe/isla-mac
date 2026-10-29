@@ -176,6 +176,41 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    /// Run-sheet 427 and 431, the half a test can hold: a launch never passes
+    /// over the Shelf's files — that pass is what raises the Desktop and
+    /// Documents prompts and finds a file deleted in Finder — and the tray
+    /// coming into view is the one moment it runs. Each arrival is one pass:
+    /// another page, a shut panel reopened onto the tray, and the tray again.
+    /// Staying on the tray, or opening the panel on another page, is none.
+    /// What the pass does with a deleted file is
+    /// `ShelfStoreTests.testRefreshFromDiskEvictsACardWhoseFileWasDeleted`.
+    func testALaunchNeverPassesOverTheShelfAndEachArrivalOnTheTrayDoesOnce() {
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            XCTAssertEqual(vm.shelf.refreshesForTests, 0, "a launch reads no Shelf file")
+
+            vm.isOpen = true
+            vm.open(.player)
+            vm.open(.clipboard)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 0, "no page but the tray looks at the files")
+
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 1, "the tray coming into view is the pass")
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 1, "a tray already on screen has its cards")
+
+            vm.open(.translate)
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 2, "back from another page is an arrival")
+
+            vm.isOpen = false
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 3, "a shut panel opening onto the tray is an arrival")
+        }
+    }
+
     /// A drop lands on a tray the drag never refreshed, and `add` loads the new
     /// cards' previews itself — so the drop must not pass over the whole shelf
     /// again: a reachability check and a fresh QuickLook request per card, each

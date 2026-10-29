@@ -39,6 +39,20 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 
 ## History
 
+- **Batch 6, 2026-10-29.** Four Sitting 3 checks moved to tests, as far
+  as a test can hold them: R4-H9 (a letter typed into a full Translate
+  field is gone from the real editor too, typed through its `NSTextView`),
+  R4-H5 (already held; only macOS's alert is left), and 427 and 431 (a
+  launch never looks at the Shelf's files; each arrival on the tray looks
+  once and evicts a deleted file). No bug this time, but one wrong comment:
+  the source said a republication on refusal was what made the editor drop
+  the letter, and removing it showed the editor drops it anyway. The tray
+  test fails when the reopened-panel arrival is dropped; the editor test's
+  model half fails when the refusal is removed, and its editor half guards
+  SwiftUI's own behaviour, which no change to Isla's code broke.
+  Scores unchanged: these cells were already held at the level the tests
+  reach; what is left of each check is macOS's own prompt or an input
+  method.
 - **Batch 5, 2026-10-29.** Run-sheet check 1269 moved to tests, and the
   move found a bug: Russian VoiceOver heard Panel Width as "560 пт", the
   drawn abbreviation, which is also how Russian writes Friday. It now hears
