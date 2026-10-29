@@ -14,6 +14,8 @@ Counts, by where each of the 175 lines ended up:
 
 Added since, new checks the later batches made: B9-H1 and B11-H1 (Sitting 1), B10-H1 (Sitting 4).
 
+Withdrawn since, with the native-island support (owner, 2026-10-29: Isla is for notched MacBooks only): NI-H1, NI-H2 and NI-H3. The counts above are the sort as it was made.
+
 Ordering logic. Sittings 1 and 2 need no special settings. Sitting 3 changes privacy answers. Sitting 4 changes the Mac's language and accessibility switches, so it comes after the ones that expect English. Sitting 5 locks the Mac. Sitting 6 needs a battery in a particular state and can move to any day that provides it. Sitting 7 turns Volume and Brightness on and leaves it on for 8 and 9. Sitting 9 installs updates, so it is after everything that wants the current build left alone. Sitting 10 measures a quiet Mac and goes last.
 
 ## Sittings
@@ -179,11 +181,9 @@ Setup: switch Volume and Brightness on and grant Accessibility; leave both on fo
 
 Setup: start with only the built-in display, then connect the external one.
 
-1. **NI-H2** On the notched Mac with Show on Built-in Display off and no other display, nothing is drawn at the notch and clicks and hovers reach the menu bar; ⌃⌥⌘I, ⌃⌥⌘V, ⌃⌥⌘T and Spotlight open the panel, which fades out after it folds; no peek, charger or headphones pill shows; a volume key shows macOS's own pop-up (that Isla leaves the key to macOS is held by tests, see Held by tests since Batch 7); plugging a display in or waking with the pointer at top centre opens nothing; turning the switch back on restores the island at once.
-2. **NI-H3** With an external display connected the island moves to it, synthetic, and works as on any notchless display; unplugging it falls back to NI-H2.
-3. **429** Walk the player, Shelf, Clipboard, Translate and Settings, a charger and a pop-up, on the external display with the synthetic notch.
-4. **R8d-H4** The player over a busy window has the same soft shadow as before, none under the compact island, the peek or the charger; the line is 2 pt and crisp on the built-in display and the external one, with no seam along the top edge or hairline between black and line; Increase Contrast raises it; the charger's line is green.
-5. **R5-H8** With the external display as main, and again with the lid closed, the brightness keys go to macOS.
+1. **429** Walk the player, Shelf, Clipboard, Translate and Settings, a charger and a pop-up, on the external display with the synthetic notch.
+2. **R8d-H4** The player over a busy window has the same soft shadow as before, none under the compact island, the peek or the charger; the line is 2 pt and crisp on the built-in display and the external one, with no seam along the top edge or hairline between black and line; Increase Contrast raises it; the charger's line is green.
+3. **R5-H8** With the external display as main, and again with the lid closed, the brightness keys go to macOS.
 
 ### Sitting 9 — Update feed: a clean committed checkout, `Scripts/publish-dev-update.sh`, Volume and Brightness on, Spotify connected (about 60 minutes)
 
@@ -271,13 +271,6 @@ Stale in part, kept as owner runs or tests with the clause dropped:
 - **R7-H4**, the fit: every count up to the Shelf's limit keeps the
   one-digit bubble's padding, measured in the count's own font
   (`IslandBubbleTests.testEveryCountKeepsTheOneDigitPadding`).
-- **NI-H2**, the volume key, unlocked: with the island standing aside the
-  key tap leaves the key to macOS, moves nothing and draws nothing; the
-  same wiring on a shown island takes it
-  (`MediaKeyHUDTests.testAnIslandThatStandsAsideLeavesTheKeysToMacOS`,
-  through `NotchController.wireHUD`, which `install()` now calls, so the
-  wiring is what is tested). The locked half was already
-  `NativeIslandTests.testALockedIslandThatStandsAsideIsNeverOverTheShield`.
 
 ## Held by tests since Batch 6 (2026-10-29)
 
@@ -360,7 +353,6 @@ pointer, so it was not kept.
 
 ## Waiting on something outside the Mac
 
-- **NI-H1** Needs Apple to name the new MacBook Pro's model identifiers (support.apple.com/108052) and one of those Macs; then add them to `NativeIsland.models` and record `sysctl hw.model` and the built-in display's insets.
 - **934** The Intel slice has only been built, never run; it needs an Intel Mac.
 
 ## Not an owner check

@@ -25,6 +25,10 @@ Two jobs follow:
    on day one. Drawn there, it would put a second island over Apple's. This is
    the first item (B0.1), and it should ship before 2026-11-06.
 
+   *Withdrawn 2026-10-29 (owner: "isla-mac is only for the notch style
+   MacBooks. period."). Isla is not made for a Mac with Apple's island and
+   does nothing special on one; the guard built for this job was removed.*
+
 ## The bar: a scorecard
 
 `docs/development/scorecard.md` (created by B0.2): one row per feature, one
@@ -55,7 +59,7 @@ scenario from the second kind to the first is progress in its own right.
 - **Displays:** 14-inch and 16-inch notch, Air 13-inch and 15-inch notch, a
   Mac without a notch (synthetic island), an external display alone, external
   plus built-in, clamshell, "More Space" scaling, plugging and unplugging,
-  mirroring, and the native-island MacBook Pro. Geometry for every real panel
+  and mirroring. Geometry for every real panel
   size and notch width is a pure table test; the rest are owner runs.
 - **macOS:** 15.x, 26.x, 27.x. CI covers one; the others are owner runs or a
   spare volume.
@@ -145,9 +149,11 @@ What stays with the owner, and why:
 
 ## Batch 0 — the instruments, before the fixes
 
-- **B0.1 Native-island guard.** Find what a native-island Mac reports
-  (model identifiers, `NSScreen` safe area and auxiliary areas, any public
-  API), then make Isla draw nothing over Apple's island. Research now, from
+- **B0.1 Native-island guard.** *Built, then withdrawn on 2026-10-29 with
+  job 2: Isla is for notched Macs only, so `NativeIsland`, the step-aside and
+  Show on Built-in Display were removed, and NI-H1 to NI-H3 with them.*
+  Find what a native-island Mac reports (model identifiers, `NSScreen` safe
+  area and auxiliary areas, any public API), then make Isla draw nothing over Apple's island. Research now, from
   Apple's developer documentation and specifications; code once the facts are
   known; one owner run on the new Mac, or a borrowed one. Decision D1.
 
@@ -181,6 +187,10 @@ What stays with the owner, and why:
 
 - **D1 — on a Mac with Apple's island.** *Decided 2026-10-29 (owner: "Yes,
   step aside"): Isla steps aside, as built in Batch 0 (spec §3.8).*
+  *Superseded the same day (owner: "we dont need a support for the new
+  Native dynamic island macbooks, isla-mac is only for the NOTCH STYLE
+  MACBOOKS. period."): no step-aside, no switch; spec §3.8 records the
+  withdrawal.*
   Recommended: draw nothing on that
   display and keep working on external displays; the hot keys and the
   right-click menu still open Clipboard, Translate, the Shelf and Settings

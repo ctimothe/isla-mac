@@ -35,10 +35,13 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
 | Welcome | 2 | 3 — sweep; the headline is a heading and is read first, the legend next, Get Started last, held on VoiceOver's own navigation order (B3); fits in both languages | 1 | 1 | 2 — `FirstRunTests`, 23 tests: a pointer crossing, a drag, a screenshot and a shortcut each leave it or retire it as they should; never shown over the lock | 1 |
 | Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 1 | 1 | 3 — 165 tests, `SurfaceContractTests` | 1 |
-| On a Mac with Apple's island | — | — | — | — | 2 — `NativeIslandTests`; identifiers unknown | 0 — NI runs owed |
 
 ## History
 
+- **Native-island support withdrawn, 2026-10-29.** The owner: Isla is for
+  notched MacBooks only. The row "On a Mac with Apple's island" and its NI
+  runs are gone with `NativeIsland`, the step-aside and Show on Built-in
+  Display (spec §3.8, withdrawn).
 - **Batch 11, 2026-10-29.** Efficiency, measured without a running Isla.
   `Scripts/measure-idle-lab.sh` (`IdleCostLab`) holds the hitch lab's
   invisible panel in each resting state for a fixed time and reads the
@@ -218,7 +221,7 @@ LRCLIB refusing, the update path end to end in a scratch repository.
 Owner runs only: real notch sizes, a Mac without a notch, external displays
 plugged in and out, macOS 15 (CI runs 26 and the owner's Mac 27), VoiceOver
 and Full Keyboard Access by hand, Stage Manager, Mission Control, fast user
-switching, Low Power Mode, a real Spotify and Music, Apple's island Mac.
+switching, Low Power Mode, a real Spotify and Music.
 149 hardware checks are open in `checklist.md` (B0.5 sorts them).
 
 ## Lowest cells, which the first batches go after

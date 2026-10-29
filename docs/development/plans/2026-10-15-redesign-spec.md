@@ -390,6 +390,12 @@ bottom edge.
 > that stay away, so on a Mac with only the built-in display an update is
 > offered by the gear's badge and Settings › About, on the next summons.
 
+> **Withdrawn 2026-10-29 (owner: "isla-mac is only for the notch style
+> MacBooks. period.").** Isla is not made for Macs with Apple's own island, so
+> it does not step aside on one: `NativeIsland`, the step-aside geometry and
+> **Show on Built-in Display** are gone, and this section stands as it was
+> before the amendment above.
+
 ## 4. The Music player (208 tall)
 
 > **Amended 2026-10-17 (owner: activities first, §19).** The player is §19.6:
@@ -1643,6 +1649,9 @@ so).
 > **Amended 2026-10-29 (§3.8).** Added `showOnBuiltInDisplay` (true when unset,
 > and false when unset on a Mac in `NativeIsland.models`; General, on a Mac
 > with a battery; no).
+
+> **Withdrawn 2026-10-29 (§3.8).** `showOnBuiltInDisplay` is gone with the
+> step-aside.
 
 ## 15. New strings
 
