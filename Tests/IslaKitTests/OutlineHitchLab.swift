@@ -680,6 +680,25 @@ final class OutlineHitchLab: VisualLabCase {
                     }),
                 ]
             ),
+            // The pages turned by their dots (§19.16, B13): one page at a
+            // time along the strip, then the long jump back, three pages at
+            // once. `travel` is what a dot's click calls; the travel draws on
+            // the display's own clock and settles on the island's spring.
+            Scenario(
+                name: "page-turn",
+                prepare: { rig in
+                    await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                    rig.vm.lyrics.present(LabFixtures.timeline())
+                    rig.vm.isOpen = true
+                    rig.vm.open(.player)
+                },
+                steps: [
+                    ("music-to-shelf", { $0.vm.travel(to: .tray, reduceMotion: reduceMotion) }),
+                    ("shelf-to-clipboard", { $0.vm.travel(to: .clipboard, reduceMotion: reduceMotion) }),
+                    ("clipboard-to-translate", { $0.vm.travel(to: .translate, reduceMotion: reduceMotion) }),
+                    ("translate-to-music", { $0.vm.travel(to: .player, reduceMotion: reduceMotion) }),
+                ]
+            ),
             Scenario(
                 name: "alert",
                 prepare: { rig in rig.vm.isOpen = false; rig.vm.ambient = nil },

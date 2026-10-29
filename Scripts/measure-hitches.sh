@@ -24,7 +24,7 @@
 #     ISLA_HITCH_CYCLES=12 bash Scripts/measure-hitches.sh after
 #
 #   scenarios: rest-playing, rest-paused, open-close, open-close-lyrics,
-#              surface-change, alert, open-stall, alert-stall,
+#              surface-change, page-turn, alert, open-stall, alert-stall,
 #              click-player, click-tray, click-stage,
 #              pull-player, pull-tray, pull-stage              (default: all)
 #   loads:     idle, stressed, saturated                       (default: all)
