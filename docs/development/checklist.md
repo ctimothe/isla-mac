@@ -2458,6 +2458,16 @@ Core Graphics layer, and no RenderBox layer appears in any frame.
   as quickly as before, with nothing jumping beside it; with Reduce Motion on,
   they cross-fade.
 
+### B13 — the pages turned by their dots, timed (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+`Scripts/measure-hitches.sh` has a `page-turn` scenario: the dots turn
+Music to the Shelf, the Shelf to Clipboard, Clipboard to Translate and
+Translate back to Music, through `NotchViewModel.travel`, as a click does.
+At idle load on 120 Hz a page along misses 0.2–0.5 frames; the jump back to
+Music misses 1.9, all in its first 100 ms, where the player is built. No
+behaviour changed and no hardware check is added; R8b's runs still judge
+the travel by eye.
+
 ### B12 — the lock card's build and resting cost (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
 `Scripts/measure-mounts.sh` now builds the lock card on its player, lyrics

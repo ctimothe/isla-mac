@@ -34,10 +34,24 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Charger and headphones | 3 — spec §3.6; the capsule's words held whole in English and Russian against their natural width (B4) | 2 — every charger state with its level, headphones by model (B1) | 2 — the headphones alert misses 0–0.1 frames at idle load (B0.6) | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
 | Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
 | Welcome | 2 | 3 — sweep; the headline is a heading and is read first, the legend next, Get Started last, held on VoiceOver's own navigation order (B3); fits in both languages | 1 | 1 | 2 — `FirstRunTests`, 23 tests: a pointer crossing, a drag, a screenshot and a shortcut each leave it or retire it as they should; never shown over the lock | 1 |
-| Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 1 | 1 | 3 — 165 tests, `SurfaceContractTests` | 1 |
+| Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 2 — `measure-hitches.sh` page-turn at idle load, 120 Hz (B13): a dot one page along misses 0.2–0.5 frames with 120–150 ms of main-thread CPU; the dot from Translate back to Music misses 1.9, all in its first 100 ms, where the player is built | 1 | 3 — 165 tests, `SurfaceContractTests` | 1 |
 
 ## History
 
+- **Batch 13, 2026-10-29.** The pages, timed. The hitch lab gains a
+  `page-turn` scenario that turns the pages by their dots, as a click
+  does: Music to the Shelf, the Shelf to Clipboard, Clipboard to Translate,
+  then the long jump back to Music. At idle load (about 3) on 120 Hz, a page
+  along misses 0.2–0.5 frames and costs 120–150 ms of main-thread CPU over
+  its second, against 0.2–0.6 for the player-to-Settings swap in the same
+  run. The jump back misses 1.9 and costs 282 ms, and all of its misses fall
+  in the first 100 ms: a dot two or more pages away already travels a strip
+  of the two pages alone (`straightLeg`), so nothing between is built, but
+  the player itself is (about 10 ms with lyrics, `measure-mounts.sh`) and
+  the outline changes height. That is the cost of opening on the player,
+  0.6–2.9 frames (B0.6); keeping the player built behind the other pages
+  would remove it, at a price in VoiceOver order, focus and resting cost,
+  and is left. Speed goes from 1 to 2.
 - **Batch 12, 2026-10-29.** The lock card, measured without a lock. The
   mount lab now builds the card on each of its three panes, playing with
   lyrics, as `LockCardWindow` builds it at every lock: 7.5, 9.2 and 7.1 ms
