@@ -419,6 +419,40 @@ final class FirstRunTests: XCTestCase {
     /// this test and `Scripts/test-localizations.sh` — which compares key sets —
     /// would pass on a pane that shows English to a Russian user. So each Russian
     /// value has to differ from its own key.
+    /// VoiceOver meets the welcome the way its title means it to be met: the
+    /// headline first, as a heading, then the way back, then how the island
+    /// is used (Batch 3, 2026-10-29).
+    ///
+    /// It read the legend's four lines before "Isla is running." — the order
+    /// the two columns are laid out in, left to right — and nothing on the
+    /// pane was a heading, so a person moving by headings, as VoiceOver users
+    /// do on a new screen, found none on the one screen that tells them how
+    /// to come back to an app with no Dock icon.
+    func testTheWelcomeReadsItsHeadlineFirstAsAHeading() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        vm.isOpen = true
+        vm.isShowingWelcome = true
+        let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
+        let host = AXProbe.present(NotchContentView(vm: vm), size: size)
+        let root = await AXProbe.read(host, settle: 0.3)
+        let welcome = try XCTUnwrap(root.first(label: "Welcome"), root.dump)
+        let english = WelcomePane.Copy.english
+
+        XCTAssertEqual(welcome.all(role: "AXHeading").map { $0.label.isEmpty ? $0.value : $0.label },
+                       [english.running], welcome.dump)
+        // What VoiceOver says, which is not the order the tree is laid out in.
+        let spoken = AXProbe.spokenOrder(host).drop { $0 != "Welcome" }.dropFirst()
+        let lines = Array(spoken.prefix(8))
+        XCTAssertEqual(lines.count, 8, "\(spoken)")
+        XCTAssertEqual(lines.first, english.running, "the headline first\n\(spoken)")
+        XCTAssertTrue(lines.dropFirst().first?.hasPrefix("No Dock") == true, "then the way back\n\(spoken)")
+        XCTAssertEqual(lines.dropFirst(2).first, english.staysOnMac, "\(spoken)")
+        XCTAssertEqual(lines.dropFirst(3).first, english.click, "then how the island is used\n\(spoken)")
+        XCTAssertEqual(lines.last, english.action, "Get Started last, after everything it answers\n\(spoken)")
+    }
+
     func testEveryWelcomeStringIsInBothTables() throws {
         XCTAssertFalse(WelcomePane.localizedKeys.isEmpty)
 

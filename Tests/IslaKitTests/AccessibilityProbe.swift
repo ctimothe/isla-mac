@@ -209,6 +209,31 @@ enum AXProbe {
         try? await Task.sleep(for: .milliseconds(Int(seconds * 1000)))
     }
 
+    /// What VoiceOver says, in the order it says it: the words of every
+    /// element under the hosting view, depth-first through
+    /// `accessibilityChildrenInNavigationOrder`.
+    ///
+    /// `read` walks `accessibilityChildren`, the order the views were laid out
+    /// in. VoiceOver moves through navigation order instead, which is where
+    /// `accessibilitySortPriority` lands, so a test of reading order that
+    /// walked the tree would hold the layout, not the voice (the welcome's
+    /// headline, 2026-10-29). Call after `read`, which makes SwiftUI build
+    /// the tree.
+    static func spokenOrder(_ host: Host) -> [String] {
+        var out: [String] = []
+        func visit(_ element: NSObject, depth: Int) {
+            let label = text(get(element, "accessibilityLabel"))
+            let words = label.isEmpty ? text(get(element, "accessibilityValue")) : label
+            if depth > 0, !words.isEmpty { out.append(words) }
+            guard depth < 40 else { return }
+            let next = (get(element, "accessibilityChildrenInNavigationOrder") as? [Any])
+                ?? (get(element, "accessibilityChildren") as? [Any]) ?? []
+            for child in next.compactMap({ $0 as? NSObject }) { visit(child, depth: depth + 1) }
+        }
+        visit(host.hosting, depth: 0)
+        return out
+    }
+
     // MARK: Reading
 
     fileprivate static func walk(_ element: NSObject, host: Host, depth: Int) -> AXNode {

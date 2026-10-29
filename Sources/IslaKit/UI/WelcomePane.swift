@@ -229,11 +229,27 @@ struct WelcomePane: View {
         }
     }
 
+    /// The order VoiceOver reads the pane in, highest first. Laid out left to
+    /// right, the legend came before the headline; and with no heading on the
+    /// pane, moving by headings found nothing (`FirstRunTests`). The headline,
+    /// the way back and the privacy line lead, the legend follows at the
+    /// default, and the button comes last, after what it answers. Only the
+    /// navigation order moves — `accessibilityChildren` and every pixel keep
+    /// the layout's.
+    enum ReadingOrder {
+        static let running: Double = 3
+        static let comeBack: Double = 2
+        static let staysOnMac: Double = 1
+        static let action: Double = -1
+    }
+
     private var message: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(copy.running)
                 .islandFont(.title)
                 .foregroundStyle(.white)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilitySortPriority(ReadingOrder.running)
 
             Text(comeBackLine)
                 .islandFont(.body, weight: .regular)
@@ -243,11 +259,13 @@ struct WelcomePane: View {
                 // long in a column this narrow would arrive with its tail cut
                 // off instead of wrapped.
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilitySortPriority(ReadingOrder.comeBack)
 
             Text(copy.staysOnMac)
                 .islandFont(.caption, weight: .regular)
                 .foregroundStyle(Theme.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilitySortPriority(ReadingOrder.staysOnMac)
 
             // The stack flows from the top and the slack collects underneath,
             // like every other pane. A `Spacer` holding this button to the floor
@@ -261,6 +279,7 @@ struct WelcomePane: View {
             // wears, and this is the same shape carrying the one action on
             // screen.
             .buttonStyle(OfferButtonStyle(fill: Theme.surfaceHover, horizontalPadding: 14, verticalPadding: 6))
+            .accessibilitySortPriority(ReadingOrder.action)
         }
     }
 }
