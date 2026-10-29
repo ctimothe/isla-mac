@@ -12,7 +12,7 @@ Counts, by where each of the 175 lines ended up:
 - Not an owner check (umbrella lines, release process, backlog and debt, a marketing task): 18
 - Waiting on something outside the Mac: 2
 
-Added since, new checks the later batches made: B9-H1 (Sitting 1) and B10-H1 (Sitting 4).
+Added since, new checks the later batches made: B9-H1 and B11-H1 (Sitting 1), B10-H1 (Sitting 4).
 
 Ordering logic. Sittings 1 and 2 need no special settings. Sitting 3 changes privacy answers. Sitting 4 changes the Mac's language and accessibility switches, so it comes after the ones that expect English. Sitting 5 locks the Mac. Sitting 6 needs a battery in a particular state and can move to any day that provides it. Sitting 7 turns Volume and Brightness on and leaves it on for 8 and 9. Sitting 9 installs updates, so it is after everything that wants the current build left alone. Sitting 10 measures a quiet Mac and goes last.
 
@@ -54,6 +54,7 @@ Busy group (start `yes > /dev/null` once per core in a shell, stop it afterwards
 27. **R8e-H6** Settings to player with the X, twenty times: unchanged from the previous build.
 28. **B9-H1** Play/pause, the heart, the gear and its X, Copy, repeat and shuffle: the old glyph shrinks away as the new one grows in its place, about as quickly as before, with nothing jumping beside it; the Reduce Motion half (a cross-fade) goes with Sitting 4.
 29. **R8d-H9** In Activity Monitor watch GPU history and Energy for Isla with the panel shut and music playing and the caption on, then open on the player for a minute: no higher than on the previous build.
+30. **B11-H1** With lyrics on, open the player on a song whose title and artist do not fit (Jeff Buckley's "Lover, You Should've Come Over"): the line rests about 2.5 s with its far end faded, slides left at an even pace with both ends faded, lands on the identical picture with no jump, and rests again; the artist line alone does the same; with Reduce Motion on, or on another page, it stands still with an ellipsis. In Activity Monitor, Isla's CPU with the player open on that song stays near what it is on a song that fits.
 
 ### Sitting 2 — Real songs and accounts: Spotify account connected, Yandex Music and Apple Music, network switchable (about 100 minutes)
 

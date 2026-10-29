@@ -42,7 +42,7 @@ pop-up, the charger activity, updates, the welcome, pages and navigation.
 | Design | Meets the apple-design skill and spec §19; nothing hand-mixed | Snapshot gallery (B0.4) reviewed against named principles; owner approval of the baseline |
 | Accessibility | Every control has a name and role in VoiceOver, every action is reachable from the keyboard, Reduce Motion, Reduce Transparency and Increase Contrast are honoured live, en and ru complete | AXProbe sweep per surface and setting (B0.3); `test-localizations.sh` |
 | Speed | No dropped frame in open, close, page turn or alert at idle; budgeted misses under load | `Scripts/measure-hitches.sh`, before and after, numbers in the scorecard; `Scripts/measure-mounts.sh` (added 2026-10-29) for what a surface costs to build, which needs no screen and no idle Mac |
-| Efficiency | Awake-idle CPU, wake-ups per second and footprint at or under the S17 budget | `Scripts/measure-idle.sh` per scenario |
+| Efficiency | Awake-idle CPU, wake-ups per second and footprint at or under the S17 budget | `Scripts/measure-idle.sh` per scenario; `Scripts/measure-idle-lab.sh` (added 2026-10-29) for what each resting state of the island costs, which needs no running Isla |
 | Reliability | Every failure path has a test: helper death, malformed output, no network, display change, sleep and wake, lock | XCTest with fakes; the failure-path list per feature |
 | Usability | First use works without reading anything; one failure surface per event | Owner run, dated, Mac model and macOS recorded |
 

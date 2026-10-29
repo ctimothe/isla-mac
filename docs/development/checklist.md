@@ -2458,6 +2458,44 @@ Core Graphics layer, and no RenderBox layer appears in any frame.
   as quickly as before, with nothing jumping beside it; with Reduce Motion on,
   they cross-fade.
 
+### B11 — the marquee travels on Core Animation (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+`Scripts/measure-idle-lab.sh` (`IdleCostLab`) measures what each resting
+state of the island costs without the installed Isla: the hitch lab's panel
+at an alpha of 0.02, held shut (paused, playing, with the caption) and open
+on every page, reading CPU, the main thread's CPU, main run-loop wake-ups and
+the kernel's wake-up counters, and with `ISLA_IDLE_DUMP=1` the run loop's
+timers and every layer that moves. With lyrics on, the player's title line
+carries the artist and many lines overflow its 211 pt, so the marquee
+travelled about 8.5 s of every 11. It was a SwiftUI offset animation, and
+every frame of it re-rendered the panel on the main thread: 100–121 wake-ups
+a second and 3.5–5.7 % of a core while the player stayed open (three debug
+runs; 3.7 % in release), against 0.2 and 0.01 % for the same player on a
+line that fits. The layer diff named it: four text layers sliding left at
+35 pt a second, and no Isla code in a sample of the frames. `MarqueeLine`
+now draws the line once, in a hosting view of its own inside
+`MarqueeTrackView`, and one repeating keyframe animation on that view's
+`sublayerTransform` moves it while another on its gradient mask fades the
+near end, so the render server runs rest, pass and jump back: 0.7 wake-ups a
+second and 0.05 %. The loop is the SwiftUI one: 2.5 s rest, 30 pt a second,
+the 32 pt gap, 14 pt fades eased in and out over 0.2 s. Held by
+`MarqueeTrackTests` (the keyframes, a long line gets a track and a short or
+resting one none, a new line starts over from rest, the caller's font reaches
+the moving copies — a 9 pt font drew 449 pt of an 879 pt pair — and half a
+second into a pass the line has moved 15 pt). The visual lab cannot draw a
+layer, so it draws SwiftUI's picture of the rest
+(`MarqueeTiming.travelsOnCoreAnimation`); its 86 music renders match the old
+code's but one, which differs only in the cover tint's timing.
+
+- [ ] **B11-H1** With lyrics on, open the player on a song whose title and
+  artist do not fit (Jeff Buckley's "Lover, You Should've Come Over"): the
+  line rests about 2.5 s with its far end faded, slides left at an even pace
+  with both ends faded, lands on the identical picture with no jump, and
+  rests again; the artist line alone does the same; with Reduce Motion on, or
+  on another page, the line stands still with an ellipsis. In Activity
+  Monitor, Isla's CPU with the player open on that song stays near what it is
+  on a song that fits.
+
 ### B10 — no cut text at the narrow width (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
 Every render of the visual lab was read with Vision (accurate, Russian and
