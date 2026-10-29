@@ -32,11 +32,24 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Settings | 2 — spec §10; the Card Style picker held inside the form at every width (B10) | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2); the player-to-Settings swap missed 26.8 frames of 125 at idle load (B0.6); the gear's symbol replace was most of it, and with a plain transition it misses 3.5–4.0 with lyrics live (B9) | 2 — idle-cost lab (B11): open, 0.03–0.15 % of a core, no frame clock | 2 — 128 tests | 1 |
 | Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 2 — a 2 s hold misses 1.8–4.0 frames of 254, folding 0.2 (B0.6) | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
 | Charger and headphones | 3 — spec §3.6; the capsule's words held whole in English and Russian against their natural width (B4) | 2 — every charger state with its level, headphones by model (B1) | 2 — the headphones alert misses 0–0.1 frames at idle load (B0.6) | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
-| Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
-| Welcome | 2 | 3 — sweep; the headline is a heading and is read first, the legend next, Get Started last, held on VoiceOver's own navigation order (B3); fits in both languages | 1 | 1 | 2 — `FirstRunTests`, 23 tests: a pointer crossing, a drag, a screenshot and a shortcut each leave it or retire it as they should; never shown over the lock | 1 |
-| Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 2 — `measure-hitches.sh` page-turn at idle load, 120 Hz (B13): a dot one page along misses 0.2–0.5 frames with 120–150 ms of main-thread CPU; the dot from Translate back to Music misses 1.9, all in its first 100 ms, where the player is built | 1 | 3 — 165 tests, `SurfaceContractTests` | 1 |
+| Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 2 — the alert builds in 5.9 ms offered and 4.1 mid-download (`measure-mounts.sh`, release, B14) | 2 — idle-cost lab (B14): offered, 0.02 % of a core and 0.3 loop wake-ups a second; mid-download 0.07 %; no frame clock, the bar is drawn only when it moves | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
+| Welcome | 2 | 3 — sweep; the headline is a heading and is read first, the legend next, Get Started last, held on VoiceOver's own navigation order (B3); fits in both languages | 2 — builds in 5.1 ms over the player (`measure-mounts.sh`, release, B14) | 2 — idle-cost lab (B14): open, 0.02 % of a core and 0.2 loop wake-ups a second; nothing moves once the panel has grown | 2 — `FirstRunTests`, 23 tests: a pointer crossing, a drag, a screenshot and a shortcut each leave it or retire it as they should; never shown over the lock | 1 |
+| Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 2 — `measure-hitches.sh` page-turn at idle load, 120 Hz (B13): a dot one page along misses 0.2–0.5 frames with 120–150 ms of main-thread CPU; the dot from Translate back to Music misses 1.9, all in its first 100 ms, where the player is built | 2 — every page at rest, from the idle-cost lab (B11): the player 0.01–0.2 % of a core, the tray 0.01, Clipboard 0.01–0.2, Translate about 0.2, none with a frame clock | 3 — 165 tests, `SurfaceContractTests` | 1 |
 
 ## History
+
+- **Batch 14, 2026-10-29.** The welcome and the update alert, measured. The
+  mount lab builds the welcome over the player (5.1 ms in release) and the
+  update alert on the shut island, offered (5.9 ms) and mid-download
+  (4.1 ms); the idle-cost lab holds each at rest: 0.02 % of a core for the
+  welcome and the offer, 0.07 % mid-download, no frame clock. Welcome and
+  Updates go from 1 to 2 in speed and efficiency, and Pages and navigation
+  to 2 in efficiency from the B11 rows that already held each page at rest.
+  The idle lab's layer dump now says when an animation on a layer has
+  ended: Core Animation takes a finished one off at the next commit, and on
+  the welcome over a paused song nothing commits, so the outline's opening
+  spring was listed nine seconds on as if it were still moving. No bug, no
+  behaviour changed, nothing published.
 
 - **Batch 13, 2026-10-29.** The pages, timed. The hitch lab gains a
   `page-turn` scenario that turns the pages by their dots, as a click

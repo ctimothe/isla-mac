@@ -2458,6 +2458,17 @@ Core Graphics layer, and no RenderBox layer appears in any frame.
   as quickly as before, with nothing jumping beside it; with Reduce Motion on,
   they cross-fade.
 
+### B14 — the welcome and the update alert, measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+`Scripts/measure-mounts.sh` builds the welcome (5.1 ms in release) and the
+update alert offered (5.9 ms) and mid-download (4.1 ms);
+`Scripts/measure-idle-lab.sh` holds them at rest as `open-welcome`,
+`update-offer` and `update-downloading` (0.02–0.07 % of a core, no frame
+clock). The lab's layer dump marks an animation whose time is over as
+"ended, not yet collected", so a finished spring on a panel where nothing
+commits no longer reads as motion. No behaviour changed and no hardware
+check is added.
+
 ### B13 — the pages turned by their dots, timed (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
 `Scripts/measure-hitches.sh` has a `page-turn` scenario: the dots turn

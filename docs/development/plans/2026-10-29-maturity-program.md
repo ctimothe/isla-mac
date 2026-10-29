@@ -156,7 +156,7 @@ What each source found, which is the reason for that order:
 
 The next queue for the cells still at 1, in order:
 
-- Welcome and the update alert in the mount and idle labs.
+- ~~Welcome and the update alert in the mount and idle labs.~~ Batch 14.
 - The media-key tap's callback cost, timed on synthesised events.
 - The charger and headphones watchers at rest.
 
