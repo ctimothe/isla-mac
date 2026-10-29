@@ -106,6 +106,43 @@ Never: an agent driving the live app or setting `DI_*` hooks while the owner
 works; a fan-out of more than six agents, or any Opus fan-out, without a yes
 (an overnight Opus build once took about 22 percent of the weekly limit).
 
+## The loop in practice (2026-10-29, after eight batches)
+
+What worked, run by one driver session with no fan-out: pick a source of
+work, write the test or measurement that shows the gap, break the code to see
+the new test fail, fix, run the gate, commit, publish to the dev feed, and
+re-score. One gate per batch, about seven minutes.
+
+Where the bugs came from:
+
+- **Russian and VoiceOver sweeps through the headless lab:** four bugs.
+  Three sentences said "1 items", the welcome read its headline last, the
+  Russian headphones capsule cut the device's name, and Russian VoiceOver
+  read Panel Width as "560 пт" (Friday's abbreviation).
+- **Headless profiling (`Scripts/measure-mounts.sh`):** one. Settings asked
+  macOS for the login item's state twice on every opening.
+- **Run-sheet clauses turned into tests:** the "пт" bug in Batch 5 and one
+  wrong comment in Batch 6; Batches 6 to 8 found the rest already held.
+  That source is spent.
+
+So the next autonomous batches should come from the scenario matrix, run
+through the lab: every surface in English and Russian, at 480 and 620, under
+Increase Contrast, Reduce Transparency and Reduce Motion, checking for cut
+text, missing names and contrast. That is the source that found most bugs.
+
+What stays with the owner, and why:
+
+- **Starting Isla.** Agents never launch the app, and the idle half of B0.6
+  measures the running copy. On 2026-10-29 it had been quit since 23:50 the
+  night before (its own Quit, not a crash), so the idle numbers and every
+  feed build from 0.4.0.10 on were waiting for it.
+- **One hardware sitting.** Usability scores 1 everywhere until one is run;
+  Sitting 1 (about 100 minutes) covers the most features.
+- **The gallery verdicts.** They set the design baseline.
+- **Install, merge and the decisions D2 and D3.** A nightly routine that
+  runs one spelled-out batch, stops at the first red gate and leaves a
+  morning summary needs the owner's yes on its budget (D3).
+
 ## Batch 0 — the instruments, before the fixes
 
 - **B0.1 Native-island guard.** Find what a native-island Mac reports

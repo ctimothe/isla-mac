@@ -22,22 +22,37 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 
 | Feature | Design | Accessibility | Speed | Efficiency | Reliability | Usability |
 |---|---|---|---|---|---|---|
-| Island and activities | 2 — spec §3, §19; visual lab renders; R7–R8 runs owed | 2 — sweep; 6 AX uses; no VoiceOver run | 1 — `measure-hitches.sh` exists, no number since the redesign | 2 — idle budget recorded 2026-10-11 (CPU ≤ 0.1 %, RSS ≤ 88 MB), before the redesign | 3 — 210 tests: geometry, notch memory, moments, lock | 1 — runs owed |
+| Island and activities | 2 — spec §3, §19; visual lab renders; R7–R8 runs owed | 2 — sweep; 6 AX uses; no VoiceOver run | 2 — `measure-hitches.sh` at idle load, 120 Hz (B0.6, 2026-10-29): opening misses 0.6–2.9 frames of about 125, closing 0.5–1.4, rest none; the bar of none is not met | 2 — idle budget recorded 2026-10-11 (CPU ≤ 0.1 %, RSS ≤ 88 MB), before the redesign | 3 — 210 tests: geometry, notch memory, moments, lock | 1 — runs owed |
 | Player | 2 — spec §4; R1 runs owed | 2 — sweep; 5 AX uses | 2 — `measure-mounts.sh`: 7 ms to build empty, 12 ms playing (release, 2026-10-29); a sample puts 97 % of it in SwiftUI's first graph build and no Isla function above 3 % (B3) | 2 — as above, music playing measured | 3 — 374 tests: helper failure policy, seek, hold, favourites | 1 |
-| Lyrics and stage | 2 — spec §5 | 3 — sweep; 39 AX uses | 2 — the stage builds in 15 ms (`measure-mounts.sh`, 2026-10-29); `measure-sync.sh`'s 150 ms p95 target still unmeasured | 1 | 3 — 428 tests: timelines, overrun, offline, 429 | 1 |
+| Lyrics and stage | 2 — spec §5 | 3 — sweep; 39 AX uses | 2 — opening on the stage misses 2.2–2.9 frames (B0.6); the stage builds in 15 ms (`measure-mounts.sh`, 2026-10-29); `measure-sync.sh`'s 150 ms p95 target still unmeasured | 1 | 3 — 428 tests: timelines, overrun, offline, 429 | 1 |
 | Lock card | 2 — spec §7; R2 runs owed | 3 — sweep; 10 AX uses; picker labels | 1 | 1 | 2 — 116 tests; the private-space path only on hardware | 1 |
 | Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses; one card is "1 item" on the island and in Remove All (B3) | 2 — the tray builds in 5 ms (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 146 tests | 1 |
 | Clipboard | 2 — spec §9 | 3 — sweep; 27 AX uses | 2 — 10 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 203 tests | 1 |
 | Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 2 — 12 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 214 tests, offline consent | 1 |
-| Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2) | 1 | 2 — 128 tests | 1 |
-| Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 1 | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
-| Charger and headphones | 3 — spec §3.6; the capsule's words held whole in English and Russian against their natural width (B4) | 2 — every charger state with its level, headphones by model (B1) | 1 | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
+| Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2); the player-to-Settings swap misses 26.8 frames of 125 at idle load, 212 ms of hitch a second, the worst in the app (B0.6) | 1 | 2 — 128 tests | 1 |
+| Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 2 — a 2 s hold misses 1.8–4.0 frames of 254, folding 0.2 (B0.6) | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
+| Charger and headphones | 3 — spec §3.6; the capsule's words held whole in English and Russian against their natural width (B4) | 2 — every charger state with its level, headphones by model (B1) | 2 — the headphones alert misses 0–0.1 frames at idle load (B0.6) | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
 | Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
 | Welcome | 2 | 3 — sweep; the headline is a heading and is read first, the legend next, Get Started last, held on VoiceOver's own navigation order (B3); fits in both languages | 1 | 1 | 2 — `FirstRunTests`, 23 tests: a pointer crossing, a drag, a screenshot and a shortcut each leave it or retire it as they should; never shown over the lock | 1 |
 | Pages and navigation | 2 — spec §19.16 | 2 — sweep; dots read as one adjustable element | 1 | 1 | 3 — 165 tests, `SurfaceContractTests` | 1 |
 | On a Mac with Apple's island | — | — | — | — | 2 — `NativeIslandTests`; identifiers unknown | 0 — NI runs owed |
 
 ## History
+
+- **B0.6, half of it, 2026-10-29.** `Scripts/measure-hitches.sh` needs no
+  running Isla (it builds its own panel at alpha 0.02), so it ran unattended
+  at idle load only: load 3.0 on 12 cores, 1800×1169 at 120 Hz, 8 cycles a
+  step. Opening misses 0.6–2.9 frames of about 125, closing 0.5–1.4, an
+  alert 0–0.1, rest none; a 50 ms main-thread block costs about 7. The
+  outlier is Settings: player to Settings misses 26.8 frames (212 ms of
+  hitch a second, worst gap 40.7 ms, 105 ms of main-thread CPU), the way
+  back 6.8. Speed 1 → 2 for the island, the pop-up and the charger alert;
+  Settings stays 2 with its swap named as the app's worst frame drop. The
+  stressed and saturated loads were not run (they load every core), and
+  `measure-idle.sh` waits for Isla to be running: it had been quit from its
+  own menu at 23:50 the night before. The numbers are in the run's JSON,
+  `hitches-b06-idle.json`, in the session scratchpad; the table above
+  carries every figure it needs.
 
 - **Batch 8, 2026-10-29.** Sittings 4 and 9 searched for logic. Most of
   the update alert's run-sheet lines were already held by
@@ -153,8 +168,9 @@ switching, Low Power Mode, a real Spotify and Music, Apple's island Mac.
 
 ## Lowest cells, which the first batches go after
 
-1. **Speed and efficiency everywhere (1).** The harnesses exist and no number
-   has been taken since the redesign. B0.6, one sitting with the owner's go.
+1. **Speed and efficiency everywhere (1).** Speed has its idle-load numbers
+   (B0.6, half); efficiency waits for a running Isla. Settings' swap is the
+   worst frame drop measured.
 2. **Usability everywhere (1).** Only owner runs move it. B0.5's run sheet
    turns 149 open checks into one ordered sitting.
 3. ~~The pop-up, the charger and updates in accessibility (1).~~ Batch 1.
