@@ -349,6 +349,11 @@ final class LabSession {
         // A paused pill lingers for this long before folding. Long enough
         // here that the paused state is still on screen when it is drawn.
         NotchMetrics.pausedLinger = 600
+        // Both renderers here draw views into a bitmap and neither can draw
+        // a layer, so a line that would scroll is drawn as the SwiftUI
+        // picture of its rest (`MarqueeTiming`). The labs that put the panel
+        // on a real screen set it back (`HitchRig`).
+        MarqueeTiming.travelsOnCoreAnimation = false
         setDefaults([:])
     }
 
@@ -405,6 +410,7 @@ final class LabSession {
             UserDefaults.standard.removeVolatileDomain(forName: UserDefaults.argumentDomain)
         }
         NotchMetrics.pausedLinger = savedLinger
+        MarqueeTiming.travelsOnCoreAnimation = true
         SystemAppearance.shared.resetForTests()
         LabLocalization.uninstall()
         SpotifyAccount.sharedOverride = nil

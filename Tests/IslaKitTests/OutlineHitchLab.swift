@@ -288,6 +288,9 @@ final class HitchRig {
 
     init(session: LabSession) async throws {
         guard let geometry = NotchGeometry.current() else { throw XCTSkip("no display") }
+        // On a real screen, the app's own marquee (the visual lab draws its
+        // rest instead).
+        MarqueeTiming.travelsOnCoreAnimation = true
         let stores = session.makeStores()
         await LabFixtures.play(.init(), on: stores.media)
         vm = NotchViewModel(geometry: geometry, stores: stores, defaults: session.suite)
