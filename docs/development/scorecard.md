@@ -27,9 +27,9 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Lyrics and stage | 2 — spec §5 | 3 — sweep; 39 AX uses | 2 — opening on the stage misses 2.2–2.9 frames (B0.6); the stage builds in 15 ms (`measure-mounts.sh`, 2026-10-29); `measure-sync.sh`'s 150 ms p95 target still unmeasured | 1 | 3 — 428 tests: timelines, overrun, offline, 429 | 1 |
 | Lock card | 2 — spec §7; R2 runs owed | 3 — sweep; 10 AX uses; picker labels | 1 | 1 | 2 — 116 tests; the private-space path only on hardware | 1 |
 | Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses; one card is "1 item" on the island and in Remove All (B3) | 2 — the tray builds in 5 ms (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 146 tests | 1 |
-| Clipboard | 2 — spec §9 | 3 — sweep; 27 AX uses | 2 — 10 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 203 tests | 1 |
+| Clipboard | 2 — spec §9; the access notice held whole in English and Russian at every width (B10) | 3 — sweep; 27 AX uses | 2 — 10 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 203 tests | 1 |
 | Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 2 — 12 ms to build (`measure-mounts.sh`, 2026-10-29) | 1 | 2 — 214 tests, offline consent | 1 |
-| Settings | 2 — spec §10 | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2); the player-to-Settings swap missed 26.8 frames of 125 at idle load (B0.6); the gear's symbol replace was most of it, and with a plain transition it misses 3.5–4.0 with lyrics live (B9) | 1 | 2 — 128 tests | 1 |
+| Settings | 2 — spec §10; the Card Style picker held inside the form at every width (B10) | 3 — sweep; 26 AX uses | 2 — `measure-mounts.sh`: 15–32 ms to build a section in release (Lyrics the costliest); no main-thread wait on the login-items daemon after a launch's first opening (B2); the player-to-Settings swap missed 26.8 frames of 125 at idle load (B0.6); the gear's symbol replace was most of it, and with a plain transition it misses 3.5–4.0 with lyrics live (B9) | 1 | 2 — 128 tests | 1 |
 | Volume and brightness pop-up | 2 — spec §12 | 2 — `MomentAccessibilityTests`: the island's value for volume, brightness, keyboard and mute, and over a song and the charger (B1) | 2 — a 2 s hold misses 1.8–4.0 frames of 254, folding 0.2 (B0.6) | 1 — the tap's cost unmeasured | 3 — 181 tests: decide per hold, lock, refusal | 1 |
 | Charger and headphones | 3 — spec §3.6; the capsule's words held whole in English and Russian against their natural width (B4) | 2 — every charger state with its level, headphones by model (B1) | 2 — the headphones alert misses 0–0.1 frames at idle load (B0.6) | 1 | 3 — `AmbientWatchSequenceTests`: failed reads, a pull before the reading lands, the re-reads, the blip, the 30 s quiet; mutation-checked (B1) | 1 |
 | Updates | 2 — spec §19.5 f | 2 — every stage read and answered; the progress bar now reads its percent (B1 fix) | 1 | 1 | 3 — 290 tests: signature, detach by state, swap, rollback | 1 — DU runs owed |
@@ -38,6 +38,24 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | On a Mac with Apple's island | — | — | — | — | 2 — `NativeIslandTests`; identifiers unknown | 0 — NI runs owed |
 
 ## History
+
+- **Batch 10, 2026-10-29.** Cut text, found by reading every render of the
+  visual lab with Vision and listing each line that ends in an ellipsis. Two
+  were faults. Clipboard's notice under Paste from Other Apps set to Don't
+  Allow ended mid-word in Russian at every width: its button took half the
+  row, so the sentence got two lines and needed three or four. The button is
+  now «Открыть настройки» and the sentence shorter;
+  `ClipboardAccessNoticeTests` holds its drawn height against the height it
+  needs, both languages at 480, 560 and 620. Settings' Card Style picker ran
+  15 pt past either edge of the 310 pt form at a 480 panel, cutting the «А»
+  of «Автоматически»: each option's label was framed 12 pt wider than its
+  preview, and the sizes left room for the previews alone. An option now takes
+  a quarter of the row at the most (previews 69 × 44 there, unchanged at 560
+  and 620); `SettingsFormTests` renders the real picker and fails on the old
+  sizes. The lab now shoots Russian at 480 wherever it shoots Russian (26
+  renders became 62). Left alone: the peek's title stops at the notch's edge
+  at 480, and the update alert cuts its notes preview on purpose. Scores
+  unchanged; B10-H1 joins Sitting 4.
 
 - **Batch 9, 2026-10-29.** The worst frame drop B0.6 found, the swap into
   Settings, traced and mostly removed. A sample of the hitch lab showed the

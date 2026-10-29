@@ -12,6 +12,8 @@ Counts, by where each of the 175 lines ended up:
 - Not an owner check (umbrella lines, release process, backlog and debt, a marketing task): 18
 - Waiting on something outside the Mac: 2
 
+Added since, new checks the later batches made: B9-H1 (Sitting 1) and B10-H1 (Sitting 4).
+
 Ordering logic. Sittings 1 and 2 need no special settings. Sitting 3 changes privacy answers. Sitting 4 changes the Mac's language and accessibility switches, so it comes after the ones that expect English. Sitting 5 locks the Mac. Sitting 6 needs a battery in a particular state and can move to any day that provides it. Sitting 7 turns Volume and Brightness on and leaves it on for 8 and 9. Sitting 9 installs updates, so it is after everything that wants the current build left alone. Sitting 10 measures a quiet Mac and goes last.
 
 ## Sittings
@@ -116,6 +118,7 @@ Setup: switch the Mac's language to Russian (log out and in) before the first st
 9. **R8b-H6** With Reduce Motion on, a dot and ⌃Tab crossfade in place, and a swipe still follows the fingers and settles without overshoot.
 10. **R8d-H3** With Reduce Motion on, the outline changes size on the 0.24 s ease-in-out with no overshoot and the line and shadow fade with it.
 11. **R8e-H4** With Reduce Motion on, the gear and the X are the plain fade out and in, in the same order, with the form there as the new pane becomes visible.
+12. **B10-H1** In Russian at 480, Clipboard with Paste from Other Apps set to Don't Allow: the whole sentence shows beside «Открыть настройки», and the button opens Paste from Other Apps; Settings › Блокировка: the four card styles sit inside the form with «Автоматически» whole, and at 560 and 620 they look as before.
 
 ### Sitting 5 — Lock screen: notched MacBook, Lock Screen layout set to Card (about 75 minutes)
 

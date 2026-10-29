@@ -2449,13 +2449,46 @@ under Reduce Motion, for all twelve glyph swaps (play/pause, the heart, the
 gear, Copy, the repeat and shuffle toggles, the lock card's). Held by
 `SymbolSwapLayerTests` (no RenderBox layer in any frame of a swap; it fails on
 the replace) and the scan in `MotionValuesTests`. R8e-H2 is judged on this
-build. The numeric-text transitions (the Shelf count, the update alert) are
-the same family and were not measured.
+build. The text content transitions (the Shelf count's numeric text, the
+update alert's fade) were checked the same way the same day: they draw into a
+Core Graphics layer, and no RenderBox layer appears in any frame.
 
 - [ ] **B9-H1** Play/pause, the heart, the gear and its X, Copy, repeat and
   shuffle: the old glyph shrinks away as the new one grows in its place, about
   as quickly as before, with nothing jumping beside it; with Reduce Motion on,
   they cross-fade.
+
+### B10 — no cut text at the narrow width (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+Every render of the visual lab was read with Vision (accurate, Russian and
+English) and every line holding an ellipsis listed. Two were faults, both in
+Russian at 480 and one at every width. Clipboard's notice under Paste from
+Other Apps set to Don't Allow ended «…поэтому новое н…» at 560 and needed four
+lines at 480: «Открыть настройки конфиденциальности» took half the row. The
+button is «Открыть настройки» (the pane it opens says the rest) and the
+sentence «macOS не разрешает Isla читать скопированное — новое не
+сохраняется.», keeping Translate's «не разрешает». Settings' Card Style picker
+was 332 pt in the 310 pt form of a panel under 540 and centred, so the row was
+cut 15 pt either side: each label was framed 12 pt wider than its preview and
+`previewSize` budgeted the previews alone. An option now takes a quarter of
+the row at the most (`SettingsLayout.previewOptionWidth`), and the preview
+leaves the 6 pt gap inside it: 69 × 44 at 310, 80 × 52 from a 352 pt form up,
+so 560 and 620 draw as before. Held by
+`ClipboardAccessNoticeTests.testTheSentenceIsNeverCut` (drawn height against
+needed height, both languages, 480, 560, 620),
+`SettingsFormTests.testTheCardStylesStayInsideTheFormAtEveryWidth` (the real
+picker rendered, its 4 pt insets empty; it failed on the old sizes in both
+languages at 480) and `SettingsLayoutTests`. The visual lab's Russian variant
+at 480 (`LabVariant.russianNarrow`) is now in every shoot that has Russian.
+Not changed: the peek's title at 480 stops at the notch's edge, which the
+island cannot draw past, and the update alert's notes preview is capped on
+purpose.
+
+- [ ] **B10-H1** In Russian at 480, Clipboard with Paste from Other Apps set
+  to Don't Allow: the whole sentence shows beside «Открыть настройки», and the
+  button opens Paste from Other Apps; Settings › Блокировка: the four card
+  styles sit inside the form with «Автоматически» whole, and at 560 and 620
+  they look as before.
 
 ### Dev update channel (`feat/dev-update-channel`, 2026-10-19)
 
