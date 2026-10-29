@@ -574,15 +574,7 @@ struct SettingsPane: View {
     /// The row's switch state: what this pane last set, else what is stored, else
     /// the spec's default (`SettingsRowID.isOn`).
     private func flag(_ row: SettingsRowID) -> Bool {
-        if row == .showOnBuiltInDisplay, flags[row] == nil {
-            // Unset reads as the island will act on it: off on a Mac with
-            // Apple's own island, on everywhere else.
-            return !NativeIsland.avoidsBuiltIn(
-                stored: settingsDefaults.object(forKey: NativeIsland.showOnBuiltInKey) as? Bool,
-                nativeIsland: NativeIsland.onThisMac
-            )
-        }
-        return flags[row] ?? row.isOn(in: settingsDefaults)
+        flags[row] ?? row.isOn(in: settingsDefaults)
     }
 
     /// A binding to a switch. `persists` is false for the rows whose own store
@@ -644,12 +636,6 @@ struct SettingsPane: View {
                 drawnValueWidth: 52,
                 commit: commitBodyWidth
             )
-        case .showOnBuiltInDisplay:
-            // The controller picks its display again at once, so the island
-            // moves to an external display, or goes, as the switch is turned.
-            switchRow(row, isOn: flagBinding(row) { _ in
-                NotificationCenter.default.post(name: NativeIsland.changedNotification, object: nil)
-            })
         case .charging, .headphones, .newTracks:
             switchRow(row, isOn: flagBinding(row))
         case .volumeAndBrightness:

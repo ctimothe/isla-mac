@@ -10,14 +10,6 @@ struct NotchGeometry {
     let notchCenterX: CGFloat
     /// True when the display actually has a notch cut into it.
     let isPhysical: Bool
-    /// True when this is the built-in display and Isla keeps off it: the Mac
-    /// has Apple's own island there (`NativeIsland`), or the person switched
-    /// "Show on Built-in Display" off, and no other display is attached to
-    /// move to. The panel is then built and kept — hot keys, the menu and the
-    /// stores all still work — but it is invisible and takes no pointer
-    /// (`NotchController.applyActiveRect`). Part of `matches`, so flipping the
-    /// switch rebuilds.
-    var stepsAside: Bool = false
 
     /// Size of the fully expanded panel body. Held constant across every Mac:
     /// letting it follow the header made two people on the very same model
@@ -98,59 +90,19 @@ struct NotchGeometry {
         screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 
-    /// What `pick` needs to know about one display.
-    struct ScreenFacts: Equatable {
-        /// `safeAreaInsets.top > 0` right now.
-        var reportsNotch: Bool
-        /// Remembered as notched at this very frame (see `decide`).
-        var rememberedNotch: Bool
-        /// `CGDisplayIsBuiltin`: the Mac's own panel, as against anything plugged in.
-        var isBuiltIn: Bool
-    }
-
-    /// Which display carries the island, and whether it should stand aside.
-    ///
-    /// Without `avoidingBuiltIn` this is the rule `current()` always had: the
-    /// first display that reports a notch, else the first remembered as
-    /// notched, else the first. Avoiding, only displays that are not built in
-    /// are candidates, by the same order; with none attached the built-in
-    /// display is still chosen — the panel needs a display to be cut against —
-    /// and `stepsAside` says to draw nothing there. Pure, so each branch is a
-    /// test and no display has to be unplugged to see it.
-    nonisolated static func pick(
-        _ screens: [ScreenFacts], avoidingBuiltIn: Bool
-    ) -> (index: Int, stepsAside: Bool)? {
-        guard !screens.isEmpty else { return nil }
-        let all = Array(screens.indices)
-        let external = all.filter { !screens[$0].isBuiltIn }
-        let stepsAside = avoidingBuiltIn && external.isEmpty
-        let candidates = avoidingBuiltIn && !external.isEmpty ? external : all
-        let index = candidates.first(where: { screens[$0].reportsNotch })
-            ?? candidates.first(where: { screens[$0].rememberedNotch })
-            ?? candidates[0]
-        return (index, stepsAside)
-    }
-
     @MainActor
-    static func current(avoidingBuiltIn: Bool = NativeIsland.avoidsBuiltInNow) -> NotchGeometry? {
+    static func current() -> NotchGeometry? {
         // `NSScreen.main` tracks the key window, and this panel is a
         // non-activating one that never becomes key or main — so `.main` here
         // would be meaningless and nondeterministic rather than a real
         // fallback. A display remembered as notched counts as notched even
         // while it is briefly saying otherwise, or a glitched reading would
         // also move the island to whichever screen happens to be first.
-        let screens = NSScreen.screens
-        let facts = screens.map { screen in
-            let id = displayID(of: screen)
-            return ScreenFacts(
-                reportsNotch: screen.safeAreaInsets.top > 0,
-                rememberedNotch: id.flatMap { rememberedNotches[$0] }?.frame == screen.frame,
-                isBuiltIn: id.map { CGDisplayIsBuiltin($0) != 0 } ?? false
-            )
-        }
-        guard let chosen = pick(facts, avoidingBuiltIn: avoidingBuiltIn) else { return nil }
-        let screen = screens[chosen.index]
-        let stepsAside = chosen.stepsAside
+        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 })
+            ?? NSScreen.screens.first(where: { screen in
+                displayID(of: screen).flatMap { rememberedNotches[$0] }?.frame == screen.frame
+            })
+            ?? NSScreen.screens.first else { return nil }
 
         let live: NotchReading
         if screen.safeAreaInsets.top > 0,
@@ -176,8 +128,7 @@ struct NotchGeometry {
                 screen: screen,
                 notchSize: size,
                 notchCenterX: centerX,
-                isPhysical: true,
-                stepsAside: stepsAside
+                isPhysical: true
             )
         case .none:
             if let id { rememberedNotches[id] = nil }
@@ -200,8 +151,7 @@ struct NotchGeometry {
                 menuBarHeight: menuBarHeight, statusBarThickness: NSStatusBar.system.thickness
             ),
             notchCenterX: screen.frame.midX,
-            isPhysical: false,
-            stepsAside: stepsAside
+            isPhysical: false
         )
     }
 
@@ -227,7 +177,6 @@ struct NotchGeometry {
             && notchSize == other.notchSize
             && notchCenterX == other.notchCenterX
             && isPhysical == other.isPhysical
-            && stepsAside == other.stepsAside
     }
 
     // MARK: - Derived frames

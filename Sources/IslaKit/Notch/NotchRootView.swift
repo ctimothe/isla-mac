@@ -20,10 +20,6 @@ final class NotchRootView: NSView {
     /// How far past the window's top `reachingTopEdge` takes a rect.
     static let topEdgeReach: CGFloat = 2
 
-    /// Set while the shut island stands aside (`NotchGeometry.stepsAside`):
-    /// no drag is aimed at a panel that is not drawn.
-    var refusesDrops = false
-
     var activeRect: CGRect = .zero {
         didSet {
             guard activeRect != oldValue else { return }
@@ -307,10 +303,6 @@ final class NotchRootView: NSView {
     /// panel. `hitTest` is not consulted for drags, so the check has to be made
     /// here explicitly.
     private func aimedAtPanel(_ sender: NSDraggingInfo) -> Bool {
-        // An empty `dropRect` means "not cut yet", which accepts everywhere;
-        // an island that stands aside has nothing to drop onto, and an empty
-        // rect there must not read as that.
-        guard !refusesDrops else { return false }
         guard !dropRect.isEmpty else { return true }
         return dropRect.contains(convert(sender.draggingLocation, from: nil))
     }

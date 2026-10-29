@@ -116,7 +116,7 @@ final class SettingsTableTests: XCTestCase {
         // switch at its default. Conditional rows are tested below.
         let expected: [SettingsSection: [SettingsRowID]] = [
             // R5 (spec §12) turns Volume and Brightness on: last in "The island shows", off by default.
-            .general: [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .showOnBuiltInDisplay, .charging, .headphones, .newTracks, .volumeAndBrightness],
+            .general: [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness],
             .privacy: [.clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording],
             .shortcuts: [.shortcutOpenPanel, .shortcutClipboard, .shortcutLyrics, .shortcutTranslate],
             .music: [.musicOnly, .volumeAndOutput, .lyricBand],
@@ -419,7 +419,7 @@ final class SettingsTableTests: XCTestCase {
         // Visible in General, last in "The island shows", and nowhere else.
         XCTAssertEqual(
             SettingsTable.rows(for: .general, context: SettingsContext()),
-            [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .showOnBuiltInDisplay, .charging, .headphones, .newTracks, .volumeAndBrightness]
+            [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness]
         )
         for section in SettingsSection.allCases where section != .general {
             XCTAssertFalse(SettingsTable.rows(for: section, context: Self.everything).contains(.volumeAndBrightness),
@@ -532,7 +532,6 @@ final class SettingsTableTests: XCTestCase {
             // Local, and only over the island's own hit region (owner, 2026-10-25).
             .swipeToOpen: .on,
             .charging: .on, .headphones: .on, .newTracks: .on,
-            .showOnBuiltInDisplay: .on,
             .volumeAndBrightness: .off,
             .clipboardHistory: .on, .includeImages: .on, .keepPinned: .off,
             .coverClipboard: .off, .coverTranslate: .off,
@@ -763,7 +762,6 @@ final class SettingsTableTests: XCTestCase {
             ("Open on Hover", .openOnHover, .general),
             ("Hover Delay", .hoverDelay, .general),
             ("Panel Width", .panelWidth, .general),
-            ("Show on Built-in Display", .showOnBuiltInDisplay, .general),
             ("Show Charging", .charging, .general),
             ("Show Headphones Connecting", .headphones, .general),
             ("Peek at New Tracks", .newTracks, .general),
@@ -847,7 +845,7 @@ final class SettingsTableTests: XCTestCase {
             guard let icon = row.icon else { continue }
             XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil), "\(row): \(icon)")
         }
-        XCTAssertEqual(SettingsRowID.allCases.filter { $0.icon != nil }.count, 8)
+        XCTAssertEqual(SettingsRowID.allCases.filter { $0.icon != nil }.count, 7)
     }
 
     /// A row's kind decides what it draws; a switch has a default, a slider a

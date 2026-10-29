@@ -137,18 +137,16 @@ final class AmbientMomentTests: XCTestCase {
     /// (K-003). The resting pill stays — only the transient moments go quiet.
     func testTransientMomentsGoQuietWhereAnAudienceMayBeWatching() {
         func quiet(
-            fullScreen: Bool = false, mirrored: Bool = false, soleExternal: Bool = false, stepsAside: Bool = false
+            fullScreen: Bool = false, mirrored: Bool = false, soleExternal: Bool = false
         ) -> Bool {
             NotchController.momentsQuiet(
-                fullScreenFrontmost: fullScreen, displayMirrored: mirrored, soleExternalDisplay: soleExternal,
-                stepsAside: stepsAside
+                fullScreenFrontmost: fullScreen, displayMirrored: mirrored, soleExternalDisplay: soleExternal
             )
         }
         XCTAssertFalse(quiet(), "an ordinary desktop")
         XCTAssertTrue(quiet(fullScreen: true), "a full-screen app is frontmost")
         XCTAssertTrue(quiet(mirrored: true), "a projector mirrors the screen")
         XCTAssertTrue(quiet(soleExternal: true), "a closed laptop driving only an external display")
-        XCTAssertTrue(quiet(stepsAside: true), "the island is not drawn, so a moment would run unseen")
     }
 
     /// A Mac with no battery (a Mini, a Studio) always has only external

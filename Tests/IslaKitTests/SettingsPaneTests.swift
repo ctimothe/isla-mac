@@ -105,7 +105,7 @@ final class SettingsPaneTests: XCTestCase {
         // report on (`AmbientWatch.hasBattery`), and a CI virtual machine has none:
         // the row is not there to count, which is correct and not a missing switch.
         let expected: [SettingsSection: [String]] = [
-            .general: ["Launch at Login", "Open on Hover", "Swipe to Open and Close"] + (AmbientWatch.hasBattery ? ["Show on Built-in Display", "Charger Connected"] : [])
+            .general: ["Launch at Login", "Open on Hover", "Swipe to Open and Close"] + (AmbientWatch.hasBattery ? ["Charger Connected"] : [])
                 // Volume and Brightness joined in R5 (spec §12), off by default.
                 + ["Headphones Connecting", "New Tracks", "Volume and Brightness"],
             .privacy: ["Clipboard History", "Include Images", "Keep Pinned Items",

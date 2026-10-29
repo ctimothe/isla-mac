@@ -562,41 +562,6 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(taps.handler?(up(.volumeDown), .none), true)
     }
 
-    /// Run-sheet NI-H2's key clause, unlocked: on a Mac whose island stands
-    /// aside for Apple's, a volume key is left to macOS, whose own pop-up
-    /// shows, and nothing is changed or drawn into the hidden panel. Wired
-    /// by the controller the way `install()` wires it; the same wiring on an
-    /// island that is shown takes the key, so the refusal is the step-aside's
-    /// doing. The locked half is `NativeIslandTests`.
-    func testAnIslandThatStandsAsideLeavesTheKeysToMacOS() async throws {
-        let isolated = ProbeFixtures.isolatedStores()
-        defer { isolated.release() }
-        for aside in [true, false] {
-            var geometry = try LabGeometry.make(physical: true)
-            geometry.stepsAside = aside
-            let vm = NotchViewModel(geometry: geometry, stores: isolated.stores)
-            let controller = NotchController()
-            controller.attachForTesting(
-                viewModel: vm, rootView: NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
-            )
-            controller.overShieldForTesting = false
-            let hud = hud()
-            controller.wireHUD(hud)
-            on(hud)
-            let applied = applier.applied.count
-            withExtendedLifetime(controller) {
-                XCTAssertEqual(
-                    hud.handle(down(.volumeUp), modifiers: .none), !aside,
-                    aside ? "standing aside, the key is macOS's" : "shown, the key is Isla's"
-                )
-                _ = hud.handle(up(.volumeUp), modifiers: .none)
-            }
-            await drain()
-            XCTAssertEqual(applier.applied.count > applied, !aside, "the level moves only through a key Isla took")
-            XCTAssertEqual(vm.hud == nil, aside, aside ? "nothing drawn into the hidden panel" : "the shown island's pop-up")
-        }
-    }
-
     func testNothingIsConsumedOrShownWhileTheMacIsLocked() async {
         let hud = hud()
         enabled = true
