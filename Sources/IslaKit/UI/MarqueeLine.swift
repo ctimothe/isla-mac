@@ -161,11 +161,17 @@ private struct MarqueeTrack<Copies: View>: NSViewRepresentable {
     }
 }
 
-/// One layer-backed view holding the drawn line. Its layer's
-/// `sublayerTransform` carries the travel and its mask the fades, both as one
+/// One layer-backed view holding the drawn line. Its layer's mask carries the
+/// fades and an inner strip's `sublayerTransform` the travel, both as one
 /// repeating keyframe animation each, so the render server runs the whole
 /// loop — rest, pass, jump back — and the app's main thread is not woken for
 /// any of it.
+///
+/// The two are on different layers because a layer's mask moves with its
+/// `sublayerTransform`. They were one layer in 0.4.0.20, and mid-pass the
+/// clip slid left with the line it clipped: the title was drawn over the
+/// cover and cut short inside its own room (owner, 2026-10-29). The outer
+/// layer is never moved, so the clip stays where the room is.
 final class MarqueeTrackView: NSView {
     struct Run: Equatable {
         var text: String
@@ -177,13 +183,17 @@ final class MarqueeTrackView: NSView {
     static let fadeKey = "marquee.fade"
 
     private let host = NSHostingView(rootView: AnyView(EmptyView()))
+    /// What travels: the two copies, inside the clip.
+    private let strip = NSView()
     private let fade = CAGradientLayer()
     private(set) var run: Run?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        addSubview(host)
+        strip.wantsLayer = true
+        addSubview(strip)
+        strip.addSubview(host)
         fade.startPoint = CGPoint(x: 0, y: 0.5)
         fade.endPoint = CGPoint(x: 1, y: 0.5)
         fade.colors = Self.restingColors
@@ -217,7 +227,7 @@ final class MarqueeTrackView: NSView {
     }
 
     func stop() {
-        layer?.removeAnimation(forKey: Self.travelKey)
+        strip.layer?.removeAnimation(forKey: Self.travelKey)
         fade.removeAnimation(forKey: Self.fadeKey)
         run = nil
     }
@@ -225,6 +235,7 @@ final class MarqueeTrackView: NSView {
     override func layout() {
         super.layout()
         let size = host.fittingSize
+        strip.frame = bounds
         host.frame = CGRect(x: 0, y: ((bounds.height - size.height) / 2).rounded(), width: size.width, height: size.height)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -246,7 +257,7 @@ final class MarqueeTrackView: NSView {
     /// the first rest needs no keyframes of its own; each cycle is a pass and
     /// then a rest, the order the SwiftUI loop ran them in.
     private func install() {
-        guard let layer, let run else { return }
+        guard let layer = strip.layer, let run else { return }
         layer.removeAnimation(forKey: Self.travelKey)
         fade.removeAnimation(forKey: Self.fadeKey)
         let animations = Self.animations(contentWidth: run.contentWidth)

@@ -42,6 +42,13 @@ final class MarqueeTrackTests: XCTestCase {
         (view as? MarqueeTrackView).map { [$0] } ?? view.subviews.flatMap { tracks(in: $0) }
     }
 
+    /// The layer the travel is on, wherever under the track it is.
+    private static func travelling(in layer: CALayer?) -> CALayer? {
+        guard let layer else { return nil }
+        if layer.animation(forKey: MarqueeTrackView.travelKey) != nil { return layer }
+        return (layer.sublayers ?? []).lazy.compactMap { travelling(in: $0) }.first
+    }
+
     /// On screen, far off every display and never key, so the layers are the
     /// ones the window server would composite.
     private func present(_ line: Line) async -> AXProbe.Host {
@@ -56,15 +63,12 @@ final class MarqueeTrackTests: XCTestCase {
         let host = await present(Line(words: Words(Self.long), room: 160))
         defer { host.window.orderOut(nil) }
         let track = try XCTUnwrap(Self.tracks(in: host.hosting).first, "a line longer than its room drew no track")
-        let layer = try XCTUnwrap(track.layer)
-        let travel = try XCTUnwrap(
-            layer.animation(forKey: MarqueeTrackView.travelKey) as? CAKeyframeAnimation,
-            "the track does not move"
-        )
+        let layer = try XCTUnwrap(Self.travelling(in: track.layer), "the track does not move")
+        let travel = try XCTUnwrap(layer.animation(forKey: MarqueeTrackView.travelKey) as? CAKeyframeAnimation)
         XCTAssertEqual(travel.repeatCount, .infinity)
         let now = layer.convertTime(CACurrentMediaTime(), from: nil)
         XCTAssertEqual(travel.beginTime - now, MarqueeTiming.rest, accuracy: 0.5, "it rests before its first pass")
-        XCTAssertNotNil(layer.mask?.animation(forKey: MarqueeTrackView.fadeKey), "the near end never fades")
+        XCTAssertNotNil(track.layer?.mask?.animation(forKey: MarqueeTrackView.fadeKey), "the near end never fades")
 
         // The caller's font reached the copies the layer moves: in any other
         // they would not be the line SwiftUI measured, and the loop's jump
@@ -95,12 +99,40 @@ final class MarqueeTrackTests: XCTestCase {
         let words = Words(Self.long)
         let host = await present(Line(words: words, room: 160))
         defer { host.window.orderOut(nil) }
-        let first = try XCTUnwrap(Self.tracks(in: host.hosting).first?.layer?.animation(forKey: MarqueeTrackView.travelKey))
+        let first = try XCTUnwrap(Self.travelling(in: Self.tracks(in: host.hosting).first?.layer)?.animation(forKey: MarqueeTrackView.travelKey))
         await AXProbe.wait(0.4)
         words.text = "Hallelujah (Live at Sin-é) – Jeff Buckley, Live at Sin-é"
         await AXProbe.wait(0.2)
-        let second = try XCTUnwrap(Self.tracks(in: host.hosting).first?.layer?.animation(forKey: MarqueeTrackView.travelKey))
+        let second = try XCTUnwrap(Self.travelling(in: Self.tracks(in: host.hosting).first?.layer)?.animation(forKey: MarqueeTrackView.travelKey))
         XCTAssertGreaterThan(second.beginTime - first.beginTime, 0.3, "the new line did not begin with a rest of its own")
+    }
+
+    /// The clip stays where the line's room is while the line travels
+    /// through it (owner, 2026-10-29, on 0.4.0.20: "why the title is
+    /// overlapping"). The travel was on the same layer as the fade mask, and
+    /// the mask moved with it: mid-pass the window onto the line had slid left
+    /// by the distance travelled, so the title was drawn over the cover and cut
+    /// short before the end of its own room. The mask now sits on a layer
+    /// nothing moves, and the travel on the one below it.
+    func testTheClipStaysPutWhileTheLineTravels() async throws {
+        let host = await present(Line(words: Words(Self.long), room: 160))
+        defer { host.window.orderOut(nil) }
+        let track = try XCTUnwrap(Self.tracks(in: host.hosting).first)
+        let clipped = try XCTUnwrap(track.layer)
+        XCTAssertNotNil(clipped.mask, "nothing clips the line to its room")
+        let moving = try XCTUnwrap(Self.travelling(in: clipped), "the track does not move")
+        XCTAssertFalse(moving === clipped, "the clip travels with the line it clips")
+        XCTAssertNil(clipped.mask.flatMap(Self.travelling(in:)), "the clip itself travels")
+
+        let travel = try XCTUnwrap(moving.animation(forKey: MarqueeTrackView.travelKey))
+        await AXProbe.wait(travel.beginTime - moving.convertTime(CACurrentMediaTime(), from: nil) + 0.5)
+        XCTAssertEqual(try XCTUnwrap(moving.presentation()?.sublayerTransform.m41), -MarqueeTiming.speed * 0.5,
+                       accuracy: 4, "the line is not travelling")
+        let still = try XCTUnwrap(clipped.presentation())
+        XCTAssertTrue(CATransform3DIsIdentity(still.sublayerTransform), "the clipped layer moves what it holds, the clip with it")
+        XCTAssertTrue(CATransform3DIsIdentity(still.transform), "the clipped layer itself moves")
+        XCTAssertEqual(clipped.mask?.frame.minX ?? .nan, 0, "the clip does not start where the room does")
+        XCTAssertEqual(clipped.mask?.frame.width ?? .nan, track.bounds.width, "the clip is not the room's width")
     }
 
     /// The visual lab draws into bitmaps, which cannot draw a layer: there the

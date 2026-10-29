@@ -2583,6 +2583,14 @@ code's but one, which differs only in the cover tint's timing.
   on another page, the line stands still with an ellipsis. In Activity
   Monitor, Isla's CPU with the player open on that song stays near what it is
   on a song that fits.
+  - 2026-10-29, owner on 0.4.0.20 (MacBook Pro M4 Pro, macOS 27.2), "why the
+    title is overlapping": **failed**. Mid-pass, "Harder, Better, Faster,
+    Stronger" was drawn over the cover and cut short inside its own room.
+    The fade mask sat on the layer whose `sublayerTransform` carried the
+    travel, and moved with it. Fixed: the travel is on an inner strip and the
+    mask on the outer layer, which nothing moves
+    (`MarqueeTrackTests.testTheClipStaysPutWhileTheLineTravels`, red on the
+    old code). Run B11-H1 again on the build after 0.4.0.20.
 
 ### B10 — no cut text at the narrow width (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
