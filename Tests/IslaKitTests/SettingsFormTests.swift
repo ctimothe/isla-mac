@@ -165,6 +165,58 @@ final class SettingsFormTests: XCTestCase {
 
     // MARK: - Lock Screen: four real previews
 
+    /// The four styles stay inside the form at every width, in both languages,
+    /// whichever is chosen (Batch 10, 2026-10-29). At 480 the row was 332 pt
+    /// of options in a 310 pt form: each label is framed wider than its
+    /// preview, and the sizes left room for the previews alone, so the row
+    /// was cut 15 pt either side — Automatic's preview and, in Russian, the
+    /// «А» of «Автоматически». Drawn, not read from the accessibility tree:
+    /// the picker shows VoiceOver a radio group laid out in the form whatever
+    /// the drawn options do. The row insets 4 pt either side, so those
+    /// columns of the drawing stay empty unless an option runs into them.
+    func testTheCardStylesStayInsideTheFormAtEveryWidth() throws {
+        defer { LabLocalization.use("en") }
+        for language in ["en", "ru"] {
+            LabLocalization.use(language)
+            for body in [NotchMetrics.minimumBodyWidth, NotchMetrics.defaultBodyWidth, NotchMetrics.maximumBodyWidth] {
+                let form = SettingsLayout.formWidth(bodyWidth: body)
+                for chosen in NotchViewModel.LockCardStyle.allCases {
+                    let picker = LockStylePicker(title: "Card Style", selection: .constant(chosen), formWidth: form)
+                        .environment(\.colorScheme, .dark)
+                    let renderer = ImageRenderer(content: picker)
+                    renderer.scale = 2
+                    let image = try XCTUnwrap(renderer.cgImage, "\(language) at \(body): nothing drawn")
+                    let inset = Int(4 * renderer.scale)
+                    let painted = Self.paintedColumns(image, leading: inset, trailing: inset)
+                    XCTAssertEqual(
+                        painted, 0,
+                        "\(language) at \(body), \(chosen) chosen: an option runs into the form's edge (\(painted) columns)"
+                    )
+                }
+            }
+        }
+    }
+
+    /// How many of the image's first `leading` and last `trailing` columns
+    /// hold a pixel that is not transparent.
+    private static func paintedColumns(_ image: CGImage, leading: Int, trailing: Int) -> Int {
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return -1 }
+        let columns = Array(0..<min(leading, width)) + Array(max(0, width - trailing)..<width)
+        return columns.filter { x in
+            (0..<height).contains { y in pixels[(y * width + x) * 4 + 3] > 8 }
+        }.count
+    }
+
     /// The previews ask the card's own function for their material: what
     /// `LockCardMaterial.decision` says, for a song with a cover over the
     /// wallpaper the card assumes when it cannot measure one.

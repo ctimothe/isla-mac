@@ -88,18 +88,28 @@ final class SettingsLayoutTests: XCTestCase {
     }
 
     /// Four previews across the form, 80 × 52 at 390, shrinking with it so the
-    /// four never run past the edge. At the narrow 310 they are 71 × 46: the
-    /// room is 310 less 8 and three 6 pt gaps, a quarter of 284 rounded down.
+    /// four options never run past the edge. At the narrow 310 they are
+    /// 69 × 44: a quarter of the row (310 less 8) is 75.5, less the 6 pt gap.
+    /// An option is its preview and its label, which overhangs the preview 6 pt
+    /// either side where there is room; the four options fit the row, and the
+    /// previews keep 6 pt between them (Batch 10: the options were 332 pt in
+    /// the 310 pt form). `SettingsFormTests` holds the drawn picker.
     func testTheStylePreviewsFitTheFormAtEveryWidth() {
         XCTAssertEqual(SettingsLayout.previewSize(formWidth: 390), CGSize(width: 80, height: 52))
         XCTAssertEqual(SettingsLayout.previewSize(formWidth: 450), CGSize(width: 80, height: 52))
+        XCTAssertEqual(SettingsLayout.previewOptionWidth(formWidth: 390), 92, "the label overhangs 6 pt either side")
         let narrow = SettingsLayout.previewSize(formWidth: 310)
-        XCTAssertEqual(narrow.width, 71)
-        XCTAssertEqual(narrow.height, 46)
+        XCTAssertEqual(narrow.width, 69)
+        XCTAssertEqual(narrow.height, 44)
+        XCTAssertEqual(SettingsLayout.previewOptionWidth(formWidth: 310), 75.5, "a quarter of the row")
         for form: CGFloat in [310, 370, 390, 450] {
             let size = SettingsLayout.previewSize(formWidth: form)
-            let used = size.width * 4 + SettingsLayout.previewMinimumGap * 3 + 8
-            XCTAssertLessThanOrEqual(used, form, "four previews and their gaps fit \(form)")
+            let option = SettingsLayout.previewOptionWidth(formWidth: form)
+            let row = form - SettingsLayout.previewRowInset * 2
+            XCTAssertLessThanOrEqual(option * 4, row + 0.001, "four options fit \(form)")
+            XCTAssertGreaterThanOrEqual(option, size.width, "a label is never narrower than its preview at \(form)")
+            let previewGap = (row - option * 4) / 3 + (option - size.width)
+            XCTAssertGreaterThanOrEqual(previewGap, SettingsLayout.previewMinimumGap, "the previews keep their gap at \(form)")
             XCTAssertEqual(size.width / size.height, 80.0 / 52.0, accuracy: 0.05, "the card's own proportions")
         }
     }

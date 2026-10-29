@@ -130,21 +130,45 @@ enum SettingsLayout {
 
     // MARK: Lock Screen style previews (spec §10)
 
-    /// Four previews across the form, 80 × 52 at 396. Narrower, they shrink with
-    /// the form — 73 × 47 at 316 — so the four always fit with 6 pt between them
-    /// at the least, rather than the last one running under the edge.
+    /// Four previews across the form, 80 × 52 wherever the form is 352 or
+    /// wider. Narrower, they shrink with it — 69 × 44 in the 310 pt form of a
+    /// panel under 540 — so the four options always fit with 6 pt between the
+    /// previews at the least, rather than the row running past the edge.
+    ///
+    /// An option is its preview and the label under it, and the label is
+    /// framed `previewLabelOverhang` wider than the preview on either side, so
+    /// a word longer than the preview has room. The sizes used to leave room
+    /// for the previews alone: at 310 the four options were 332 pt in a 310 pt
+    /// form, and the row was cut 15 pt either side (Batch 10, 2026-10-29). So
+    /// an option takes a quarter of the row at the most
+    /// (`previewOptionWidth`), and the preview leaves the minimum gap inside it.
     static let previewNominalSize = CGSize(width: 80, height: 52)
     static let previewRadius: CGFloat = 7
     static let previewLabelGap: CGFloat = 6
     static let previewMinimumGap: CGFloat = 6
+    static let previewLabelOverhang: CGFloat = 6
+    /// The picker's row stands this far inside the form on either side: the
+    /// selected ring is drawn 3 pt outside its preview, and the form's scroll
+    /// view clips at its own edge.
+    static let previewRowInset: CGFloat = 4
 
     static func previewSize(formWidth width: CGFloat, count: Int = 4) -> CGSize {
-        let room = width - 8 - CGFloat(count - 1) * previewMinimumGap
-        let side = min(previewNominalSize.width, (room / CGFloat(count)).rounded(.down))
+        let side = min(previewNominalSize.width, (previewSlot(formWidth: width, count: count) - previewMinimumGap).rounded(.down))
         return CGSize(
             width: side,
             height: (side * previewNominalSize.height / previewNominalSize.width).rounded(.down)
         )
+    }
+
+    /// One option's width: its preview and the label's overhang, or a quarter
+    /// of the row where that is less.
+    static func previewOptionWidth(formWidth width: CGFloat, count: Int = 4) -> CGFloat {
+        min(previewSize(formWidth: width, count: count).width + previewLabelOverhang * 2,
+            previewSlot(formWidth: width, count: count))
+    }
+
+    private static func previewSlot(formWidth width: CGFloat, count: Int) -> CGFloat {
+        (width - previewRowInset * 2) / CGFloat(count)
     }
 
     // MARK: Content coordinates
