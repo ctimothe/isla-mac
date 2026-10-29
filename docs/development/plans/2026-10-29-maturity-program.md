@@ -176,7 +176,10 @@ the running Isla shows (`measure-idle.sh`), and usability needs Sitting 1.
 
 What only the owner can do, and what it unblocks:
 
-- **Start Isla once.** This unblocks the idle half of B0.6.
+- ~~**Start Isla once.** This unblocks the idle half of B0.6.~~ Batch 17:
+  shut with music it is inside the budget, but using the panel cost
+  15–27 % of a core, far over the lab. Next: **open each surface for a
+  minute while it is measured** (B17-H1 to H3), so the gap can be traced.
 - **Press Install.** The feed builds reach the running copy only this way.
 - **Run hardware Sitting 1** (about 100 minutes). Until it runs, Usability is
   1 in every row.

@@ -454,6 +454,12 @@ check: session S2 (`docs/development/audits/2026-10-11-live-validation-script.md
   - [ ] Clipboard tab open, playing, 1 min (`tab-clipboard 12`): _
   - [ ] After MS-12 and MS-13: the four tab rows again, and `closed-idle`
     still inside the budget.
+  - 2026-10-29, after the redesign (B17): Isla 0.4.0.20 (26), MacBook Pro
+    M4 Pro, macOS 27.2 (26B123), Music playing, load about 6.
+    `closed-playing`, 60 × 5 s: CPU 0.1 % median, 6.0 % max (a track
+    change), 0.00 idle wake-ups/s, 37 switches/s, RSS 40 MB, footprint
+    74 MB; helper CPU 0.1 %, 0.00 idle wake-ups/s, 13 switches/s. Inside
+    the budget. `closed-idle` (music paused) and the surface rows are owed.
 - [ ] Developer ID signing, notarization, stapling, and Gatekeeper validation pass.
   Also what lets a privacy grant survive an update: until this lands, every
   ad-hoc release asks again for Desktop, Documents, Downloads and Automation
@@ -2457,6 +2463,26 @@ Core Graphics layer, and no RenderBox layer appears in any frame.
   shuffle: the old glyph shrinks away as the new one grows in its place, about
   as quickly as before, with nothing jumping beside it; with Reduce Motion on,
   they cross-fade.
+
+### B17 — the running Isla, measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+The installed 0.4.0.20 (26), sampled read-only with `top`, `log show` and
+`nettop`; nothing launched, clicked or driven. Shut with music playing it
+is inside the idle budget (§Manual parity gates holds the row): 0.1 % of
+a core median, RSS 40 MB, footprint 74–86 MB at rest with no climb across
+three track changes. A track change costs 10–12 % for 2–3 s. The helper's
+2 s poll re-fetches the cover from MediaRemote on every read, which logs a
+cache miss each time, at 0.13 % in the helper. While the owner used the
+panel, 15–27 % and up to 205 MB of footprint for 2½ minutes, against the
+idle-cost lab's 0.2 % at most; which surface was open is not known, so
+these runs come next:
+
+- [ ] **B17-H1** Music playing, the panel open on the player, the pointer
+  off it: `measure-idle.sh open-player 12`.
+- [ ] **B17-H2** The same with the lyric stage open (⌃⌥⌘L):
+  `measure-idle.sh open-stage 12`.
+- [ ] **B17-H3** Music paused, the panel shut, 5 minutes:
+  `measure-idle.sh closed-idle`.
 
 ### B16 — Translate at rest, re-measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
