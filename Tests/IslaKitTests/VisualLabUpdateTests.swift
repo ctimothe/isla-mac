@@ -147,7 +147,7 @@ final class VisualLabUpdateTests: VisualLabCase {
                 }), variant, height: size.height)
             }
         }
-        try await shoot.shoot("available", variants: [LabVariant(name: "ru-w480", width: 480, language: "ru"), .w480],
+        try await shoot.shoot("available", variants: [.russianNarrow, .w480],
                               size: size, settle: 0.4, notes: "The longest copy at the narrowest panel.") { variant in
             try await self.stage(.available)
             return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in

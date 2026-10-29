@@ -100,10 +100,15 @@ struct LabVariant: Hashable {
     static let w480 = LabVariant(name: "w480", width: 480)
     static let w620 = LabVariant(name: "w620", width: 620)
     static let russian = LabVariant(name: "ru", language: "ru")
+    /// Russian in the narrowest panel: the longest words in the least room,
+    /// where text is cut first. Every panel and pill state is drawn in it
+    /// since Batch 10, when the Clipboard's refusal notice was found cut there
+    /// by a state that had never been rendered in it.
+    static let russianNarrow = LabVariant(name: "ru-w480", width: 480, language: "ru")
     static let baseIR = LabVariant(name: "dark-ir", backend: .imageRenderer)
 
-    static let panel: [LabVariant] = [base, light, contrast, transparency, w480, w620, russian, baseIR]
-    static let pill: [LabVariant] = [base, light, contrast, w480, russian, baseIR]
+    static let panel: [LabVariant] = [base, light, contrast, transparency, w480, w620, russian, russianNarrow, baseIR]
+    static let pill: [LabVariant] = [base, light, contrast, w480, russian, russianNarrow, baseIR]
     static let card: [LabVariant] = [
         base, light, contrast, transparency, russian,
         LabVariant(name: "dark-ir", backend: .imageRenderer),

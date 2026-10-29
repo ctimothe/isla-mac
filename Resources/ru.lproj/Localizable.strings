@@ -348,8 +348,8 @@
 "Copied" = "Скопировано";
 "Lyrics imported" = "Текст импортирован";
 "Added to Shelf" = "Добавлено на полку";
-"macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется.";
-"Open Privacy Settings" = "Открыть настройки конфиденциальности";
+"macOS is not letting Isla read what you copy, so nothing new is kept." = "macOS не разрешает Isla читать скопированное — новое не сохраняется.";
+"Open Privacy Settings" = "Открыть настройки";
 "Turn On" = "Включить";
 "Something is playing that Music Only keeps off the island." = "Играет то, что «Только музыка» не показывает на острове.";
 "Open Settings" = "Открыть настройки";

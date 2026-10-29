@@ -91,7 +91,7 @@ final class VisualLabPanelTests: VisualLabCase {
         // The status names it and the one remedy is Open Settings; the
         // Russian sentence is the long one, so it is drawn at 480 pt too.
         try await shoot.shoot("nothing-shown-music-only-hides-a-video",
-                              variants: [.base, .w480, .russian, LabVariant(name: "ru-w480", width: 480, language: "ru"), .baseIR],
+                              variants: [.base, .w480, .russian, .russianNarrow, .baseIR],
                               size: size,
                               notes: "A YouTube tab in a browser is playing; Music Only filters it.") { variant in
             Self.scene(try await self.openPanel(session, prepare: { stores in
@@ -238,7 +238,7 @@ final class VisualLabPanelTests: VisualLabCase {
         }
         // G-007: an Import from the page refused at line 2. The notice sits
         // under the header, and has to fit the narrowest panel in Russian.
-        let russianNarrow = LabVariant(name: "ru-w480", width: 480, language: "ru")
+        let russianNarrow = LabVariant.russianNarrow
         try await shoot.shoot("import-notice", variants: [.base, .w480, .russian, russianNarrow], size: size, settle: 0.3,
                               notes: note + " The notice an Import from the page leaves when the file has a broken stamp.") { variant in
             var track = LabFixtures.Track(elapsed: 27)
@@ -318,7 +318,7 @@ final class VisualLabPanelTests: VisualLabCase {
         // M-22: under a drag the headline says what letting go does.
         // Russian at 480 pt is the longest it gets and the narrowest it is
         // drawn, here and on the populated strip's pill below.
-        let russianNarrowDrag = LabVariant(name: "ru-w480", width: 480, language: "ru")
+        let russianNarrowDrag = LabVariant.russianNarrow
         try await shoot.shoot("drop-target", variants: [.base, .contrast, russianNarrowDrag], size: size,
                               notes: "A drag over the island: the drop surface, with the Keep target lit and its second line saying Release.") { variant in
             Self.scene(try await self.openPanel(session, surface: .tray, configure: { $0.isDropTargeted = true }), variant, height: size.height)
@@ -463,7 +463,8 @@ final class VisualLabPanelTests: VisualLabCase {
             clipboard.accessBehavior = { .denied }
             clipboard.recheckAccess()
         }
-        try await shoot.shoot("access-denied", variants: [.base, .light, .contrast, .w480, .russian], size: size,
+        try await shoot.shoot("access-denied", variants: [.base, .light, .contrast, .w480, .russian,
+                                                          .russianNarrow], size: size,
                               notes: "Paste from Other Apps set to Don't Allow, with history kept from before the refusal.") { variant in
             Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { stores in
                 self.fill(session, stores.clipboard)
@@ -477,7 +478,7 @@ final class VisualLabPanelTests: VisualLabCase {
         }
         for (variant, sentence) in [
             ("dark", "macOS is not letting Isla read what you copy, so nothing new is kept."),
-            ("ru", "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется."),
+            ("ru", "macOS не разрешает Isla читать скопированное — новое не сохраняется."),
         ] {
             for state in ["access-denied", "access-denied-empty"] {
                 let url = session.root.appendingPathComponent("a11y/panel-clipboard/\(state)__\(variant).txt")
@@ -647,7 +648,7 @@ final class VisualLabPanelTests: VisualLabCase {
             }), variant, height: size.height)
         }
         try await shoot.shoot("section-lyrics-delay-preview",
-                              variants: [LabVariant(name: "ru-w480", width: 480, language: "ru")],
+                              variants: [.russianNarrow],
                               size: size, settle: 0.4, defaults: [NotchViewModel.showLyricsKey: true],
                               notes: "The same at 480 in Russian, where labels wrap before controls.") { variant in
             Self.scene(try await self.openPanel(session, surface: .settings, prepare: playingWithLyrics, configure: { vm in
