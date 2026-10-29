@@ -39,6 +39,16 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 
 ## History
 
+- **Batch 8, 2026-10-29.** Sittings 4 and 9 searched for logic. Most of
+  the update alert's run-sheet lines were already held by
+  `UpdateOfferTests` and `UpdateFeedWatcherTests`; one clause was not, and
+  now is: the alert never folds under a pointer resting on it
+  (`testItDoesNotFoldUnderAPointerRestingOnIt`, checked by breaking the
+  fold's question about the pointer). Translate's Recent list and the
+  Launch at Login switch's role were already held. No bug; scores
+  unchanged. With this batch the run sheet's logic-shaped clauses are
+  nearly all under tests; what remains is looks, feel, real hardware and
+  macOS's own prompts.
 - **Batch 7, 2026-10-29.** Sittings 1, 2 and 8 searched for logic. Two
   new tests, both checked by breaking the code they hold: the favourite
   star leaves with Music when the same song moves to Yandex Music or a

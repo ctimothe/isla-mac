@@ -105,9 +105,9 @@ Setup: run `tccutil reset` for the Desktop, Documents and Downloads folder servi
 Setup: switch the Mac's language to Russian (log out and in) before the first step; switch back to English at the end. Keep Panel Width at 480, 560 and 620 in turn, dark appearance, and have VoiceOver and Reduce Motion ready to toggle.
 
 1. **1048** On the Russian Mac take ⇧⌘3 to a file: the still arrives on the Shelf the next time it opens.
-2. **780** In Settings click the words "Launch at Login": the switch flips; VoiceOver reads the row as a switch or toggle button, on or off; Graphite and Yellow accents look right. The line itself was closed by SET-01; these three looks are what remained owed.
+2. **780** In Settings click the words "Launch at Login": the switch flips; Graphite and Yellow accents look right. That VoiceOver finds a switch named Launch at Login is held by tests (see Held by tests since Batch 8). The line itself was closed by SET-01; these three looks are what remained owed.
 3. **MR-H16** Open every Settings section beside System Settings, dark and Russian, at 480, 560 and 620: 13 pt labels, grey 11 pt footers, System Settings' row height, no edge round groups, its own icons in the sidebar and Isla's in About; changing the accent colour with Settings open recolours the selection, switches, sliders, segmented controls, buttons, Update Now, shortcut ring and Lock Screen style ring; every segment of Show Next Line Early and the Lock Screen style takes one click even though the panel is not key; pop-ups open on the first click from another app; Increase Contrast keeps outlines; Russian sidebar titles do not truncate.
-4. **R4-H4** Translate's pop-ups open from the panel with the chosen item over the button at 480, 560 and 620, and Recent lists this session's targets.
+4. **R4-H4** Translate's pop-ups open from the panel with the chosen item over the button at 480, 560 and 620. Recent's contents are held by tests (see Held by tests since Batch 8).
 5. **1269** With VoiceOver on, the rotor's Headings in each Settings section list that section's group headers. The rest is held by tests since Batch 5 (below).
 6. **940** With VoiceOver on press ⌃⌥⌘L and ⌃⌥⌘T, which are also VO-⌘-L and VO-⌘-T, and record which one wins.
 7. **R8e-H5** After the gear, VoiceOver reads Settings and finds the sidebar and first switch without a second navigation, Tab from the header reaches the sidebar, and pressing a sidebar section changes the form as before.
@@ -184,10 +184,10 @@ Setup: start with only the built-in display, then connect the external one.
 
 Setup: stay on the feed build; publish builds one at a time and wait for each to be offered. A screen saver with a password grace and a second user account are needed for DU-H6.
 
-1. **DU-H4** Open the panel while the alert shows: it goes with the open and returns when the panel closes, and a volume key over it replaces it with the pop-up and it returns after.
-2. **DU-H3** Press Later: the alert folds, the gear keeps its badge, the same version is not offered again and the next published build is; left alone it folds after 20 s, and not while the pointer rests on it.
-3. **DU-H6** With Show on Lock Screen off, publish a build and lock the Mac before it is offered: nothing shows under the shield and the alert appears after the unlock; repeat with the screen saver running and with another user switched in.
-4. **DU-H7** Run `rm -rf .dev-updates`, then publish: the new folder is found and the build offered within a few seconds without relaunching Isla.
+1. **DU-H4** Open the panel while the alert shows: it goes with the open and returns when the panel closes, and a volume key over it replaces it with the pop-up and it returns after. The logic is held by tests (see Held by tests since Batch 8); this run is the real feed, end to end.
+2. **DU-H3** Press Later: the alert folds and the gear keeps its badge. The rest (not offered again, the next build is, the 20 s fold and never under a resting pointer) is held by tests (see Held by tests since Batch 8).
+3. **DU-H6** With Show on Lock Screen off, publish a build and lock the Mac before it is offered: nothing shows under the shield and the alert appears after the unlock; repeat with the screen saver running and with another user switched in. The logic is held by tests (see Held by tests since Batch 8); this run is the real feed, end to end.
+4. **DU-H7** Run `rm -rf .dev-updates`, then publish: the new folder is found and the build offered within a few seconds without relaunching Isla. The logic is held by tests (see Held by tests since Batch 8); this run is the real feed, end to end.
 5. **DU-H1** Install the offered build: the alert shows within about two seconds of publishing, it downloads, verifies and restarts as the new version (Settings › About says so), `hdiutil info` shows nothing mounted and no `.Isla-update-*` is left beside the app.
 6. **R5-H1b** After that update, with Volume and Brightness already on, the first launch of the new build shows the Accessibility prompt once; the same after a development reinstall with the same build number.
 7. **DU-H5** Record what macOS said about App Management on the first update through the feed (prompt, "prevented from modifying apps" notice, or nothing) and whether the first publish asked to allow the keychain read of "Isla Dev Update Signing"; if this was already seen, record it from memory and say so.
@@ -227,6 +227,30 @@ Stale in part, kept as owner runs or tests with the clause dropped:
 - **R8d-H1 and R8e-H2** compare with the R8c and R8d builds, which are no longer installed.
 - **413** and **1157** say "lyrics page" and "Clipboard tab", now the stage and the Clipboard page; the behaviour is unchanged.
 - **1397** asks for the copy in `build/` to be launched from Finder; CLAUDE.md forbids opening that bundle because each launch registers a second Isla with LaunchServices.
+
+## Held by tests since Batch 8 (2026-10-29)
+
+- **DU-H3**, all but the gear's badge: Later folds the alert and the same
+  version is not offered again (`UpdateOfferTests.testAnOfferShowsAndLaterRemembersIt`),
+  a newer release changes the offer (`testAWithdrawnOrNewerReleaseChangesTheOffer`),
+  left alone it folds after its hold (`testUnansweredItFoldsAfterItsHoldAndIsRemembered`),
+  and never while the pointer rests on it, folding once it goes
+  (`testItDoesNotFoldUnderAPointerRestingOnIt`, new; it fails when the
+  fold stops asking where the pointer is).
+- **DU-H4**, **DU-H6** and **DU-H7**, the logic: an open takes the alert
+  down and it returns when the panel closes (`testOpenedOverItReturnsWhenThePanelCloses`),
+  a pop-up replaces it and it returns (`testAPopUpReplacesItAndItReturnsWhenThePopUpFolds`),
+  locked with the card off or behind the screen saver or another user it
+  waits until the screen is seen (`testLockedWithTheCardOffItWaitsForTheUnlock`,
+  `testBehindTheScreenSaverOrAnotherUserItWaitsUntilTheScreenIsSeen`), and a
+  feed folder removed and made again is watched again
+  (`UpdateFeedWatcherTests.testAFeedRemovedOrRenamedAndMadeAgainIsWatchedAgain`).
+  The owner's runs stay: they are the real feed, lock and file system.
+- **R4-H4**, Recent: the last three targets, this session's, in memory
+  (`TranslateMenuTests.testRecentsKeepTheLastThreeTargets`,
+  `testTheTranslatorRemembersRecentTargetsInMemory`).
+- **780**, VoiceOver: the row is a switch named Launch at Login
+  (`SettingsFormTests`, which finds it as an `AXCheckBox` with that label).
 
 ## Held by tests since Batch 7 (2026-10-29)
 
