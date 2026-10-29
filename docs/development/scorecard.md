@@ -25,7 +25,7 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Island and activities | 2 — spec §3, §19; visual lab renders; R7–R8 runs owed | 2 — sweep; 6 AX uses; no VoiceOver run | 2 — `measure-hitches.sh` at idle load, 120 Hz (B0.6, 2026-10-29): opening misses 0.6–2.9 frames of about 125, closing 0.5–1.4, rest none; the bar of none is not met | 2 — idle budget recorded 2026-10-11 (CPU ≤ 0.1 %, RSS ≤ 88 MB), before the redesign; shut, paused, playing or with the caption, 0–0.6 % of a core and no frame clock in the idle-cost lab, timers not included (B11) | 3 — 210 tests: geometry, notch memory, moments, lock | 1 — runs owed |
 | Player | 2 — spec §4; R1 runs owed | 2 — sweep; 5 AX uses | 2 — `measure-mounts.sh`: 7 ms to build empty, 12 ms playing (release, 2026-10-29); a sample puts 97 % of it in SwiftUI's first graph build and no Isla function above 3 % (B3) | 2 — as above, music playing measured; open and playing, 0.01–0.2 % of a core in the idle-cost lab, and with lyrics 0.05 % since the marquee moved to Core Animation (B11) | 3 — 374 tests: helper failure policy, seek, hold, favourites | 1 |
 | Lyrics and stage | 2 — spec §5 | 3 — sweep; 39 AX uses | 2 — opening on the stage misses 2.2–2.9 frames (B0.6); the stage builds in 15 ms (`measure-mounts.sh`, 2026-10-29); `measure-sync.sh`'s 150 ms p95 target still unmeasured | 2 — idle-cost lab (B11): the open stage 0.01–0.02 % of a core, 0.2–0.4 loop wake-ups a second; the shut caption runs no frame clock | 3 — 428 tests: timelines, overrun, offline, 429 | 1 |
-| Lock card | 2 — spec §7; R2 runs owed | 3 — sweep; 10 AX uses; picker labels | 1 | 1 | 2 — 116 tests; the private-space path only on hardware | 1 |
+| Lock card | 2 — spec §7; R2 runs owed | 3 — sweep; 10 AX uses; picker labels | 2 — 7.5 ms to build on the player, 9.2 on the lyrics, 7.1 on the outputs (`measure-mounts.sh`, release, B12) | 2 — idle-cost lab (B12): locked with music, 0.03–0.36 % of a core on every pane and no frame clock |  2 — 116 tests; the private-space path only on hardware | 1 |
 | Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses; one card is "1 item" on the island and in Remove All (B3) | 2 — the tray builds in 5 ms (`measure-mounts.sh`, 2026-10-29) | 2 — idle-cost lab (B11): the open tray 0.01 % of a core, 0.1–0.2 loop wake-ups a second | 2 — 146 tests | 1 |
 | Clipboard | 2 — spec §9; the access notice held whole in English and Russian at every width (B10) | 3 — sweep; 27 AX uses | 2 — 10 ms to build (`measure-mounts.sh`, 2026-10-29) | 2 — idle-cost lab (B11): open, 0.01–0.2 % of a core, no frame clock | 2 — 203 tests | 1 |
 | Translate | 2 — spec §11 | 3 — sweep; 22 AX uses | 2 — 12 ms to build (`measure-mounts.sh`, 2026-10-29) | 2 — idle-cost lab (B11): open, about 0.2 % of a core, the paste check's 1 s clock and no frame clock | 2 — 214 tests, offline consent | 1 |
@@ -38,6 +38,17 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 
 ## History
 
+- **Batch 12, 2026-10-29.** The lock card, measured without a lock. The
+  mount lab now builds the card on each of its three panes, playing with
+  lyrics, as `LockCardWindow` builds it at every lock: 7.5, 9.2 and 7.1 ms
+  in release at a load of about 13, against 10.3 for the playing player.
+  The idle-cost lab now holds the Mac locked with music, the island's
+  locked pill in the panel and the card in a window of its own, on the
+  player, the lyrics, a long title and paused: 0.03–0.36 % of a core and
+  0.5–26 main-loop wake-ups a second, the rate moving with the order the
+  states ran in and never near a frame clock. Nothing to fix; Speed and
+  Efficiency go from 1 to 2. The shield and the SkyLight space are not
+  built, so the lock's own cost is still R2's, on hardware.
 - **Native-island support withdrawn, 2026-10-29.** The owner: Isla is for
   notched MacBooks only. The row "On a Mac with Apple's island" and its NI
   runs are gone with `NativeIsland`, the step-aside and Show on Built-in

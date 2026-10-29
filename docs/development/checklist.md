@@ -2458,6 +2458,18 @@ Core Graphics layer, and no RenderBox layer appears in any frame.
   as quickly as before, with nothing jumping beside it; with Reduce Motion on,
   they cross-fade.
 
+### B12 — the lock card's build and resting cost (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+`Scripts/measure-mounts.sh` now builds the lock card on its player, lyrics
+and outputs panes, playing with lyrics: 7.5, 9.2 and 7.1 ms in release, at a
+load of about 13. `Scripts/measure-idle-lab.sh` now holds the Mac locked
+with music — the island's locked pill in the panel, the card in a window of
+its own at the same alpha — on the player, the lyrics, a long title and
+paused: 0.03–0.36 % of a core and 0.5–26 main-loop wake-ups a second, the
+rate moving with the order the states ran in, never near a frame clock. No
+behaviour changed and no hardware check is added; the shield and the lock's
+own space are not built by either lab, so R2's runs still cover them.
+
 ### B11 — the marquee travels on Core Animation (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
 `Scripts/measure-idle-lab.sh` (`IdleCostLab`) measures what each resting
