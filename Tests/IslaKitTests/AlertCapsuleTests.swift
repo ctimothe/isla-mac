@@ -251,4 +251,55 @@ final class AlertCapsuleTests: XCTestCase {
             XCTAssertEqual(image.size.width, width, accuracy: 0.5)
         }
     }
+
+    /// A name that fits is never cut (Batch 4, 2026-10-29). In Russian the
+    /// capsule said "AirPods… Подключено" with room to spare after it: the
+    /// row's spacer was offered its share before the name had what it needed.
+    /// "AirPods Max" and "Подключено" need about 159 pt of the 220 pt
+    /// capsule's 162; the name gives way only when it truly does not fit.
+    func testAHeadphoneNameThatFitsIsNeverCut() async throws {
+        defer { LabLocalization.use("en") }
+        for language in ["en", "ru"] {
+            LabLocalization.use(language)
+            let name = "AirPods Max"
+            let capsule = StripNoticeContent(
+                notice: .ambient(.headphones(name: name, symbol: "airpodsmax")),
+                width: HUDStripLayout.preferredWidth, increaseContrast: false
+            )
+            let root = await AXProbe.tree(of: capsule, size: CGSize(width: HUDStripLayout.preferredWidth,
+                                                                    height: HUDStripLayout.height))
+            let drawn = try XCTUnwrap(root.all { $0.label == name || $0.value == name }.first?.frame, root.dump)
+            let natural = NSHostingView(rootView: Text(name)
+                .font(.system(size: StripNoticeLayout.textSize))
+                .tracking(Theme.tracking(forSize: StripNoticeLayout.textSize))
+                .fixedSize()).fittingSize.width
+            XCTAssertGreaterThanOrEqual(drawn.width, natural - 0.5, "\(language): the name is cut\n\(root.dump)")
+        }
+    }
+
+    /// The confirmations' row ended in the same trailing spacer; none of
+    /// their words is cut in either language, at the width the capsule is
+    /// drawn at — `preferredWidth`, since every open body is at least 480
+    /// wide (`minimumWidth` is a floor no panel reaches).
+    func testNoConfirmationIsCut() async throws {
+        defer { LabLocalization.use("en") }
+        for language in ["en", "ru"] {
+            LabLocalization.use(language)
+            for kind in [IslandConfirmation.Kind.lyricsImported, .copied, .addedToShelf] {
+                let confirmation = IslandConfirmation(kind)
+                let capsule = StripNoticeContent(notice: .confirmation(confirmation),
+                                                 width: HUDStripLayout.preferredWidth, increaseContrast: false)
+                let root = await AXProbe.tree(of: capsule, size: CGSize(width: HUDStripLayout.preferredWidth,
+                                                                        height: HUDStripLayout.height))
+                let title = confirmation.title
+                let drawn = try XCTUnwrap(root.all { $0.label == title || $0.value == title }.first?.frame, root.dump)
+                let natural = NSHostingView(rootView: Text(title)
+                    .font(.system(size: StripNoticeLayout.textSize))
+                    .tracking(Theme.tracking(forSize: StripNoticeLayout.textSize))
+                    .fixedSize()).fittingSize.width
+                XCTAssertGreaterThanOrEqual(drawn.width, natural - 0.5,
+                                            "\(language) \(kind)\n\(root.dump)")
+            }
+        }
+    }
 }

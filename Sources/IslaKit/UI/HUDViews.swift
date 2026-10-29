@@ -244,8 +244,13 @@ struct StripNoticeContent: View {
                             .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingStatusOpacity))
                             .fixedSize()
                     }
-                    Spacer(minLength: 0)
                 }
+                // Held to the leading edge by a frame, not a trailing
+                // `Spacer`: the stack's 10 pt spacing stood before the spacer
+                // even at no width, and in Russian, where "Подключено" is the
+                // longer word, those 10 pt cut the name to "AirPods…" in a
+                // capsule it fitted (`AlertCapsuleTests`, 2026-10-29).
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .confirmation(let confirmation):
             HStack(spacing: HUDStripLayout.spacing) {
