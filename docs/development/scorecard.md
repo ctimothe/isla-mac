@@ -39,6 +39,15 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 
 ## History
 
+- **Batch 7, 2026-10-29.** Sittings 1, 2 and 8 searched for logic. Two
+  new tests, both checked by breaking the code they hold: the favourite
+  star leaves with Music when the same song moves to Yandex Music or a
+  browser, and an island standing aside for Apple's leaves the volume
+  keys to macOS. The second needed the HUD's wiring moved out of
+  `install()` into `NotchController.wireHUD`, so the test runs the wiring
+  the app runs rather than a copy of it. Two more checks (the waveform's
+  colour, "60" in the bubble) were already held. No bug found; scores
+  unchanged.
 - **Batch 6, 2026-10-29.** Four Sitting 3 checks moved to tests, as far
   as a test can hold them: R4-H9 (a letter typed into a full Translate
   field is gone from the real editor too, typed through its `NSTextView`),

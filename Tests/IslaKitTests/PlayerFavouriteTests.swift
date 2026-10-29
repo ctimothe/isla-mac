@@ -238,7 +238,7 @@ final class MusicFavoriteWiringTests: XCTestCase {
         return (media, music)
     }
 
-    private func play(_ title: String, on media: MediaController) {
+    private func play(_ title: String, pid: pid_t = 3, on media: MediaController) {
         var s = NowPlayingFeed.Snapshot()
         s.title = title
         s.artist = "Radiohead"
@@ -248,8 +248,45 @@ final class MusicFavoriteWiringTests: XCTestCase {
         s.isPlaying = true
         s.rate = 1
         s.takenAt = Date()
-        s.playerPID = 3
+        s.playerPID = pid
         media.apply(s)
+    }
+
+    /// The star the player and the lock card would draw, with a Spotify
+    /// account connected and able to save: the harshest case, since a
+    /// Spotify id left behind would then draw a star of its own.
+    private func star(_ media: MediaController) -> MediaPane.Favourite? {
+        MediaPane.Favourite.resolve(
+            musicFavorite: media.musicFavorite, spotifyTrackID: media.spotifyTrackID,
+            spotifyCanSave: true, saved: [:]
+        )
+    }
+
+    /// Run-sheet MR-H3, the half a test can hold: the star is absent for
+    /// Yandex Music and a browser. The same song moving from Music to them is
+    /// the hard case — the track is unchanged, so only the change of player
+    /// can take Music's answer away — and Music is never asked about a song
+    /// another player is playing.
+    func testTheStarGoesWithMusicWhenYandexMusicOrABrowserPlays() {
+        let (media, music) = controller()
+        media.musicOnly = { false }
+        music.favorite = true
+        play("Exit Music (For a Film)", on: media)
+        media.refreshPlaybackModes()
+        XCTAssertEqual(media.musicFavorite, true)
+        XCTAssertEqual(star(media), .music(isOn: true))
+        let asked = music.reads
+
+        for (pid, bundle) in [(pid_t(7), "ru.yandex.desktop.music"), (pid_t(9), "com.apple.Safari")] {
+            media.bundleIdentifierForPID = { $0 == pid ? bundle : PlayerApp.music.bundleID }
+            play("Exit Music (For a Film)", pid: pid, on: media)
+            XCTAssertNil(star(media), "gone with the snapshot, before anything asks again: \(bundle)")
+            media.refreshPlaybackModes()
+            XCTAssertNil(media.musicFavorite, bundle)
+            XCTAssertNil(media.spotifyTrackID, bundle)
+            XCTAssertNil(star(media), "no star for \(bundle)")
+            XCTAssertEqual(music.reads, asked, "Music is not asked about \(bundle)'s song")
+        }
     }
 
     /// Moves the clock to `seconds` after the start and runs every timer due

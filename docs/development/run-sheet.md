@@ -25,7 +25,7 @@ Setup: Spotify and Apple Music with something playing, Yandex Music and Safari i
 3. **R8-H7** Click a peeking track's far end a few points in from the edge: the player opens, stays while the pointer rests and folds when it walks away, and Escape in another app stays that app's. Repeat with Open on Hover on (it opens once, with no fold and reopen), then off (pause on the far end, let the peek fold, rest there: the next track still peeks).
 4. **R8c-H4** From a resting pointer flick to the island and click at once, twenty times: the panel opens every time, never a click on the menu bar behind it, and hover lights on arrival.
 5. **R8c-H5** Play in Spotify, Apple Music, Yandex Music and a browser tab in turn: Music's header shows the app's icon and name, and at Panel Width 480 on a wide notch the icon alone, with the name on hover.
-6. **R7-H4** With music playing, put files on the Shelf: the bubble sits beside the island, the gap between them passes clicks to the menu bar, a click on the bubble opens the Shelf, a copied screenshot shows the Shelf for about 2 s, a file dropped on the notch keeps it, and "60" fits inside the bubble with room on both sides.
+6. **R7-H4** With music playing, put files on the Shelf: the bubble sits beside the island, the gap between them passes clicks to the menu bar, a click on the bubble opens the Shelf, a copied screenshot shows the Shelf for about 2 s, and a file dropped on the notch keeps it. That "60" fits with room on both sides is held by tests (see Held by tests since Batch 7).
 7. **R8d-H6** Same setup, watch the bubble arrive, widen by a digit and go: a click on it opens the tray, a click on the island or on the bare notch still opens the player, and nothing is dead.
 8. **R8b-H1** On the trackpad swipe slowly and flicked through all four pages and back: pages follow the fingers 1:1, a flick turns one page, the ends rubber-band, nothing stutters at 120 Hz with Clipboard's list and the player's artwork up, quick presses of two dots carry on without a jump, the Shelf arrives only from Music's right or Translate's left, and a click into Clipboard's search as it settles takes the keyboard first time.
 9. **R8b-H3** With a wheel mouse the wheel scrolls the page under it and never turns one, and the dots turn them.
@@ -60,14 +60,14 @@ Setup: a Spotify account that is not listed in Isla's Spotify dashboard and one 
 2. **MR-H17** In Settings › Connections check the player list and icons (uninstall one and see its row go), then press Connect with the unlisted account (one line says Spotify has not admitted it and no star ever shows), cancel the consent page ("Spotify sign-in was cancelled."), turn the network off ("Isla couldn't reach Spotify."), then use the listed account (line clears, row shows Disconnect, the star works), with the `log show` trail showing each step and no token.
 3. **1433** Press Connect twice and approve the first tab: the account connects; then Disconnect and Connect again: Spotify's consent page appears with its "Not you?" switch.
 4. **R8-H6** Favourite in Music (the star follows Music's own heart both ways, and on a catalogue song not in the library one tap fills the star and it stays filled) and in Spotify with the account connected.
-5. **MR-H3** The star shows for Music and a connected Spotify on the player and the lock card and the song really becomes a favourite; it is absent for Yandex Music and a browser.
+5. **MR-H3** The star shows for Music and a connected Spotify on the player and the lock card and the song really becomes a favourite. Its absence for Yandex Music and a browser is held by tests (see Held by tests since Batch 7).
 6. **R8-H5** On a synced song the player's sung line turns with the voice, and a long line wraps to two on the stage.
 7. **1471** On a track that sings continuously, with the island shut, the next line is on screen about half a second before the voice and turns with the caption turn; across a long instrumental it waits for the previous line's end; Off restores the on-the-voice turn.
 8. **1488** On the ballad Auto feels like the 0.5 s that was perfect, and on a faster song with shorter lines it turns about 0.35 to 0.45 s early without feeling like too much.
 9. **1506** On "We Are The People" by Empire Of The Sun from Yandex Music the notice shows on the stage; right-click the sung line and choose Sync Here: lines land on the voice, the notice goes, Reset brings it back, and the compact caption and lock card show no notice but follow the sync.
 10. **MR-H6** Context lyric lines dim faster and stay legible under Increase Contrast.
 11. **MR-H2** The stage's previous, play and next look like the player's and the lock card's, and dragging the stage's bar seeks.
-12. **MR-H4** The waveform takes the cover's colour and is white with no artwork, and the header's app icon reads as small as an iPhone Live Activity's.
+12. **MR-H4** The header's app icon reads as small as an iPhone Live Activity's. The waveform's colour (the cover's, white with no artwork) is held by tests (see Held by tests since Batch 7).
 13. **R1-H6** Translate Lyrics on a Russian or English song: the translations arrive together and sit under each line.
 14. **R1-H7** The Output menu, the stage's More menu and the translation menu (right-click on Show Translation) open under their buttons from the non-activating panel, and `.help` tooltips appear. Skip the slider-row clause, which was withdrawn (see Stale).
 15. **MR-H9** Skip ten times in Spotify and ten in Music, from Isla and from the player, fast and slow, on a fast and on a throttled network (3G profile): one swap per song on the shut island, player, stage and lock card, with title, artist, cover and equalizer colour together, never a new title over the old cover, never the wrong song's lyrics; Reduce Motion makes it a fade.
@@ -174,7 +174,7 @@ Setup: switch Volume and Brightness on and grant Accessibility; leave both on fo
 
 Setup: start with only the built-in display, then connect the external one.
 
-1. **NI-H2** On the notched Mac with Show on Built-in Display off and no other display, nothing is drawn at the notch and clicks and hovers reach the menu bar; ⌃⌥⌘I, ⌃⌥⌘V, ⌃⌥⌘T and Spotlight open the panel, which fades out after it folds; no peek, charger or headphones pill shows; a volume key shows macOS's own pop-up; plugging a display in or waking with the pointer at top centre opens nothing; turning the switch back on restores the island at once.
+1. **NI-H2** On the notched Mac with Show on Built-in Display off and no other display, nothing is drawn at the notch and clicks and hovers reach the menu bar; ⌃⌥⌘I, ⌃⌥⌘V, ⌃⌥⌘T and Spotlight open the panel, which fades out after it folds; no peek, charger or headphones pill shows; a volume key shows macOS's own pop-up (that Isla leaves the key to macOS is held by tests, see Held by tests since Batch 7); plugging a display in or waking with the pointer at top centre opens nothing; turning the switch back on restores the island at once.
 2. **NI-H3** With an external display connected the island moves to it, synthetic, and works as on any notchless display; unplugging it falls back to NI-H2.
 3. **429** Walk the player, Shelf, Clipboard, Translate and Settings, a charger and a pop-up, on the external display with the synthetic notch.
 4. **R8d-H4** The player over a busy window has the same soft shadow as before, none under the compact island, the peek or the charger; the line is 2 pt and crisp on the built-in display and the external one, with no seam along the top edge or hairline between black and line; Increase Contrast raises it; the charger's line is green.
@@ -227,6 +227,28 @@ Stale in part, kept as owner runs or tests with the clause dropped:
 - **R8d-H1 and R8e-H2** compare with the R8c and R8d builds, which are no longer installed.
 - **413** and **1157** say "lyrics page" and "Clipboard tab", now the stage and the Clipboard page; the behaviour is unchanged.
 - **1397** asks for the copy in `build/` to be launched from Finder; CLAUDE.md forbids opening that bundle because each launch registers a second Isla with LaunchServices.
+
+## Held by tests since Batch 7 (2026-10-29)
+
+- **MR-H3**, the absence: the same song moving from Music to Yandex Music
+  or a browser takes Music's star with it at once, before anything asks
+  again, leaves no Spotify id behind for a connected account to draw a star
+  from, and never asks Music about the other player's song
+  (`MusicFavoriteWiringTests.testTheStarGoesWithMusicWhenYandexMusicOrABrowserPlays`).
+  Whether the song really becomes a favourite stays with the owner.
+- **MR-H4**, the colour: the bars wear the cover's brightest saturated
+  colour and white without a cover (`CoverTintTests`, among them
+  `testAMissingCoverFallsBack` and `testTheViewModelsTintFollowsTheArtwork`).
+- **R7-H4**, the fit: every count up to the Shelf's limit keeps the
+  one-digit bubble's padding, measured in the count's own font
+  (`IslandBubbleTests.testEveryCountKeepsTheOneDigitPadding`).
+- **NI-H2**, the volume key, unlocked: with the island standing aside the
+  key tap leaves the key to macOS, moves nothing and draws nothing; the
+  same wiring on a shown island takes it
+  (`MediaKeyHUDTests.testAnIslandThatStandsAsideLeavesTheKeysToMacOS`,
+  through `NotchController.wireHUD`, which `install()` now calls, so the
+  wiring is what is tested). The locked half was already
+  `NativeIslandTests.testALockedIslandThatStandsAsideIsNeverOverTheShield`.
 
 ## Held by tests since Batch 6 (2026-10-29)
 

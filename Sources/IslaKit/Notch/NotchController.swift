@@ -110,25 +110,7 @@ final class NotchController {
         stores.ambient.onChargeUpdate = { [weak self] activity in
             self?.updateShownCharge(activity)
         }
-        // The volume and brightness pop-up (spec §12). Both closures are read at
-        // each key, so the lock and the reading land on whatever is current.
-        //
-        // An island that stands aside (`NotchGeometry.stepsAside`) passes every
-        // key through the same way: its pop-up would be drawn into an invisible
-        // panel, and a key the tap took would have swallowed the system's own
-        // pop-up too, leaving the volume moving with nothing on screen (review
-        // of the native-island guard, 2026-10-29). `build` mirrors it again.
-        stores.hud.isLocked = { [weak self] in
-            guard let self else { return false }
-            return self.lockPresence.isLocked || self.viewModel?.isLockedPresentation == true
-                || self.viewModel?.geometry.stepsAside == true
-        }
-        // Over the lock screen a key is Isla's only while the island is over
-        // the shield to show it — the same lift that puts the card there.
-        stores.hud.drawsWhileLocked = { [weak self] in self?.islandIsOverShield ?? false }
-        stores.hud.onReading = { [weak self] reading in
-            self?.presentHUD(reading)
-        }
+        wireHUD(stores.hud)
         stores.promises.onBatch = { [weak self] urls in
             self?.promisedFilesArrived(urls)
         }
@@ -2999,6 +2981,32 @@ final class NotchController {
         if let overShieldForTesting { return overShieldForTesting }
         guard let panel else { return false }
         return lockPresence.isAboveShield(windowNumber: panel.windowNumber)
+    }
+
+    /// The volume and brightness pop-up (spec §12). Both closures are read at
+    /// each key, so the lock and the reading land on whatever is current.
+    ///
+    /// An island that stands aside (`NotchGeometry.stepsAside`) passes every
+    /// key through the same way: its pop-up would be drawn into an invisible
+    /// panel, and a key the tap took would have swallowed the system's own
+    /// pop-up too, leaving the volume moving with nothing on screen (review
+    /// of the native-island guard, 2026-10-29). `build` mirrors it again.
+    ///
+    /// Its own function, called by `install()`, so a test can wire a HUD of
+    /// its own the same way: `install()` starts the stores, which a test never
+    /// does (`NativeIslandTests`).
+    func wireHUD(_ hud: MediaKeyHUD) {
+        hud.isLocked = { [weak self] in
+            guard let self else { return false }
+            return self.lockPresence.isLocked || self.viewModel?.isLockedPresentation == true
+                || self.viewModel?.geometry.stepsAside == true
+        }
+        // Over the lock screen a key is Isla's only while the island is over
+        // the shield to show it — the same lift that puts the card there.
+        hud.drawsWhileLocked = { [weak self] in self?.islandIsOverShield ?? false }
+        hud.onReading = { [weak self] reading in
+            self?.presentHUD(reading)
+        }
     }
 
     /// A test's answer for the lift, which needs a real panel and the
