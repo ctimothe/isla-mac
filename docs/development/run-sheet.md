@@ -108,7 +108,7 @@ Setup: switch the Mac's language to Russian (log out and in) before the first st
 2. **780** In Settings click the words "Launch at Login": the switch flips; VoiceOver reads the row as a switch or toggle button, on or off; Graphite and Yellow accents look right. The line itself was closed by SET-01; these three looks are what remained owed.
 3. **MR-H16** Open every Settings section beside System Settings, dark and Russian, at 480, 560 and 620: 13 pt labels, grey 11 pt footers, System Settings' row height, no edge round groups, its own icons in the sidebar and Isla's in About; changing the accent colour with Settings open recolours the selection, switches, sliders, segmented controls, buttons, Update Now, shortcut ring and Lock Screen style ring; every segment of Show Next Line Early and the Lock Screen style takes one click even though the panel is not key; pop-ups open on the first click from another app; Increase Contrast keeps outlines; Russian sidebar titles do not truncate.
 4. **R4-H4** Translate's pop-ups open from the panel with the chosen item over the button at 480, 560 and 620, and Recent lists this session's targets.
-5. **1269** With VoiceOver on, VO-Up on Panel Width resizes the panel at once, the rotor's Headings lists nine, Glass reads as a radio group "1 of 3", and Russian VoiceOver reads "560 пт" as points rather than a weekday.
+5. **1269** With VoiceOver on, the rotor's Headings in each Settings section list that section's group headers. The rest is held by tests since Batch 5 (below).
 6. **940** With VoiceOver on press ⌃⌥⌘L and ⌃⌥⌘T, which are also VO-⌘-L and VO-⌘-T, and record which one wins.
 7. **R8e-H5** After the gear, VoiceOver reads Settings and finds the sidebar and first switch without a second navigation, Tab from the header reaches the sidebar, and pressing a sidebar section changes the form as before.
 8. **R7-H2** With Reduce Motion off the overshoot reads as the island growing and not a bounce; then with it on the island changes size calmly and content only crossfades.
@@ -227,6 +227,17 @@ Stale in part, kept as owner runs or tests with the clause dropped:
 - **R8d-H1 and R8e-H2** compare with the R8c and R8d builds, which are no longer installed.
 - **413** and **1157** say "lyrics page" and "Clipboard tab", now the stage and the Clipboard page; the behaviour is unchanged.
 - **1397** asks for the copy in `build/` to be launched from Finder; CLAUDE.md forbids opening that bundle because each launch registers a second Isla with LaunchServices.
+
+## Held by tests since Batch 5 (2026-10-29)
+
+- **1269**, all but the rotor: VO-Up on Panel Width commits at once and once
+  (`SettingsAccessibilityTests.testAVoiceOverStepCommitsTheWidth`, macOS 27);
+  each section's group headers are headings
+  (`testGroupHeadersAreHeadings`); and Russian VoiceOver hears
+  "пунктов: 560", never the "560 пт" it used to hear, «Пт» being how Russian
+  writes Friday (`testRussianVoiceOverHearsPointsNotAWeekday`; the bug was
+  real and is fixed). "Glass reads as a radio group" is stale: the Glass row
+  left Settings on 2026-10-15.
 
 ## Held by tests since Batch 1 (2026-10-29)
 

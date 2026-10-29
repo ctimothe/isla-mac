@@ -39,6 +39,13 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 
 ## History
 
+- **Batch 5, 2026-10-29.** Run-sheet check 1269 moved to tests, and the
+  move found a bug: Russian VoiceOver heard Panel Width as "560 пт", the
+  drawn abbreviation, which is also how Russian writes Friday. It now hears
+  "пунктов: 560", the table's plural-free "label: N" form, correct for every
+  width from 480 to 620 (`SettingsAccessibilityTests`). A sweep of every
+  spoken unit in the Russian table found no other abbreviation. The
+  check's "Glass" clause was stale (the row left Settings on 2026-10-15).
 - **Batch 4, 2026-10-29.** Efficiency: every repeating timer and frame
   clock was read for work done while nothing is on screen. The always-on
   ones (the pointer sampler at 8 Hz idle with half a beat of slack, the
