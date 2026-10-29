@@ -2512,9 +2512,27 @@ tick announces nothing on the controller, still reaches `shownPosition` and
 with the read put back), and the open player, the stage and the lock card
 still move with nothing but the tick. Gate 27 green, 0.4.0.22 (28) in the feed.
 
-- [ ] **B18-H1** Install 0.4.0.22, music playing, the panel open on the
+- [x] **B18-H1** Install 0.4.0.22, music playing, the panel open on the
   player, the pointer off it: `measure-idle.sh open-player 12`, against
-  B17-H1's 6.9 %.
+  B17-H1's 6.9 %. 2026-10-30, same Mac, Isla 0.4.0.22 (28), a song with
+  word-timed lyrics and word karaoke on: CPU 6.2 % median (9.1 % max),
+  290 switches/s, RSS 97 MB; helper 0.1 %. Barely under 6.9 %, so the tick
+  was not most of it on this Mac. A 4 s `sample`, symbolicated against the
+  identical build (UUID 774C8DBE), puts the main thread's work in one display
+  frame after another: SwiftUI's graph update and layout from the root (98
+  samples), `NSHostingView.layout` re-rendering (113, 45 of them in
+  `FocusBridge.invalidateKeyViewLoop`, the key-view loop rebuilt every
+  frame), and under 40 in Isla's own bodies (`ClockReader`,
+  `MediaPane.subtitle`). The source is `KaraokeText`'s
+  `TimelineView(.animation)`: with word timing on (a `.word` timeline,
+  `lyrics.wordKaraokeEnabled`, a measured position) the sweep reads the
+  clock on every display frame, by design since F-011, and every frame lays
+  out and renders the whole panel again, as the marquee's SwiftUI offset did
+  before Batch 11. The lab's lyric states were all line-timed and never ran
+  that timeline. Two new states reproduce it, `open-player-words` and
+  `open-stage-words`: 7.14 % and 7.65 % of a core at 139 loop wake-ups a
+  second, against 0.45 % and 0.67 % line-timed (`measure-idle-lab.sh`,
+  load 3.3).
 - [ ] **B18-H2** Watch the open player for a minute: the elapsed time and
   the bar move every second, the sung line turns with the voice, and a drag
   on the bar carries the time with the finger.

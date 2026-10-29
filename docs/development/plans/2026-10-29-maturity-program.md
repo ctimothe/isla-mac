@@ -170,6 +170,13 @@ that meets its budget, so the next headless queue is the cells over it:
   starts the ticker and the tick reaches only what reads the position;
   0.16–0.34 % in the lab against 2.07–4.62 % before. The running Isla's
   re-run is B18-H1.
+- **The word-timed sweep, about 7 % of a core wherever a line is sung word
+  by word (B18-H1).** `KaraokeText` reads the clock on every display frame,
+  and SwiftUI lays out and renders the whole panel for each one. Draw the
+  line once and let Core Animation move the edge, as `MarqueeLine` does
+  since Batch 11, keeping F-011's promise that the edge is never behind the
+  voice. A/B on the lab's `open-player-words` and `open-stage-words`, then
+  on the running Isla with a word-timed song.
 - The opening's missed frames (0.6–2.9 at idle), against the bar of none.
   Any staged build there waits for the owner's R8e-H2 verdict on the
   Settings morph, which asked the same question.

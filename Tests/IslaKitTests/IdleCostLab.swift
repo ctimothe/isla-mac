@@ -274,6 +274,10 @@ final class IdleCostLab: VisualLabCase {
         cardWindow = nil
         rig.vm.isLockedPresentation = false
         rig.vm.media.setActive(false)
+        rig.vm.lyrics.wordKaraokeEnabled = false
+        rig.vm.media.precisionPlayerForTests = nil
+        rig.vm.media.lyricsShown = { NotchViewModel.showLyricsEnabled }
+        rig.vm.media.precisionPositionFetcher = nil
         rig.vm.isShowingWelcome = false
         rig.vm.updateOffer = nil
         UpdateInstaller.sharedOverride = nil
@@ -416,6 +420,24 @@ final class IdleCostLab: VisualLabCase {
                 await LabFixtures.play(LabFixtures.longTitle, on: rig.vm.media)
                 rig.vm.lyrics.present(.disabled)
                 self.lock(rig, pane: .player)
+            },
+            // Word-timed lines with the karaoke preference on and a measured
+            // position, as the owner's Isla runs them: the sweep is then read
+            // from the clock on every display frame (`KaraokeText.clock`).
+            // The line-timed states above never start that timeline, so they
+            // read 0.3 % while the running Isla, open on the player, read
+            // 6.2 % after Batch 18 (B18-H1).
+            State(name: "open-player-words") { rig in
+                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                rig.vm.lyrics.present(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word))
+                LabFixtures.enablePrecision(on: rig.vm.media, lyrics: rig.vm.lyrics)
+                open(rig, on: .player)
+            },
+            State(name: "open-stage-words") { rig in
+                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                rig.vm.lyrics.present(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word))
+                LabFixtures.enablePrecision(on: rig.vm.media, lyrics: rig.vm.lyrics)
+                open(rig, on: .stage)
             },
             State(name: "lock-paused") { rig in
                 await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
