@@ -23,7 +23,7 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 | Feature | Design | Accessibility | Speed | Efficiency | Reliability | Usability |
 |---|---|---|---|---|---|---|
 | Island and activities | 2 — spec §3, §19; visual lab renders; R7–R8 runs owed | 2 — sweep; 6 AX uses; no VoiceOver run | 2 — `measure-hitches.sh` at idle load, 120 Hz (B0.6, 2026-10-29): opening misses 0.6–2.9 frames of about 125, closing 0.5–1.4, rest none; the bar of none is not met | 2 — idle budget recorded 2026-10-11 (CPU ≤ 0.1 %, RSS ≤ 88 MB), before the redesign; shut, paused, playing or with the caption, 0–0.6 % of a core and no frame clock in the idle-cost lab, timers not included (B11); the running Isla shut with music, timers included (B17): 0.1 % median, RSS 40 MB, footprint 74–86 MB at rest with no climb across track changes, helper 0.1 %, inside the budget; `closed-idle` with the music paused is owed | 3 — 210 tests: geometry, notch memory, moments, lock | 1 — runs owed |
-| Player | 2 — spec §4; R1 runs owed | 2 — sweep; 5 AX uses | 2 — `measure-mounts.sh`: 7 ms to build empty, 12 ms playing (release, 2026-10-29); a sample puts 97 % of it in SwiftUI's first graph build and no Isla function above 3 % (B3) | 2 — as above, music playing measured; open and playing, 0.01–0.2 % of a core in the idle-cost lab, and with lyrics 0.05 % since the marquee moved to Core Animation (B11); the running Isla (B17): a track change 10–12 % of a core for 2–3 s, and 15–27 % with 104–205 MB of footprint for 2½ minutes while the owner used the panel, far over the lab's numbers, so a timed run per surface is owed | 3 — 374 tests: helper failure policy, seek, hold, favourites | 1 |
+| Player | 2 — spec §4; R1 runs owed | 2 — sweep; 5 AX uses | 2 — `measure-mounts.sh`: 7 ms to build empty, 12 ms playing (release, 2026-10-29); a sample puts 97 % of it in SwiftUI's first graph build and no Isla function above 3 % (B3) | 2 — as above, music playing measured; open and playing, 0.01–0.2 % of a core in the idle-cost lab, and with lyrics 0.05 % since the marquee moved to Core Animation (B11); the running Isla (B17): a track change 10–12 % of a core for 2–3 s, and 15–27 % with 104–205 MB of footprint for 2½ minutes while the owner used the panel; open on the player at rest, 6.9 % (B17-H1), from the 10 Hz position tick re-running the whole player's body, which the lab missed because it never starts the ticker | 3 — 374 tests: helper failure policy, seek, hold, favourites | 1 |
 | Lyrics and stage | 2 — spec §5 | 3 — sweep; 39 AX uses | 2 — opening on the stage misses 2.2–2.9 frames (B0.6); the stage builds in 15 ms (`measure-mounts.sh`, 2026-10-29); `measure-sync.sh`'s 150 ms p95 target still unmeasured | 2 — idle-cost lab (B11): the open stage 0.01–0.02 % of a core, 0.2–0.4 loop wake-ups a second; the shut caption runs no frame clock | 3 — 428 tests: timelines, overrun, offline, 429 | 1 |
 | Lock card | 2 — spec §7; R2 runs owed | 3 — sweep; 10 AX uses; picker labels | 2 — 7.5 ms to build on the player, 9.2 on the lyrics, 7.1 on the outputs (`measure-mounts.sh`, release, B12) | 2 — idle-cost lab (B12): locked with music, 0.03–0.36 % of a core on every pane and no frame clock |  2 — 116 tests; the private-space path only on hardware | 1 |
 | Shelf | 2 — spec §8 | 3 — sweep; 11 AX uses; one card is "1 item" on the island and in Remove All (B3) | 2 — the tray builds in 5 ms (`measure-mounts.sh`, 2026-10-29) | 2 — idle-cost lab (B11): the open tray 0.01 % of a core, 0.1–0.2 loop wake-ups a second | 2 — 146 tests | 1 |
@@ -55,7 +55,15 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
   (0.01–0.2 %), and the log does not say which surface was open, so no cell
   moves until a timed run per surface says which. The connections between
   track changes are lyric lookups retrying after 5, 30 and 120 s when
-  LRCLIB times out, as designed. Docs only.
+  LRCLIB times out, as designed. Then the player, open at rest with the
+  owner's pointer off it (B17-H1): 6.9 % of a core, 244 switches a second.
+  A `sample` of the running Isla shows SwiftUI re-running the whole
+  player's body on every 0.1 s position tick, because `position` is
+  published on `MediaController` itself and every view that observes it
+  is invalidated, while only the scrubber, the time labels and the lyric
+  band read it. The idle-cost lab never calls `media.setActive(true)`, so
+  its ticker never ran; its 0.01–0.2 % was a lab that did not start what
+  the app starts on opening. Docs only.
 - **Batch 16, 2026-10-29.** Translate at rest is under budget; the reading
   that said otherwise was noise. B11 put an open, empty Translate at about
   0.2 % of a core, over the 0.1 % budget, and the Paste button's one-second

@@ -166,6 +166,11 @@ that meets its budget, so the next headless queue is the cells over it:
 - ~~Translate at rest, about 0.2 % of a core with its 1 s paste check, against
   the 0.1 % budget (S17).~~ Batch 16: 0.03–0.06 % on quiet runs; the 0.2 %
   was noise from outside the lab.
+- **The open player at rest, 6.9 % of a core (B17-H1).** First make the
+  idle-cost lab start the position ticker as `NotchController` does on
+  opening, so the lab reproduces it; then narrow what the 0.1 s tick
+  invalidates to the scrubber, the time labels and the lyric band, and
+  A/B it in the lab and on the running Isla through the feed.
 - The opening's missed frames (0.6–2.9 at idle), against the bar of none.
   Any staged build there waits for the owner's R8e-H2 verdict on the
   Settings morph, which asked the same question.

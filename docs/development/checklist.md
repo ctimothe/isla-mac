@@ -2477,8 +2477,18 @@ panel, 15–27 % and up to 205 MB of footprint for 2½ minutes, against the
 idle-cost lab's 0.2 % at most; which surface was open is not known, so
 these runs come next:
 
-- [ ] **B17-H1** Music playing, the panel open on the player, the pointer
-  off it: `measure-idle.sh open-player 12`.
+- [x] **B17-H1** Music playing, the panel open on the player, the pointer
+  off it: `measure-idle.sh open-player 12`. 2026-10-29, same Mac and
+  build: CPU 6.9 % median (7.3 % max), 244 switches/s, RSS 55 MB,
+  footprint 86 MB; helper 0.1 %. Seventy times the budget. A 3 s `sample`,
+  symbolicated against the gate's identical build (UUID 25AA2043), puts
+  the main thread's work in SwiftUI's graph update under
+  `MediaController.updateTicker()`: the 0.1 s position tick publishes
+  `position` on the shared `ObservableObject`, and every observer re-runs
+  its body, `MediaPane.body` whole, though only the scrubber, the time
+  labels and the lyric band read the position. The idle-cost lab never
+  calls `media.setActive(true)`, so its open player had no ticker: that is
+  why it read 0.01–0.2 %.
 - [ ] **B17-H2** The same with the lyric stage open (⌃⌥⌘L):
   `measure-idle.sh open-stage 12`.
 - [ ] **B17-H3** Music paused, the panel shut, 5 minutes:
