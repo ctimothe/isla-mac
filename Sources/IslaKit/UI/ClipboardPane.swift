@@ -401,7 +401,7 @@ struct ClipboardPane: View {
     private var confirmBar: some View {
         let frame = ClipboardLayout.confirmBar(bodyWidth: bodyWidth)
         return HStack(spacing: 6) {
-            Text(localized("Clear %d entries? Pinned items stay.", clear.count))
+            Text(ClipboardClearConfirmation.question(count: clear.count))
                 .islandFont(.body, weight: .regular)
                 .foregroundStyle(Theme.secondary)
                 .lineLimit(2)

@@ -140,7 +140,7 @@ struct ShelfPane: View {
     /// in place of the row while the question stands.
     private var clearQuestion: some View {
         VStack(spacing: 10) {
-            Text(localized("Remove all %d items? Files are untouched.", shelf.items.count))
+            Text(ShelfClearConfirmation.question(count: shelf.items.count))
                 .islandFont(.body, weight: .regular)
                 .foregroundStyle(Theme.secondary)
                 .multilineTextAlignment(.center)
@@ -211,11 +211,20 @@ final class ShelfClearConfirmation: ObservableObject {
     @Published private(set) var isAsking = false
     private var token: UUID?
 
+    /// The question, drawn and said: the one source for both. One card is
+    /// its own sentence — "Remove all 1 items?" was what a one-card tray
+    /// asked (`CountedSentenceTests`).
+    static func question(count: Int) -> String {
+        count == 1
+            ? localized("Remove 1 item? Its file is untouched.")
+            : localized("Remove all %d items? Files are untouched.", count)
+    }
+
     func ask(count: Int) {
         guard !isAsking, count > 0 else { return }
         isAsking = true
         token = ArmedConfirmations.shared.register { [weak self] in self?.cancel() }
-        Announcer.shared.announce(localized("Remove all %d items? Files are untouched.", count))
+        Announcer.shared.announce(Self.question(count: count))
     }
 
     func cancel() {

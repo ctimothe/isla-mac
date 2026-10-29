@@ -292,6 +292,7 @@
 "Charger Connected" = "Подключение зарядки";
 "Charging, %d percent" = "Зарядка, %d %%";
 "Shelf, %d items" = "Полка, объектов: %d";
+"Shelf, 1 item" = "Полка, 1 объект";
 "%@ connected" = "%@: подключено";
 "%d%%" = "%d %%";
 
@@ -476,6 +477,7 @@
 "Keep on Shelf" = "Оставить на полке";
 "Send to a nearby device" = "Отправить на устройство поблизости";
 "Remove all %d items? Files are untouched." = "Убрать все объекты (%d)? Сами файлы не затрагиваются.";
+"Remove 1 item? Its file is untouched." = "Убрать 1 объект? Сам файл не затрагивается.";
 "Remove All" = "Убрать все";
 "Open With" = "Открыть в приложении";
 
@@ -499,6 +501,7 @@
 "Copy as Plain Text" = "Скопировать как простой текст";
 "Clear Everything…" = "Очистить всё…";
 "Clear %d entries? Pinned items stay." = "Очистить записи (%d)? Закреплённые останутся.";
+"Clear 1 entry? Pinned items stay." = "Очистить 1 запись? Закреплённые останутся.";
 "Clear History" = "Очистить историю";
 "Search" = "Поиск";
 "Clear Search" = "Очистить поиск";

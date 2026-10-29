@@ -880,7 +880,7 @@ struct NotchContentView: View {
         if !vm.isLockedPresentation, let confirmation = vm.confirmation { return confirmation.accessibilityLabel }
         if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
         if !vm.isLockedPresentation, let offer = vm.updateOffer { return localized("Isla %@ is ready", offer.version) }
-        if !vm.isLockedPresentation, case .shelf(let count) = vm.activity { return localized("Shelf, %d items", count) }
+        if !vm.isLockedPresentation, case .shelf(let count) = vm.activity { return IslandBubble.label(count: count) }
         return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
     }
 

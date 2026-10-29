@@ -286,6 +286,7 @@
 "Charger Connected" = "Charger Connected";
 "Charging, %d percent" = "Charging, %d percent";
 "Shelf, %d items" = "Shelf, %d items";
+"Shelf, 1 item" = "Shelf, 1 item";
 "%@ connected" = "%@ connected";
 "%d%%" = "%d%%";
 
@@ -470,6 +471,7 @@
 "Keep on Shelf" = "Keep on Shelf";
 "Send to a nearby device" = "Send to a nearby device";
 "Remove all %d items? Files are untouched." = "Remove all %d items? Files are untouched.";
+"Remove 1 item? Its file is untouched." = "Remove 1 item? Its file is untouched.";
 "Remove All" = "Remove All";
 "Open With" = "Open With";
 
@@ -493,6 +495,7 @@
 "Copy as Plain Text" = "Copy as Plain Text";
 "Clear Everything…" = "Clear Everything…";
 "Clear %d entries? Pinned items stay." = "Clear %d entries? Pinned items stay.";
+"Clear 1 entry? Pinned items stay." = "Clear 1 entry? Pinned items stay.";
 "Clear History" = "Clear History";
 "Search" = "Search";
 "Clear Search" = "Clear Search";

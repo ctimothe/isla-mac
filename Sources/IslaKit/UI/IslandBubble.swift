@@ -60,8 +60,11 @@ struct IslandBubble: View {
     let increaseContrast: Bool
     let action: () -> Void
 
+    /// The bubble's name, and the island's value while the Shelf holds it.
+    /// One file is "Shelf, 1 item": it said "1 items", the first words
+    /// VoiceOver had for a single dropped file (`CountedSentenceTests`).
     static func label(count: Int) -> String {
-        localized("Shelf, %d items", count)
+        count == 1 ? localized("Shelf, 1 item") : localized("Shelf, %d items", count)
     }
 
     var body: some View {
