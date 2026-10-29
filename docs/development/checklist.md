@@ -2494,6 +2494,31 @@ these runs come next:
 - [ ] **B17-H3** Music paused, the panel shut, 5 minutes:
   `measure-idle.sh closed-idle`.
 
+### B18 — the position tick redraws only what moves (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+The position moved off `MediaController`'s own `@Published` onto
+`PlaybackClock`, an `@Observable` the controller forwards to, so a 0.1 s
+tick reaches only the views whose bodies read it. The player's subtitle and
+time labels read it inside a `ClockReader` of their own; the player's body
+no longer does. The idle-cost lab now starts the ticker as `NotchController`
+does on opening (`mediaClockWanted`), so it reproduces B17-H1. Two rounds of
+the old and the new lab bundle, alternated at the same load: the open player
+2.07–4.62 % → 0.16–0.34 % of a core, with lyrics 1.63–1.81 → 0.27–0.38, the
+lyric stage 2.21–3.55 → 0.27, the lock card 1.70–4.19 → 0.28–0.31. The stage
+and the lock card were not changed: their saving is every view that watched
+the controller without reading the position. `PlayerTickTests` holds it — a
+tick announces nothing on the controller, still reaches `shownPosition` and
+`shownLabelPosition`, is not read by the player's own body (that test fails
+with the read put back), and the open player, the stage and the lock card
+still move with nothing but the tick. Gate 27 green, 0.4.0.22 (28) in the feed.
+
+- [ ] **B18-H1** Install 0.4.0.22, music playing, the panel open on the
+  player, the pointer off it: `measure-idle.sh open-player 12`, against
+  B17-H1's 6.9 %.
+- [ ] **B18-H2** Watch the open player for a minute: the elapsed time and
+  the bar move every second, the sung line turns with the voice, and a drag
+  on the bar carries the time with the finger.
+
 ### B16 — Translate at rest, re-measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
 An open, empty Translate is 0.03–0.06 % of a core in quiet runs, under the
