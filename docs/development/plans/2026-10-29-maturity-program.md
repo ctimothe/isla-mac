@@ -169,9 +169,8 @@ What only the owner can do, and what it unblocks:
 - **Give the gallery verdicts.** They set the design baseline.
 - **Merge.** Merging to `main` ships to every user. It is on hold until the
   owner says otherwise.
-- **D3.** Whether one spelled-out batch may run each night as a routine. It
-  would run on Sonnet `high`, stop at the first red gate, and leave a
-  morning summary.
+- **D3.** Decided 2026-10-29: no nightly routine; batches run only while
+  the owner is in the session.
 
 ## Batch 0 — the instruments, before the fixes
 
@@ -226,3 +225,5 @@ What only the owner can do, and what it unblocks:
   picks from the top.
 - **D3 — overnight runs.** Whether approved, spelled-out batches may run
   unattended, and the nightly budget for them.
+  *Decided 2026-10-29 (owner: "No, only with me"): batches run only inside a
+  session the owner is in. No nightly routine, no scheduled agent.*
