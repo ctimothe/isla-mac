@@ -46,6 +46,16 @@ import XCTest
 // runner's floor alone reached 38 on 2026-10-29, at a load of about 50. What
 // this finds is a frame clock, 100 or more.
 //
+// A small difference needs more than one run. On a Mac in use about half the
+// runs catch bursts of 8 to 17 wake-ups a second from outside the lab, in
+// any state, the floor's included, and they cost 0.1 to 0.2 % of a core: an
+// open Translate read 0.24 % in one run and 0.03 % in the next (B16). Read a
+// state only from runs whose floor stayed under a wake-up a second, take three,
+// and compare two builds by alternating their bundles (`ISLA_IDLE_BUNDLE`).
+// A state also differs by what came before it: one that opens the panel
+// straight after the rig is built, with no `floor` first, never started the
+// Paste button's one-second `TimelineView`.
+//
 // Run by hand with `Scripts/measure-idle-lab.sh`; `./scripts/check` skips it
 // (ISLA_IDLE_OUT unset).
 
