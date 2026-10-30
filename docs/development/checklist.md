@@ -2685,6 +2685,23 @@ volume its size (the content plus a quarter plus 8 MB) and fails unless
   every second; a click or drag on the bar lands at once and the bar
   carries on from there; a pause stops the bar where it stands; a new
   song starts the bar from its own position.
+  *Measured 2026-10-30, same Mac, Isla 0.4.0.25 (31); the watch is still
+  owed, so the box stays open.* Lyric Band off: CPU 1.9 % median (1.9 %
+  max), 0.40 idle wake-ups/s, 123 switches/s, RSS 190 MB; helper 0.2 %. A
+  4 s `sample` finds the main thread waiting in 3049 of 3115 samples;
+  `NSHostingView.layout` 10, Core Animation's flush 18, no
+  `FocusBridge` at all. A 5 s SwiftUI trace holds 44 ms of updates:
+  `PlaybackScrubber`'s body 24 times, `ClockReader` 16, `PlaybackFill`'s
+  update 8, nothing on the display's frame. Lyric Band on, a line-timed
+  song: 7.2 % median, 1.63 idle wake-ups/s, 268 switches/s, RSS 152 MB.
+  There the 10 Hz tick re-creates the sung line's text on every pass
+  (`ClockReader` 116 times in 5 s, about 100 transition and view-creation
+  updates per tick), and each pass lays out the hosting view (100 samples)
+  and rebuilds the key-view loop (`FocusBridge` 41), the B18-H1 pattern at
+  10 Hz instead of 60. B19-H1's 4.5 % was a word-timed song, whose sung
+  line Core Animation draws once, so the cost with lyrics depends on the
+  song. A first run read 0.7 % with the main thread idle and the panel not
+  on the player, and is void. The sung line leaves the tick in Batch 21.
 
 ### B16 — Translate at rest, re-measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 

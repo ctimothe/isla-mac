@@ -180,11 +180,14 @@ that meets its budget, so the next headless queue is the cells over it:
   cover and equalizer alone on a stopped song. Fixed, a tick costs a pass
   of the panel's graph, layout and commit for any reader; the bar and the
   times left the tick (open without lyrics 0.93–1.76 % → 0.47–0.62 %).
-  The running Isla's re-run is B20-H1.
+  The running Isla, B20-H1: 1.9 % without lyrics against 4.5 % with them
+  before; with a line-timed song's lyrics 7.2 %.
 - **Batch 21: the rest of the tick's readers.** With lyrics on, the
   player's sung line reads the position every tick, and one reader pays
   for the whole pass (with lyrics 1.20–2.10 % in the lab, the stage
-  3.01–5.82). Put the subtitle and the stage's rows on the line-boundary
+  3.01–5.82; the running Isla 7.2 % with a line-timed song against 1.9 %
+  without, B20-H1, the tick re-creating the line's text and rebuilding the
+  key-view loop each time). Put the subtitle and the stage's rows on the line-boundary
   wake the clock already has (`lyricBoundaries`, `lyricLead`), keeping the
   read-ahead resolution and the line fill; then the lock card's bar, ring,
   labels and lyrics the way the player's bar and times went; then the
