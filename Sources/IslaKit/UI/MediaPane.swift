@@ -157,8 +157,9 @@ struct MediaPane: View {
     private func player(for track: MediaController.Track) -> some View {
         let layout = layout
         // Whether the band is on reads no position; the line it shows does,
-        // and is read inside a `ClockReader` below, so a tick re-runs the
-        // subtitle and the times and nothing else of the player.
+        // inside a `ClockReader` below, and reads the clock's line reading
+        // (`PlaybackClock.linePosition`), so a tick inside a line re-runs
+        // nothing of the player and a line's turn re-runs the line alone.
         let bandOn = bandIsOn
         return ZStack(alignment: .topLeading) {
             // The content's own size, so the children are placed from its
@@ -403,8 +404,11 @@ struct MediaPane: View {
 
     private var sungLine: SungLine {
         guard bandIsOn, case .synced(let lines) = lyrics.state else { return SungLine(isOn: false) }
+        let lead = LyricSweep.lead(
+            precisionSync: media.precisionSync, userOffset: lyrics.userOffset, trackOffset: lyrics.trackOffset
+        )
         let resolution = Self.captionResolution(lines: lines, inputs: LyricInputs(
-            position: media.shownPosition(nowPlaying),
+            position: media.shownLinePosition(nowPlaying, lead: lead),
             precisionSync: media.precisionSync,
             userOffset: lyrics.userOffset,
             trackOffset: lyrics.trackOffset,
@@ -412,6 +416,9 @@ struct MediaPane: View {
         ), readAhead: lyrics.readAhead)
         return SungLine(isOn: true, lines: lines, resolution: resolution)
     }
+
+    /// What a tick would re-run the line for, read as the subtitle reads it.
+    var sungLineForTests: SungLine { sungLine }
 
     private var wordTimingEnabled: Bool {
         LyricsPresentation.usesWordTiming(
@@ -434,10 +441,14 @@ struct MediaPane: View {
                             LyricSweep.liveSweep(
                                 line: line, end: LyricSweep.end(of: current, in: band.lines),
                                 wordTiming: wordTimingEnabled,
-                                clock: LyricSweep.songClock(media: media, lead: LyricSweep.lead(
+                                // From the clock's motion, which a seek, a
+                                // pause or a correction changes and a tick
+                                // does not: this body no longer runs on the
+                                // tick to pick up a new anchor.
+                                clock: LyricSweep.songClock(motion: media.shownMotion(nowPlaying), lead: LyricSweep.lead(
                                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                                     trackOffset: lyrics.trackOffset
-                                ), held: nowPlaying?.held)
+                                ))
                             )
                         },
                         reduceMotion: reduceMotion,

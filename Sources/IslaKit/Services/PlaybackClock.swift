@@ -32,6 +32,30 @@ final class PlaybackClock {
     /// between them (`PlaybackFill`).
     var motion: Motion = .still(0)
 
+    /// Where the player's sung line reads the song (Batch 21, 2026-10-30):
+    /// the position as it stood when it last crossed a lyric boundary or the
+    /// clock last changed course, left behind between those.
+    ///
+    /// The line read `position` in a `ClockReader`, and the tick re-ran it ten
+    /// times a second to draw the line already drawn: SwiftUI rebuilt its
+    /// text, laid the panel out and rebuilt the key-view loop each time, 7.2 %
+    /// of a core open on the player with a line-timed song against 1.9 % with
+    /// the band off (B20-H1). What the line draws turns only where a line
+    /// starts, where its voice ends and where the caption reads ahead, which
+    /// are the boundaries the clock already wakes on
+    /// (`MediaController.setLyricBoundaries`), so read here it is the line
+    /// the position would have drawn. A word sweep's edge does not read this:
+    /// Core Animation moves it from `motion`.
+    var linePosition: TimeInterval = 0
+
+    /// The lead `linePosition` was kept against, asked of the lyrics on
+    /// every change of the clock. A Lyric Delay or a track's nudge reaches
+    /// the pane at once, through the store, and the clock only on its next
+    /// tick: until then a reading kept at a line's turn, read with the new
+    /// lead, can name the line before it. A surface whose lead is not this
+    /// one reads the position instead (`shownLinePosition`).
+    var lineLead: TimeInterval = 0
+
     struct Seconds: Equatable {
         var elapsed = 0
         var remaining = 0

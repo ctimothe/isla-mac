@@ -289,6 +289,31 @@ final class KaraokeTrackView: NSView {
         input = nil
     }
 
+    /// A tick used to hand the view its line ten times a second, and `update`
+    /// re-laid a sweep that had lost its animation on the next one. The
+    /// player's line is handed over only when it turns or the clock changes
+    /// course since Batch 21, so a move into another window or onto another
+    /// display, where AppKit can rebuild the layer, repairs it here instead,
+    /// as `PlaybackFillView` does.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        repair()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        repair()
+    }
+
+    private func repair() {
+        guard window != nil, input != nil, !isLive else { return }
+        install()
+    }
+
+    func dropAnimationsForTests() {
+        for bar in bars { bar.removeAnimation(forKey: Self.sweepKey) }
+    }
+
     override func layout() {
         super.layout()
         host.frame = bounds

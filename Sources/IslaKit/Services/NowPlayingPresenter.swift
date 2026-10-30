@@ -390,6 +390,17 @@ extension MediaController {
         frame?.held?.position ?? labelPosition
     }
 
+    /// Where the sung line reads the song: the held song's stop during a
+    /// hold, the clock's line reading otherwise (`PlaybackClock.linePosition`),
+    /// which moves only when the line can turn — but only while the surface
+    /// reads with the `lead` the reading was kept against. Between a delay's
+    /// change and the clock's next tick the position is the honest answer,
+    /// and costs that one tick.
+    func shownLinePosition(_ frame: NowPlayingPresenter.Frame?, lead: TimeInterval) -> TimeInterval {
+        if let held = frame?.held { return held.position }
+        return clock.lineLead == lead ? clock.linePosition : position
+    }
+
     /// The labels' whole seconds: the clock's own while the panel shows the
     /// live song, which change only when a label's text does
     /// (`PlaybackClock.seconds`); worked out from the held song otherwise.

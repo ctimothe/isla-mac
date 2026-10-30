@@ -762,6 +762,19 @@ final class LyricsCoordinator: ObservableObject {
     /// here. They are re-registered when the setting changes (`start`), which
     /// passes the new value because the store has not written it yet when
     /// that event arrives.
+    /// Every moment a lyric surface can turn its line: each line's start,
+    /// each honoured end and each read-ahead start. The clock wakes on these,
+    /// and the player's sung line reads the song only when one is crossed
+    /// (`PlaybackClock.linePosition`), so a moment left out here is a line
+    /// that turns late, at the next tick, or with the sung line not at all
+    /// until the next boundary. `SungLineTickTests` walks the caption across
+    /// every kind.
+    static func boundaries(of lines: [LyricsStore.Line], readAhead: LyricReadAhead) -> [TimeInterval] {
+        let ends = lines.indices.compactMap { LyricSweep.effectiveEnd(of: $0, in: lines) }
+        let early = lines.indices.compactMap { LyricSweep.readAheadStart(before: $0, in: lines, readAhead: readAhead) }
+        return lines.map(\.at) + ends + early
+    }
+
     private func registerBoundaries(readAhead: LyricReadAhead? = nil) {
         guard case .ready(let timeline) = availability else {
             media.setLyricBoundaries([], lead: { 0 })
@@ -769,11 +782,8 @@ final class LyricsCoordinator: ObservableObject {
         }
         let media = self.media
         let presentation = self.presentation
-        let lines = timeline.lines
-        let ends = lines.indices.compactMap { LyricSweep.effectiveEnd(of: $0, in: lines) }
         let ahead = readAhead ?? presentation?.readAhead ?? .off
-        let early = lines.indices.compactMap { LyricSweep.readAheadStart(before: $0, in: lines, readAhead: ahead) }
-        media.setLyricBoundaries(lines.map(\.at) + ends + early) {
+        media.setLyricBoundaries(Self.boundaries(of: timeline.lines, readAhead: ahead)) {
             LyricSweep.lead(
                 precisionSync: media.precisionSync,
                 userOffset: presentation?.userOffset ?? 0,

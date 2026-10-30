@@ -141,11 +141,63 @@ final class MediaController: ObservableObject {
     /// worked out on every tick, and published on the few that change them.
     /// Called wherever an input to either changes — the position, the anchor,
     /// the rate, playing, the length and the song — so none can be missed.
-    private func publishClockReadings() {
+    ///
+    /// `linesChanged` is `setLyricBoundaries`', whose new lines turn on
+    /// boundaries the reading was not kept against.
+    private func publishClockReadings(linesChanged: Bool = false) {
         let seconds = PlaybackClock.Seconds(shown: min(labelPosition, duration), duration: duration)
         if clock.seconds != seconds { clock.seconds = seconds }
         let motion: PlaybackClock.Motion = songClock.map { .moving($0) } ?? .still(position)
-        if clock.motion != motion { clock.motion = motion }
+        // A stop, or a seek while stopped, re-stamps the line's reading: a
+        // paused word sweep is drawn at it. A correction while playing need
+        // not, since the boundary check below already keeps the reading on
+        // the line the clock is on, and the moving sweep's edge reads
+        // `motion` itself; re-stamping on every re-anchor would re-run the
+        // line at the player's report rate.
+        var stopped = false
+        if clock.motion != motion {
+            clock.motion = motion
+            if case .still = motion { stopped = true }
+        }
+        let lead = lyricLead()
+        let line = Self.linePosition(
+            position: position, published: clock.linePosition, boundaries: lyricBoundaries,
+            lead: lead, turned: stopped || linesChanged
+        )
+        if clock.linePosition != line { clock.linePosition = line }
+        if clock.lineLead != lead { clock.lineLead = lead }
+    }
+
+    /// The sung line's reading of the clock (`PlaybackClock.linePosition`):
+    /// the one already `published` while `position` is on the same side of
+    /// every boundary, the position itself once it crosses one, once `turned`
+    /// (the clock stopped, or new boundaries came), or when there are no
+    /// boundaries to keep it against.
+    ///
+    /// The lead is the one asked now, for both readings, so a reading kept
+    /// under the last lead is kept only if it still names the line the
+    /// position does under this one.
+    nonisolated static func linePosition(
+        position: TimeInterval, published: TimeInterval, boundaries: [TimeInterval],
+        lead: TimeInterval, turned: Bool
+    ) -> TimeInterval {
+        guard !turned, !boundaries.isEmpty else { return position }
+        let same = boundariesReached(boundaries, at: position + lead)
+            == boundariesReached(boundaries, at: published + lead)
+        return same ? published : position
+    }
+
+    /// How many of the sorted `boundaries` the lyric moment `at` has reached.
+    /// Reached means `boundary <= at`, the comparison every lyric rule makes
+    /// (`LyricSweep.index`, `moment`'s honoured end, `readingMoment`), so two
+    /// moments with one count draw one caption.
+    nonisolated static func boundariesReached(_ boundaries: [TimeInterval], at: TimeInterval) -> Int {
+        var low = 0, high = boundaries.count
+        while low < high {
+            let mid = (low + high) / 2
+            if boundaries[mid] <= at { low = mid + 1 } else { high = mid }
+        }
+        return low
     }
 
     private func holdLabelSecond() {
@@ -405,6 +457,7 @@ final class MediaController: ObservableObject {
     func setLyricBoundaries(_ boundaries: [TimeInterval], lead: @escaping @MainActor () -> TimeInterval) {
         lyricBoundaries = boundaries.sorted()
         lyricLead = lead
+        publishClockReadings(linesChanged: true)
         armBoundaryTimer()
     }
 

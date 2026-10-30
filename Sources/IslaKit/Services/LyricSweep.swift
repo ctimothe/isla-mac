@@ -428,6 +428,14 @@ enum LyricSweep {
         return media.songClock?.leading(lead)
     }
 
+    /// The same, from a surface's motion (`NowPlayingPresenter.shownMotion`),
+    /// which is still during a hold: for a body that observes the clock's
+    /// course and not its every tick.
+    static func songClock(motion: PlaybackClock.Motion, lead: TimeInterval) -> SongClock? {
+        guard case .moving(let clock) = motion else { return nil }
+        return clock.leading(lead)
+    }
+
     /// A word-timed line being sung, as a value the surfaces hand
     /// `KaraokeText` (Batch 19, 2026-10-30), or nil for a line nothing sweeps:
     /// line timing and a word-less line are lit whole and a credit not at

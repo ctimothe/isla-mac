@@ -343,36 +343,54 @@ final class IdleCostLab: VisualLabCase {
             await LabFixtures.play(before, on: rig.vm.media)
             await LabFixtures.play(track, on: rig.vm.media)
         }
+        // The lyrics as the app has them: shown, and their turning points
+        // registered with the clock as `LyricsCoordinator` registers them.
+        // Shown alone, the clock had no boundaries, so the player's sung
+        // line followed every tick and the lab measured the cost Batch 21
+        // removes from the app (2026-10-30).
+        func show(_ availability: LyricsAvailability, on rig: HitchRig) {
+            let media = rig.vm.media, lyrics = rig.vm.lyrics
+            lyrics.present(availability)
+            guard case .ready(let timeline) = availability else {
+                media.setLyricBoundaries([]) { 0 }
+                return
+            }
+            media.setLyricBoundaries(LyricsCoordinator.boundaries(of: timeline.lines, readAhead: lyrics.readAhead)) {
+                LyricSweep.lead(
+                    precisionSync: media.precisionSync, userOffset: lyrics.userOffset, trackOffset: lyrics.trackOffset
+                )
+            }
+        }
         return [
             State(name: "floor") { rig in
                 rig.vm.isOpen = false
                 LabFixtures.pause(playing, on: rig.vm.media)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 rig.panel.orderOut(nil)
             },
             State(name: "shut-paused") { rig in
                 shut(rig)
                 LabFixtures.pause(playing, on: rig.vm.media)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
             },
             State(name: "shut-playing") { rig in
                 shut(rig)
                 await play(playing, on: rig)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
             },
             State(name: "shut-caption") { rig in
                 shut(rig)
                 await play(.init(elapsed: 27), on: rig)
-                rig.vm.lyrics.present(LabFixtures.timeline())
+                show(LabFixtures.timeline(), on: rig)
             },
             State(name: "open-player") { rig in
                 await play(playing, on: rig)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 await open(rig, on: .player)
             },
             State(name: "open-player-lyrics") { rig in
                 await play(.init(elapsed: 27), on: rig)
-                rig.vm.lyrics.present(LabFixtures.timeline())
+                show(LabFixtures.timeline(), on: rig)
                 await open(rig, on: .player)
             },
             // The same player reached the way a song change reaches it: open
@@ -380,15 +398,15 @@ final class IdleCostLab: VisualLabCase {
             State(name: "lyrics-arrive") { rig in
                 rig.vm.isOpen = false
                 await play(.init(elapsed: 27), on: rig)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 await open(rig, on: .player)
                 try? await Task.sleep(for: .seconds(1))
-                rig.vm.lyrics.present(LabFixtures.timeline())
+                show(LabFixtures.timeline(), on: rig)
             },
             State(name: "seek-while-open") { rig in
                 rig.vm.isOpen = false
                 await play(playing, on: rig)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 await open(rig, on: .player)
                 try? await Task.sleep(for: .seconds(1))
                 // The same song, further on: a seek, not a song change.
@@ -396,12 +414,12 @@ final class IdleCostLab: VisualLabCase {
             },
             State(name: "open-stage") { rig in
                 await play(.init(elapsed: 27), on: rig)
-                rig.vm.lyrics.present(LabFixtures.timeline())
+                show(LabFixtures.timeline(), on: rig)
                 await open(rig, on: .stage)
             },
             State(name: "open-tray") { rig in
                 await play(playing, on: rig)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 await open(rig, on: .tray)
             },
             State(name: "open-clipboard") { rig in
@@ -420,33 +438,33 @@ final class IdleCostLab: VisualLabCase {
             // it, and the update alert offered and mid-download.
             State(name: "open-welcome") { rig in
                 LabFixtures.pause(playing, on: rig.vm.media)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 await open(rig, on: .player)
                 rig.vm.isShowingWelcome = true
             },
             State(name: "update-offer") { rig in
                 await play(playing, on: rig)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 self.offerUpdate(rig, phase: .idle)
             },
             State(name: "update-downloading") { rig in
                 await play(playing, on: rig)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 self.offerUpdate(rig, phase: .downloading(received: 4_000_000, total: 10_000_000))
             },
             State(name: "lock-player") { rig in
                 await play(.init(elapsed: 27), on: rig)
-                rig.vm.lyrics.present(LabFixtures.timeline())
+                show(LabFixtures.timeline(), on: rig)
                 self.lock(rig, pane: .player)
             },
             State(name: "lock-lyrics") { rig in
                 await play(.init(elapsed: 27), on: rig)
-                rig.vm.lyrics.present(LabFixtures.timeline())
+                show(LabFixtures.timeline(), on: rig)
                 self.lock(rig, pane: .lyrics)
             },
             State(name: "lock-long-title") { rig in
                 await play(LabFixtures.longTitle, on: rig)
-                rig.vm.lyrics.present(.disabled)
+                show(.disabled, on: rig)
                 self.lock(rig, pane: .player)
             },
             // Word-timed lines with the karaoke preference on and a measured
@@ -460,20 +478,20 @@ final class IdleCostLab: VisualLabCase {
             // it is sung through the whole run.
             State(name: "open-player-words") { rig in
                 await play(.init(elapsed: 24), on: rig)
-                rig.vm.lyrics.present(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word))
+                show(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word), on: rig)
                 LabFixtures.enablePrecision(on: rig.vm.media, lyrics: rig.vm.lyrics)
                 await open(rig, on: .player)
             },
             State(name: "open-stage-words") { rig in
                 await play(.init(elapsed: 24), on: rig)
-                rig.vm.lyrics.present(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word))
+                show(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word), on: rig)
                 LabFixtures.enablePrecision(on: rig.vm.media, lyrics: rig.vm.lyrics)
                 await open(rig, on: .stage)
             },
             State(name: "lock-paused") { rig in
                 await play(.init(elapsed: 27), on: rig)
                 LabFixtures.pause(.init(elapsed: 27), on: rig.vm.media)
-                rig.vm.lyrics.present(LabFixtures.timeline())
+                show(LabFixtures.timeline(), on: rig)
                 self.lock(rig, pane: .lyrics)
             },
         ]
