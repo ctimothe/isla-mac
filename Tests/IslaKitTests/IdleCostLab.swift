@@ -311,11 +311,37 @@ final class IdleCostLab: VisualLabCase {
         // never started it, so its open player had no position tick and read
         // 0.01–0.2 % of a core while the running Isla, ticking ten times a
         // second, read 6.9 % (B17-H1).
-        func open(_ rig: HitchRig, on surface: NotchViewModel.Surface) {
+        //
+        // And from a shut island the window has drawn, as every open in the
+        // app starts. `NotchContentView` lets the open body in a pass after it
+        // sees `isOpen` change (`bodyStaged`), and the player its title, sung
+        // line, times, scrubber and controls with it (`MediaPane.holdsBackRest`).
+        // Opened in the pass that built the panel, or over a panel already
+        // open, it never saw a change: until Batch 20 the open-player states
+        // measured the cover and the equalizer alone, none of which the clock
+        // touches, and read 0.2–0.3 % against the running Isla's 4.5 % (B19-H1).
+        func open(_ rig: HitchRig, on surface: NotchViewModel.Surface) async {
             rig.panel.orderFrontRegardless()
+            rig.vm.isOpen = false
+            try? await Task.sleep(for: .milliseconds(200))
             rig.vm.isOpen = true
             rig.vm.open(surface)
             rig.vm.media.setActive(NotchController.mediaClockWanted(isOpen: true, surface: surface, locked: false))
+        }
+        // A song playing on the machine's clock, as in the app. The rig's
+        // stores start on the lab's frozen clock (`LabSession.frozenMono`),
+        // which keeps a still's position exact and a playing song's position
+        // still: every tick published the value it already had, nothing drew,
+        // and until Batch 20 the playing states measured a song that never
+        // moved. Switched under the anchor the frozen clock left, the song
+        // would sit past its end, stopped; a different song first gives the
+        // one measured an anchor on the machine's clock.
+        func play(_ track: LabFixtures.Track, on rig: HitchRig) async {
+            rig.vm.media.monotonicNow = SongClock.hostNow
+            var before = track
+            before.title += " (before)"
+            await LabFixtures.play(before, on: rig.vm.media)
+            await LabFixtures.play(track, on: rig.vm.media)
         }
         return [
             State(name: "floor") { rig in
@@ -331,94 +357,95 @@ final class IdleCostLab: VisualLabCase {
             },
             State(name: "shut-playing") { rig in
                 shut(rig)
-                await LabFixtures.play(playing, on: rig.vm.media)
+                await play(playing, on: rig)
                 rig.vm.lyrics.present(.disabled)
             },
             State(name: "shut-caption") { rig in
                 shut(rig)
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                await play(.init(elapsed: 27), on: rig)
                 rig.vm.lyrics.present(LabFixtures.timeline())
             },
             State(name: "open-player") { rig in
-                await LabFixtures.play(playing, on: rig.vm.media)
+                await play(playing, on: rig)
                 rig.vm.lyrics.present(.disabled)
-                open(rig, on: .player)
+                await open(rig, on: .player)
             },
             State(name: "open-player-lyrics") { rig in
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                await play(.init(elapsed: 27), on: rig)
                 rig.vm.lyrics.present(LabFixtures.timeline())
-                open(rig, on: .player)
+                await open(rig, on: .player)
             },
             // The same player reached the way a song change reaches it: open
             // first, then the lyrics arrive (or the position jumps) under it.
             State(name: "lyrics-arrive") { rig in
                 rig.vm.isOpen = false
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                await play(.init(elapsed: 27), on: rig)
                 rig.vm.lyrics.present(.disabled)
-                open(rig, on: .player)
+                await open(rig, on: .player)
                 try? await Task.sleep(for: .seconds(1))
                 rig.vm.lyrics.present(LabFixtures.timeline())
             },
             State(name: "seek-while-open") { rig in
                 rig.vm.isOpen = false
-                await LabFixtures.play(playing, on: rig.vm.media)
+                await play(playing, on: rig)
                 rig.vm.lyrics.present(.disabled)
-                open(rig, on: .player)
+                await open(rig, on: .player)
                 try? await Task.sleep(for: .seconds(1))
+                // The same song, further on: a seek, not a song change.
                 await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
             },
             State(name: "open-stage") { rig in
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                await play(.init(elapsed: 27), on: rig)
                 rig.vm.lyrics.present(LabFixtures.timeline())
-                open(rig, on: .stage)
+                await open(rig, on: .stage)
             },
             State(name: "open-tray") { rig in
-                await LabFixtures.play(playing, on: rig.vm.media)
+                await play(playing, on: rig)
                 rig.vm.lyrics.present(.disabled)
-                open(rig, on: .tray)
+                await open(rig, on: .tray)
             },
             State(name: "open-clipboard") { rig in
-                await LabFixtures.play(playing, on: rig.vm.media)
-                open(rig, on: .clipboard)
+                await play(playing, on: rig)
+                await open(rig, on: .clipboard)
             },
             State(name: "open-translate") { rig in
-                await LabFixtures.play(playing, on: rig.vm.media)
-                open(rig, on: .translate)
+                await play(playing, on: rig)
+                await open(rig, on: .translate)
             },
             State(name: "open-settings") { rig in
-                await LabFixtures.play(playing, on: rig.vm.media)
-                open(rig, on: .settings)
+                await play(playing, on: rig)
+                await open(rig, on: .settings)
             },
             // B14: the welcome over the player, as a new install opens on
             // it, and the update alert offered and mid-download.
             State(name: "open-welcome") { rig in
                 LabFixtures.pause(playing, on: rig.vm.media)
                 rig.vm.lyrics.present(.disabled)
-                open(rig, on: .player)
+                await open(rig, on: .player)
                 rig.vm.isShowingWelcome = true
             },
             State(name: "update-offer") { rig in
-                await LabFixtures.play(playing, on: rig.vm.media)
+                await play(playing, on: rig)
                 rig.vm.lyrics.present(.disabled)
                 self.offerUpdate(rig, phase: .idle)
             },
             State(name: "update-downloading") { rig in
-                await LabFixtures.play(playing, on: rig.vm.media)
+                await play(playing, on: rig)
                 rig.vm.lyrics.present(.disabled)
                 self.offerUpdate(rig, phase: .downloading(received: 4_000_000, total: 10_000_000))
             },
             State(name: "lock-player") { rig in
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                await play(.init(elapsed: 27), on: rig)
                 rig.vm.lyrics.present(LabFixtures.timeline())
                 self.lock(rig, pane: .player)
             },
             State(name: "lock-lyrics") { rig in
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                await play(.init(elapsed: 27), on: rig)
                 rig.vm.lyrics.present(LabFixtures.timeline())
                 self.lock(rig, pane: .lyrics)
             },
             State(name: "lock-long-title") { rig in
-                await LabFixtures.play(LabFixtures.longTitle, on: rig.vm.media)
+                await play(LabFixtures.longTitle, on: rig)
                 rig.vm.lyrics.present(.disabled)
                 self.lock(rig, pane: .player)
             },
@@ -429,27 +456,22 @@ final class IdleCostLab: VisualLabCase {
             // read 0.3 % while the running Isla, open on the player, read
             // 6.2 % after Batch 18 (B18-H1).
             //
-            // On the machine's clock, not the lab's frozen one: since Batch 19
-            // Core Animation draws the edge from the song's clock, and a clock
-            // that never moves would leave it nothing to draw — a cost of
-            // zero that measured nothing. The song starts at the first word
-            // of a line ten seconds long, so it is sung through the whole run.
+            // The song starts at the first word of a line ten seconds long, so
+            // it is sung through the whole run.
             State(name: "open-player-words") { rig in
-                rig.vm.media.monotonicNow = SongClock.hostNow
-                await LabFixtures.play(.init(elapsed: 24), on: rig.vm.media)
+                await play(.init(elapsed: 24), on: rig)
                 rig.vm.lyrics.present(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word))
                 LabFixtures.enablePrecision(on: rig.vm.media, lyrics: rig.vm.lyrics)
-                open(rig, on: .player)
+                await open(rig, on: .player)
             },
             State(name: "open-stage-words") { rig in
-                rig.vm.media.monotonicNow = SongClock.hostNow
-                await LabFixtures.play(.init(elapsed: 24), on: rig.vm.media)
+                await play(.init(elapsed: 24), on: rig)
                 rig.vm.lyrics.present(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word))
                 LabFixtures.enablePrecision(on: rig.vm.media, lyrics: rig.vm.lyrics)
-                open(rig, on: .stage)
+                await open(rig, on: .stage)
             },
             State(name: "lock-paused") { rig in
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                await play(.init(elapsed: 27), on: rig)
                 LabFixtures.pause(.init(elapsed: 27), on: rig.vm.media)
                 rig.vm.lyrics.present(LabFixtures.timeline())
                 self.lock(rig, pane: .lyrics)
@@ -514,6 +536,7 @@ final class IdleCostLab: VisualLabCase {
             await state.prepare(rig)
             try await Task.sleep(for: .seconds(2))
             let before = IdleCounters.read(main: main, wakes: wakes)
+            let songBefore = rig.vm.media.position
             try await Task.sleep(for: .seconds(seconds / 2))
             // The main run loop's own account of itself mid-window: every
             // timer with its interval and next fire, every source and
@@ -538,6 +561,9 @@ final class IdleCostLab: VisualLabCase {
             let after = IdleCounters.read(main: main, wakes: wakes)
             var row: [String: Any] = IdleCounters.rates(from: before, to: after)
             row["state"] = state.name
+            // How far the song moved in the window: a playing state whose song
+            // stood still measured nothing the clock does (Batch 20).
+            row["songSeconds"] = rig.vm.media.position - songBefore
             report.append(row)
         }
         reset(rig)
@@ -545,11 +571,11 @@ final class IdleCostLab: VisualLabCase {
     }
 
     private static func table(results: [[String: Any]]) -> String {
-        var lines = ["state                 process%  main%  loop/s  intr/s  idle/s"]
+        var lines = ["state                 process%  main%  loop/s  intr/s  idle/s   song s"]
         for row in results {
             func number(_ key: String) -> String { String(format: "%7.2f", row[key] as? Double ?? 0) }
             let name = (row["state"] as? String ?? "?").padding(toLength: 20, withPad: " ", startingAt: 0)
-            lines.append("\(name) \(number("processCPUPercent"))  \(number("mainCPUPercent")) \(number("runLoopWakesPerSecond")) \(number("interruptWakeupsPerSecond")) \(number("idleWakeupsPerSecond"))")
+            lines.append("\(name) \(number("processCPUPercent"))  \(number("mainCPUPercent")) \(number("runLoopWakesPerSecond")) \(number("interruptWakeupsPerSecond")) \(number("idleWakeupsPerSecond")) \(number("songSeconds"))")
         }
         return lines.joined(separator: "\n")
     }
