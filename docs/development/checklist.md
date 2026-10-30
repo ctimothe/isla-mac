@@ -2668,7 +2668,16 @@ instead of trapping `Int(_:)` now that the labels are worked out with the
 panel shut. At exactly 0 s while playing the bar shows its 7 pt floor one
 tick earlier than the shape did; left as it is.
 
-- [ ] **B20-H1** Install 0.4.0.24, music playing, the panel open on the
+0.4.0.24 never installed: the island refused it, "The downloaded app isn't
+a valid Isla update." `hdiutil create -srcfolder` had sized the volume
+itself and written an image it could not read back ("corrupt image"); the
+installed 0.4.0.23 plus 32 KB of filler broke the same way, so it was the
+size, not the build. The gate's `dmg` step had made the same broken image
+and passed, since nothing read it back. `Scripts/dmg.sh` now gives the
+volume its size (the content plus a quarter plus 8 MB) and fails unless
+`hdiutil verify` reads the image. The same build went out as 0.4.0.25.
+
+- [ ] **B20-H1** Install 0.4.0.25, music playing, the panel open on the
   player with the sung line off, the pointer off it:
   `measure-idle.sh open-player 12`, against B19-H1's 4.5 %. Then the same
   with lyrics on, which this batch does not change. Watch the bar and the

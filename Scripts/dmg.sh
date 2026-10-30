@@ -56,13 +56,31 @@ ln -s /Applications "$STAGE/Applications"
 
 echo "==> сборка $DMG"
 rm -f "$DMG"
+# The volume's size is given, never left to -srcfolder. On 2026-10-30
+# (macOS 27.2) hdiutil sized the volume for 0.4.0.24 itself and wrote an
+# image it could not read back ("corrupt image"), UDRW as well as UDZO; the
+# installed 0.4.0.23 plus 32 KB of filler did the same, so it was the size,
+# not the content. The island refused it as "isn't a valid Isla update".
+# A quarter over the content plus 8 MB; UDZO compresses the free space, so
+# the room costs a few kilobytes of download.
+CONTENT_KB="$(du -sk "$STAGE" | cut -f1)"
+SIZE_MB=$(( (CONTENT_KB * 5 / 4) / 1024 + 8 ))
 hdiutil create \
     -volname "Isla $VERSION" \
     -srcfolder "$STAGE" \
     -fs HFS+ \
     -format UDZO \
+    -size "${SIZE_MB}m" \
     -quiet \
     "$DMG"
+
+# Read back before it is called done: the image above passed every step of
+# the gate and was published, and only the island found it would not mount.
+if ! hdiutil verify -quiet "$DMG"; then
+    echo "!!! hdiutil не может прочитать только что собранный образ: $DMG" >&2
+    rm -f "$DMG"
+    exit 1
+fi
 
 SIZE="$(du -h "$DMG" | cut -f1 | tr -d ' ')"
 echo "==> готово: $DMG ($SIZE)"
