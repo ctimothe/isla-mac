@@ -64,6 +64,31 @@ struct PlaybackScrubber: View {
         )
     }
 
+    /// The fill, on Core Animation along the song's clock, so a tick moves it
+    /// without re-running this view (`PlaybackFill`). Never eased: a seek or a
+    /// drag lands under the pointer at once, and the clock carries it on from
+    /// there. Drawn by SwiftUI only where layers are not drawn — the visual
+    /// lab's bitmaps (`KaraokeTrack.drawsLayers`), on its frozen clock.
+    @ViewBuilder
+    private func fillBar(width: CGFloat, duration: TimeInterval) -> some View {
+        if KaraokeTrack.drawsLayers {
+            PlaybackFill(
+                input: .init(
+                    motion: scrubbing.map { .still($0 * duration) } ?? media.shownMotion(nowPlaying),
+                    duration: duration, width: width, height: trackHeight, radius: radius, floor: trackHeight
+                ),
+                color: fill
+            )
+            .frame(width: width, height: trackHeight)
+        } else {
+            let filled = width * progress
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(fill)
+                .frame(width: max(filled, trackHeight), height: trackHeight)
+                .opacity(filled > 0 ? 1 : 0)
+        }
+    }
+
     private var previewFraction: Double? {
         if let scrubbing { return scrubbing }
         guard hover, previewArmed, let hoverX else { return nil }
@@ -72,23 +97,21 @@ struct PlaybackScrubber: View {
 
     var body: some View {
         let width = width
-        let filled = width * progress
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .fill(track)
                 .frame(height: trackHeight)
-            // Deliberately unanimated: a seek has to land under the cursor at
-            // once. Smoothness comes from the tick rate instead.
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(fill)
-                .frame(width: max(filled, trackHeight), height: trackHeight)
-                .opacity(filled > 0 ? 1 : 0)
+            fillBar(width: width, duration: media.shownDuration(nowPlaying))
             if hover {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 11, height: 11)
-                    .offset(x: min(max(filled - 5.5, 0), width - 11))
-                    .shadow(color: .black.opacity(0.4), radius: 3)
+                // The dot sits where the bar is now, so it reads the clock:
+                // only while the pointer is on the bar does a tick re-run it.
+                ClockReader {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 11, height: 11)
+                        .offset(x: min(max(width * progress - 5.5, 0), width - 11))
+                        .shadow(color: .black.opacity(0.4), radius: 3)
+                }
             }
         }
         .frame(width: width, alignment: .leading)
@@ -139,7 +162,10 @@ struct PlaybackScrubber: View {
         // A capsule with a drag gesture is nothing to assistive tech; see
         // `playbackPositionAccessibility` for why it is a slider.
         .playbackPositionAccessibility(
-            shown: progress * media.duration,
+            // The elapsed label's second, not the clock: the slider's value
+            // is what the label says, and reading the clock here would re-run
+            // the whole scrubber on every tick.
+            shown: scrubbing.map { $0 * media.duration } ?? Double(max(0, media.shownSeconds(nowPlaying).elapsed)),
             duration: media.duration,
             position: { media.position },
             seek: { media.seek(to: $0) }

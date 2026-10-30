@@ -173,6 +173,156 @@ final class PlayerTickTests: XCTestCase {
         }
     }
 
+    // MARK: The bar and the times (Batch 20)
+
+    /// The labels and the bar are worked out on every tick and published only
+    /// when a label's text or the bar's course changes. Before Batch 20 the
+    /// times and the scrubber read the position itself, so a tick re-ran both
+    /// and the panel's graph, layout and render with them, ten times a second
+    /// with nothing new to show nine times out of ten.
+    func testATickWithinASecondLeavesTheTimesAndTheBarAlone() async {
+        let rig = await playing(elapsed: 30.2)
+        defer {
+            rig.media.setActive(false)
+            rig.isolated.release()
+        }
+        let times = Flag(), bar = Flag()
+        withObservationTracking { _ = rig.media.shownSeconds(nil) } onChange: { times.raised = true }
+        withObservationTracking { _ = rig.media.shownMotion(nil) } onChange: { bar.raised = true }
+        let before = rig.media.position
+        let now = rig.media.monotonicNow()
+        rig.media.monotonicNow = { now + 0.1 }
+        rig.media.tick()
+        XCTAssertGreaterThan(rig.media.position, before, "the tick did not move the clock")
+        XCTAssertFalse(times.raised, "a tick inside a second re-runs the times")
+        XCTAssertFalse(bar.raised, "a tick re-runs the scrubber")
+    }
+
+    /// And they still say what the clock says: the labels turn on the tick
+    /// that turns their text, and the bar changes course on a pause.
+    func testTheTimesTurnWithTheirTextAndTheBarWithItsCourse() async throws {
+        let rig = await playing(elapsed: 30.2)
+        defer {
+            rig.media.setActive(false)
+            rig.isolated.release()
+        }
+        let times = Flag()
+        withObservationTracking { _ = rig.media.shownSeconds(nil) } onChange: { times.raised = true }
+        let now = rig.media.monotonicNow()
+        rig.media.monotonicNow = { now + 0.5 }
+        rig.media.tick()
+        XCTAssertTrue(times.raised, "the elapsed time passed 30.5 s and its label did not turn")
+        let seconds = rig.media.shownSeconds(nil)
+        XCTAssertEqual(formatTime(TimeInterval(seconds.elapsed)), formatTime(rig.media.labelPosition))
+        XCTAssertEqual(
+            formatTime(TimeInterval(seconds.remaining)), formatTime(max(0, rig.media.duration - rig.media.labelPosition))
+        )
+        guard case .moving(let clock) = rig.media.shownMotion(nil) else {
+            return XCTFail("a playing song's bar is not moving")
+        }
+        XCTAssertEqual(clock.position(at: rig.media.monotonicNow()), rig.media.extrapolatedPosition(), accuracy: 1e-9)
+
+        let bar = Flag()
+        withObservationTracking { _ = rig.media.shownMotion(nil) } onChange: { bar.raised = true }
+        LabFixtures.pause(.init(elapsed: 31, cover: nil), on: rig.media)
+        XCTAssertTrue(bar.raised, "a pause did not stop the bar")
+        XCTAssertEqual(rig.media.shownMotion(nil), .still(rig.media.position))
+    }
+
+    /// Every change of the clock that is not a tick reaches the labels and the
+    /// bar: a seek, a new rate, a length that arrives late, a new song. Each
+    /// is one of the controller's observers calling `publishClockReadings`,
+    /// and a dropped call would leave the times and the bar where they were
+    /// while the song moved on, with every other test still green.
+    func testEveryChangeOfTheClockReachesTheTimesAndTheBar() async {
+        let rig = await playing(elapsed: 30.2)
+        defer {
+            rig.media.setActive(false)
+            rig.isolated.release()
+        }
+        func apply(_ name: String, elapsed: TimeInterval, duration: TimeInterval, rate: Double, title: String = "Waiting Room") {
+            var snapshot = NowPlayingFeed.Snapshot()
+            snapshot.title = title
+            snapshot.artist = "Halcyon Static"
+            snapshot.album = "Low Light"
+            snapshot.duration = duration
+            snapshot.elapsed = elapsed
+            snapshot.rate = rate
+            snapshot.isPlaying = true
+            snapshot.takenAt = Date()
+            snapshot.source = "Music"
+            rig.media.apply(snapshot)
+            let media = rig.media
+            XCTAssertEqual(media.duration, duration, "\(name): the controller did not take the length")
+            XCTAssertEqual(
+                media.shownSeconds(nil),
+                PlaybackClock.Seconds(shown: min(media.labelPosition, media.duration), duration: media.duration),
+                "\(name): the labels say something else than the clock"
+            )
+            guard case .moving(let clock) = media.shownMotion(nil) else {
+                return XCTFail("\(name): a playing song's bar is not moving")
+            }
+            XCTAssertEqual(clock.rate, rate, "\(name): the bar runs at another rate")
+            XCTAssertEqual(
+                clock.position(at: media.monotonicNow()), media.extrapolatedPosition(), accuracy: 1e-6,
+                "\(name): the bar is somewhere else than the song"
+            )
+        }
+        apply("a seek", elapsed: 120, duration: 238, rate: 1)
+        apply("a new rate", elapsed: 120, duration: 238, rate: 1.5)
+        apply("a length that came late", elapsed: 120, duration: 301, rate: 1.5)
+        apply("a new song", elapsed: 12, duration: 190, rate: 1, title: "Another Song")
+    }
+
+    /// The labels' seconds round as `formatTime` does, so the text drawn from
+    /// them is the text drawn from the exact time, at every hundredth of a
+    /// second of a song whose length is not a whole number of seconds.
+    func testTheSecondsDrawTheSameTextAsTheExactTime() {
+        for duration in [238.0, 238.4, 61.5, 3_725.7] {
+            var shown = -0.5
+            while shown <= duration + 0.5 {
+                let clamped = min(shown, duration)
+                let seconds = PlaybackClock.Seconds(shown: clamped, duration: duration)
+                XCTAssertEqual(formatTime(TimeInterval(seconds.elapsed)), formatTime(clamped), "elapsed at \(shown) of \(duration)")
+                XCTAssertEqual(
+                    formatTime(TimeInterval(seconds.remaining)), formatTime(max(0, duration - clamped)),
+                    "remaining at \(shown) of \(duration)"
+                )
+                shown += 0.01
+            }
+        }
+        XCTAssertEqual(formatTime(TimeInterval(PlaybackClock.Seconds(shown: .nan, duration: 10).elapsed)), "--:--")
+        // A stream's sentinel length: no trap, and no label pretending to know.
+        let sentinel = PlaybackClock.Seconds(shown: 12, duration: 1e19)
+        XCTAssertEqual(formatTime(TimeInterval(sentinel.remaining)), "--:--")
+        XCTAssertEqual(PlaybackClock.Seconds(shown: 1e19, duration: 1e19).elapsed, -1)
+    }
+
+    /// The scrubber's own body: what a tick re-runs of it. Only the hover dot
+    /// reads the clock, inside a reader of its own; the slider VoiceOver hears
+    /// reads the elapsed label's second, so it turns with the label.
+    func testTheScrubbersBodyDoesNotReadThePosition() async {
+        let rig = await playing()
+        defer {
+            rig.media.setActive(false)
+            rig.isolated.release()
+        }
+        let scrubber = PlaybackScrubber(
+            media: rig.media, width: 310, trackHeight: 7, radius: 3.5, track: .white, fill: .white
+        )
+        let read = Flag()
+        withObservationTracking { _ = scrubber.body } onChange: { read.raised = true }
+        let now = rig.media.monotonicNow()
+        rig.media.monotonicNow = { now + 0.3 }
+        rig.media.tick()
+        XCTAssertFalse(read.raised, "a position tick re-runs the scrubber to move its fill")
+        // The control: the body does watch the clock, through the second
+        // VoiceOver reads, so a body that read nothing could not pass.
+        rig.media.monotonicNow = { now + 1.3 }
+        rig.media.tick()
+        XCTAssertTrue(read.raised, "the slider VoiceOver hears no longer turns with the elapsed time")
+    }
+
     /// On screen, a few seconds on and one tick later, what VoiceOver reads
     /// of the position says something else.
     private func assertMoves(

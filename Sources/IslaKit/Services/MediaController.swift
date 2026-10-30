@@ -16,7 +16,10 @@ final class MediaController: ObservableObject {
     }
 
     @Published private(set) var track: Track? {
-        didSet { publishReadingUnlessBatched() }
+        didSet {
+            publishReadingUnlessBatched()
+            publishClockReadings()
+        }
     }
     @Published private(set) var artwork: NSImage? {
         didSet {
@@ -26,9 +29,14 @@ final class MediaController: ObservableObject {
             publishReadingUnlessBatched()
         }
     }
-    @Published private(set) var isPlaying = false
+    @Published private(set) var isPlaying = false {
+        didSet { publishClockReadings() }
+    }
     @Published private(set) var duration: TimeInterval = 0 {
-        didSet { publishReadingUnlessBatched() }
+        didSet {
+            publishReadingUnlessBatched()
+            publishClockReadings()
+        }
     }
 
     /// What one report says about the song, published once per report rather
@@ -106,6 +114,7 @@ final class MediaController: ObservableObject {
         set {
             if clock.position != newValue { clock.position = newValue }
             holdLabelSecond()
+            publishClockReadings()
         }
     }
 
@@ -125,6 +134,18 @@ final class MediaController: ObservableObject {
               Double(shown.second) > position.rounded(),
               Double(shown.second) - position < 1.5 else { return position }
         return Double(shown.second)
+    }
+
+    /// The clock's coarse readings (`PlaybackClock.seconds`, `.motion`), set
+    /// only when they change: what the labels show and how the bar moves are
+    /// worked out on every tick, and published on the few that change them.
+    /// Called wherever an input to either changes — the position, the anchor,
+    /// the rate, playing, the length and the song — so none can be missed.
+    private func publishClockReadings() {
+        let seconds = PlaybackClock.Seconds(shown: min(labelPosition, duration), duration: duration)
+        if clock.seconds != seconds { clock.seconds = seconds }
+        let motion: PlaybackClock.Motion = songClock.map { .moving($0) } ?? .still(position)
+        if clock.motion != motion { clock.motion = motion }
     }
 
     private func holdLabelSecond() {
@@ -201,8 +222,12 @@ final class MediaController: ObservableObject {
     /// twice a second, forever.
     private var artworkRequestedFor: Set<String> = []
     private var anchor: (position: TimeInterval, atMono: TimeInterval)? {
-        // A new anchor moves every boundary's wall time with it.
-        didSet { armBoundaryTimer() }
+        // A new anchor moves every boundary's wall time with it, and the bar's
+        // motion.
+        didSet {
+            armBoundaryTimer()
+            publishClockReadings()
+        }
     }
     /// The clock the anchor extrapolates on. Wall time jumps on NTP steps and
     /// across sleep, and the anchor used to ride it — a +5s step teleported the
@@ -233,7 +258,10 @@ final class MediaController: ObservableObject {
                 anchor = (extrapolatedPosition(at: nowMono), nowMono)
             }
         }
-        didSet { if playbackRate != oldValue { armBoundaryTimer() } }
+        didSet {
+            if playbackRate != oldValue { armBoundaryTimer() }
+            publishClockReadings()
+        }
     }
 
     /// Where the clock stands at `nowMono` (now, by default): the anchor run

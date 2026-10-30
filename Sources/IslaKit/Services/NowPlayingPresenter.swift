@@ -390,6 +390,24 @@ extension MediaController {
         frame?.held?.position ?? labelPosition
     }
 
+    /// The labels' whole seconds: the clock's own while the panel shows the
+    /// live song, which change only when a label's text does
+    /// (`PlaybackClock.seconds`); worked out from the held song otherwise.
+    func shownSeconds(_ frame: NowPlayingPresenter.Frame?) -> PlaybackClock.Seconds {
+        let duration = shownDuration(frame)
+        guard frame?.held == nil, duration == self.duration else {
+            return .init(shown: min(shownLabelPosition(frame), duration), duration: duration)
+        }
+        return clock.seconds
+    }
+
+    /// How the bar moves: still where the held song stopped during a hold,
+    /// the clock's motion otherwise (`PlaybackClock.motion`).
+    func shownMotion(_ frame: NowPlayingPresenter.Frame?) -> PlaybackClock.Motion {
+        if let held = frame?.held { return .still(held.position) }
+        return clock.motion
+    }
+
     func shownIsPlaying(_ frame: NowPlayingPresenter.Frame?) -> Bool {
         frame?.held?.isPlaying ?? isPlaying
     }

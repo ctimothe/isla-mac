@@ -542,16 +542,19 @@ struct MediaPane: View {
             // Read here, not in the reader, so a drag still re-runs the pane
             // that owns it; only the clock is left for the reader to watch.
             let preview = previewFraction
+            // The labels' whole seconds, which change only when their text does
+            // (`PlaybackClock.seconds`), not the clock's every tick.
             ClockReader {
-            let shown = preview.map { $0 * duration } ?? min(media.shownLabelPosition(nowPlaying), duration)
-            Text(formatTime(shown))
+            let seconds = preview.map { PlaybackClock.Seconds(shown: $0 * duration, duration: duration) }
+                ?? media.shownSeconds(nowPlaying)
+            Text(formatTime(TimeInterval(seconds.elapsed)))
                 .font(Self.timeFont)
                 .foregroundStyle(preview == nil
                                  ? Color.white.opacity(Theme.playerTimeOpacity) : Color.white.opacity(0.9))
                 .frame(width: timesBox.width, height: timesBox.height, alignment: .leading)
                 .offset(x: layout.elapsedLeading, y: layout.timesTop)
                 .accessibilityHidden(true)
-            Text("-" + formatTime(max(0, duration - shown)))
+            Text("-" + formatTime(TimeInterval(seconds.remaining)))
                 .font(Self.timeFont)
                 .foregroundStyle(.white.opacity(Theme.playerTimeOpacity))
                 .frame(width: timesBox.width, height: timesBox.height, alignment: .trailing)

@@ -15,6 +15,51 @@ import SwiftUI
 @MainActor @Observable
 final class PlaybackClock {
     var position: TimeInterval = 0
+
+    /// What the time labels show, in whole seconds (Batch 20, 2026-10-30).
+    ///
+    /// The labels read `position` in a `ClockReader`, so every tick re-ran
+    /// them to draw the same two strings nine times out of ten, and a pass of
+    /// the panel's graph, layout and render came with each one. These change
+    /// only when a label's text does: at most twice a second, once for each
+    /// label, since the remaining time turns on the track's fraction of a
+    /// second and the elapsed time on the whole one.
+    var seconds = Seconds()
+
+    /// How the bar moves: still at a position, or along the song's clock.
+    /// Changes on a seek, a pause, a new rate or a correction, never on a
+    /// tick, so the fill Core Animation draws from it is handed nothing
+    /// between them (`PlaybackFill`).
+    var motion: Motion = .still(0)
+
+    struct Seconds: Equatable {
+        var elapsed = 0
+        var remaining = 0
+
+        /// The two labels for `shown` seconds of a `duration`-second song:
+        /// `formatTime` rounds, so these round the same way and the labels
+        /// drawn from them are the ones drawn from the exact time. A reading
+        /// that is not a number, or is below zero by any amount, draws "--:--"
+        /// as it always did, which a rounded zero would not. So does one past
+        /// a billion seconds: these are worked out on every change of the
+        /// clock, the panel shut included, and `Int(_:)` traps past
+        /// `Int.max`, so a stream's sentinel length must never reach it.
+        init(shown: TimeInterval, duration: TimeInterval) {
+            elapsed = Self.whole(shown)
+            remaining = Self.whole(max(0, duration - shown))
+        }
+
+        init() {}
+
+        private static func whole(_ seconds: TimeInterval) -> Int {
+            seconds.isFinite && seconds >= 0 && seconds < 1e9 ? Int(seconds.rounded()) : -1
+        }
+    }
+
+    enum Motion: Equatable {
+        case still(TimeInterval)
+        case moving(SongClock)
+    }
 }
 
 /// The part of a view that draws the position, set apart so that a tick
