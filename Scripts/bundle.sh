@@ -227,6 +227,14 @@ clang -dynamiclib -fobjc-arc -O2 \
 # equivalent to what Xcode would have produced. It must land *before* the
 # signature, because adding a file to a signed bundle invalidates it.
 #
+# The module named is IslaKit, the module the const values were extracted
+# from and the intents live in, not the app's. The processor in the Xcode
+# that built 0.4.0.25 (27A9275) took any name; Xcode 27.2's (27B52,
+# 2026-10-30) keeps only the const values of the module it is told about, so
+# "Isla" left it nothing to write ("Extracted no relevant App Intents
+# symbols") and the release gate failed with Shortcuts unable to see Isla. Named IslaKit, it writes the same eight
+# actions 0.4.0.25 shipped with, as `test-package.sh` checks.
+#
 # Skipped, loudly but without failing, when only the Command Line Tools are
 # installed: the processor ships with full Xcode. `Scripts/test-package.sh` is
 # where a release insists on it.
@@ -257,7 +265,7 @@ if [ -x "$INTENTS_TOOL" ]; then
         "$INTENTS_TOOL" \
             --output "$APP/Contents/Resources" \
             --toolchain-dir "$TOOLCHAIN_DIR" \
-            --module-name Isla \
+            --module-name IslaKit \
             --sdk-root "$SDK_ROOT" \
             --xcode-version "$(xcodebuild -version 2>/dev/null | sed -n 's/Build version //p')" \
             --platform-family macOS \
