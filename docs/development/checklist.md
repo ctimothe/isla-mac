@@ -2511,6 +2511,9 @@ tick announces nothing on the controller, still reaches `shownPosition` and
 `shownLabelPosition`, is not read by the player's own body (that test fails
 with the read put back), and the open player, the stage and the lock card
 still move with nothing but the tick. Gate 27 green, 0.4.0.22 (28) in the feed.
+*Amended 2026-10-30 (B20):* the lab's "after" figures here measured a
+stopped song on a player drawn without its title, times or bar; the
+"before" figures and B18-H1 stand.
 
 - [x] **B18-H1** Install 0.4.0.22, music playing, the panel open on the
   player, the pointer off it: `measure-idle.sh open-player 12`, against
@@ -2575,6 +2578,9 @@ track's layer (probed, the line turn and the stage's edge fade included); a
 pixel capture of a two-row line at 0.3 has the top row lit and dim pixels
 left only on the bottom row, under the stage's mask as without it. VoiceOver reads the line once: the track and its bright copy are hidden.
 Gate 29 green, 0.4.0.23 (29) in the feed.
+*Amended 2026-10-30 (B20):* the "after" figures measured a stopped song
+on a half-drawn player; that the sweep left the frame clock is held by the
+"before" figures, the loop wake-ups and B19-H1's sample.
 
 - [ ] **B19-H1** Install 0.4.0.23, a song with word-timed lyrics and word
   karaoke on, the panel open on the player, the pointer off it:
@@ -2600,6 +2606,76 @@ Gate 29 green, 0.4.0.23 (29) in the feed.
   the lines at its top and bottom edges, a line on two rows fills the top
   row first, a pause stops the edge where it stands, and a seek moves it at
   once.
+
+### B20 — the lab measures a playing player; the bar and the times leave the tick (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
+
+The twenty-fold gap B19-H1 left between the running panel and the lab was
+the lab. It never measured a playing, fully drawn player, for two reasons
+that compounded. `IdleCostLab.open()` set `isOpen` in the same pass that
+built the rig, or over a panel already open, so `NotchContentView` never
+saw the open change, `bodyStaged` stayed false, and `MediaPane.holdsBackRest`
+kept the title, the sung line, the times, the scrubber and the controls
+out: the open-player states drew the cover and the equalizer alone. And the
+stores start on the lab's frozen clock; switching to the host clock under
+the old anchor put the song past its end, so every tick wrote the same
+stopped position. The lab now opens from a drawn, shut island and plays
+each state's song on the host clock, after a different song so that it
+anchors anew, and its table has a "song s" column: the song moved
+7.0–7.3 s in every 7 s window. The B18 "after" figures (0.16–0.34 %, with
+lyrics 0.27–0.38, the stage 0.27, the lock card 0.28–0.31) and the B19
+figures for the same states (0.21–0.28, 0.21–0.29) measured a still song
+and are not the open player's cost; their "before" figures were real work
+(`@Published` on every tick, the per-frame sweep), and the live readings
+B17-H1, B18-H1 and B19-H1 stand.
+
+Measured properly, each tick is a pass of SwiftUI's graph, a layout of the
+panel and a commit, about 1.5 ms, for any view that reads the position. On
+the open player without lyrics the readers were the time labels and the
+bar. `PlaybackClock` now also publishes `seconds`, the two labels in whole
+seconds, which changes only when a label's text does, and `motion`, still
+at a position or moving along a `SongClock`, which changes on a seek, a
+pause, a new rate or a correction and never on a tick. The labels read
+`seconds`; the bar's fill is `PlaybackFill`, one Core Animation layer whose
+width runs from where the song is to where it stops, laid again only when
+the motion changes course. The visual lab's stills keep the SwiftUI shape.
+Three rounds of the old and the new lab bundle, alternated at the same
+load: open on the player, no lyrics, 0.93–1.76 % → 0.47–0.62 % of a core.
+Every state with lyrics is unchanged within the noise (with lyrics
+0.94–1.81 against 1.20–2.10, the stage 2.49–5.50 against 3.01–5.82, words
+on the player 1.06–2.90 against 1.33–2.35, on the stage 2.91–5.82 against
+3.92–6.80): the sung line still reads the position on every tick, and one
+reader is enough to pay for the whole pass. Moving it to the line-boundary
+wake the clock already has is Batch 21, with the lock card's bar, ring and
+labels and the stage's rows.
+
+`PlayerTickTests` holds it: a tick within a second leaves `seconds` and
+`motion` alone, a tick across one turns the labels, a pause stills the
+bar, the whole-second labels draw the same text as the exact time at every
+hundredth of a second for four durations (and "--:--" below zero and for
+NaN), and the scrubber's body no longer reads the position (fails with the
+HEAD scrubber). `PlaybackFillTests` holds the bar to the shape the scrubber
+drew, still and at every 50 ms of a moving course, stopped at the clock's
+end, and laid once per course: twenty agreeing ticks lay nothing, a seek
+and a pause each lay it once. An independent review (Sonnet) added four
+things: a seek, a new rate, a length that arrives late and a new song each
+reach the labels and the bar (the test fails with the publishing emptied;
+on the report path each observer's own call is redundant with the
+anchor's); the scrubber test has a control, a tick across a second does
+re-run the body; a bar that lost its animation is laid again when the view
+changes window or screen, since SwiftUI no longer calls on it every tick;
+and a length past a billion seconds, a stream's sentinel, draws "--:--"
+instead of trapping `Int(_:)` now that the labels are worked out with the
+panel shut. At exactly 0 s while playing the bar shows its 7 pt floor one
+tick earlier than the shape did; left as it is.
+
+- [ ] **B20-H1** Install 0.4.0.24, music playing, the panel open on the
+  player with the sung line off, the pointer off it:
+  `measure-idle.sh open-player 12`, against B19-H1's 4.5 %. Then the same
+  with lyrics on, which this batch does not change. Watch the bar and the
+  times for a minute: the bar moves smoothly and the elapsed time turns
+  every second; a click or drag on the bar lands at once and the bar
+  carries on from there; a pause stops the bar where it stands; a new
+  song starts the bar from its own position.
 
 ### B16 — Translate at rest, re-measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 

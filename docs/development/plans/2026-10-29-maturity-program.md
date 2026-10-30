@@ -175,12 +175,21 @@ that meets its budget, so the next headless queue is the cells over it:
   Animation; 0.21–0.29 % in the lab against 5.85–8.20 % before at the same
   load, F-011 held by the keyframe tests and L5. The running Isla, B19-H1:
   4.5 % against 6.2 %, the per-frame work gone.
-- **The open player on the running Isla, 4.5 % against 0.21–0.28 % in the
-  lab (B19-H1).** The 10 Hz tick runs a SwiftUI graph update and a layout of
-  the panel each time, and Spotify's precise-position script runs on its own
-  queue. Find what the live panel has that the lab's does not — real glass,
-  the pointer watcher, the precision poll, the window's size — by turning
-  them on in the lab one at a time.
+- ~~**The open player on the running Isla, 4.5 % against 0.21–0.28 % in the
+  lab (B19-H1).**~~ Batch 20: the gap was the lab, which drew the player's
+  cover and equalizer alone on a stopped song. Fixed, a tick costs a pass
+  of the panel's graph, layout and commit for any reader; the bar and the
+  times left the tick (open without lyrics 0.93–1.76 % → 0.47–0.62 %).
+  The running Isla's re-run is B20-H1.
+- **Batch 21: the rest of the tick's readers.** With lyrics on, the
+  player's sung line reads the position every tick, and one reader pays
+  for the whole pass (with lyrics 1.20–2.10 % in the lab, the stage
+  3.01–5.82). Put the subtitle and the stage's rows on the line-boundary
+  wake the clock already has (`lyricBoundaries`, `lyricLead`), keeping the
+  read-ahead resolution and the line fill; then the lock card's bar, ring,
+  labels and lyrics the way the player's bar and times went; then the
+  stage's CPU-drawn layers that redisplay on every tick
+  (`CABackingStoreUpdate` in its sample).
 - The lock card's interlude marker still draws a `TimelineView` on every
   frame while a gap is shown. Measure it in the lab before moving it.
 - The opening's missed frames (0.6–2.9 at idle), against the bar of none.
