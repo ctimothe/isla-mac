@@ -173,8 +173,14 @@ that meets its budget, so the next headless queue is the cells over it:
 - ~~The word-timed sweep, about 7 % of a core wherever a line is sung word
   by word (B18-H1).~~ Batch 19: drawn once, the edge moved by Core
   Animation; 0.21–0.29 % in the lab against 5.85–8.20 % before at the same
-  load, F-011 held by the keyframe tests and L5. The running Isla's re-run
-  is B19-H1.
+  load, F-011 held by the keyframe tests and L5. The running Isla, B19-H1:
+  4.5 % against 6.2 %, the per-frame work gone.
+- **The open player on the running Isla, 4.5 % against 0.21–0.28 % in the
+  lab (B19-H1).** The 10 Hz tick runs a SwiftUI graph update and a layout of
+  the panel each time, and Spotify's precise-position script runs on its own
+  queue. Find what the live panel has that the lab's does not — real glass,
+  the pointer watcher, the precision poll, the window's size — by turning
+  them on in the lab one at a time.
 - The lock card's interlude marker still draws a `TimelineView` on every
   frame while a gap is shown. Measure it in the lab before moving it.
 - The opening's missed frames (0.6–2.9 at idle), against the bar of none.

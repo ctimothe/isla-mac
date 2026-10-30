@@ -2579,7 +2579,21 @@ Gate 29 green, 0.4.0.23 (29) in the feed.
 - [ ] **B19-H1** Install 0.4.0.23, a song with word-timed lyrics and word
   karaoke on, the panel open on the player, the pointer off it:
   `measure-idle.sh open-player 12`, against B18-H1's 6.2 %. Then the same
-  on the lyric stage.
+  on the lyric stage. The player half, 2026-10-30, same Mac, Isla 0.4.0.23
+  (29), word karaoke on: two runs, 8.5 % median (13.8 % max, 340
+  switches/s) and then 4.5 % (4.8 % max, 129 switches/s); the kernel's CPU
+  time over the second agrees, 2.98 s in 65 s. The first run's peak and
+  switches say something else ran in it; the steady reading is the second,
+  against 6.2 %. A 4 s `sample` between the two, symbolicated against the
+  identical build (UUID 0EAB475D), has the per-frame signature gone:
+  display-cycle flushes 134 → 23 samples, `NSHostingView.layout` 113 → 12,
+  `FocusBridge` 45 → 0, and no karaoke code at all. What remains is the
+  position tick — a SwiftUI graph update and a layout of the panel ten
+  times a second (`ClockReader`, the player's subtitle and progress row,
+  the scrubber), 71 samples — and Spotify's precise-position AppleScript
+  on its own queue, 30. The lab reads 0.21–0.28 % for the same state, so
+  the tick costs the running panel about twenty times what it costs the
+  lab; that gap is the next thing to trace. The stage half is owed.
 - [ ] **B19-H2** Watch the sweep for a minute on the player, the stage and
   the lock card: the edge stays with the voice word by word, a line that
   turns carries its lit half with it as it fades, the stage's fade covers
