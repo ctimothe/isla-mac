@@ -182,17 +182,22 @@ that meets its budget, so the next headless queue is the cells over it:
   times left the tick (open without lyrics 0.93–1.76 % → 0.47–0.62 %).
   The running Isla, B20-H1: 1.9 % without lyrics against 4.5 % with them
   before; with a line-timed song's lyrics 7.2 %.
-- **Batch 21: the rest of the tick's readers.** With lyrics on, the
+- ~~**Batch 21: the rest of the tick's readers.** With lyrics on, the
   player's sung line reads the position every tick, and one reader pays
   for the whole pass (with lyrics 1.20–2.10 % in the lab, the stage
   3.01–5.82; the running Isla 7.2 % with a line-timed song against 1.9 %
   without, B20-H1, the tick re-creating the line's text and rebuilding the
-  key-view loop each time). Put the subtitle and the stage's rows on the line-boundary
-  wake the clock already has (`lyricBoundaries`, `lyricLead`), keeping the
-  read-ahead resolution and the line fill; then the lock card's bar, ring,
-  labels and lyrics the way the player's bar and times went; then the
-  stage's CPU-drawn layers that redisplay on every tick
-  (`CABackingStoreUpdate` in its sample).
+  key-view loop each time).~~ Batch 21 (2026-10-30) put the player's sung
+  line on the line boundaries: in the lab with lyrics 1.03–1.53 % →
+  0.49–0.68 %, word-timed 1.41–2.22 → 0.42–0.84, level with no lyrics;
+  B21-H1 owed. The stage, the lock card and the stage's layers moved to
+  Batch 22.
+- **Batch 22: the rest of the tick's readers.** The stage's rows (its
+  interlude marker fills continuously, so it needs more than the line
+  reading), then the lock card's bar, ring, labels and lyrics the way the
+  player's went, then the stage's CPU-drawn layers that redisplay on every
+  tick (`CABackingStoreUpdate` in its sample). The stage was 3.18–4.53 % in
+  Batch 21's lab, the largest open cost left.
 - The lock card's interlude marker still draws a `TimelineView` on every
   frame while a gap is shown. Measure it in the lab before moving it.
 - The opening's missed frames (0.6–2.9 at idle), against the bar of none.

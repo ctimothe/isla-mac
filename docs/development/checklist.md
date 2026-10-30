@@ -2607,6 +2607,74 @@ on a half-drawn player; that the sweep left the frame clock is held by the
   row first, a pause stops the edge where it stands, and a seek moves it at
   once.
 
+### B21 — the player's sung line turns on its lines, not on the tick (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
+
+The running Isla open on the player read 7.2 % of a core with a line-timed
+song's lyrics against 1.9 % without (B20-H1): the sung line read the
+position in a `ClockReader`, and the 10 Hz tick re-ran it to draw the line
+already drawn, re-creating its text, laying the panel out and rebuilding
+the key-view loop each time. What the line draws turns only where a line
+starts, where its voice ends and where the caption reads ahead, and the
+clock already wakes on exactly those moments (`setLyricBoundaries`, now
+built by `LyricsCoordinator.boundaries(of:readAhead:)`). `PlaybackClock`
+now also keeps `linePosition`, the position as it stood when it last
+crossed one of them, and the lead it was kept against (`lineLead`);
+`publishClockReadings` moves it when the position crosses a boundary under
+the lead asked now, when the clock stops (a paused word sweep is drawn at
+it), when new boundaries arrive, and on every tick when there are none.
+The player's line reads it through `shownLinePosition(_:lead:)`, which
+answers the position instead while the pane's lead is not the one the
+reading was kept against. The word sweep's song clock comes from `motion`
+rather than the controller, and `KaraokeTrackView` re-lays a sweep that
+lost its animation when it changes window or screen, since no tick hands
+it the line any more.
+
+The idle-cost lab had shown lyrics to the store without registering their
+boundaries, which the app's coordinator does, so its first A/B measured the
+fallback and found nothing; it now registers them as the coordinator does.
+Three rounds of the old and the new lab bundle, both with that lab fix,
+alternated at the same load: open on the player with lyrics 1.03–1.53 % →
+0.49–0.68 % of a core, with word-timed lyrics 1.41–2.22 → 0.42–0.84, both
+now level with the player without lyrics (0.34–0.59, unchanged). The stage
+was not changed (3.18–4.53 against 3.63–4.11).
+
+`SungLineTickTests` holds it: a tick inside a line leaves the reading
+alone and one across a stamp moves it; a lead raised mid-line turns the
+line on the next tick; a pause re-stamps the reading and a seek re-stamps
+it only onto another line; new boundaries, and none, move it; the player's
+`sungLine` is not re-run by a tick inside a line and is by one across a
+stamp (fails with the subtitle reading `shownPosition` again); the open
+player turns its line on screen through the boundaries; a sweep that lost
+its animation is laid again in its new window; and the caption drawn at the
+reading equals the caption at the clock at every 3.7 ms from −1 s to 45 s,
+across stamps, honoured ends and interludes, two lines on one stamp, a
+credit, read-ahead Off, Auto, 0.3 s and 0.5 s, and three leads (fails with
+the read-ahead or the end boundaries left out). Every rule was broken once
+and failed its test. An independent review (Sonnet) found one regression,
+fixed before commit: a reading kept at a line's turn, read with a Lyric
+Delay added since, named the line before until the next tick, so the line
+turned back and forth; `testADelayAddedMidLineNeverShowsTheLineBefore`
+holds it and fails with the lead check removed. The same review noted that
+re-stamping on every change of the clock's course would re-run the line at
+the player's report rate; a correction while playing no longer re-stamps.
+Gate 32 failed on `package` alone, and HEAD failed it the same way: Xcode
+had updated to 27.2 (27B52) between gates, and its App Intents processor
+keeps only the const values of the module it is named, so `bundle.sh`'s
+"Isla" left Shortcuts without Isla's actions. Naming IslaKit, the module
+the intents and their const values belong to, writes the same eight actions
+0.4.0.25 shipped with (`5b95797`). Gate 33 green, 12 steps, 3121 tests;
+0.4.0.26 (32) in the feed, its image verified and carrying the metadata.
+
+- [ ] **B21-H1** Install 0.4.0.26, music playing, the panel open on the
+  player with the Lyric Band on and a line-timed song, the pointer off it:
+  `measure-idle.sh open-player 12`, against B20-H1's 7.2 % (and 1.9 % with
+  the band off). Then watch a minute of it: every line turns on the voice
+  (with "Show next line early" a beat ahead, as before); a pause and a
+  resume, a seek into the middle of a line and across one, and a Lyric
+  Delay nudge while a line is sung each show the right line at once, with
+  no line turning back; a word-timed song's sweep still runs smoothly and
+  stops where the song stops.
+
 ### B20 — the lab measures a playing player; the bar and the times leave the tick (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
 
 The twenty-fold gap B19-H1 left between the running panel and the lab was
