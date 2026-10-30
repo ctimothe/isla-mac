@@ -2537,6 +2537,56 @@ still move with nothing but the tick. Gate 27 green, 0.4.0.22 (28) in the feed.
   the bar move every second, the sung line turns with the voice, and a drag
   on the bar carries the time with the finger.
 
+### B19 — the word sweep runs on Core Animation (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
+
+A word-timed line was swept by `KaraokeText`'s `TimelineView(.animation)`,
+which read the clock on every display frame and laid out and rendered the
+whole panel each time (B18-H1). SwiftUI now draws the line once: the dim
+copy through `KaraokeRenderer`, and the bright copy inside `KaraokeTrack`,
+an AppKit view whose layer is masked by one bar per laid-out row.
+`KaraokePlan` works out each bar's width from now to the end of the line —
+straight between word stamps, a jump at a word that takes no time, the top
+row full before the next is touched, stopped at the track's end — and Core
+Animation runs it, so the main thread wakes for the position tick only. The
+clock is `SongClock`, the arithmetic `extrapolatedPosition` runs, on the
+machine clock Core Animation keeps; a tick that reads the same clock again
+(within 2 ms) leaves the running animation alone, and a re-anchor, a seek, a
+rate change or a pause replaces it. Paused, held, under Reduce Motion and in
+the visual lab's stills the line is drawn by the renderer as before. The
+idle-cost lab, the old and the new bundle alternated three rounds at the
+same load: `open-player-words` 5.85–6.81 % → 0.21–0.28 % of a core,
+`open-stage-words` 6.07–8.20 → 0.21–0.29, loop wake-ups 123–159 → 10 a
+second.
+
+F-011 still holds, in three places. `KaraokeTrackTests` holds the keyframes
+against the renderer's own arithmetic every 2 ms — one row, two rows, a line
+cut short, a word that takes no time, rates 0.5 to 2, the track's end — and
+asks Core Animation itself for each bar's width at 4 ms steps. The Lyrics
+Accuracy Lab's L5 now samples the plan, on the 540-track corpus: edge lag
+p50 4.17 ms, p95 and max 8.33 ms at 120 Hz (16.65 at 60 Hz), none of
+7 296 736 samples ahead of the voice — the same figures, sample for sample,
+as before Batch 19. Its first run read a 246 ms maximum, and that was the
+lab: it took the plan's width back to a fraction, which lost the last
+binary digit on a held word (513.513… pt over 1 000 fell a step under
+19/37), and its search then timed a frame drawn as the next word began
+from the start of the silence before it. It now measures in points. And
+SwiftUI's opacity, blur, offset, mask and clip on an ancestor reach the
+track's layer (probed, the line turn and the stage's edge fade included); a
+pixel capture of a two-row line at 0.3 has the top row lit and dim pixels
+left only on the bottom row, under the stage's mask as without it. VoiceOver reads the line once: the track and its bright copy are hidden.
+Gate 29 green, 0.4.0.23 (29) in the feed.
+
+- [ ] **B19-H1** Install 0.4.0.23, a song with word-timed lyrics and word
+  karaoke on, the panel open on the player, the pointer off it:
+  `measure-idle.sh open-player 12`, against B18-H1's 6.2 %. Then the same
+  on the lyric stage.
+- [ ] **B19-H2** Watch the sweep for a minute on the player, the stage and
+  the lock card: the edge stays with the voice word by word, a line that
+  turns carries its lit half with it as it fades, the stage's fade covers
+  the lines at its top and bottom edges, a line on two rows fills the top
+  row first, a pause stops the edge where it stands, and a seek moves it at
+  once.
+
 ### B16 — Translate at rest, re-measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
 
 An open, empty Translate is 0.03–0.06 % of a core in quiet runs, under the
