@@ -690,9 +690,9 @@ struct LyricsStage: View {
             distance: distance,
             at: now,
             end: LyricSweep.end(of: index, in: lines),
-            // Only the sung row reads the clock per frame; every other row is
-            // lit whole or not at all.
-            clock: isCurrent ? LyricSweep.frameClock(media: media, lead: lead, held: heldClock) : nil,
+            // Only the sung row is handed the clock; every other row is lit
+            // whole or not at all.
+            clock: isCurrent ? LyricSweep.songClock(media: media, lead: lead, held: heldClock) : nil,
             // The stage reads at 22 bold, the sung line at full white and never
             // larger (decision 6). A long line wraps to a second and only past
             // that is cut at its tail, its full words still what VoiceOver

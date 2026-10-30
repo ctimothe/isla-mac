@@ -23,11 +23,12 @@ struct LyricRow: View {
     let at: TimeInterval
     /// When this line gives way to the next.
     let end: TimeInterval
-    /// The moment to sweep against, read afresh on every display frame, lead
-    /// already applied — `LyricSweep.frameClock`. `at` is the published
-    /// moment, as old as the last 0.1 s tick; this is where the clock is now.
-    /// Nil while the song is paused, and the sweep then stands at `at`.
-    var clock: (@MainActor () -> TimeInterval)? = nil
+    /// The song's clock, lead already applied — `LyricSweep.songClock` —
+    /// which a word-timed sung line hands Core Animation to move its edge
+    /// (`KaraokeTrack`). `at` is the published moment, as old as the last
+    /// 0.1 s tick; this is the clock itself. Nil while the song is paused,
+    /// and the sweep then stands at `at`.
+    var clock: SongClock? = nil
 
     /// A size rather than a `Font`, so the row can apply the tracking that size
     /// wants — SF ships a table for it and `.system(size:)` leaves it behind.
@@ -345,11 +346,11 @@ struct LyricRow: View {
                             line: line, isCurrent: true, at: at, end: end,
                             wordTiming: wordTimingEnabled
                         ),
-                        // The same function again, asked by the frame rather
-                        // than by the tick, and only for a line whose sweep
-                        // moves at all: a line-timed row is lit whole and
-                        // needs no frame callback to stay so.
-                        clock: LyricSweep.liveFraction(
+                        // The same function again, run ahead by Core
+                        // Animation rather than asked by the tick, and only
+                        // for a line whose sweep moves at all: a line-timed
+                        // row is lit whole and has nothing to animate.
+                        sweep: LyricSweep.liveSweep(
                             line: line, end: end, wordTiming: wordTimingEnabled, clock: clock
                         ),
                         reduceMotion: reduceMotion,

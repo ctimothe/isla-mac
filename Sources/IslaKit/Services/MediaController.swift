@@ -210,7 +210,7 @@ final class MediaController: ObservableObject {
     /// survives both. A seam, like `foreignHoldWindow`: tests freeze it while
     /// the wall runs on. `Date` stays only inside the 1.5s seek-verdict window,
     /// where what matters is ordering recent events, not measuring durations.
-    var monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    var monotonicNow: () -> TimeInterval = SongClock.hostNow
     /// How fast the player says the track is moving. Podcast and video apps
     /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
     /// regardless meant the bar fell behind between polls and lurched forward
@@ -245,9 +245,18 @@ final class MediaController: ObservableObject {
     /// the lyric surfaces once came to disagree (see `LyricSweep`). Only the
     /// lyric wake runs its own, uncapped, and says why.
     func extrapolatedPosition(at nowMono: TimeInterval? = nil) -> TimeInterval {
-        guard isPlaying, let anchor else { return position }
-        let value = anchor.position + ((nowMono ?? monotonicNow()) - anchor.atMono) * playbackRate
-        return duration > 0 ? min(value, duration) : value
+        guard let songClock else { return position }
+        return songClock.position(at: nowMono ?? monotonicNow())
+    }
+
+    /// The clock `extrapolatedPosition` reads, as a value: the anchor and the
+    /// rate it runs at, capped at the track's end. Nil while the song is not
+    /// moving. The word sweep hands it to Core Animation (`KaraokeTrack`).
+    var songClock: SongClock? {
+        guard isPlaying, let anchor else { return nil }
+        return SongClock(
+            position: anchor.position, atMono: anchor.atMono, rate: playbackRate, cap: duration > 0 ? duration : nil
+        )
     }
     /// Where we asked the player to jump, when — and from where, because the
     /// pre-seek trajectory is the only thing that can unmask a reading taken

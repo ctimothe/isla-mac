@@ -288,9 +288,10 @@ final class HitchRig {
 
     init(session: LabSession) async throws {
         guard let geometry = NotchGeometry.current() else { throw XCTSkip("no display") }
-        // On a real screen, the app's own marquee (the visual lab draws its
-        // rest instead).
+        // On a real screen, the app's own marquee and word sweep (the visual
+        // lab draws their stills instead).
         MarqueeTiming.travelsOnCoreAnimation = true
+        KaraokeTrack.drawsLayers = true
         let stores = session.makeStores()
         await LabFixtures.play(.init(), on: stores.media)
         vm = NotchViewModel(geometry: geometry, stores: stores, defaults: session.suite)

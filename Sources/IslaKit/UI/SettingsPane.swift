@@ -2062,11 +2062,11 @@ struct LyricDelayControls: View {
             KaraokeText(
                 text: line.text,
                 fraction: shown.fraction,
-                clock: shown.current.flatMap { current in
-                    LyricSweep.liveFraction(
+                sweep: shown.current.flatMap { current in
+                    LyricSweep.liveSweep(
                         line: line, end: LyricSweep.end(of: current, in: lines),
                         wordTiming: wordTiming,
-                        clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                        clock: LyricSweep.songClock(media: media, lead: LyricSweep.lead(
                             precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                             trackOffset: lyrics.trackOffset
                         ))

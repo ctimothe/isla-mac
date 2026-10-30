@@ -1110,10 +1110,10 @@ struct LockScreenCard: View {
             distance: distance,
             at: resolution.at,
             end: LyricSweep.end(of: index, in: lines),
-            // The sung row's edge read per frame from the running clock, as
-            // on the stage and the caption.
+            // The sung row's edge moved by Core Animation from the song's
+            // clock, as on the stage and the caption.
             clock: index == resolution.current
-                ? LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                ? LyricSweep.songClock(media: media, lead: LyricSweep.lead(
                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                     trackOffset: lyrics.trackOffset
                 ), held: frame?.held)

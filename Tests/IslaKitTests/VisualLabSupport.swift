@@ -354,6 +354,7 @@ final class LabSession {
         // picture of its rest (`MarqueeTiming`). The labs that put the panel
         // on a real screen set it back (`HitchRig`).
         MarqueeTiming.travelsOnCoreAnimation = false
+        KaraokeTrack.drawsLayers = false
         setDefaults([:])
     }
 
@@ -411,6 +412,7 @@ final class LabSession {
         }
         NotchMetrics.pausedLinger = savedLinger
         MarqueeTiming.travelsOnCoreAnimation = true
+        KaraokeTrack.drawsLayers = true
         SystemAppearance.shared.resetForTests()
         LabLocalization.uninstall()
         SpotifyAccount.sharedOverride = nil
@@ -448,6 +450,11 @@ final class LabSession {
 
     // MARK: Stores
 
+    /// The moment the lab's media clock stands at, so a drawn position never
+    /// depends on how long a render took. A lab that needs the song to move
+    /// puts the machine's clock back (`IdleCostLab`'s word-timed states).
+    static let frozenMono: TimeInterval = 50_000
+
     /// A fresh set of session stores, every one pointed at the lab's own
     /// suite, pasteboard and temporary folder.
     func makeStores(hud: MediaKeyHUD? = nil) -> NotchStores {
@@ -470,7 +477,7 @@ final class LabSession {
         )
         labTrace("isolate")
         stores.media.isolateFromPlayers()
-        stores.media.monotonicNow = { 50_000 }
+        stores.media.monotonicNow = { LabSession.frozenMono }
         stores.media.lyricsShown = { false }
         stores.media.precisionPositionFetcher = { reply in reply(nil) }
         stores.translator.capabilitiesOverride = { _ in Translator.Capabilities() }

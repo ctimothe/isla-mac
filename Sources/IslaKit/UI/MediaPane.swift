@@ -430,11 +430,11 @@ struct MediaPane: View {
                     KaraokeText(
                         text: Self.bandText(of: line),
                         fraction: band.fraction,
-                        clock: resolution.current.flatMap { current in
-                            LyricSweep.liveFraction(
+                        sweep: resolution.current.flatMap { current in
+                            LyricSweep.liveSweep(
                                 line: line, end: LyricSweep.end(of: current, in: band.lines),
                                 wordTiming: wordTimingEnabled,
-                                clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                                clock: LyricSweep.songClock(media: media, lead: LyricSweep.lead(
                                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                                     trackOffset: lyrics.trackOffset
                                 ), held: nowPlaying?.held)

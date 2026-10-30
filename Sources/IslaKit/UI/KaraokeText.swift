@@ -12,10 +12,10 @@ import SwiftUI
 /// the other read right and jerky.
 ///
 /// A `TextRenderer` is the instrument that is both. It is handed the laid-out text,
-/// so each visual row can be clipped on its own and filled in reading order, and
-/// it draws whatever fraction it is given on the frame it is given it — which,
-/// while a word-timed line is being sung, is a fraction read from the clock on
-/// that very frame (see `KaraokeText.clock`).
+/// so each visual row can be clipped on its own and filled in reading order. It
+/// draws every still sweep — line timing, a paused song, Reduce Motion, the
+/// visual lab — and the dim line under a moving one, whose bright copy Core
+/// Animation uncovers in the same order (`KaraokeTrack`, since Batch 19).
 ///
 /// It still conforms to `Animatable` through the fraction, because a
 /// `TextRenderer` must; `KaraokeText` is what makes sure nothing animates it.
@@ -97,19 +97,21 @@ struct KaraokeRenderer: TextRenderer, Animatable {
 struct KaraokeText: View {
     let text: String
     let fraction: Double
-    /// Where the sweep stands right now, asked on every display frame; nil
-    /// draws `fraction` as it is. A surface hands one in only while a
-    /// word-timed line is being sung (`LyricSweep.liveFraction`).
+    /// The line being sung word by word, with the song's clock; nil for a line
+    /// that is lit whole or not at all. A surface hands one in only for a
+    /// word-timed line (`LyricSweep.liveSweep`).
     ///
     /// The edge used to be `fraction`, published on the 0.1 s tick and eased
     /// between ticks over a quarter of a second. Each publish re-aimed a ramp
     /// the last one had not finished, so the ramp never arrived and the edge
     /// trailed the clock by 175 ms at the median and 196 ms at p95 — the voice
     /// on time at each line change and late at every word in between (F-011,
-    /// L-10). A shorter ramp only shrinks the same lag to about a tick and
-    /// steps on any late publish. Placed by the clock on the frame it is
-    /// drawn, the edge is at most one frame old, and nothing follows after it.
-    var clock: (@MainActor () -> Double)? = nil
+    /// L-10). It was then read from the clock on every display frame, which
+    /// put it at most a frame old and laid the whole panel out and rendered it
+    /// 120 times a second to do so (B18-H1). Core Animation now draws the edge
+    /// from the line's keyframes (`KaraokePlan`): placed by the same clock on
+    /// every frame, with nothing asked of the app between ticks.
+    var sweep: LiveSweep? = nil
     var reduceMotion: Bool = false
     var accent: Color = Color.white.opacity(0.92)
     var font: Font = Theme.TypeRole.body.font()
@@ -139,23 +141,64 @@ struct KaraokeText: View {
     }
 
     var body: some View {
-        let clockDriven = clock != nil && !reduceMotion
-        // One timeline always, paused unless the clock drives it, so a line
-        // that starts or stops playing keeps its identity rather than being
-        // swapped for another view mid-line. Paused, it costs nothing and
-        // redraws only when its inputs change, as a plain view would. Running,
-        // it asks for a frame on every display refresh — only while a
-        // word-timed line is current, on a surface that is showing it.
-        TimelineView(.animation(minimumInterval: nil, paused: !clockDriven)) { _ in
-            // Reduce Motion asks for the state, not the travel: the line still
-            // reads as the current one, it simply arrives lit rather than
-            // filling.
-            let drawn = reduceMotion ? 1 : (clockDriven ? clock?() ?? fraction : fraction)
-            sweep(drawn, clockDriven: clockDriven)
-        }
+        // The same line in every case, so a song that stops and starts, or a
+        // line that turns word-timed when the player's clock is measured,
+        // keeps its identity rather than being swapped for another view
+        // mid-line. Under a moving sweep it is the dim line alone, and the
+        // track over it is the bright one. Reduce Motion asks for the state,
+        // not the travel: the line still reads as the current one, it simply
+        // arrives lit rather than filling.
+        let tracked = sweep != nil && !reduceMotion && KaraokeTrack.drawsLayers
+        let drawn = reduceMotion ? 1 : (tracked ? 0 : fraction)
+        return line(drawn, clockDriven: sweep?.clock != nil && !reduceMotion)
+            .overlayPreferenceValue(Text.LayoutKey.self) { layouts in
+                if tracked, let sweep {
+                    GeometryReader { proxy in
+                        KaraokeTrack(
+                            input: .init(
+                                runs: KaraokeTrack.runs(layouts, in: proxy), full: fullWidth,
+                                sweep: sweep, fraction: fraction
+                            ),
+                            style: .init(
+                                text: text, font: font, tracking: tracking, lineLimit: lineLimit,
+                                accent: accent, size: proxy.size
+                            ),
+                            line: AnyView(brightCopy(size: proxy.size))
+                        )
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+            }
+            .background(alignment: .leading) {
+                // The same text on one row with nothing to stop it, never drawn,
+                // only measured. A background so it takes no part in the line's
+                // own layout, and outside the renderer so it is not swept.
+                Text(text)
+                    .font(font)
+                    .tracking(tracking)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .hidden()
+                    .accessibilityHidden(true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { fullWidth = $0 }
+            }
     }
 
-    private func sweep(_ drawn: Double, clockDriven: Bool) -> some View {
+    /// The line in the accent colour, laid out in exactly the box SwiftUI gave
+    /// the dim one, so every glyph lands on its twin.
+    private func brightCopy(size: CGSize) -> some View {
+        Text(text)
+            .font(font)
+            .tracking(tracking)
+            .foregroundStyle(accent)
+            .lineLimit(lineLimit)
+            .truncationMode(.tail)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .accessibilityHidden(true)
+    }
+
+    private func line(_ drawn: Double, clockDriven: Bool) -> some View {
         Text(text)
             .font(font)
             .tracking(tracking)
@@ -173,18 +216,5 @@ struct KaraokeText: View {
                 Self.sweepAnimation(reduceMotion: reduceMotion, clockDriven: clockDriven),
                 value: drawn
             )
-            .background(alignment: .leading) {
-                // The same text on one row with nothing to stop it, never drawn,
-                // only measured. A background so it takes no part in the line's
-                // own layout, and outside the renderer so it is not swept.
-                Text(text)
-                    .font(font)
-                    .tracking(tracking)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .hidden()
-                    .accessibilityHidden(true)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { fullWidth = $0 }
-            }
     }
 }

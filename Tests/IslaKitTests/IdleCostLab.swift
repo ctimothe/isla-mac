@@ -278,6 +278,7 @@ final class IdleCostLab: VisualLabCase {
         rig.vm.media.precisionPlayerForTests = nil
         rig.vm.media.lyricsShown = { NotchViewModel.showLyricsEnabled }
         rig.vm.media.precisionPositionFetcher = nil
+        rig.vm.media.monotonicNow = { LabSession.frozenMono }
         rig.vm.isShowingWelcome = false
         rig.vm.updateOffer = nil
         UpdateInstaller.sharedOverride = nil
@@ -427,14 +428,22 @@ final class IdleCostLab: VisualLabCase {
             // The line-timed states above never start that timeline, so they
             // read 0.3 % while the running Isla, open on the player, read
             // 6.2 % after Batch 18 (B18-H1).
+            //
+            // On the machine's clock, not the lab's frozen one: since Batch 19
+            // Core Animation draws the edge from the song's clock, and a clock
+            // that never moves would leave it nothing to draw — a cost of
+            // zero that measured nothing. The song starts at the first word
+            // of a line ten seconds long, so it is sung through the whole run.
             State(name: "open-player-words") { rig in
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                rig.vm.media.monotonicNow = SongClock.hostNow
+                await LabFixtures.play(.init(elapsed: 24), on: rig.vm.media)
                 rig.vm.lyrics.present(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word))
                 LabFixtures.enablePrecision(on: rig.vm.media, lyrics: rig.vm.lyrics)
                 open(rig, on: .player)
             },
             State(name: "open-stage-words") { rig in
-                await LabFixtures.play(.init(elapsed: 27), on: rig.vm.media)
+                rig.vm.media.monotonicNow = SongClock.hostNow
+                await LabFixtures.play(.init(elapsed: 24), on: rig.vm.media)
                 rig.vm.lyrics.present(LabFixtures.timeline(LabFixtures.wordLines, granularity: .word))
                 LabFixtures.enablePrecision(on: rig.vm.media, lyrics: rig.vm.lyrics)
                 open(rig, on: .stage)

@@ -25,3 +25,55 @@ struct ClockReader<Content: View>: View {
 
     var body: some View { content() }
 }
+
+/// The song's clock as a straight line (Batch 19, 2026-10-30): where the media
+/// clock puts the song at any monotonic moment, given one reading of it.
+///
+/// `MediaController.extrapolatedPosition` runs this arithmetic and nothing
+/// else, so a surface holding a `SongClock` and a surface asking the
+/// controller are on one clock. It exists so the word sweep can hand Core
+/// Animation the whole of a line in advance instead of asking for the clock
+/// on every display frame, which laid out and rendered the panel 120 times a
+/// second (B18-H1).
+struct SongClock: Equatable, Sendable {
+    /// The song's position at `atMono`, with whatever lead the surface added.
+    var position: TimeInterval
+    var atMono: TimeInterval
+    var rate: Double
+    /// Where the song stops, the track's end with the same lead; nil for a
+    /// track of unknown length.
+    var cap: TimeInterval?
+
+    /// The machine's monotonic clock: `MediaController.monotonicNow` in the
+    /// app, and the clock Core Animation's media time is read from, so a
+    /// moment on one is a moment on the other.
+    static let hostNow: @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+
+    func position(at mono: TimeInterval) -> TimeInterval {
+        let value = position + (mono - atMono) * rate
+        return cap.map { min(value, $0) } ?? value
+    }
+
+    /// When the song reaches `song`; nil when it never will — a still or
+    /// reversed rate, or a moment past the end.
+    func mono(atSong song: TimeInterval) -> TimeInterval? {
+        guard rate > 0 else { return nil }
+        if let cap, song > cap { return nil }
+        return atMono + (song - position) / rate
+    }
+
+    func leading(_ lead: TimeInterval) -> SongClock {
+        SongClock(position: position + lead, atMono: atMono, rate: rate, cap: cap.map { $0 + lead })
+    }
+
+    /// Whether `other` is this line read at another moment: the same rate
+    /// and end, and the song within `tolerance` of where this one puts it.
+    /// The 0.1 s tick hands the sweep a new reading every time, and a fresh
+    /// reading of an unchanged clock must not restart an animation that is
+    /// already right; a correction past a few milliseconds must.
+    func agrees(with other: SongClock, within tolerance: TimeInterval = 0.002) -> Bool {
+        guard rate == other.rate, cap == other.cap else { return false }
+        let theirs = other.position + (atMono - other.atMono) * other.rate
+        return abs(theirs - position) <= tolerance
+    }
+}
