@@ -754,22 +754,26 @@ struct LyricsStage: View {
         following = true
     }
 
-    /// The silence before a line, in the slot a line would take: three dots
-    /// where the sung line goes (spec §5.4). No seek and no hint: there are no
+    /// The silence before a line, in the slot a line would take: the lock
+    /// card's note and track, filling toward the voice where the sung line
+    /// goes (spec §5.4, amended 2026-10-31). No seek and no hint: there are no
     /// words here to jump to, and the line it leads to is the next row down.
     private func interludeRow(_ slot: LyricSlot, at: TimeInterval, isCurrent: Bool, distance: Int) -> some View {
-        InterludeMarker(
+        // Only the interlude playing reads the clock per frame, and only
+        // while the song moves: the frames are spent on the one row somebody
+        // is waiting through.
+        let clock: (@MainActor () -> Double)? = InterludeMarker.liveFill(
+            for: slot, isCurrent: isCurrent, media: media, lead: lead, held: heldClock
+        )
+        return InterludeMarker(
             progress: LyricSweep.interludeProgress(slot, at: at),
             isCurrent: isCurrent,
             distance: distance,
-            // Only the interlude playing reads the clock per frame — and the
-            // dots, which carry no progress, have no use for it.
-            clock: nil,
+            clock: clock,
             fontSize: metrics.fontSize,
             weight: metrics.weight,
             reading: !following,
-            reduceMotion: reduceMotion,
-            style: .dots
+            reduceMotion: reduceMotion
         )
         .frame(maxHeight: .infinity, alignment: .center)
     }

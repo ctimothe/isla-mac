@@ -2607,6 +2607,31 @@ on a half-drawn player; that the sweep left the frame clock is held by the
   row first, a pause stops the edge where it stands, and a seek moves it at
   once.
 
+### The stage's rest fills like the lock card's (`feat/maturity-batch-0-on-mobbin`, 2026-10-31)
+
+Owner, 2026-10-31, from the lock card: its intro shows a note and a short
+track filling toward the first sung line, and the island's lyric stage
+showed three still dots in the same place. They should be one thing. The
+stage now draws the lock card's `InterludeMarker` track, at the stage's
+type size, for every rest long enough to be a row (an intro, a solo); the
+three dots and their `Theme` constants are gone, and spec §5.4 carries the
+amendment. Both surfaces ask `InterludeMarker.liveFill` for the fill, so the
+two cannot drift again: it reads the running clock, lead included, on each
+display frame for the rest that is playing and only while the song moves,
+and a rest nobody is waiting through costs no frames. A fill that moves
+during an intro is a display-link redraw of one 44 × 3 capsule on the stage
+while it lasts; Batch 22's stage measurement takes it into account.
+
+`LyricsColumnTests.testTheRestFillsTowardTheVoiceOnlyWhilePlayingAndCurrent`
+holds it: the playing intro's fill is the clock's, lead included, six
+seconds into a twenty-second intro reads 0.3, and a rest not playing, a
+line, or a paused song get no frame clock (fails with the fill withheld).
+
+- [ ] **REST-H1** A line-timed song from its start, the island open on the
+  lyric stage: the intro shows the note and the track filling, and the first
+  line lights as the track fills; a solo mid-song does the same. Lock the
+  Mac on the same song: the card's rest looks and moves the same way.
+
 ### B21 — the player's sung line turns on its lines, not on the tick (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
 
 The running Isla open on the player read 7.2 % of a core with a line-timed

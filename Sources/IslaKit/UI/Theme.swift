@@ -654,13 +654,6 @@ enum Theme {
     static let editorFieldFill = Color.white.opacity(0.06)
     static let editorFieldEdge = Color.white.opacity(0.16)
 
-    /// The instrumental gap's three dots (spec §5.4): 7 pt, white at 0.9, 0.55
-    /// and 0.3 — a rest in the song, not a loading indicator, so they do not
-    /// move.
-    static let instrumentalDotSize: CGFloat = 7
-    static let instrumentalDotSpacing: CGFloat = 6
-    static let instrumentalDotOpacities: [Double] = [0.9, 0.55, 0.3]
-
     // MARK: - Artwork
 
     /// The two ends of the cover's travel between the pill and the open panel.

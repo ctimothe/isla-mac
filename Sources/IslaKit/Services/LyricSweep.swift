@@ -397,8 +397,9 @@ enum LyricSweep {
 
     /// The moment a fill drawn frame by frame reads on each display frame: the
     /// running clock, lead added, or nil while the song is not moving. Only
-    /// the lock card's interlude track is drawn so since the word sweep moved
-    /// to Core Animation (`songClock`, Batch 19).
+    /// the interlude track (`InterludeMarker`, on the stage and the lock card)
+    /// is drawn so since the word sweep moved to Core Animation (`songClock`,
+    /// Batch 19).
     ///
     /// The running clock, not `MediaController.position`. That one is
     /// published on the 0.1 s tick, so an edge read from it steps ten times a

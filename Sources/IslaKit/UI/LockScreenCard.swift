@@ -1178,12 +1178,14 @@ struct LockScreenCard: View {
             progress: LyricSweep.interludeProgress(slot, at: resolution.at),
             isCurrent: isCurrent,
             distance: distance,
-            clock: isCurrent
-                ? LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+            clock: InterludeMarker.liveFill(
+                for: slot, isCurrent: isCurrent, media: media,
+                lead: LyricSweep.lead(
                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                     trackOffset: lyrics.trackOffset
-                ), held: frame?.held))
-                : nil,
+                ),
+                held: frame?.held
+            ),
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
             reduceMotion: reduceMotion,

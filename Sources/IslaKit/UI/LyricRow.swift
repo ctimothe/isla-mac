@@ -463,15 +463,22 @@ struct InterludeMarker: View {
     /// The same surface as the lines around it, so on the lock card a marker
     /// is the card's grey and not the panel's dimmer one beside a card line.
     var surface: LyricRow.Surface = .panel
-    /// What the rest looks like. The lock card keeps the note and the filling
-    /// track; the panel's column and tall page draw three dots (spec §5.4,
-    /// `Lyrics-Instrumental`): 7 pt, at 0.9, 0.55 and 0.3, left-aligned where
-    /// the sung line goes.
-    var style: Style = .track
 
-    enum Style: Equatable {
-        case track
-        case dots
+    /// The fill a surface hands the marker for `slot`: read on every display
+    /// frame while this is the interlude playing and the song moves, nil
+    /// otherwise. One answer for the stage and the lock card, so the two
+    /// draw the same rest the same way.
+    ///
+    /// The stage drew three still dots here until 2026-10-31 (spec §5.4's
+    /// first `Lyrics-Instrumental`), while the lock card filled its track
+    /// toward the voice; the owner wanted the card's on both, since the fill
+    /// says when the singing starts and the dots said nothing.
+    static func liveFill(
+        for slot: LyricSlot, isCurrent: Bool, media: MediaController, lead: TimeInterval,
+        held: NowPlayingPresenter.HeldClock?
+    ) -> (@MainActor () -> Double)? {
+        guard isCurrent else { return nil }
+        return LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: lead, held: held))
     }
 
     /// How long the track is. Short on purpose: a progress bar the width of
@@ -492,37 +499,6 @@ struct InterludeMarker: View {
     }
 
     var body: some View {
-        if style == .dots {
-            dots
-        } else {
-            track
-        }
-    }
-
-    /// Three static dots. The current interlude shows them at the board's own
-    /// strengths; one the song has passed or has yet to reach is the same three
-    /// dimmed to its row's context step, so the page's depth reaches it. They do
-    /// not animate and carry no progress: a rest is not a loading state, and the
-    /// words coming back is the next row down.
-    @MainActor
-    private var dots: some View {
-        let scale = isCurrent ? 1 : opacity / max(surface.ramp(increaseContrast: SystemAppearance.shared.increaseContrast).unswept, 0.01)
-        return HStack(spacing: Theme.instrumentalDotSpacing) {
-            ForEach(Array(Theme.instrumentalDotOpacities.enumerated()), id: \.offset) { _, level in
-                Circle()
-                    .fill(Color.white.opacity(level * min(scale, 1)))
-                    .frame(width: Theme.instrumentalDotSize, height: Theme.instrumentalDotSize)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.accessibilityLabel)
-        .accessibilityAddTraits(isCurrent ? [.isStaticText, .isSelected] : [.isStaticText])
-    }
-
-    @MainActor
-    private var track: some View {
         let clockDriven = clock != nil && !reduceMotion
         let tone = Color.white.opacity(opacity)
         return HStack(spacing: 8) {

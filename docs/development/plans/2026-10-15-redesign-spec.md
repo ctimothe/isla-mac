@@ -676,6 +676,15 @@ mismatch notice, editor) move with it.
 | Version mismatch | `Lyrics-Version-Mismatch` | one notice above the lines, 488 wide × 40, radius 9, fill 0.07, hairline 0.10, `clock.arrow.circlepath` 12 pt, existing text (11 pt, wraps) |
 | Unreadable local file | `Lyrics-Invalid-File` | `exclamationmark.bubble` 22 pt, "Line %d of this file has a time Isla can’t read." (new, from the parser's line number; falls back to the existing "Can't read the lyrics file for this song."), buttons Edit Lyrics… · Import LRC… |
 
+> **Amended 2026-10-31 (owner).** The "Instrumental gap" row's three still
+> dots are withdrawn. The column and the stage draw the lock card's rest
+> instead: a `music.note` at the line's type size and a 44 × 3 track that
+> fills from the moment the voice stops to the moment it comes back, intro
+> included, so the page says when the singing starts. One marker
+> (`InterludeMarker`) and one fill (`InterludeMarker.liveFill`) serve both
+> surfaces; the fill reads the clock per frame only for the rest playing,
+> and only while the song moves.
+
 > **Amended 2026-10-16 (owner).** The "Read ahead" row's "the page stays
 > where the person scrolled" was too eager: any scroll event over the panel
 > — a sideways swipe, a one-pixel brush — stopped the page following for
