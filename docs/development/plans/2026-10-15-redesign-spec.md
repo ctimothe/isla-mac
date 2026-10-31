@@ -833,6 +833,12 @@ chose a style keep it; only the default (no stored value) becomes Automatic.
 > Increase Contrast Transparent draws as Solid, as before. Picking a device on
 > the Output pane stays on that pane, as the system's Sound module does.
 
+> **Amended 2026-10-31 (owner).** **Transparent** is the default when nothing
+> is stored, in both card sizes: the card should show the wallpaper, not the
+> cover's tint. Its legibility rests on the contrast solver above, so decision
+> 5's floor no longer applies to the default — it still holds for Automatic,
+> which stays a choice. A stored style is kept, as before.
+
 ### 7.3 Panes inside the card
 
 - **Lyrics** (`Lock-Card-Lyrics`): header (cover 34, title, artist, a Back
@@ -1637,7 +1643,7 @@ so).
 | `player.lyricBand` | true | Music | R1 | no |
 | `lyrics.translate` | false | Lyrics | R1 | through Translate Online only if that is on (existing consent) |
 | `lyrics.translateTarget` | system language, else `en` | Lyrics | R1 | no |
-| `lockCardStyle` | `automatic` when unset | Lock Screen | R2 | no |
+| `lockCardStyle` | `clear` (Transparent) when unset — `automatic` until 2026-10-31, §7.2 | Lock Screen | R2 | no |
 | `lock.restAsBanner` | true | Lock Screen | R2 | no |
 | `clipboard.includeImages` | true | Privacy | R3 | no (memory only) |
 | `clipboard.keepPinned` | false | Privacy | R3 | no (writes one file in Application Support) |

@@ -126,15 +126,15 @@ struct LockScreenCard: View {
     @StateObject private var volumeSlider: VolumeSliderModel
 
     /// Read through `@AppStorage` so changing it in Settings redraws the card
-    /// while it is on screen, rather than at the next lock. Automatic when
-    /// nothing is stored (spec §7.2); a stored choice is kept.
-    @AppStorage(NotchViewModel.lockCardStyleKey) private var styleRaw = NotchViewModel.LockCardStyle.automatic.rawValue
+    /// while it is on screen, rather than at the next lock. Transparent when
+    /// nothing is stored (spec §7.2, amended 2026-10-31); a stored choice is kept.
+    @AppStorage(NotchViewModel.lockCardStyleKey) private var styleRaw = NotchViewModel.LockCardStyle.clear.rawValue
 
     /// What the card is drawn in: Reduce Transparency makes every style Solid
     /// (`LockCardMaterial.effectiveStyle`), and otherwise the stored choice.
     private var style: NotchViewModel.LockCardStyle {
         LockCardMaterial.effectiveStyle(
-            stored: NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .automatic,
+            stored: NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .clear,
             reduceTransparency: appearance.reduceTransparency
         )
     }

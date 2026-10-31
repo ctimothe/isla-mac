@@ -380,7 +380,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .translateTo: return .text("automatic")
         case .lookUpLyricsOnline: return .off
         case .showOnLockScreen, .restAsBanner: return .on
-        case .cardStyle: return .text(NotchViewModel.LockCardStyle.automatic.rawValue)
+        case .cardStyle: return .text(NotchViewModel.LockCardStyle.clear.rawValue)
         case .cardSize: return .text(NotchViewModel.LockCardSize.standard.rawValue)
         case .translateOnline: return .off
         case .keepHistory: return .off

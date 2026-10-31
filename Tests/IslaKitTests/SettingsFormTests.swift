@@ -265,7 +265,7 @@ final class SettingsFormTests: XCTestCase {
         let name = { (node: AXNode) in node.title.isEmpty ? node.label : node.title }
         let radios = group.all(role: "AXRadioButton")
         XCTAssertEqual(radios.map(name), ["Automatic", "Transparent", "Tinted", "Solid"].map { localized($0) }, root.dump)
-        XCTAssertEqual(radios.filter { $0.value == "1" }.map(name), [localized("Automatic")], "Automatic until chosen\n\(root.dump)")
+        XCTAssertEqual(radios.filter { $0.value == "1" }.map(name), [localized("Transparent")], "Transparent until chosen\n\(root.dump)")
         XCTAssertNil(isolated.suite.object(forKey: NotchViewModel.lockCardStyleKey), "looking stores nothing")
 
         guard let solid = radios.first(where: { name($0) == localized("Solid") }) else { return XCTFail(root.dump) }
@@ -284,11 +284,11 @@ final class SettingsFormTests: XCTestCase {
     func testAStoredStyleIsTheOneRingedOnOpening() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        isolated.suite.set(NotchViewModel.LockCardStyle.clear.rawValue, forKey: NotchViewModel.lockCardStyleKey)
+        isolated.suite.set(NotchViewModel.LockCardStyle.automatic.rawValue, forKey: NotchViewModel.lockCardStyleKey)
         let root = await SettingsFixture.tree(isolated, section: .lockScreen)
         let on = root.all(role: "AXRadioGroup").first { $0.label == localized("Card Style") }?
             .all(role: "AXRadioButton").filter { $0.value == "1" }
-        XCTAssertEqual(on?.map { $0.title.isEmpty ? $0.label : $0.title }, [localized("Transparent")], root.dump)
+        XCTAssertEqual(on?.map { $0.title.isEmpty ? $0.label : $0.title }, [localized("Automatic")], root.dump)
     }
 
     // MARK: - The sidebar

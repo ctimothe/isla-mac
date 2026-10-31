@@ -547,7 +547,7 @@ final class SettingsTableTests: XCTestCase {
             .lyricDelay: .number(0),
             .showNextLineEarly: .text("auto"),
             .translateTo: .text("automatic"),
-            .cardStyle: .text("automatic"),
+            .cardStyle: .text("clear"),
             .cardSize: .text("standard"),
         ]
         for (row, value) in expected {
@@ -599,7 +599,7 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertEqual(NotchViewModel.newTracksEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.translateKeepHistoryEnabled(in: empty), false)
         XCTAssertEqual(NotchViewModel.translateSpeakButtonEnabled(in: empty), true)
-        XCTAssertEqual(NotchViewModel.lockCardStyle(in: empty), .automatic)
+        XCTAssertEqual(NotchViewModel.lockCardStyle(in: empty), .clear)
 
         let flipped = suite()
         flipped.set(false, forKey: NotchViewModel.chargingKey)

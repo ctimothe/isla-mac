@@ -2632,6 +2632,20 @@ line, or a paused song get no frame clock (fails with the fill withheld).
   line lights as the track fills; a solo mid-song does the same. Lock the
   Mac on the same song: the card's rest looks and moves the same way.
 
+### The lock card is Transparent by default (`feat/maturity-batch-0-on-mobbin`, 2026-10-31)
+
+Owner, 2026-10-31: the lock card, Standard and Compact alike, should show the
+wallpaper by default. With nothing stored the card is now Transparent, not
+Automatic (spec §7.2 amended); a stored style is kept. Transparent's black
+wash is a floor the contrast solver raises until the dimmest type clears
+4.5:1, so a bright wallpaper still gets a readable lyric.
+`LockCardMaterialTests.testTransparentIsTheDefaultOnlyWhenNothingIsStored`
+and `SettingsTableTests` hold the default.
+
+- [ ] **CARD-H1** With the style never chosen, lock on a playing song over a
+  bright wallpaper and a dark one, in both sizes: the card shows the
+  wallpaper through it and every line stays readable.
+
 ### B21 — the player's sung line turns on its lines, not on the tick (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
 
 The running Isla open on the player read 7.2 % of a core with a line-timed

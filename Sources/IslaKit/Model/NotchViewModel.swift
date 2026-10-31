@@ -1947,8 +1947,12 @@ final class NotchViewModel: ObservableObject {
     ///
     /// Nothing above the login shield can sample the wallpaper, so every style
     /// is a recipe the card draws for itself (`LockScreenCard.glassRouting`).
-    /// **Automatic** (redesign 2026-10-15, spec §7.2) is the default when
-    /// nothing is stored: the cover's light, today's Tinted recipe, at an
+    /// **Transparent** is the default when nothing is stored (owner,
+    /// 2026-10-31: the card should show the wallpaper by default; spec §7.2
+    /// amended). Its black wash is only a floor — the contrast solver raises
+    /// it until the dimmest type clears 4.5:1 — so the lyric stays legible on
+    /// a bright wallpaper. **Automatic** (redesign 2026-10-15) was the default
+    /// before that: the cover's light, today's Tinted recipe, at an
     /// opacity chosen from how bright the wallpaper behind the card is
     /// (`LockCardMaterial.automaticAlpha`) and never under 0.84 (owner
     /// decision 5), because a lighter tint let Aerial's bright lines run
@@ -1997,11 +2001,12 @@ final class NotchViewModel: ObservableObject {
 
     static let lockCardStyleKey = "lockCardStyle"
 
-    /// The stored choice, or **Automatic** when nothing (or nothing this build
-    /// knows) is stored — only the default changed in the redesign (spec §7.2,
-    /// §14), so a person who picked Transparent, Tinted or Solid keeps it.
+    /// The stored choice, or **Transparent** when nothing (or nothing this
+    /// build knows) is stored — only the default changed, in the redesign and
+    /// again on 2026-10-31 (spec §7.2, §14), so a person who picked a style
+    /// keeps it.
     static func lockCardStyle(in defaults: UserDefaults) -> LockCardStyle {
-        LockCardStyle(rawValue: defaults.string(forKey: lockCardStyleKey) ?? "") ?? .automatic
+        LockCardStyle(rawValue: defaults.string(forKey: lockCardStyleKey) ?? "") ?? .clear
     }
 
     static var lockCardStyle: LockCardStyle { lockCardStyle(in: .standard) }

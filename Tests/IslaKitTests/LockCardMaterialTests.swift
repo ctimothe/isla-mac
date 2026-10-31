@@ -75,16 +75,17 @@ final class LockCardMaterialTests: XCTestCase {
         return defaults
     }
 
-    /// Automatic is the default only when nothing is stored; a person who chose
-    /// Transparent, Tinted or Solid keeps their choice, and Tinted's stored word
-    /// is still "glass" (spec §7.2, §14).
-    func testAutomaticIsTheDefaultOnlyWhenNothingIsStored() {
+    /// Transparent is the default only when nothing is stored (owner,
+    /// 2026-10-31); a person who chose Automatic, Tinted or Solid keeps their
+    /// choice, and Tinted's stored word is still "glass" (spec §7.2, §14).
+    func testTransparentIsTheDefaultOnlyWhenNothingIsStored() {
         let defaults = suite()
-        XCTAssertEqual(NotchViewModel.lockCardStyle(in: defaults), .automatic)
+        XCTAssertEqual(NotchViewModel.lockCardStyle(in: defaults), .clear)
+        XCTAssertEqual(NotchViewModel.LockCardStyle.clear.rawValue, "clear")
         XCTAssertEqual(NotchViewModel.LockCardStyle.automatic.rawValue, "automatic")
         XCTAssertEqual(NotchViewModel.lockCardStyleKey, "lockCardStyle")
 
-        for stored in [NotchViewModel.LockCardStyle.clear, .glass, .solid] {
+        for stored in [NotchViewModel.LockCardStyle.automatic, .glass, .solid] {
             defaults.set(stored.rawValue, forKey: NotchViewModel.lockCardStyleKey)
             XCTAssertEqual(NotchViewModel.lockCardStyle(in: defaults), stored, "a stored \(stored.rawValue) is kept")
         }
@@ -92,9 +93,9 @@ final class LockCardMaterialTests: XCTestCase {
         XCTAssertEqual(NotchViewModel.lockCardStyle(in: defaults), .automatic)
         // A word this build does not know is not a choice: the default.
         defaults.set("frosted", forKey: NotchViewModel.lockCardStyleKey)
-        XCTAssertEqual(NotchViewModel.lockCardStyle(in: defaults), .automatic)
+        XCTAssertEqual(NotchViewModel.lockCardStyle(in: defaults), .clear)
         defaults.removeObject(forKey: NotchViewModel.lockCardStyleKey)
-        XCTAssertEqual(NotchViewModel.lockCardStyle(in: defaults), .automatic)
+        XCTAssertEqual(NotchViewModel.lockCardStyle(in: defaults), .clear)
     }
 
     /// Automatic is the first choice in Settings, and every style has a title in
