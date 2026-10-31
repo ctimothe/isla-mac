@@ -1995,9 +1995,14 @@ final class NotchViewModel: ObservableObject {
 
     static let lockCardSizeKey = "lockCardSize"
 
-    static var lockCardSize: LockCardSize {
-        LockCardSize(rawValue: UserDefaults.standard.string(forKey: lockCardSizeKey) ?? "") ?? .standard
+    /// The stored choice, or **Compact** when nothing (or nothing this build
+    /// knows) is stored (owner, 2026-10-31: the smaller card is the default;
+    /// spec §7.1 amended). A person who picked Standard keeps it.
+    static func lockCardSize(in defaults: UserDefaults) -> LockCardSize {
+        LockCardSize(rawValue: defaults.string(forKey: lockCardSizeKey) ?? "") ?? .compact
     }
+
+    static var lockCardSize: LockCardSize { lockCardSize(in: .standard) }
 
     static let lockCardStyleKey = "lockCardStyle"
 

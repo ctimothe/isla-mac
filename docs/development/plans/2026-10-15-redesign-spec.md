@@ -804,6 +804,9 @@ Title and artist truncate at the tail before the control at their right
 standard card without its lyric: cover (20, 20) 64; progress (20, 110) 380;
 transport (130, 132); footer at 188. (Compact is 420 × 244 today.)
 
+> **Amended 2026-10-31 (owner).** **Compact** is the default Card Size when
+> nothing is stored; Standard stays a choice and a stored size is kept.
+
 **Liked Songs** (`Lock-Card-Liked`): the heart on the title row — `heart`
 secondary when not liked, `heart.fill` white when liked, a 14 pt spinner while
 Spotify is asked. Existing behaviour and strings.

@@ -548,7 +548,7 @@ final class SettingsTableTests: XCTestCase {
             .showNextLineEarly: .text("auto"),
             .translateTo: .text("automatic"),
             .cardStyle: .text("clear"),
-            .cardSize: .text("standard"),
+            .cardSize: .text("compact"),
         ]
         for (row, value) in expected {
             XCTAssertEqual(row.defaultValue, value, "\(row)")
@@ -600,6 +600,7 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertEqual(NotchViewModel.translateKeepHistoryEnabled(in: empty), false)
         XCTAssertEqual(NotchViewModel.translateSpeakButtonEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.lockCardStyle(in: empty), .clear)
+        XCTAssertEqual(NotchViewModel.lockCardSize(in: empty), .compact)
 
         let flipped = suite()
         flipped.set(false, forKey: NotchViewModel.chargingKey)

@@ -339,9 +339,7 @@ struct SettingsPane: View {
             flags = [:]
             translateTarget = LyricTranslation.TargetChoice.current(in: settingsDefaults)
             lockCardStyle = NotchViewModel.lockCardStyle(in: settingsDefaults)
-            lockCardSize = NotchViewModel.LockCardSize(
-                rawValue: settingsDefaults.string(forKey: NotchViewModel.lockCardSizeKey) ?? ""
-            ) ?? .standard
+            lockCardSize = NotchViewModel.lockCardSize(in: settingsDefaults)
             refreshUsage()
             // The answer can change in System Settings while Isla is not
             // looking, and the way back from Open Automation Settings… is

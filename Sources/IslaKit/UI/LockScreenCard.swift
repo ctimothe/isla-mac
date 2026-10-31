@@ -162,10 +162,11 @@ struct LockScreenCard: View {
         material.layer == .blackWash ? Theme.lockCardTransparent(alpha: material.alpha) : Theme.lockCardSolid
     }
 
-    @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.standard.rawValue
+    /// Compact when nothing is stored (owner, 2026-10-31).
+    @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.compact.rawValue
 
     private var cardSize: NotchViewModel.LockCardSize {
-        NotchViewModel.LockCardSize(rawValue: sizeRaw) ?? .standard
+        NotchViewModel.LockCardSize(rawValue: sizeRaw) ?? .compact
     }
 
     /// The size the lock window is cut to, read when it is made. A setting

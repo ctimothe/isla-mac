@@ -15,6 +15,21 @@ import XCTest
 /// private suite, and no control is pressed that would move the machine.
 @MainActor
 final class LockCardLayoutTests: XCTestCase {
+
+    /// These tests are about the Standard card, which stopped being the
+    /// default on 2026-10-31 (Compact is): pin it in the defaults the card's
+    /// window reads, and put back whatever was there.
+    private var storedSize: Any?
+
+    override func setUp() async throws {
+        storedSize = UserDefaults.standard.object(forKey: NotchViewModel.lockCardSizeKey)
+        UserDefaults.standard.set(NotchViewModel.LockCardSize.standard.rawValue, forKey: NotchViewModel.lockCardSizeKey)
+    }
+
+    override func tearDown() async throws {
+        if let storedSize { UserDefaults.standard.set(storedSize, forKey: NotchViewModel.lockCardSizeKey) }
+        else { UserDefaults.standard.removeObject(forKey: NotchViewModel.lockCardSizeKey) }
+    }
     private typealias Layout = LockCardLayout
 
     // MARK: - Sizes and the morph
@@ -673,6 +688,8 @@ final class LockCardLayoutTests: XCTestCase {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let (translation, lines) = makeService(translating: true, defaults: isolated.suite)
+        // The Compact card has no lyric to put a translation under.
+        isolated.suite.set(NotchViewModel.LockCardSize.standard.rawValue, forKey: NotchViewModel.lockCardSizeKey)
         let presentation = LockCardPresentation(restsAsBanner: false)
         presentation.attach(translation: translation)
         await translation.settled()
