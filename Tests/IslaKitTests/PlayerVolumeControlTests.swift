@@ -39,6 +39,10 @@ final class FakeMacVolume: MacVolumeAccess {
     /// Writes aimed at a device that was not the default any more: refused as
     /// `MacVolume` refuses them, so nothing was written.
     var refusedWrites: [VolumeState] = []
+    /// When set, reads wait for `answerReads()`, as a CoreAudio read on its
+    /// own queue answers a moment after the slider opens.
+    var holdsReads = false
+    private var heldReads: [@MainActor (VolumeState?) -> Void] = []
 
     /// The output switching to another device (AirPods connecting) while the
     /// old one is still present.
@@ -50,7 +54,15 @@ final class FakeMacVolume: MacVolumeAccess {
 
     func read(completion: @escaping @MainActor @Sendable (VolumeState?) -> Void) {
         reads += 1
+        if holdsReads { return heldReads.append(completion) }
         completion(state)
+    }
+
+    /// Answers every held read, oldest first, with the state as it is now.
+    func answerReads() {
+        let waiting = heldReads
+        heldReads = []
+        for answer in waiting { answer(state) }
     }
 
     func write(_ target: VolumeState, from: VolumeState, completion: @escaping @MainActor @Sendable (VolumeWriteResult) -> Void) {
@@ -279,6 +291,69 @@ final class PlayerVolumeControlTests: XCTestCase {
         XCTAssertEqual(model.target, .system)
         XCTAssertEqual(scripter.writes.count, 1)
         XCTAssertTrue(mac.writes.isEmpty, "90% of Music is not 90% of the speakers")
+    }
+
+    /// The fallback line offers Automation settings. Granting access there
+    /// used to change nothing: `refused` stood, reopening never decided the
+    /// target again, and the slider went on moving the Mac's volume until
+    /// the song's source changed or Isla restarted (Codex review, 2026-11-04).
+    func testAccessGrantedAfterARefusalGivesThePlayerItsVolumeBackOnReopening() {
+        consents[.spotify] = .denied
+        let (model, scripter, mac) = make()
+        model.sourceChanged(bundleID: "com.spotify.client")
+        model.open()
+        XCTAssertEqual(model.target, .system)
+        XCTAssertEqual(model.refused, .spotify)
+        model.close()
+
+        consents[.spotify] = .allowed
+        model.open()
+        XCTAssertEqual(model.target, .app(.spotify), "the player's own volume again")
+        XCTAssertNil(model.refused, "and the refusal line goes")
+        XCTAssertEqual(scripter.reads.map(\.app), [.spotify], "its level is read")
+        guard scripter.reads.count == 1 else { return }
+        scripter.reads[0].answer(40, noErr)
+        XCTAssertEqual(model.level, 0.4)
+
+        model.dragChanged(fraction: 0.6)
+        XCTAssertEqual(scripter.writes.map(\.percent), [60])
+        XCTAssertTrue(mac.writes.isEmpty, "the Mac's volume is left alone")
+    }
+
+    /// A refusal that still stands keeps the fallback on reopening, and still
+    /// sends the player nothing.
+    func testAStandingRefusalKeepsTheMacsVolumeOnReopening() {
+        consents[.spotify] = .denied
+        let (model, scripter, mac) = make()
+        model.sourceChanged(bundleID: "com.spotify.client")
+        model.open()
+        model.close()
+        model.open()
+        XCTAssertEqual(model.target, .system)
+        XCTAssertEqual(model.refused, .spotify)
+        XCTAssertTrue(scripter.reads.isEmpty)
+        XCTAssertEqual(mac.reads, 2)
+    }
+
+    /// A click on the bar before the Mac's first read has answered used to be
+    /// drawn and never written: the write had no state to start from and was
+    /// dropped, and the read's answer came back stale behind the move
+    /// (Codex review, 2026-11-04: 90 % on the bar, nothing written).
+    func testAMoveBeforeTheFirstReadAnswersIsWrittenOnceTheMacIsKnown() {
+        let mac = FakeMacVolume(state: VolumeState(device: 41, level: 0.5, muted: false))
+        mac.holdsReads = true
+        let (model, _, _) = make(mac: mac)
+        model.sourceChanged(bundleID: "com.apple.Safari")
+        model.open()
+        model.dragChanged(fraction: 0.9)
+        model.dragEnded()
+        XCTAssertEqual(model.level, 0.9, "the bar draws the finger at once")
+        XCTAssertTrue(mac.writes.isEmpty, "there is nothing to write from yet")
+
+        mac.answerReads()
+        XCTAssertEqual(mac.writes, [VolumeState(device: 41, level: 0.9, muted: false)],
+                       "the move lands once the Mac's output is known")
+        XCTAssertEqual(model.level, 0.9, "and the read's late answer does not pull the bar back")
     }
 
     func testAPlayerAlreadyKnownRefusedIsNeverAsked() {

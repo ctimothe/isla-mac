@@ -335,6 +335,17 @@ final class PlayerVolume: ObservableObject {
     func open() {
         guard !isOpen else { return armIdle() }
         isOpen = true
+        // A refusal is kept across openings so the player is not sent an
+        // event that only earns another -1743, but only while it still
+        // stands. The fallback line offers Automation settings, and granting
+        // access there used to change nothing until the song's source changed
+        // or Isla restarted (Codex review, 2026-11-04). Only a definite
+        // `.allowed` lifts it: an unknown answer keeps the Mac's volume.
+        if let app = refused, consent(app) == .allowed {
+            refused = nil
+            targetGeneration += 1
+            level = nil
+        }
         if refused == nil { resolveTarget() }
         read()
         armIdle()
@@ -434,8 +445,22 @@ final class PlayerVolume: ObservableObject {
                 done()
             }
         case .system:
-            guard target == .system, let from = macState else { return done() }
-            writeMac(write.level, from: from, mayRetry: true, done: done)
+            guard target == .system else { return done() }
+            if let from = macState {
+                return writeMac(write.level, from: from, mayRetry: true, done: done)
+            }
+            // A click before the opening read has answered has no state to
+            // write from. It used to be dropped here while the bar drew it,
+            // and the read then came back stale behind the move, so 90 % stood
+            // on the bar with nothing written (Codex review, 2026-11-04). The
+            // write stays in flight through a read of its own instead, so a
+            // newer move still waits behind it as the newest.
+            mac.read { [weak self] state in
+                guard let self else { return done() }
+                self.macState = state ?? self.macState
+                guard self.target == .system, let from = self.macState else { return done() }
+                self.writeMac(write.level, from: from, mayRetry: true, done: done)
+            }
         }
     }
 
