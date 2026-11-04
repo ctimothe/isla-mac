@@ -34,14 +34,22 @@ branch that has already been merged. Compare against `main` before trusting one.
   `Sources/IslaMediaHelper` (Objective-C dylib), `Tests/IslaKitTests`,
   plus `Scripts/*.sh` release gates and `scripts/check`, the one verification
   gate.
-- Branch `shell-music-mvp` — the earlier shell + Music prototype (XcodeGen
+- Tag `archive/shell-music-mvp` — the earlier shell + Music prototype (XcodeGen
   project + `Packages/IslandCore`, `IslandModule`/`ModuleRegistry`, vendored
-  `ungive/mediaremote-adapter` Perl bridge). **Has no worktree**; add one with
-  `git worktree add .worktrees/shell-music-mvp shell-music-mvp` if it is ever
-  needed. Kept as historical work per the approved parity design — do not
-  extend it unless asked. Its own `checklist.md` lives on that branch; a copy of
+  `ungive/mediaremote-adapter` Perl bridge), a branch until 2026-11-04. **Has no
+  worktree**; add one with
+  `git worktree add --detach .worktrees/shell-music-mvp archive/shell-music-mvp`
+  if it is ever needed. Kept as historical work per the approved parity design — do not
+  extend it unless asked. Its own `checklist.md` lives on that tag; a copy of
   its spec is kept in `docs/development/specs/shell-music-mvp.md`. Both describe
   that prototype, not this app.
+- Held or unfinished work that is not on `main` lives as `archive/…` tags, not
+  branches, so GitHub's branch list is `main` alone: `archive/prompter-core`
+  (Prompter release 1, built before the R8 surface model, so it needs a port),
+  `archive/lyrics-match-lab` and `archive/clipboard-online-consent-held`.
+  Branches from before the 2026-09-22 history rewrite carry the old identity
+  and live only in the `backup` remote, under `archive/…`; never push them to
+  GitHub.
 
 ## Source-of-truth policy
 
@@ -60,9 +68,9 @@ update the spec/design first, then checklist and code in the same change.
   divergence from Cyclop 0.6.5" is the current record of what the product
   deliberately does *not* match, and its dated sections (v0.2, v0.3, …) record
   what each release closed.
-- shell-music-mvp (that branch only): `docs/development/specs/shell-music-mvp.md` is the
-  binding contract; that branch's `checklist.md` tracks delivery (its D1–D8
-  decisions bind *that* branch only — nothing in this app references them);
+- shell-music-mvp (that tag only): `docs/development/specs/shell-music-mvp.md` is the
+  binding contract; that tag's `checklist.md` tracks delivery (its D1–D8
+  decisions bind *that* prototype only — nothing in this app references them);
   `docs/development/research/technical-feasibility.md` is non-binding evidence.
 
 **Removed features stay removed.** Snippets and Calendar went on 2026-08-20;
