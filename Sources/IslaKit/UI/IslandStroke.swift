@@ -47,9 +47,16 @@ enum IslandStroke {
     /// the equalizer. A charge that is only held, or a Mac that reports no
     /// level, is drawn white and so is its line — the stroke says what the
     /// content says.
+    ///
+    /// A low battery (2026-10-26) wears the red its level is drawn in, on
+    /// either Charging activity: the stroke still says what the content says.
     static func tint(for activity: IslandActivity, isOpen: Bool) -> Color? {
-        guard !isOpen, case .ambient(let ambient) = activity, ambient.usesChargingGreen else { return nil }
-        return Theme.chargingGreen
+        guard !isOpen, case .ambient(let ambient) = activity else { return nil }
+        switch ambient.chargeTint {
+        case .green?: return Theme.chargingGreen
+        case .red?: return Theme.lowBatteryRed
+        case nil: return nil
+        }
     }
 
     /// A shape taller than 68 casts black 0.22, radius 14, no offset, so a

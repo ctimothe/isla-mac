@@ -1,4 +1,5 @@
 import CoreAudio
+import Combine
 import SwiftUI
 
 /// The media player shown while the Mac is locked: a slim banner that grows into
@@ -81,9 +82,12 @@ struct LockScreenCard: View {
         initialPane: Pane = .player,
         translation: LyricTranslation? = nil,
         tone: LockCardToneModel? = nil,
-        presentation: LockCardPresentation? = nil
+        presentation: LockCardPresentation? = nil,
+        nowPlaying: NowPlayingPresenter? = nil
     ) {
         self.media = media
+        self.nowPlaying = nowPlaying
+        _frame = State(initialValue: nowPlaying?.frame)
         self.lyrics = lyrics
         self.localLookup = localLookup
         let watch = audio ?? AudioWatch()
@@ -95,6 +99,13 @@ struct LockScreenCard: View {
             wrappedValue: presentation ?? LockCardPresentation(restsAsBanner: false, pane: initialPane)
         )
     }
+
+    /// The panel's presenter, for the song the card draws: the same one swap
+    /// per song as the island and the player. Nil — every render and test —
+    /// draws the controller live. Held as a frame in state, since the card is
+    /// the root of its own window and nothing above it redraws it.
+    private let nowPlaying: NowPlayingPresenter?
+    @State private var frame: NowPlayingPresenter.Frame?
 
     @State private var scrubbing: Double?
     /// The row the words were centred on at the last draw, to tell a line
@@ -115,22 +126,22 @@ struct LockScreenCard: View {
     @StateObject private var volumeSlider: VolumeSliderModel
 
     /// Read through `@AppStorage` so changing it in Settings redraws the card
-    /// while it is on screen, rather than at the next lock. Automatic when
-    /// nothing is stored (spec §7.2); a stored choice is kept.
-    @AppStorage(NotchViewModel.lockCardStyleKey) private var styleRaw = NotchViewModel.LockCardStyle.automatic.rawValue
+    /// while it is on screen, rather than at the next lock. Transparent when
+    /// nothing is stored (spec §7.2, amended 2026-10-31); a stored choice is kept.
+    @AppStorage(NotchViewModel.lockCardStyleKey) private var styleRaw = NotchViewModel.LockCardStyle.clear.rawValue
 
     /// What the card is drawn in: Reduce Transparency makes every style Solid
     /// (`LockCardMaterial.effectiveStyle`), and otherwise the stored choice.
     private var style: NotchViewModel.LockCardStyle {
         LockCardMaterial.effectiveStyle(
-            stored: NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .automatic,
+            stored: NotchViewModel.LockCardStyle(rawValue: styleRaw) ?? .clear,
             reduceTransparency: appearance.reduceTransparency
         )
     }
 
     private var glassRoute: (samplesBackdrop: Bool, preferDrawn: Bool, solid: Bool) {
         Self.glassRouting(
-            style: style, hasArtwork: media.artwork != nil, reduceTransparency: appearance.reduceTransparency,
+            style: style, hasArtwork: media.shownArtwork(frame) != nil, reduceTransparency: appearance.reduceTransparency,
             increaseContrast: appearance.increaseContrast
         )
     }
@@ -140,7 +151,7 @@ struct LockScreenCard: View {
     /// accessibility settings, read by the panel and the light alike.
     private var material: LockCardMaterial.Decision {
         LockCardMaterial.decision(
-            style: style, hasArtwork: media.artwork != nil, luminance: tone.luminance,
+            style: style, hasArtwork: media.shownArtwork(frame) != nil, luminance: tone.luminance,
             reduceTransparency: appearance.reduceTransparency, increaseContrast: appearance.increaseContrast
         )
     }
@@ -151,10 +162,11 @@ struct LockScreenCard: View {
         material.layer == .blackWash ? Theme.lockCardTransparent(alpha: material.alpha) : Theme.lockCardSolid
     }
 
-    @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.standard.rawValue
+    /// Compact when nothing is stored (owner, 2026-10-31).
+    @AppStorage(NotchViewModel.lockCardSizeKey) private var sizeRaw = NotchViewModel.LockCardSize.compact.rawValue
 
     private var cardSize: NotchViewModel.LockCardSize {
-        NotchViewModel.LockCardSize(rawValue: sizeRaw) ?? .standard
+        NotchViewModel.LockCardSize(rawValue: sizeRaw) ?? .compact
     }
 
     /// The size the lock window is cut to, read when it is made. A setting
@@ -320,13 +332,39 @@ struct LockScreenCard: View {
     private let accent: Color = .white
 
     var body: some View {
-        if let track = media.track {
+        // A zero-sized base so the presenter is listened to with no song on the
+        // card too: a song arriving mid-lock must reach it.
+        ZStack {
+            Color.clear.frame(width: 0, height: 0)
+            card
+        }
+        .onReceive(Self.frames(of: nowPlaying)) { frame = $0 }
+    }
+
+    /// The presenter's frames, each the moment it is published.
+    private static func frames(of presenter: NowPlayingPresenter?) -> AnyPublisher<NowPlayingPresenter.Frame?, Never> {
+        guard let presenter else { return Empty().eraseToAnyPublisher() }
+        return Publishers.CombineLatest(presenter.$presented, presenter.$held)
+            .map { NowPlayingPresenter.Frame(presented: $0, held: $1) as NowPlayingPresenter.Frame? }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
+    @ViewBuilder
+    private var card: some View {
+        if let track = media.shownTrack(frame) {
             stage(track)
                 .frame(width: dimensions.width, height: dimensions.height, alignment: .top)
                 .environment(\.colorScheme, .dark)
                 .onAppear {
                     readAudio()
                     presentation.size = cardSize
+                    // Music's favourite is read with shuffle and repeat, which
+                    // the controller re-asks when a surface turns it active and
+                    // on a track change. Asked here too, for the star's sake:
+                    // it is the only thing on the card that reads it, and a
+                    // no-op wherever the bridge cannot answer.
+                    media.refreshPlaybackModes()
                 }
                 .onChange(of: cardSize) { _, now in presentation.size = now }
                 .onChange(of: pane) { _, _ in readAudio() }
@@ -337,7 +375,7 @@ struct LockScreenCard: View {
                 // presented — its window is destroyed at unlock — so nothing here
                 // speaks for a Mac that is not locked, and the island's own peek is
                 // refused over the shield, so the two never say one track twice.
-                .onChange(of: media.track?.key) { _, _ in
+                .onChange(of: media.shownTrack(frame)?.key) { _, _ in
                     // A drag that a new song cut short lets go here (K-017). A
                     // gesture torn down without `onEnded` left the seek bar pinned
                     // to the old finger and the volume mirror deaf until the next
@@ -347,7 +385,7 @@ struct LockScreenCard: View {
                     // The volume drag's end — the held level, the latch, the
                     // mirror — is the model's (`endForTrackChange`).
                     volumeSlider.endForTrackChange()
-                    guard let now = media.track else { return }
+                    guard let now = media.shownTrack(frame) else { return }
                     Announcer.shared.announce(now.artist.isEmpty ? now.title : "\(now.title), \(now.artist)")
                 }
                 // The machine moves on its own while the card stands here — a
@@ -483,7 +521,7 @@ struct LockScreenCard: View {
                 .frame(width: size.width, height: size.height)
                 .opacity(decision.alpha)
                 .accessibilityHidden(true)
-        } else if decision.layer == .coverLight, let image = media.artwork {
+        } else if decision.layer == .coverLight, let image = media.shownArtwork(frame) {
             ZStack {
                 Image(nsImage: image)
                     .resizable()
@@ -522,7 +560,7 @@ struct LockScreenCard: View {
             // cut there, so the whole card behind the type changed in one
             // frame, the most abrupt thing on the lock screen for the people
             // who asked for calm. A fade is not motion (F-055).
-            .animation(Theme.artworkAnimation, value: media.artwork)
+            .animation(Theme.trackSwap(reduceMotion: reduceMotion), value: media.shownArtwork(frame))
         }
     }
 
@@ -534,7 +572,7 @@ struct LockScreenCard: View {
     /// lyrics. None of them takes a click.
     private func headerLayer(_ track: MediaController.Track) -> some View {
         let header = LockCardLayout.header(form, pane: pane, cardSize)
-        let width = LockCardLayout.titleWidth(form, pane: pane, cardSize, hasHeart: showsHeart)
+        let width = LockCardLayout.titleWidth(form, pane: pane, cardSize, hasFavourite: favourite != nil)
         return ZStack(alignment: .topLeading) {
             cover(side: header.cover.width, radius: header.coverRadius)
                 .offset(x: header.cover.minX, y: header.cover.minY)
@@ -558,18 +596,18 @@ struct LockScreenCard: View {
         // banner button's label ("title, artist"), and the two text elements
         // beside it made VoiceOver read the song twice.
         .accessibilityHidden(!header.visible || form == .banner)
-        // On the header, not the heart. The heart is not drawn while Spotify
+        // On the header, not the star. The star is not drawn while Spotify
         // refuses the account, and while its task was the only thing that
         // asked, nothing ever asked again: one 403 hid it for good. Here the
-        // lookup runs for every Spotify track whether or not the heart shows,
+        // lookup runs for every Spotify track whether or not the star shows,
         // and the account decides whether its cooldown allows a request.
         // Keyed on the connection too, so connecting with the card up asks.
-        .task(id: HeartLookup(trackID: media.spotifyTrackID, connected: spotify.isConnected)) {
+        .task(id: SavedLookup(trackID: media.spotifyTrackID, connected: spotify.isConnected)) {
             if let id = media.spotifyTrackID { spotify.refreshSavedState(trackID: id) }
         }
     }
 
-    private struct HeartLookup: Equatable {
+    private struct SavedLookup: Equatable {
         let trackID: String?
         let connected: Bool
     }
@@ -601,8 +639,11 @@ struct LockScreenCard: View {
     private func cover(side: CGFloat, radius: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
             Group {
-                if let image = media.artwork {
+                if let image = media.shownArtwork(frame) {
+                    // The shared swap (`Theme.trackSwap`): the card used to cut
+                    // from one cover to the next with no animation at all.
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                        .trackSwapCover(media.shownTrack(frame)?.key, reduceMotion: reduceMotion)
                 } else {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
                         .fill(Theme.cardFill)
@@ -731,7 +772,7 @@ struct LockScreenCard: View {
     // MARK: - The player pane
 
     private var playerBody: some View {
-        let showsBar = Self.showsSeekBar(duration: media.duration)
+        let showsBar = Self.showsSeekBar(duration: media.shownDuration(frame))
         return ZStack(alignment: .topLeading) {
             // Only a card that rests as a banner has one to fold back into; with
             // Rest as Banner off the card shows directly and has no chevron.
@@ -741,7 +782,7 @@ struct LockScreenCard: View {
                     action: { presentation.collapse() }
                 )
             }
-            heart.placed(LockCardLayout.heart(cardSize))
+            favouriteButton.placed(LockCardLayout.favourite(cardSize))
             sungLine
             // Hidden in place rather than removed: the card's layout is fixed
             // by design, and taking the bar out of the stack would let the
@@ -822,7 +863,7 @@ struct LockScreenCard: View {
 
     private var lyricInputs: LyricInputs {
         LyricInputs(
-            position: media.position,
+            position: media.shownPosition(frame),
             precisionSync: media.precisionSync,
             userOffset: lyrics.userOffset,
             trackOffset: lyrics.trackOffset,
@@ -1014,32 +1055,19 @@ struct LockScreenCard: View {
         }
     }
 
+    /// The lyrics pane's transport: the player's three buttons at 24 pt
+    /// targets, glyphs scaled to them (`TransportGlyphButton`).
     private var smallTransport: some View {
         HStack(spacing: 2) {
-            Button { media.previous() } label: {
-                Image(systemName: "backward.fill").islandFont(.subhead)
+            TransportGlyphButton(.previous, enabled: media.canSkip, hitTarget: CGSize(width: 24, height: 24)) {
+                media.previous()
             }
-            .buttonStyle(TransportGlyphStyle(size: 24))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Previous Track"))
-            .accessibilityLabel(localized("Previous Track"))
-            Button { media.togglePlayPause() } label: {
-                Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .islandFont(.title)
-                    .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
+            TransportGlyphButton(.playPause, isPlaying: media.isPlaying, hitTarget: CGSize(width: 24, height: 24)) {
+                media.togglePlayPause()
             }
-            .buttonStyle(TransportGlyphStyle(size: 24))
-            .help(media.isPlaying ? localized("Pause") : localized("Play"))
-            .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
-            Button { media.next() } label: {
-                Image(systemName: "forward.fill").islandFont(.subhead)
+            TransportGlyphButton(.next, enabled: media.canSkip, hitTarget: CGSize(width: 24, height: 24)) {
+                media.next()
             }
-            .buttonStyle(TransportGlyphStyle(size: 24))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Next Track"))
-            .accessibilityLabel(localized("Next Track"))
         }
     }
 
@@ -1083,13 +1111,13 @@ struct LockScreenCard: View {
             distance: distance,
             at: resolution.at,
             end: LyricSweep.end(of: index, in: lines),
-            // The sung row's edge read per frame from the running clock, as
-            // on the stage and the caption.
+            // The sung row's edge moved by Core Animation from the song's
+            // clock, as on the stage and the caption.
             clock: index == resolution.current
-                ? LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+                ? LyricSweep.songClock(media: media, lead: LyricSweep.lead(
                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                     trackOffset: lyrics.trackOffset
-                ))
+                ), held: frame?.held)
                 : nil,
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
@@ -1119,7 +1147,7 @@ struct LockScreenCard: View {
 
     @ViewBuilder
     private var sourceBadge: some View {
-        if let icon = media.sourceIcon {
+        if let icon = media.shownSourceIcon(frame) {
             // The icon as the app draws it, the way Control Center badges its
             // Now Playing cover — not cut into a circle with a ring around it,
             // which made every app's icon into the same foreign badge.
@@ -1151,12 +1179,14 @@ struct LockScreenCard: View {
             progress: LyricSweep.interludeProgress(slot, at: resolution.at),
             isCurrent: isCurrent,
             distance: distance,
-            clock: isCurrent
-                ? LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: LyricSweep.lead(
+            clock: InterludeMarker.liveFill(
+                for: slot, isCurrent: isCurrent, media: media,
+                lead: LyricSweep.lead(
                     precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
                     trackOffset: lyrics.trackOffset
-                )))
-                : nil,
+                ),
+                held: frame?.held
+            ),
             fontSize: Theme.TypeRole.title.size,
             weight: .bold,
             reduceMotion: reduceMotion,
@@ -1314,16 +1344,18 @@ struct LockScreenCard: View {
 
     private var fraction: Double {
         if let scrubbing { return scrubbing }
-        guard media.duration > 0 else { return 0 }
-        return min(max(media.position / media.duration, 0), 1)
+        let duration = media.shownDuration(frame)
+        guard duration > 0 else { return 0 }
+        return min(max(media.shownPosition(frame) / duration, 0), 1)
     }
 
     /// The elapsed time for the labels: the finger while dragging, otherwise
     /// the clock's steady label position, which never steps back a second
     /// for a small correction.
     private var shownElapsed: TimeInterval {
-        if let scrubbing { return scrubbing * media.duration }
-        return min(media.labelPosition, media.duration)
+        let duration = media.shownDuration(frame)
+        if let scrubbing { return scrubbing * duration }
+        return min(media.shownLabelPosition(frame), duration)
     }
 
     /// The seek row of the board: the elapsed time, the bar, what is left, on one
@@ -1368,7 +1400,7 @@ struct LockScreenCard: View {
             )
             // What is left, which is the question a lock screen gets asked:
             // how long until this is over.
-            Text("-" + formatTime(max(0, media.duration - shownElapsed)))
+            Text("-" + formatTime(max(0, media.shownDuration(frame) - shownElapsed)))
                 .frame(minWidth: 30, alignment: .trailing)
                 .fixedSize()
         }
@@ -1389,37 +1421,23 @@ struct LockScreenCard: View {
     /// they made the row read as an app's toolbar rather than the system's
     /// player. They stay in the panel, where the rest of the app is.
     ///
-    /// 160 x 36 at the board's place: three 36 pt targets with the glyphs at
-    /// 20, 26 and 20 pt (the display and hero roles, the nearest the type scale
-    /// has).
+    /// 160 x 36 at the board's place: three 36 pt targets, each drawn by the
+    /// player's own control (`TransportGlyphButton`) with its glyphs scaled
+    /// from the player's 42 pt targets, so the card's three buttons are the
+    /// island's and not the type scale's nearest size to them.
     private var transport: some View {
         HStack(spacing: 0) {
-            Button { media.previous() } label: {
-                Image(systemName: "backward.fill").islandFont(.display)
+            TransportGlyphButton(.previous, enabled: media.canSkip, hitTarget: CGSize(width: 36, height: 36)) {
+                media.previous()
             }
-            .buttonStyle(TransportGlyphStyle(size: 36))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Previous Track"))
-            .accessibilityLabel(localized("Previous Track"))
             Spacer(minLength: 0)
-            Button { media.togglePlayPause() } label: {
-                Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .islandFont(.hero)
-                    .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
+            TransportGlyphButton(.playPause, isPlaying: media.isPlaying, hitTarget: CGSize(width: 36, height: 36)) {
+                media.togglePlayPause()
             }
-            .buttonStyle(TransportGlyphStyle(size: 36))
-            .help(media.isPlaying ? localized("Pause") : localized("Play"))
-            .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
             Spacer(minLength: 0)
-            Button { media.next() } label: {
-                Image(systemName: "forward.fill").islandFont(.display)
+            TransportGlyphButton(.next, enabled: media.canSkip, hitTarget: CGSize(width: 36, height: 36)) {
+                media.next()
             }
-            .buttonStyle(TransportGlyphStyle(size: 36))
-            .disabled(!media.canSkip)
-            .opacity(media.canSkip ? 1 : 0.35)
-            .help(localized("Next Track"))
-            .accessibilityLabel(localized("Next Track"))
         }
     }
 
@@ -1513,39 +1531,78 @@ struct LockScreenCard: View {
     }
 
     private var outputSymbol: String {
-        AudioOutputs.symbol(outputs: outputs, current: currentOutput, fallback: "airplayaudio")
+        AudioOutputs.symbol(outputs: outputs, current: currentOutput, fallback: AudioOutputs.outputFallbackSymbol)
     }
 
-    /// Whether the heart is drawn: Spotify connected, the account answering and
-    /// the song a Spotify one.
-    private var showsHeart: Bool {
-        spotify.isConnected && !spotify.apiBlocked && !spotify.tokenUnavailable && media.spotifyTrackID != nil
+    /// What the star can do for this song: the player's rule, resolved by the
+    /// player's function (`MediaPane.Favourite.resolve`) from the same inputs.
+    /// Music's through the scripting bridge, Spotify's only for a connected
+    /// account that is answering and a Spotify song, nothing otherwise.
+    private var favourite: MediaPane.Favourite? {
+        Self.favourite(
+            musicFavorite: media.musicFavorite, spotifyTrackID: media.spotifyTrackID,
+            spotifyConnected: spotify.isConnected, apiBlocked: spotify.apiBlocked,
+            tokenUnavailable: spotify.tokenUnavailable, saved: spotify.saved
+        )
     }
 
-    private var heart: some View {
-        Group {
-            if showsHeart, let id = media.spotifyTrackID {
-                // Filled means the song is in Liked Songs, hollow means it is
-                // not — and until the library has answered, hollow-but-dimmed
-                // means "asking". A plain hollow heart while the answer was in
-                // flight stated, every time, that a liked song was not liked.
-                let known = spotify.saved[id]
-                let isSaved = known ?? false
-                Button { spotify.toggleSaved(trackID: id) } label: {
-                        Image(systemName: isSaved ? "heart.fill" : "heart")
-                        .islandFont(.title, weight: .medium)
-                        .foregroundStyle(isSaved ? Color.white : Theme.cardSecondary)
-                        .symbolSwap(value: isSaved, reduceMotion: reduceMotion)
-                        .opacity(known == nil ? 0.45 : 1)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
+    /// The card's Favourite, from the account's state spelled out so a test can
+    /// give every combination without a Spotify account. It was a Spotify-only
+    /// heart; the island's player has had one star for Music and Spotify since
+    /// §19.6, and a lock screen that offered a heart for the same song was a
+    /// second control for one thing (owner, 2026-10-24).
+    static func favourite(
+        musicFavorite: Bool?, spotifyTrackID: String?, spotifyConnected: Bool, apiBlocked: Bool,
+        tokenUnavailable: Bool, saved: [String: Bool]
+    ) -> MediaPane.Favourite? {
+        MediaPane.Favourite.resolve(
+            musicFavorite: musicFavorite, spotifyTrackID: spotifyTrackID,
+            spotifyCanSave: spotifyConnected && !apiBlocked && !tokenUnavailable, saved: saved
+        )
+    }
+
+    /// The star's accessibility label. Spotify's keep their own words, since
+    /// what they do is add to Liked Songs and the Settings note says so; Music's
+    /// are the player's.
+    static func favouriteLabel(_ favourite: MediaPane.Favourite) -> String {
+        switch favourite {
+        case .music(let isOn):
+            return isOn ? localized("Remove from Favorites") : localized("Favorite")
+        case .spotify(_, let isOn):
+            return isOn == true ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
+        }
+    }
+
+    @ViewBuilder
+    private var favouriteButton: some View {
+        if let favourite {
+            // Filled means the song is a favourite, hollow means it is not — and
+            // until Spotify's library has answered, hollow-but-dimmed and
+            // disabled means "asking". A plain hollow star while the answer was
+            // in flight stated, every time, that a liked song was not liked.
+            let label = Self.favouriteLabel(favourite)
+            let glyph = PlayerLayout.Control.favourite.glyph
+            let scale = LockCardLayout.favourite(cardSize).height / PlayerLayout.hitTarget
+            Button {
+                switch favourite {
+                case .music: media.toggleMusicFavorite()
+                case .spotify(let id, _): _ = spotify.toggleSaved(trackID: id)
                 }
-                .disabled(known == nil)
-                .buttonStyle(PanelButtonStyle())
-                .accessibilityLabel(
-                    isSaved ? localized("Remove from Liked Songs") : localized("Add to Liked Songs")
-                )
+            } label: {
+                Image(systemName: favourite.isOn ? "star.fill" : "star")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: glyph.width * scale, height: glyph.height * scale)
+                    .foregroundStyle(.white.opacity(Theme.playerSecondaryControlOpacity))
+                    .symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)
+                    .opacity(favourite.isAnswered ? 1 : 0.45)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
+            .disabled(!favourite.isAnswered)
+            .buttonStyle(PanelButtonStyle())
+            .help(label)
+            .accessibilityLabel(label)
         }
     }
 

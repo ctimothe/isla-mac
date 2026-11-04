@@ -173,7 +173,7 @@ enum ShelfLayout {
     /// and 9 of padding either side.
     static let removeAllGlyphWidth: CGFloat = 16
     static let removeAllGap: CGFloat = 4
-    static let removeAllTextSize: CGFloat = 13
+    static let removeAllTextSize: CGFloat = HeaderIcon.wordSize
     static let removeAllPadding: CGFloat = 9
     static func removeAllWidth() -> CGFloat {
         let text = ceil((localized("All") as NSString).size(withAttributes: [
@@ -184,15 +184,26 @@ enum ShelfLayout {
 
     // MARK: - A tile (§19.7)
 
-    /// The file's thumbnail or icon: 42 × 42 at (19, 9).
-    static let icon = CGRect(x: 19, y: 9, width: 42, height: 42)
-    /// The name: 11.5 semibold, white 0.86, centred, two lines, cut in the
-    /// middle, at (4, 60.4), 72 wide.
-    static let nameOrigin = CGPoint(x: 4, y: 60.4)
+    /// The file's thumbnail or icon: 42 × 42 at (19, 7).
+    static let icon = CGRect(x: 19, y: 7, width: 42, height: 42)
+    /// Finder's icon highlight, which a picked tile draws behind the picture
+    /// alone: the icon's box 3 pt out on every side, radius 5
+    /// (`Theme.shelfIconBackdropRadius`). It never reaches the name.
+    static let iconBackdropInset: CGFloat = 3
+    static var iconBackdrop: CGRect { icon.insetBy(dx: -iconBackdropInset, dy: -iconBackdropInset) }
+    /// The name: Finder's icon-view label — 12 regular, `labelColor`,
+    /// centred, two lines, the second cut in the middle — at (4, 53), 72
+    /// wide. Under it, with no gap, the item-info line.
+    static let nameOrigin = CGPoint(x: 4, y: 53)
     static let nameWidth: CGFloat = 72
-    static let nameSize: CGFloat = 11.5
+    static let nameSize: CGFloat = 12
     static let nameLineHeight: CGFloat = 14
     static let maximumNameLines = 2
+    /// The item-info line, the date added: 11 regular, secondary, one line,
+    /// 13 high. The tile's 94 holds a two-line name and this line exactly
+    /// (53 + 2 × 14 + 13), so the dates cost the tray no height.
+    static let infoSize: CGFloat = 11
+    static let infoLineHeight: CGFloat = 13
     /// The remove badge: `xmark.circle.fill` 17 over a 14 pt disc, at (57.75, 5.5).
     static let badge = CGRect(x: 57.75, y: 5.5, width: 17, height: 17)
     static let badgeDisc: CGFloat = 14
@@ -221,34 +232,53 @@ enum ShelfLayout {
     static let removeAllRightRoom: CGFloat = 46 + SurfaceHeaderLayout.gearClearance
     static func removeAllTrailing(bodyWidth: CGFloat) -> CGFloat { bodyWidth - removeAllRightRoom }
 
-    /// The empty tray's line: "Drag files to the notch to keep them here."
+    /// The empty tray's line: "Drop files here to keep them handy."
     static let emptyLineSize: CGFloat = 13
 }
 
 // MARK: - A tile's plate (§19.7)
 
-/// What a tile's plate says beyond white 0.10, if anything: a drop that
-/// matched without adding first, then a pick, then hover. The flash wins
-/// because it is the one the person did not cause by pointing, and the one
-/// that has to be seen in the second it lasts.
+/// What a tile draws beyond its picture and name: the pick's backdrop, or
+/// the flash of a drop that matched. No plate, and nothing under the pointer
+/// (Finder shows none). The flash wins because it is the one the person did
+/// not cause by pointing, and the one that has to be seen in the second it
+/// lasts.
 enum ShelfWell: Equatable {
-    case hover
     case selected
     /// The tile a drop matched without adding (§8.4, `Shelf-Already`): lit in
     /// the accent inside a 2 pt accent ring — the drop targets' own lit look,
     /// so "this is where it went" is one visual word.
     case alreadyKept
 
-    static func state(isSelected: Bool, isHovered: Bool, isAlreadyKept: Bool) -> ShelfWell? {
+    static func state(isSelected: Bool, isAlreadyKept: Bool) -> ShelfWell? {
         if isAlreadyKept { return .alreadyKept }
         if isSelected { return .selected }
-        if isHovered { return .hover }
         return nil
     }
 
     /// Whether the tile wears its remove badge: hovered or selected
     /// (decision 9).
     static func showsBadge(isSelected: Bool, isHovered: Bool) -> Bool { isSelected || isHovered }
+}
+
+// MARK: - A tile's item info (§19.7)
+
+/// The line under a tile's name: when the card was added, on one line.
+/// Today's cards say the time to the minute ("3:45 PM", which is what tells
+/// a day's screenshots apart); older ones say the day ("Yesterday", "12 Oct",
+/// with the year only for another year). The full moment is the tile's
+/// VoiceOver value and tooltip.
+enum ShelfTileInfo {
+    static func line(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        let added = ShelfItem.added(date, now: now, calendar: calendar)
+        return calendar.isDate(date, inSameDayAs: now) ? added.time : added.day
+    }
+
+    /// Day and time together, for the tooltip.
+    static func full(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        let added = ShelfItem.added(date, now: now, calendar: calendar)
+        return "\(added.day), \(added.time)"
+    }
 }
 
 // MARK: - The header (§19.7)
@@ -376,15 +406,15 @@ enum ShelfTileName {
         return String(cut) + ellipsis
     }
 
-    /// The name as it is drawn: 11.5 semibold (§19.7), with its size's
-    /// tracking. A count of characters is no measure of a proportional line,
+    /// The name as it is drawn: 12 regular (§19.7, Finder's label), with its
+    /// size's tracking. A count of characters is no measure of a proportional line,
     /// which is the lesson of `ShelfItem.measureCardName` this replaces.
-    /// `selected` is kept for the callers that still say it; the tray sets a
-    /// picked name in the same weight.
+    /// `selected` is kept for the callers that still say it; a picked name is
+    /// set in the same weight.
     static func measure(_ text: String, selected: Bool = false) -> CGFloat {
         let size = ShelfLayout.nameSize
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: size, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: size, weight: .regular),
             .kern: Theme.tracking(forSize: size),
         ]
         return ceil(NSAttributedString(string: text, attributes: attributes).size().width)

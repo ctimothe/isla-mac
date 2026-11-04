@@ -83,11 +83,11 @@ final class ShelfPaneTests: XCTestCase {
         XCTAssertEqual(ShelfStore.Notice.alreadyOnShelf.text, "Already on the Shelf")
         XCTAssertTrue(shelf.selection.isEmpty, "the flash is drawing: it never selects")
         XCTAssertEqual(
-            ShelfWell.state(isSelected: false, isHovered: false, isAlreadyKept: shelf.alreadyKept.contains(target.id)),
+            ShelfWell.state(isSelected: false, isAlreadyKept: shelf.alreadyKept.contains(target.id)),
             .alreadyKept
         )
         XCTAssertNil(ShelfWell.state(
-            isSelected: false, isHovered: false,
+            isSelected: false,
             isAlreadyKept: shelf.alreadyKept.contains(try XCTUnwrap(shelf.items.first { $0.url == fixture.files[0] }).id)
         ))
     }

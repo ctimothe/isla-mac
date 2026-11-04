@@ -8,6 +8,21 @@ import XCTest
 @MainActor
 final class LockCardPaneTests: XCTestCase {
 
+    /// These tests are about the Standard card, which stopped being the
+    /// default on 2026-10-31 (Compact is): pin it in the defaults the card's
+    /// window reads, and put back whatever was there.
+    private var storedSize: Any?
+
+    override func setUp() async throws {
+        storedSize = UserDefaults.standard.object(forKey: NotchViewModel.lockCardSizeKey)
+        UserDefaults.standard.set(NotchViewModel.LockCardSize.standard.rawValue, forKey: NotchViewModel.lockCardSizeKey)
+    }
+
+    override func tearDown() async throws {
+        if let storedSize { UserDefaults.standard.set(storedSize, forKey: NotchViewModel.lockCardSizeKey) }
+        else { UserDefaults.standard.removeObject(forKey: NotchViewModel.lockCardSizeKey) }
+    }
+
     /// The window above the login shield is cut to exactly this and never
     /// resized. A state that needed a different size would have to resize it,
     /// and resizing it across a lock is what stretched the window-server

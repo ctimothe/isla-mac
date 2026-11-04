@@ -53,6 +53,15 @@ final class NotchController {
     /// media tab with no way out but the hotkey itself. A global monitor sees
     /// clicks the app never receives, which is exactly the signal needed.
     private var pinnedClickMonitor: Any?
+    /// Hears every scroll event that lands on the panel, for the vertical
+    /// pull that opens and closes it (`IslandPull`). A local monitor, as the
+    /// pages' is: the panel is never key, and only the events AppKit already
+    /// delivers to this app — the pointer over the island's hit region, or
+    /// over the open panel — ever reach it, so it costs nothing anywhere else
+    /// on the screen. Installed for the session, not per panel: `build`
+    /// replaces the panel and the model, and the monitor asks for the current
+    /// ones at each event.
+    private var pullMonitor: Any?
     /// Escape, held system-wide for exactly as long as a pinned panel without
     /// the keyboard stands — see `NotchViewModel.claimsEscape`. A Carbon hot
     /// key for the same reason the three shortcuts are: it needs no
@@ -94,7 +103,12 @@ final class NotchController {
             self?.viewModel?.receivedScreenshot(at: url)
         }
         stores.ambient.onEvent = { [weak self] activity in
+            // A plug-in's own reading is the newest there is.
+            if activity.isChargerMoment { self?.latestCharge = (activity, Date()) }
             self?.presentAmbient(activity)
+        }
+        stores.ambient.onChargeUpdate = { [weak self] activity in
+            self?.updateShownCharge(activity)
         }
         // The volume and brightness pop-up (spec §12). Both closures are read at
         // each key, so the lock and the reading land on whatever is current.
@@ -102,6 +116,9 @@ final class NotchController {
             guard let self else { return false }
             return self.lockPresence.isLocked || self.viewModel?.isLockedPresentation == true
         }
+        // Over the lock screen a key is Isla's only while the island is over
+        // the shield to show it — the same lift that puts the card there.
+        stores.hud.drawsWhileLocked = { [weak self] in self?.islandIsOverShield ?? false }
         stores.hud.onReading = { [weak self] reading in
             self?.presentHUD(reading)
         }
@@ -118,6 +135,9 @@ final class NotchController {
         // once-per-build repair when the setting is already on.
         stores.hud.launched()
         build()
+        pullMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            MainActor.assumeIsolated { self?.pullScrolled(event) ?? false } ? nil : event
+        }
         observerTokens.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -161,11 +181,15 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = true
                 self.geometryTrace("screens asleep")
+                // A dark display draws nothing over the shield: the keys go
+                // back to the system until it wakes.
+                self.stores.hud.lockChanged()
                 // A charger moment's timer does not run while the Mac sleeps,
                 // so a lid closed right after plugging in woke to the old
                 // percentage still on the island.
                 self.clearAmbient()
                 self.clearHUD()
+                self.clearConfirmation()
                 self.clearUpdateOffer()
                 // And anything waiting for the island: nobody will see it, and
                 // the second it may wait is over long before the lid opens.
@@ -190,6 +214,7 @@ final class NotchController {
                 guard let self else { return }
                 self.screensAreAsleep = false
                 self.geometryTrace("screens awake locked=\(self.lockPresence.isLocked ? 1 : 0)")
+                self.stores.hud.lockChanged()
                 let plan = Self.wakePlan(
                     isLocked: self.lockPresence.isLocked,
                     lockedPresentation: self.viewModel?.isLockedPresentation == true
@@ -279,15 +304,21 @@ final class NotchController {
                 peekWork = nil
                 vm.isPeeking = false
             }
-            if vm.ambient != nil { clearAmbient() }
+            // Not the charger, which stays over a full-screen app (spec §19.4,
+            // amended 2026-10-27), unless the quiet is a presentation.
+            if let ambient = vm.ambient, !ambient.isChargerMoment || momentsAreQuiet(presentingOnly: true) {
+                clearAmbient()
+            }
             // An offer still unanswered goes too, and comes back once the
             // quiet ends; an install under way stays, it is the person's.
             if let offer = vm.updateOffer, updateStage(for: offer).isTimed { clearUpdateOffer() }
         }
         // The pop-up is an answer to a key press and rides no Space into a new
         // one: it ends with the Space it was shown on — and an alert that was
-        // waiting behind it gets the island, as when the pop-up folds.
+        // waiting behind it gets the island, as when the pop-up folds. A
+        // confirmation is an answer too, and goes the same way.
         clearHUD()
+        clearConfirmation()
         promoteWaitingAlert()
         guard viewModel?.isOpen == true else { return }
         // What was typed is kept — only the panel closes.
@@ -388,11 +419,12 @@ final class NotchController {
     /// none of this happens and the panel sinks under the shield as any
     /// ordinary window does.
     private func screenLocked() {
-        // A charger or headphones moment does not carry over the shield. The
-        // locked pill is cut for music alone — and so is the volume pop-up,
-        // which the tap does not even hear while the Mac is locked.
+        // Nothing carries over the shield: the lock is a cut. The pop-up and
+        // the charger may show again over it, on their own news (spec §3.7,
+        // amended 2026-10-26); nothing from before the lock does.
         clearAmbient()
         clearHUD()
+        clearConfirmation()
         // Nor the update alert: nothing on the shield takes a click but the
         // card. It is offered again after the unlock.
         clearUpdateOffer()
@@ -457,6 +489,10 @@ final class NotchController {
         stores.suspendForIdleScreen(keepingMediaRunning: keepsMediaRunning, forLock: true)
         applyLockedActiveRect()
         lockPresence.apply(to: panel, locked: true)
+        // The panel is over the shield now, or the compositor refused: either
+        // way the key tap's mirror learns it here, after the lift, so it takes
+        // a key only once the island can show it (`islandIsOverShield`).
+        stores.hud.lockChanged()
         // And the card, in its own window, at the centre of the notch's own
         // display — not `panel.screen`, which is nil while the window is
         // momentarily off every display mid-reconfiguration, and not the
@@ -468,6 +504,7 @@ final class NotchController {
                 lyrics: vm.lyrics,
                 localLookup: { vm.lyricsCoordinator.localLookup },
                 translation: vm.translation,
+                nowPlaying: vm.nowPlaying,
                 on: screen,
                 presence: lockPresence
             )
@@ -515,6 +552,11 @@ final class NotchController {
     /// costs nothing. `pointer.start()` doubles with the wake handler when
     /// the display slept too — starting twice only reschedules the timer.
     private func screenUnlocked() {
+        // A pop-up or a charger over the shield ends with it, as a cut: left
+        // up, the unlocked shell would redraw the compact pop-up as the 103 pt
+        // alert for what was left of its linger.
+        clearHUD()
+        clearAmbient()
         lockCard.dismiss(presence: lockPresence)
         lockPresence.apply(to: panel, locked: false)
         geometryTrace("unlocked")
@@ -731,6 +773,8 @@ final class NotchController {
     }
 
     func teardown() {
+        if let pullMonitor { NSEvent.removeMonitor(pullMonitor) }
+        pullMonitor = nil
         lockPresence.stop()
         pointer.stop()
         stopGeometryWatchdog()
@@ -1041,7 +1085,15 @@ final class NotchController {
         // The update alert is answered by its buttons alone; a click beside
         // them is not an answer, and opening the panel would take it down.
         if surface == nil, vm.islandClick == .nothing { return }
+        openFromIsland(opening: surface)
+    }
 
+    /// A click's open, after the click has decided to open: the surface, the
+    /// lift and the pin, then the panel. Shared with the pull, so the two
+    /// gestures open the panel by one path rather than two that merely end up
+    /// open.
+    private func openFromIsland(opening surface: NotchViewModel.Surface?) {
+        guard let vm = viewModel else { return }
         // Everything the hover route used to do, in the same order, so a click
         // opens the panel the way a hover did rather than by a second path that
         // merely ends up open too. The surface, the lift and the pin are the
@@ -1059,6 +1111,82 @@ final class NotchController {
         pointer.setInside(true)
         setOpen(true)
         updatePinnedClickMonitor()
+    }
+
+    /// One scroll event on the panel, for the vertical pull: whether it is
+    /// kept. The verdict is `NotchViewModel.pullScroll`'s; the open, the close
+    /// and the refusal are played out here, the way a click's are.
+    private func pullScrolled(_ event: NSEvent) -> Bool {
+        guard let vm = viewModel else { return false }
+        let outcome = vm.pullScroll(PageScroll(event), region: pullRegion(of: event))
+        switch outcome {
+        case .pass:
+            return false
+        case .swallow, .stretch, .settle:
+            return true
+        case .refuse:
+            vm.nudgeLockedIsland()
+            return true
+        case .open(let surface):
+            islandPulledOpen(opening: surface)
+            return true
+        case .close:
+            islandPulledShut()
+            return true
+        }
+    }
+
+    /// Where on the panel a scroll event landed, for `IslandPull`: the shut
+    /// island's hit region and the bubble's, or the open body's header row
+    /// and the rest of it. Read off the event's own location against the
+    /// rects `hitTest` answers from, so the pull is heard exactly where a
+    /// click would be.
+    private func pullRegion(of event: NSEvent) -> IslandPull.Region {
+        guard let panel, let rootView, let vm = viewModel, event.window === panel else { return .outside }
+        let point = event.locationInWindow
+        guard vm.isOpen else {
+            if rootView.activeRect.contains(point) { return .island }
+            if rootView.bubbleRect.contains(point) { return .bubble }
+            return .outside
+        }
+        guard rootView.activeRect.contains(point) else { return .outside }
+        // The header row is the top `notchHeight` of the body on every
+        // surface (`SurfaceLayout.headerCentreY`); the window's top is the
+        // body's.
+        let headerFloor = vm.geometry.windowSize.height - vm.geometry.notchSize.height
+        return point.y >= headerFloor ? .header : .body
+    }
+
+    /// Two fingers down over the shut island: what a click opens. An alert
+    /// folds first rather than instead — the owner asked for the island to be
+    /// *shown*, and a pull is the more deliberate of the two gestures — and
+    /// the update alert, answered by its buttons alone, is left standing as
+    /// a click leaves it. Internal so a test can pull without a trackpad.
+    func islandPulledOpen(opening surface: NotchViewModel.Surface? = nil) {
+        guard let vm = viewModel, !vm.isOpen else { return }
+        if vm.isLockedPresentation {
+            vm.nudgeLockedIsland()
+            return
+        }
+        if surface == nil {
+            switch vm.islandClick {
+            case .nothing: return
+            case .foldAlert: foldAlert()
+            case .open: break
+            }
+        }
+        openFromIsland(opening: surface)
+    }
+
+    /// Two fingers up on the open panel: back to the shut island, pinned or
+    /// not — the gesture is as explicit as the click on the notch that closes
+    /// a pinned panel too. The click's own close, `closedByHand` included, so
+    /// Open on Hover does not reopen the panel under the pointer that pushed
+    /// it shut.
+    func islandPulledShut() {
+        guard let vm = viewModel, vm.isOpen else { return }
+        setOpen(false)
+        pointer.closedByHand()
     }
 
     /// Whether the cursor is standing where the open panel holds itself open
@@ -1443,6 +1571,8 @@ final class NotchController {
         vm.onIslandClick = { [weak self] in self?.islandClicked() }
         vm.onBubbleClick = { [weak self] in self?.islandClicked(opening: .tray) }
         vm.onUpdateAction = { [weak self] in self?.updateAlertAction($0) }
+        vm.onConfirmation = { [weak self] in self?.presentConfirmation($0) }
+        vm.onStripClosed = { [weak self] in self?.stripClosed($0) }
         viewModel = vm
 
         let panel = NotchPanel(contentRect: geometry.windowFrame)
@@ -1803,6 +1933,13 @@ final class NotchController {
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
             }
             .store(in: &cancellables)
+        // A confirmation widens it too, from the notch to its words.
+        vm.$confirmation
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshCollapsedRects() }
+            }
+            .store(in: &cancellables)
         // The charger or headphones widen the pill the same way.
         vm.$ambient
             .removeDuplicates()
@@ -1812,8 +1949,7 @@ final class NotchController {
             .store(in: &cancellables)
         // And so does the volume pop-up — only when it appears or folds, not
         // with each press, which moves a bar and changes no width.
-        vm.$hud
-            .map { $0 != nil }
+        vm.$hudShown
             .removeDuplicates()
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.refreshCollapsedRects() }
@@ -1841,17 +1977,7 @@ final class NotchController {
         wireShelfIslandCuts(vm)
         wirePageTravelCuts(vm)
 
-        // An alert that had to wait for the island — a surface open, files
-        // dragged over it, the Mac locked — shows if the island comes free
-        // inside its second (spec §19.1). A pass later: `@Published` announces
-        // before it stores, and the queue reads the stored values.
-        vm.$isOpen.removeDuplicates().map { _ in () }
-            .merge(with: vm.$isDropTargeted.removeDuplicates().map { _ in () })
-            .merge(with: vm.$isLockedPresentation.removeDuplicates().map { _ in () })
-            .sink { [weak self] _ in
-                DispatchQueue.main.async { self?.promoteWaitingAlert() }
-            }
-            .store(in: &cancellables)
+        wireAlertPromotion(vm)
 
         // Sneak peek: a new track shows itself, then gets out of the way.
         //
@@ -1860,7 +1986,13 @@ final class NotchController {
         // of a hundred milliseconds — the immediate one, the settled echo, the
         // artwork — and peeking per snapshot is the flicker every app in this
         // category has shipped at least once.
-        vm.media.$track
+        //
+        // The presented track's, not the reported one's: the peek used to fire
+        // on the raw key, while the island still showed the old cover or the
+        // placeholder, and so it peeked the new title over the wrong picture.
+        // The presenter swaps title and cover together, once per song, so the
+        // peek fires once, with its cover (owner, 2026-10-25).
+        vm.nowPlaying.$presented
             .map { $0?.key }
             .removeDuplicates()
             .dropFirst()
@@ -2026,10 +2158,11 @@ final class NotchController {
             peekWork = nil
             ambientWork?.cancel()
             ambientWork = nil
-            // The pop-up's own timer, with the flag the view model has ended. The
-            // key keeps working with the panel open, and the player's slider is
-            // where its volume shows; the permission is looked at again, since
-            // the panel opening is one of the moments trust is re-read.
+            // The pill's own timer, with the flag the view model has ended. The
+            // key keeps working with the panel open and the next press shows
+            // its level as the capsule under the panel (`hudPlacement`); the
+            // permission is looked at again, since the panel opening is one of
+            // the moments trust is re-read.
             hudFoldWork?.cancel()
             hudFoldWork = nil
             // The update alert's hold and retry: the view model takes the alert
@@ -2085,6 +2218,14 @@ final class NotchController {
         // The next hover is the one nobody planned, and it must not open onto
         // a row somebody revealed ten minutes ago.
         vm.privacy.coverEverything()
+        // The capsule under the panel folds with it (the view model takes it
+        // down as `isOpen` flips, in the close's own transaction); its timer
+        // goes too, so it cannot fold a pop-up that a press on the shut island
+        // has drawn since, nor promote a waiting alert early.
+        if vm.hudStrip != nil {
+            hudFoldWork?.cancel()
+            hudFoldWork = nil
+        }
         // Animated when the user is watching it fold, and not when they are
         // not. `deferRectShrink == false` is the lock path, where the panel is
         // about to be resized to the whole display and its content replaced by
@@ -2377,6 +2518,8 @@ final class NotchController {
     ) {
         self.viewModel = viewModel
         self.rootView = rootView
+        viewModel.onConfirmation = { [weak self] in self?.presentConfirmation($0) }
+        viewModel.onStripClosed = { [weak self] in self?.stripClosed($0) }
         installOutsideClickMonitor = { _ in NSObject() }
         removeOutsideClickMonitor = { _ in }
         // A private tracker, so no test touches the shared one, and an Escape
@@ -2391,6 +2534,23 @@ final class NotchController {
         wireShelfClaims(viewModel)
         wireShelfIslandCuts(viewModel)
         wirePageTravelCuts(viewModel)
+        wireAlertPromotion(viewModel)
+    }
+
+    /// An alert that had to wait for the island — a surface open, files
+    /// dragged over it, the Mac locked — shows if the island comes free
+    /// inside its wait (spec §19.1; a confirmation's is five seconds). A pass
+    /// later: `@Published` announces before it stores, and the queue reads the
+    /// stored values. Shared with `attachForTesting`, so a test that closes
+    /// the panel sees the waiting alert follow.
+    private func wireAlertPromotion(_ vm: NotchViewModel) {
+        vm.$isOpen.removeDuplicates().map { _ in () }
+            .merge(with: vm.$isDropTargeted.removeDuplicates().map { _ in () })
+            .merge(with: vm.$isLockedPresentation.removeDuplicates().map { _ in () })
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.promoteWaitingAlert() }
+            }
+            .store(in: &cancellables)
     }
 
     /// Re-cuts both rects for the body currently on screen.
@@ -2530,8 +2690,11 @@ final class NotchController {
         ambientWork = nil
         peekWork?.cancel()
         peekWork = nil
+        confirmationWork?.cancel()
+        confirmationWork = nil
         withAnimation(Theme.island(reduceMotion: SystemAppearance.shared.reduceMotion)) {
             vm.hud = nil
+            vm.confirmation = nil
             vm.ambient = nil
         }
         promoteWaitingAlert()
@@ -2568,6 +2731,7 @@ final class NotchController {
               ),
               let next = alertQueue.next(at: Date()) {
             switch next {
+            case .confirmation(let confirmation): presentConfirmation(confirmation)
             case .ambient(let activity): presentAmbient(activity)
             case .update(let offer): presentUpdate(offer)
             case .peek: sneakPeek()
@@ -2594,12 +2758,29 @@ final class NotchController {
     /// VoiceOver talking over itself about numbers already out of date.
     static let hudAnnounceDelay: TimeInterval = 0.25
 
-    /// Shows a key's result on the island, and restarts the fold.
+    /// Where a key's result is drawn.
+    enum HUDPlacement: Equatable {
+        /// The shut island's expanded alert (spec §19.5 d).
+        case pill
+        /// The locked island's compact pill, over the shield (spec §3.7,
+        /// amended 2026-10-26; `LockedHUDLayout`).
+        case locked
+        /// The capsule under the open panel (`HUDStripLayout`, spec §19.5 d,
+        /// amended 2026-10-25).
+        case strip
+    }
+
+    /// Shows a key's result, and restarts the fold.
     ///
     /// The key has already been applied and consumed; this only says so. The
-    /// level is announced even when nothing is drawn — with the panel open the
-    /// volume has its slider but brightness has nothing, and a person on
-    /// VoiceOver has neither.
+    /// level is announced even when nothing is drawn — over the lock screen,
+    /// or a dark display — so a person on VoiceOver is never left without it.
+    ///
+    /// Each press costs the main thread one store and nothing else once the
+    /// pop-up is up: the level goes to `HUDLiveLevel`, which only the pop-up's
+    /// own view watches, and the fold timer is pushed back. The island's body,
+    /// the outline and the alert queue are touched on the arrival and the
+    /// fold alone (owner, 2026-10-25: "as light as the native macOS one").
     func presentHUD(_ reading: HUDReading) {
         guard let vm = viewModel else { return }
         let moment = HUDMoment(reading)
@@ -2610,46 +2791,87 @@ final class NotchController {
         hudAnnounceWork = announce
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.hudAnnounceDelay, execute: announce)
 
-        guard Self.hudAllowed(
+        guard let placement = Self.hudPlacement(
             isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted,
-            isLocked: vm.isLockedPresentation, screensAsleep: screensAreAsleep
+            isLocked: vm.isLockedPresentation, screensAsleep: screensAreAsleep,
+            overShield: islandIsOverShield
         ) else { return }
 
-        // The highest of R7's alerts, so the queue always says show; asked all
-        // the same, so a peek or a charger waiting behind an older pop-up is
-        // judged against this one.
-        guard postAlert(.hud(moment), to: vm) == .show else { return }
-
         let reduceMotion = SystemAppearance.shared.reduceMotion
-        if vm.hud == nil {
-            // Unfolding, on the pop-up's own quick, critically damped spring
-            // (`Theme.hud`): on the island's slower, bouncier curve a key
-            // press felt heavy, and the owner's review (2026-10-18) asked for
-            // the system's feel — there at once, no overshoot.
-            //
-            // It replaces what it outranks — the charger, headphones, a
-            // peek — and the replaced alert is
-            // dropped with its timer, not left underneath to come back when
-            // this folds (spec §19.1): a percentage shown again after the
-            // pop-up is a percentage from before it.
-            peekWork?.cancel()
-            peekWork = nil
-            ambientWork?.cancel()
-            ambientWork = nil
-            // The update alert is the one replaced alert that is not dropped:
-            // the queue took it back as this was posted (spec §19.1), and it
-            // returns, with a fresh hold, when this folds.
-            cancelUpdateWork()
-            withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
-                vm.isPeeking = false
-                vm.ambient = nil
+        switch placement {
+        case .locked:
+            // Over the shield the island is the lock's, so no queue: the
+            // pop-up replaces the charger, and nothing else can be up there.
+            if vm.hud == nil {
+                ambientWork?.cancel()
+                ambientWork = nil
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
+                    vm.ambient = nil
+                    vm.hud = moment
+                }
+            } else {
                 vm.hud = moment
-                vm.updateOffer = nil
             }
-        } else {
-            // Already up: the bar follows on its own curve; the shape has
-            // nothing to do.
-            vm.hud = moment
+        case .strip:
+            // A satellite of the panel, not an alert: it takes no part in the
+            // island's queue, replaces nothing and waits for nothing — the
+            // panel being open means every alert is already waiting for it to
+            // close, so nothing else is on screen to stack with.
+            if vm.hudStrip == nil {
+                // The level outranks whatever else the capsule carries — the
+                // charger, headphones, a confirmation — and takes it over in
+                // one transaction, as the pill replaces what it outranks;
+                // the replaced notice is dropped with its timer (spec §19.1).
+                stripNoticeWork?.cancel()
+                stripNoticeWork = nil
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
+                    vm.stripNotice = nil
+                    vm.hudStrip = moment
+                }
+            } else {
+                // Already up: the bar follows on its own curve; the capsule
+                // has nothing to do.
+                vm.hudStrip = moment
+            }
+        case .pill:
+            // The highest of R7's alerts, so the queue always says show; asked
+            // all the same, so a peek or a charger waiting behind an older
+            // pop-up is judged against this one.
+            guard postAlert(.hud(moment), to: vm) == .show else { return }
+            if vm.hud == nil {
+                // Unfolding, on the pop-up's own quick, critically damped
+                // spring (`Theme.hud`): on the island's slower, bouncier curve
+                // a key press felt heavy, and the owner's review (2026-10-18)
+                // asked for the system's feel — there at once, no overshoot.
+                //
+                // It replaces what it outranks — the charger, headphones, a
+                // peek — and the replaced alert is
+                // dropped with its timer, not left underneath to come back when
+                // this folds (spec §19.1): a percentage shown again after the
+                // pop-up is a percentage from before it.
+                peekWork?.cancel()
+                peekWork = nil
+                ambientWork?.cancel()
+                ambientWork = nil
+                confirmationWork?.cancel()
+                confirmationWork = nil
+                // The update alert is the one replaced alert that is not
+                // dropped: the queue took it back as this was posted (spec
+                // §19.1), and it returns, with a fresh hold, when this folds.
+                cancelUpdateWork()
+                withAnimation(Theme.hud(reduceMotion: reduceMotion)) {
+                    vm.isPeeking = false
+                    vm.ambient = nil
+                    vm.hud = moment
+                    vm.confirmation = nil
+                    vm.updateOffer = nil
+                }
+            } else {
+                // Already up: the bar follows on its own curve; the shape has
+                // nothing to do, and the view model hears nothing of it
+                // (`NotchViewModel.hud`).
+                vm.hud = moment
+            }
         }
         hudFoldWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -2657,29 +2879,146 @@ final class NotchController {
             self.hudFoldWork = nil
             // The island returns to its live activity — the song, the Shelf —
             // on the curve the pop-up arrived on, or to an alert that waited
-            // for the pop-up and is still inside its second.
+            // for the pop-up and is still inside its second. The capsule folds
+            // on the same curve.
             withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.hud = nil
+                vm.hudStrip = nil
             }
+            self.promoteStripNotice()
             self.promoteWaitingAlert()
         }
         hudFoldWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + hudFoldDelay, execute: work)
     }
 
-    /// Whether the pop-up may be drawn now. Pure, so each refusal is a test.
+    /// Where the pop-up may be drawn now, or nowhere. Pure, so each refusal is
+    /// a test.
     ///
-    /// Not over the open panel — the player has its own volume slider, and the
-    /// panel would not have a pill to widen (the spec is silent, so the key is
-    /// applied and nothing is drawn); not while a drag holds the panel open;
-    /// not over the lock screen, where the tap passes every event through and
-    /// the collapsed rects belong to the card; not on a dark display. A key
-    /// press is the person's own act, so unlike the charger it is **not**
-    /// refused for a pointer on the pill or a full-screen app.
+    /// The shut island's pill when the panel is shut; the capsule under the
+    /// panel when it is open (it was refused outright until 2026-10-25, on the
+    /// premise that the player had its own volume slider — withdrawn on
+    /// 2026-10-16 — and brightness never had one). Not while a drag holds the
+    /// panel open, whose drop surface is the whole answer; not over the lock
+    /// screen, where the tap passes every event through and the collapsed rects
+    /// belong to the card; not on a dark display. A key press is the person's
+    /// own act, so unlike the charger it is **not** refused for a pointer on
+    /// the pill or a full-screen app.
+    ///
+    /// Over the lock screen (amended 2026-10-26): the locked island's compact
+    /// pill when the island is over the shield (`overShield`, the panel in the
+    /// lock screen's SkyLight space with the card), and nowhere otherwise —
+    /// then the tap never took the key (`MediaKeyHUD.drawsWhileLocked`), and
+    /// the system's own pop-up is showing. The card is a window of its own in
+    /// the middle of the display and the pill sits at the notch, so neither
+    /// moves or covers the other; the card's own volume bar watches the same
+    /// output and moves with the key.
+    nonisolated static func hudPlacement(
+        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool, overShield: Bool = false
+    ) -> HUDPlacement? {
+        guard !screensAsleep else { return nil }
+        // `LockedIsland.showsAlert` says the same of `.hud`.
+        if isLocked { return overShield ? .locked : nil }
+        guard !isDropTargeted else { return nil }
+        return isOpen ? .strip : .pill
+    }
+
+    /// Whether the pop-up may be drawn at all, in any place.
     nonisolated static func hudAllowed(
-        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool
+        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool, overShield: Bool = false
     ) -> Bool {
-        !isOpen && !isDropTargeted && !isLocked && !screensAsleep
+        hudPlacement(
+            isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked, screensAsleep: screensAsleep,
+            overShield: overShield
+        ) != nil
+    }
+
+    /// Whether the island is over the lock screen now, to draw on: locked as
+    /// the island presents it, the display awake, and the panel in the space
+    /// above the shield (`LockScreenPresence.isAboveShield`) — the one answer
+    /// the key tap, the pop-up and the charger all ask.
+    var islandIsOverShield: Bool {
+        guard let vm = viewModel, vm.isLockedPresentation, !screensAreAsleep else { return false }
+        if let overShieldForTesting { return overShieldForTesting }
+        guard let panel else { return false }
+        return lockPresence.isAboveShield(windowNumber: panel.windowNumber)
+    }
+
+    /// A test's answer for the lift, which needs a real panel and the
+    /// compositor; production never sets it.
+    var overShieldForTesting: Bool?
+    /// A test's answer for `momentsAreQuiet`, which reads the owner's real
+    /// displays and frontmost app; production never sets it.
+    var momentsQuietForTesting: Bool?
+
+    // MARK: The island's confirmations (2026-10-25, MR-7)
+
+    private var confirmationWork: DispatchWorkItem?
+    /// How long a confirmation holds the island. `IslandConfirmation
+    /// .holdDuration`; a test shortens it rather than wait a second and a half.
+    var confirmationHold: TimeInterval = IslandConfirmation.holdDuration
+
+    /// Shows "Lyrics imported", "Copied" or "Added to Shelf" on the shut
+    /// island for its hold, through `alertQueue` like every alert.
+    ///
+    /// Posted while the panel is open or a drag is under way, it waits for the
+    /// panel to close and then shows its usual hold; if the panel is still
+    /// open `IslandAlertQueue.confirmationPatience` (5 s) after the act, it
+    /// lapses. A file dropped onto an already-open panel returns to the player
+    /// (`endDropSurface`), not to the tray, and an LRC import runs from
+    /// Settings: with the old one-second wait neither was ever answered. A
+    /// newer confirmation replaces an older one at once (equal rank), the key
+    /// pop-up replaces it outright, and a lock or a dark display ends it.
+    ///
+    /// Unlike the charger it is not refused with the pointer on the island:
+    /// a drop leaves the pointer exactly there, and the act is the person's
+    /// own, as a key press is. Nor over a full-screen app, for the same
+    /// reason. A dark display shows nothing.
+    func presentConfirmation(_ confirmation: IslandConfirmation) {
+        guard let vm = viewModel, !screensAreAsleep else { return }
+        // Over an open panel: in the capsule under it, now (2026-10-26).
+        if Self.noticePlacement(
+            isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+        ) == .strip {
+            presentInStrip(.confirmation(confirmation))
+            return
+        }
+        guard postAlert(.confirmation(confirmation), to: vm) == .show else { return }
+
+        let reduceMotion = SystemAppearance.shared.reduceMotion
+        // What it outranks goes, and is dropped with its timer (spec §19.1);
+        // the update choice is the queue's to bring back.
+        peekWork?.cancel()
+        peekWork = nil
+        ambientWork?.cancel()
+        ambientWork = nil
+        cancelUpdateWork()
+        confirmationWork?.cancel()
+        withAnimation(Theme.pill(reduceMotion: reduceMotion)) {
+            vm.isPeeking = false
+            vm.ambient = nil
+            vm.updateOffer = nil
+            vm.confirmation = confirmation
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            self.confirmationWork = nil
+            withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.confirmation = nil
+            }
+            self.promoteWaitingAlert()
+        }
+        confirmationWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + confirmationHold, execute: work)
+    }
+
+    /// Ends a confirmation at once, for a lock, a dark display and a Space
+    /// change.
+    private func clearConfirmation() {
+        confirmationWork?.cancel()
+        confirmationWork = nil
+        alertQueue.removeConfirmations()
+        viewModel?.confirmation = nil
     }
 
     /// Ends the pop-up at once, for a lock, a dark display and a Space change.
@@ -2689,6 +3028,140 @@ final class NotchController {
         hudAnnounceWork?.cancel()
         hudAnnounceWork = nil
         viewModel?.hud = nil
+        viewModel?.hudStrip = nil
+        clearStripNotice()
+    }
+
+    // MARK: The capsule's other notices (spec §19.5 d, amended 2026-10-26)
+
+    /// Where an alert that is not the level goes. Pure, so each case is a test.
+    enum NoticePlacement: Equatable {
+        /// The shut island, through `alertQueue`, as it always went.
+        case island
+        /// The capsule under the open panel, now.
+        case strip
+    }
+
+    /// The capsule while a surface is open; the island otherwise — which
+    /// waits, as before, through a drag (the drop surface is the panel's whole
+    /// answer) and over the lock screen.
+    nonisolated static func noticePlacement(isOpen: Bool, isDropTargeted: Bool, isLocked: Bool) -> NoticePlacement {
+        isOpen && !isDropTargeted && !isLocked ? .strip : .island
+    }
+
+    /// The capsule's own queue: what waits there behind the level or a
+    /// higher notice, by the island's ranks and patience. The shut island's
+    /// `alertQueue` never sees these; a notice shown in the capsule has been
+    /// shown.
+    private var stripQueue = IslandAlertQueue()
+    private var stripNoticeWork: DispatchWorkItem?
+    private var stripNoticeShownAt: Date?
+
+    /// Puts a notice in the capsule, or makes it wait there behind what
+    /// outranks it. True when it shows now.
+    @discardableResult
+    func presentInStrip(_ notice: StripNotice) -> Bool {
+        guard let vm = viewModel else { return false }
+        let showing: IslandActivity = vm.hudStrip.map { .hud($0) } ?? vm.stripNotice?.activity ?? .none
+        guard stripQueue.post(notice.activity, showing: showing, blocked: false, at: Date()) == .show else {
+            return false
+        }
+        showInStrip(notice)
+        return true
+    }
+
+    private func showInStrip(_ notice: StripNotice) {
+        guard let vm = viewModel else { return }
+        stripNoticeWork?.cancel()
+        // The level's own curve, in and out: the capsule is one object
+        // whatever it carries.
+        withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.stripNotice = notice
+        }
+        stripNoticeShownAt = Date()
+        let hold: TimeInterval
+        switch notice {
+        case .ambient(let ambient): hold = ambient.holdDuration
+        case .confirmation: hold = confirmationHold
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let vm = self.viewModel else { return }
+            self.stripNoticeWork = nil
+            withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.stripNotice = nil
+            }
+            self.promoteStripNotice()
+        }
+        stripNoticeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: work)
+    }
+
+    /// The capsule is free — the level folded, a notice folded: the highest
+    /// notice still inside its patience takes it, while the panel is open.
+    private func promoteStripNotice() {
+        guard let vm = viewModel else { return }
+        while vm.isOpen, !vm.isDropTargeted, vm.hudStrip == nil, vm.stripNotice == nil,
+              let next = stripQueue.next(at: Date()) {
+            // Asked again as it leaves the queue (Codex review 2026-10-26): a
+            // charger that waited behind the level must still find its switch
+            // on and the moment not quiet, as `presentAmbient` asked it.
+            if let notice = StripNotice(next), stripStillAllows(notice) { showInStrip(notice) }
+        }
+    }
+
+    /// The capsule's own refusals for a notice: the switch, a dark display
+    /// and a quiet moment refuse the charger and headphones; a confirmation
+    /// of the person's own act is always shown. Under the open panel the
+    /// pointer is on the panel, which says nothing about a capsule nobody can
+    /// click, so it is not asked.
+    private func stripStillAllows(_ notice: StripNotice) -> Bool {
+        guard case .ambient(let activity) = notice else { return true }
+        let switchOn: Bool
+        switch activity {
+        case .charging: switchOn = NotchViewModel.chargingEnabled
+        case .headphones: switchOn = NotchViewModel.headphonesEnabled
+        }
+        return activity.showsOnIsland && Self.ambientAllowed(
+            switchOn: switchOn, pointerInside: false, pointerUnderGrownPill: false,
+            screensAsleep: screensAreAsleep, quiet: momentsAreQuiet(presentingOnly: activity.isChargerMoment)
+        )
+    }
+
+    /// The panel closed (the view model took the capsule down in the close's
+    /// own transaction). A notice that had only just arrived is handed to the
+    /// shut island, which shows it for its hold once the close lets it
+    /// (`StripNotice.handsBack`), and so is the best one still waiting for
+    /// the capsule inside its patience — it was never seen at all. The rest
+    /// go with the panel.
+    private func stripClosed(_ shown: StripNotice?) {
+        let shownAt = stripNoticeShownAt
+        let waiting = stripQueue.next(at: Date()).flatMap(StripNotice.init)
+        stripNoticeWork?.cancel()
+        stripNoticeWork = nil
+        stripNoticeShownAt = nil
+        stripQueue.removeAll()
+        guard let vm = viewModel else { return }
+        var owed: [StripNotice] = []
+        if let shown, let shownAt, StripNotice.handsBack(shownFor: Date().timeIntervalSince(shownAt)) {
+            owed.append(shown)
+        }
+        if let waiting { owed.append(waiting) }
+        // Each waits as any alert posted over an open panel does; the close's
+        // promotion pass (`wireAlertPromotion`) brings it up, through its own
+        // entry point and every refusal there — the charger's switch included.
+        for notice in owed {
+            _ = alertQueue.post(notice.activity, showing: vm.activity, blocked: true, at: Date())
+        }
+    }
+
+    /// Ends whatever the capsule carries besides the level, and what waits
+    /// for it: a lock, a dark display, a Space change.
+    private func clearStripNotice() {
+        stripNoticeWork?.cancel()
+        stripNoticeWork = nil
+        stripNoticeShownAt = nil
+        stripQueue.removeAll()
+        viewModel?.stripNotice = nil
     }
 
     /// Shows the charger or headphones on the island for their hold.
@@ -2699,7 +3172,19 @@ final class NotchController {
     /// `sneakPeek`). Headphones outrank the charger, and a peek already on
     /// screen gives way to either, because the Mac did something and the song
     /// has not changed.
-    private func presentAmbient(_ activity: AmbientActivity) {
+    /// The newest charger reading and when it came, for a plug-in that
+    /// waited in a queue (Codex review 2026-10-27): the re-reads land while
+    /// nothing is on screen to take them, and the moment promoted a second
+    /// later would show, and announce, the edge's reading — Charging for On
+    /// Hold, no watts.
+    var latestCharge: (activity: AmbientActivity, at: Date)?
+
+    func presentAmbient(_ activity: AmbientActivity) {
+        var activity = activity
+        if activity.isChargerMoment, let latest = latestCharge,
+           Date().timeIntervalSince(latest.at) < AmbientActivity.chargingHold + 1 {
+            activity = latest.activity
+        }
         // A Mac that reports no battery level shows no Charging (spec §19.4).
         guard let vm = viewModel, activity.showsOnIsland else { return }
         let switchOn: Bool
@@ -2710,6 +3195,23 @@ final class NotchController {
         let grown = NotchViewModel.ambientBodySize(
             activity, notchSize: vm.geometry.notchSize, bodyWidth: vm.geometry.expandedSize.width
         )
+        if vm.isLockedPresentation, LockedIsland.showsAlert(.ambient(activity), overShield: islandIsOverShield) {
+            presentLockedCharge(activity, switchOn: switchOn)
+            return
+        }
+        let placement = Self.noticePlacement(
+            isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
+        )
+        if placement == .strip {
+            // Under the open panel the pointer is on the panel, which says
+            // nothing about a capsule nobody can click; the switch, a dark
+            // display and a full-screen film still refuse it.
+            guard stripStillAllows(.ambient(activity)) else { return }
+            if presentInStrip(.ambient(activity)) {
+                Announcer.shared.announce(activity.accessibilityLabel)
+            }
+            return
+        }
         let blocked = Self.alertsBlocked(
             isOpen: vm.isOpen, isDropTargeted: vm.isDropTargeted, isLocked: vm.isLockedPresentation
         )
@@ -2717,13 +3219,17 @@ final class NotchController {
         // is always inside, and that says nothing about the pill this will
         // grow once the panel has gone. `promoteWaitingAlert` comes back here,
         // and asks it then.
+        // The charger shows under the pointer and over a full-screen app
+        // (owner, 2026-10-27: every plug-in, as the menu bar's bolt); the
+        // headphones keep the pointer's and the film's restraint.
+        let charger = activity.isChargerMoment
         guard Self.ambientAllowed(
             switchOn: switchOn,
-            pointerInside: !blocked && pointer.isInside,
-            pointerUnderGrownPill: !blocked
+            pointerInside: !charger && !blocked && pointer.isInside,
+            pointerUnderGrownPill: !charger && !blocked
                 && vm.geometry.grownAlertRect(for: .ambient(activity), body: grown).contains(NSEvent.mouseLocation),
             screensAsleep: screensAreAsleep,
-            quiet: momentsAreQuiet()
+            quiet: momentsAreQuiet(presentingOnly: charger)
         ) else { return }
         guard postAlert(.ambient(activity), to: vm) == .show else { return }
 
@@ -2744,6 +3250,46 @@ final class NotchController {
         // sentence for something nobody can see would be the voice lying.
         Announcer.shared.announce(activity.accessibilityLabel)
         scheduleAmbientFold(after: activity.holdDuration)
+    }
+
+    /// The charger plugged in while the Mac is locked, on the locked island
+    /// (spec §3.7, amended 2026-10-26): its compact pill for its hold, no
+    /// queue — over the shield the island is the lock's — and no pointer
+    /// test, since nothing there opens. The pop-up outranks it: one already
+    /// up keeps the island, and the charge is not shown.
+    private func presentLockedCharge(_ activity: AmbientActivity, switchOn: Bool) {
+        guard let vm = viewModel, vm.hud == nil,
+              Self.ambientAllowed(
+                  switchOn: switchOn, pointerInside: false, pointerUnderGrownPill: false,
+                  screensAsleep: screensAreAsleep, quiet: momentsAreQuiet(presentingOnly: true)
+              ) else { return }
+        ambientWork?.cancel()
+        withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.ambient = activity
+        }
+        Announcer.shared.announce(activity.accessibilityLabel)
+        scheduleAmbientFold(after: activity.holdDuration)
+    }
+
+    /// A Charging moment on the island takes a later reading in place: the
+    /// battery that began charging a moment after the plug, the adapter's
+    /// watts. Nothing is announced again and the hold is not restarted — it
+    /// is the same moment, told more exactly. Ignored when no Charging moment
+    /// is up, so a reading that lands after the fold puts nothing back.
+    private func updateShownCharge(_ activity: AmbientActivity) {
+        guard let vm = viewModel, case .charging = activity else { return }
+        latestCharge = (activity, Date())
+        // The capsule's Charging moment takes it the same way.
+        if case .ambient(.charging)? = vm.stripNotice, vm.stripNotice != .ambient(activity) {
+            withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                vm.stripNotice = .ambient(activity)
+            }
+            return
+        }
+        guard case .charging? = vm.ambient, vm.ambient != activity else { return }
+        withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.ambient = activity
+        }
     }
 
     /// Folds the moment after `delay`, or, with the pointer resting on the
@@ -2809,8 +3355,14 @@ final class NotchController {
 
     /// The live reading behind `momentsQuiet`. Read when a moment is about to
     /// show, never cached: a display plugged in a second ago has to count.
-    private func momentsAreQuiet() -> Bool {
-        let options = NSApp.currentSystemPresentationOptions
+    ///
+    /// `presentingOnly` asks only the presentation reasons — a mirror, a
+    /// shut lid on a projector — and not a full-screen app: the charger
+    /// (owner, 2026-10-27: a plug-in must always show, as the menu bar's
+    /// bolt does) is the Mac's own state, not a song title over a film.
+    private func momentsAreQuiet(presentingOnly: Bool = false) -> Bool {
+        if let momentsQuietForTesting { return momentsQuietForTesting }
+        let options = NSApplication.shared.currentSystemPresentationOptions
         var count: UInt32 = 0
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         CGGetActiveDisplayList(UInt32(ids.count), &ids, &count)
@@ -2819,7 +3371,7 @@ final class NotchController {
             // `.hideMenuBar` rather than `.autoHideMenuBar`: the latter is a
             // preference many people keep on all day, the former is an app
             // that took the whole screen.
-            fullScreenFrontmost: options.contains(.fullScreen) || options.contains(.hideMenuBar),
+            fullScreenFrontmost: !presentingOnly && (options.contains(.fullScreen) || options.contains(.hideMenuBar)),
             displayMirrored: active.contains { CGDisplayIsInMirrorSet($0) != 0 },
             soleExternalDisplay: Self.isSoleExternalDisplay(
                 displaysAreBuiltIn: active.map { CGDisplayIsBuiltin($0) != 0 },

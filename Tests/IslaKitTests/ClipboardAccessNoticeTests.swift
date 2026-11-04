@@ -49,6 +49,43 @@ final class ClipboardAccessNoticeTests: XCTestCase {
         XCTAssertTrue(hasSentence(root), root.dump)
     }
 
+    /// The sentence is never cut, in either language at any panel width
+    /// (Batch 10, 2026-10-29). In Russian at 560 it ended "…поэтому новое н…":
+    /// two lines beside «Открыть настройки конфиденциальности», which took half
+    /// the row, and the sentence needed three; at 480 it needed four. Found
+    /// by reading every render of the visual lab for an ellipsis. The
+    /// sentence's drawn height is held against the height it needs at the
+    /// width it was given.
+    func testTheSentenceIsNeverCut() async throws {
+        defer { LabLocalization.use("en") }
+        for language in ["en", "ru"] {
+            LabLocalization.use(language)
+            let words = localized(sentence)
+            for width in [NotchMetrics.minimumBodyWidth, NotchMetrics.defaultBodyWidth, NotchMetrics.maximumBodyWidth] {
+                let isolated = ProbeFixtures.isolatedStores()
+                defer { isolated.release() }
+                let clipboard = isolated.stores.clipboard
+                clipboard.accessBehavior = { .denied }
+                clipboard.recheckAccess()
+
+                let pane = ClipboardPane(clipboard: clipboard, privacy: isolated.stores.privacy, bodyWidth: width)
+                let root = await AXProbe.tree(of: pane, size: CGSize(width: width, height: size.height))
+                let drawn = try XCTUnwrap(
+                    root.flattened.first { $0.label == words || $0.value == words }?.frame,
+                    "\(language) at \(width): no sentence\n\(root.dump)"
+                )
+                let needed = NSHostingView(rootView: Text(words)
+                    .islandFont(.body, weight: .regular)
+                    .frame(width: drawn.width, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)).fittingSize.height
+                XCTAssertGreaterThanOrEqual(
+                    drawn.height, needed - 0.5,
+                    "\(language) at \(width): the sentence is cut (\(drawn.width) wide, \(drawn.height) of \(needed) tall)"
+                )
+            }
+        }
+    }
+
     /// Ask and Allow are not failures, and the tab says nothing about them:
     /// one failure surface, and only for the failure.
     func testAnAllowedPasteboardSaysNothing() async {

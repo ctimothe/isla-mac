@@ -176,6 +176,41 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    /// Run-sheet 427 and 431, the half a test can hold: a launch never passes
+    /// over the Shelf's files — that pass is what raises the Desktop and
+    /// Documents prompts and finds a file deleted in Finder — and the tray
+    /// coming into view is the one moment it runs. Each arrival is one pass:
+    /// another page, a shut panel reopened onto the tray, and the tray again.
+    /// Staying on the tray, or opening the panel on another page, is none.
+    /// What the pass does with a deleted file is
+    /// `ShelfStoreTests.testRefreshFromDiskEvictsACardWhoseFileWasDeleted`.
+    func testALaunchNeverPassesOverTheShelfAndEachArrivalOnTheTrayDoesOnce() {
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            XCTAssertEqual(vm.shelf.refreshesForTests, 0, "a launch reads no Shelf file")
+
+            vm.isOpen = true
+            vm.open(.player)
+            vm.open(.clipboard)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 0, "no page but the tray looks at the files")
+
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 1, "the tray coming into view is the pass")
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 1, "a tray already on screen has its cards")
+
+            vm.open(.translate)
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 2, "back from another page is an arrival")
+
+            vm.isOpen = false
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 3, "a shut panel opening onto the tray is an arrival")
+        }
+    }
+
     /// A drop lands on a tray the drag never refreshed, and `add` loads the new
     /// cards' previews itself — so the drop must not pass over the whole shelf
     /// again: a reachability check and a fresh QuickLook request per card, each
@@ -419,6 +454,40 @@ final class FirstRunTests: XCTestCase {
     /// this test and `Scripts/test-localizations.sh` — which compares key sets —
     /// would pass on a pane that shows English to a Russian user. So each Russian
     /// value has to differ from its own key.
+    /// VoiceOver meets the welcome the way its title means it to be met: the
+    /// headline first, as a heading, then the way back, then how the island
+    /// is used (Batch 3, 2026-10-29).
+    ///
+    /// It read the legend's four lines before "Isla is running." — the order
+    /// the two columns are laid out in, left to right — and nothing on the
+    /// pane was a heading, so a person moving by headings, as VoiceOver users
+    /// do on a new screen, found none on the one screen that tells them how
+    /// to come back to an app with no Dock icon.
+    func testTheWelcomeReadsItsHeadlineFirstAsAHeading() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        vm.isOpen = true
+        vm.isShowingWelcome = true
+        let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
+        let host = AXProbe.present(NotchContentView(vm: vm), size: size)
+        let root = await AXProbe.read(host, settle: 0.3)
+        let welcome = try XCTUnwrap(root.first(label: "Welcome"), root.dump)
+        let english = WelcomePane.Copy.english
+
+        XCTAssertEqual(welcome.all(role: "AXHeading").map { $0.label.isEmpty ? $0.value : $0.label },
+                       [english.running], welcome.dump)
+        // What VoiceOver says, which is not the order the tree is laid out in.
+        let spoken = AXProbe.spokenOrder(host).drop { $0 != "Welcome" }.dropFirst()
+        let lines = Array(spoken.prefix(8))
+        XCTAssertEqual(lines.count, 8, "\(spoken)")
+        XCTAssertEqual(lines.first, english.running, "the headline first\n\(spoken)")
+        XCTAssertTrue(lines.dropFirst().first?.hasPrefix("No Dock") == true, "then the way back\n\(spoken)")
+        XCTAssertEqual(lines.dropFirst(2).first, english.staysOnMac, "\(spoken)")
+        XCTAssertEqual(lines.dropFirst(3).first, english.click, "then how the island is used\n\(spoken)")
+        XCTAssertEqual(lines.last, english.action, "Get Started last, after everything it answers\n\(spoken)")
+    }
+
     func testEveryWelcomeStringIsInBothTables() throws {
         XCTAssertFalse(WelcomePane.localizedKeys.isEmpty)
 

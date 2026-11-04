@@ -188,6 +188,7 @@ final class LockCardWindow {
         lyrics: LyricsStore,
         localLookup: @escaping () -> LocalLyricsLookup? = { nil },
         translation: LyricTranslation? = nil,
+        nowPlaying: NowPlayingPresenter? = nil,
         on screen: NSScreen,
         presence: LockScreenPresence
     ) {
@@ -252,7 +253,8 @@ final class LockCardWindow {
             audio: watch,
             translation: translation,
             tone: tone,
-            presentation: presentation
+            presentation: presentation,
+            nowPlaying: nowPlaying
         ))
         // The card sits inset inside the window, so its shadow has somewhere to
         // go. Not autoresizing: the card is one fixed size and the window is

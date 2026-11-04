@@ -24,11 +24,13 @@
 #     ISLA_HITCH_CYCLES=12 bash Scripts/measure-hitches.sh after
 #
 #   scenarios: rest-playing, rest-paused, open-close, open-close-lyrics,
-#              surface-change, alert, open-stall, alert-stall   (default: all)
+#              surface-change, page-turn, alert, open-stall, alert-stall,
+#              click-player, click-tray, click-stage,
+#              pull-player, pull-tray, pull-stage              (default: all)
 #   loads:     idle, stressed, saturated                       (default: all)
 #   ISLA_HITCH_CYCLES   measured cycles per step, after two of warm-up (default 8)
 #   ISLA_HITCH_BUNDLE   a test bundle built earlier (a copy of
-#                       .build/release/IslaPackageTests.xctest), to measure the
+#                       .build/release/IslaKitTests.xctest), to measure the
 #                       code as it was without rebuilding it
 #
 # The result is <out-folder>/hitches-<label>.json and the table on stdout. The
@@ -77,7 +79,7 @@ trap cleanup EXIT INT TERM
 
 cd "$ROOT"
 if [ -n "${ISLA_HITCH_BUNDLE:-}" ]; then
-  # A test bundle built earlier (a copy of .build/release/IslaPackageTests.xctest
+  # A test bundle built earlier (a copy of .build/release/IslaKitTests.xctest
   # taken before a change), so a before and an after can be measured one after
   # the other on the same Mac without rebuilding the old code.
   ISLA_VISUAL_OUT="$OUT/visual" ISLA_HITCH_OUT="$OUT" ISLA_HITCH_LABEL="$LABEL" \

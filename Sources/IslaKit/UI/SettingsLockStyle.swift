@@ -20,14 +20,15 @@ struct LockStylePicker: View {
 
     var body: some View {
         let size = SettingsLayout.previewSize(formWidth: formWidth)
+        let optionWidth = SettingsLayout.previewOptionWidth(formWidth: formWidth)
         // The ring stands 3 pt outside the preview and the form's scroll view
         // clips at its own edge, so the row insets 4 pt each side.
-        let inset: CGFloat = 4
+        let inset = SettingsLayout.previewRowInset
         let rowWidth = formWidth - inset * 2
         HStack(alignment: .top, spacing: 0) {
             ForEach(Array(NotchViewModel.LockCardStyle.allCases.enumerated()), id: \.element) { index, style in
                 if index > 0 { Spacer(minLength: 0) }
-                option(style, size: size)
+                option(style, size: size, width: optionWidth)
             }
         }
         .frame(width: rowWidth)
@@ -45,7 +46,7 @@ struct LockStylePicker: View {
         }
     }
 
-    private func option(_ style: NotchViewModel.LockCardStyle, size: CGSize) -> some View {
+    private func option(_ style: NotchViewModel.LockCardStyle, size: CGSize, width: CGFloat) -> some View {
         let isSelected = style == selection
         return Button {
             selection = style
@@ -59,7 +60,7 @@ struct LockStylePicker: View {
                 .overlay {
                     if isSelected {
                         RoundedRectangle(cornerRadius: SettingsLayout.previewRadius + 3, style: .continuous)
-                            .strokeBorder(Theme.accent, lineWidth: Theme.settingsPreviewRingWidth)
+                            .strokeBorder(Color(nsColor: .controlAccentColor), lineWidth: Theme.settingsPreviewRingWidth)
                             .padding(-3)
                     }
                 }
@@ -68,7 +69,7 @@ struct LockStylePicker: View {
                     .foregroundStyle(isSelected ? Color.white : Theme.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .frame(width: size.width + 12)
+                    .frame(width: width)
             }
             .contentShape(Rectangle())
         }

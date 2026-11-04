@@ -67,7 +67,7 @@ enum ClipFilter: CaseIterable, Equatable {
 
     /// What the list says when entries exist but none is of this kind: "No Text",
     /// "No Links", "No Images", "No Files". Nil for All, which is empty only when
-    /// the history is, and says "Nothing copied yet" (review 2026-10-15: the
+    /// the history is, and says its own sentence, "Copied text and images will appear here." (review 2026-10-15: the
     /// pane said that for a Links filter over a history full of text, which
     /// reads as lost data).
     var emptyTitle: String? {

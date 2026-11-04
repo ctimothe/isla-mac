@@ -151,9 +151,9 @@ final class TranslateAlertTests: XCTestCase {
         }
     }
 
-    /// "Use Online" sends one text once, leaves Translate Online off, and is the
-    /// only way the online engine answers for a pair the Mac has: the switch in
-    /// Settings is not turned on, and an edit ends the permission.
+    /// "Use Online" sends this text and what is typed next for the pair, leaves
+    /// Translate Online off, and is the only way the online engine answers for
+    /// a pair the Mac has: the switch in Settings is not turned on.
     func testUseOnlineAnswersOneTextAndLeavesTheSwitchAlone() async {
         let rig = TranslateRig()
         defer { rig.release() }
@@ -178,11 +178,12 @@ final class TranslateAlertTests: XCTestCase {
         XCTAssertEqual(translator.engine, .online)
         XCTAssertFalse(rig.defaults.bool(forKey: NotchViewModel.onlineTranslationKey), "Translate Online is still off")
 
-        // Another text is not covered by the permission.
+        // What is typed next for the pair is covered too (amended 2026-10-26).
         translator.input = "Goodbye"
         await translator.translate()
-        XCTAssertEqual(sent, ["Hello"], "an edit ends it")
-        XCTAssertEqual(translator.failureKind, .obstacle(.needsDownload(.ukrainian)))
+        XCTAssertEqual(sent, ["Hello", "Goodbye"], "an edit keeps it")
+        XCTAssertEqual(translator.engine, .online)
+        XCTAssertFalse(rig.defaults.bool(forKey: NotchViewModel.onlineTranslationKey), "Translate Online is still off")
     }
 
     /// The rule the exception leans on: online is never the next try after an

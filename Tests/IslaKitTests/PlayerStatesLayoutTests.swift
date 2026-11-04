@@ -20,47 +20,73 @@ final class PlayerStatesLayoutTests: XCTestCase {
         XCTAssertEqual(PlayerLayout.boardLyricOpacity(offset: 6), 0.18, "past the board, below")
     }
 
-    /// The contrast floor wins over the boards (spec §2.1): no context line is
-    /// ever drawn under the ramp's floor, the neighbours under its neighbour
-    /// step, and the order the board gives — the next line brighter than the
-    /// previous — survives where the board clears the floor.
-    func testNoContextLineIsDrawnUnderTheContrastFloor() {
-        for increaseContrast in [false, true] {
+    /// Under Increase Contrast the contrast floor still wins over the boards
+    /// (spec §2.1): no context line is ever drawn under the ramp's floor, the
+    /// neighbours under its neighbour step, and the order the board gives —
+    /// the next line brighter than the previous — survives where the board
+    /// clears the floor. The default setting's dimmer ramp is the next test.
+    func testNoContextLineIsDrawnUnderTheContrastFloorUnderIncreaseContrast() {
+        for increaseContrast in [true] {
             let ramp = LyricRow.Ramp.panel(increaseContrast: increaseContrast)
             for offset in -6...6 where offset != 0 {
-                let drawn = PlayerLayout.lyricOpacity(offset: offset, ramp: ramp, reading: false)
+                let drawn = PlayerLayout.lyricOpacity(
+                    offset: offset, ramp: ramp, reading: false, increaseContrast: increaseContrast
+                )
                 let floor = abs(offset) == 1 ? ramp.neighbour : ramp.floor
                 XCTAssertGreaterThanOrEqual(drawn, floor, "offset \(offset), contrast \(increaseContrast)")
                 XCTAssertLessThan(drawn, 1, "only the sung line is full white")
             }
-            XCTAssertEqual(PlayerLayout.lyricOpacity(offset: 0, ramp: ramp, reading: false), 1)
+            XCTAssertEqual(
+                PlayerLayout.lyricOpacity(offset: 0, ramp: ramp, reading: false, increaseContrast: increaseContrast), 1
+            )
             XCTAssertGreaterThan(
-                PlayerLayout.lyricOpacity(offset: 1, ramp: ramp, reading: false),
-                PlayerLayout.lyricOpacity(offset: -1, ramp: ramp, reading: false),
+                PlayerLayout.lyricOpacity(offset: 1, ramp: ramp, reading: false, increaseContrast: increaseContrast),
+                PlayerLayout.lyricOpacity(offset: -1, ramp: ramp, reading: false, increaseContrast: increaseContrast),
                 "the next line is the brightest context line, as the board draws it"
             )
         }
     }
 
-    /// Where the contrast floor raised the board — the values the spec asked
-    /// to be named: −2 (0.20 → 0.36), −1 (0.34 → 0.42), +2 (0.32 → 0.36) and
-    /// +3 (0.18 → 0.36) are raised; +1 (0.50) clears.
-    func testTheValuesTheFloorRaisedAreTheOnesBelowIt() {
+    /// The stage's ramp since 2026-10-25 (owner): the sung line 1.0, the next
+    /// 0.45, every line further to come 0.30, every line already sung 0.20.
+    func testTheDefaultRampIsOneNinetyFiveThirtyTwenty() {
         let ramp = LyricRow.Ramp.panel(increaseContrast: false)
-        XCTAssertEqual(PlayerLayout.lyricOpacity(offset: -2, ramp: ramp, reading: false), 0.36)
-        XCTAssertEqual(PlayerLayout.lyricOpacity(offset: -1, ramp: ramp, reading: false), 0.42)
-        XCTAssertEqual(PlayerLayout.lyricOpacity(offset: 1, ramp: ramp, reading: false), 0.5)
-        XCTAssertEqual(PlayerLayout.lyricOpacity(offset: 2, ramp: ramp, reading: false), 0.36)
-        XCTAssertEqual(PlayerLayout.lyricOpacity(offset: 3, ramp: ramp, reading: false), 0.36)
-        XCTAssertEqual(PlayerLayout.lyricOpacity(offset: 4, ramp: ramp, reading: false), 0.36)
+        func drawn(_ offset: Int) -> Double { PlayerLayout.lyricOpacity(offset: offset, ramp: ramp, reading: false) }
+        XCTAssertEqual(drawn(0), 1)
+        XCTAssertEqual(drawn(1), 0.45)
+        XCTAssertEqual([2, 3, 4, 9].map(drawn), [0.30, 0.30, 0.30, 0.30])
+        XCTAssertEqual([-1, -2, -3, -9].map(drawn), [0.20, 0.20, 0.20, 0.20])
+    }
+
+    /// Increase Contrast keeps the contrast-floor ramp `ContrastRampTests`
+    /// guards: the board's values raised to the ramp's floor (0.42) and
+    /// neighbour (0.46) steps, the next line still the brightest.
+    func testIncreaseContrastKeepsTheContrastFloorRamp() {
+        let ramp = LyricRow.Ramp.panel(increaseContrast: true)
+        func drawn(_ offset: Int) -> Double {
+            PlayerLayout.lyricOpacity(offset: offset, ramp: ramp, reading: false, increaseContrast: true)
+        }
+        XCTAssertEqual(drawn(-2), 0.42)
+        XCTAssertEqual(drawn(-1), 0.46)
+        XCTAssertEqual(drawn(1), 0.5)
+        XCTAssertEqual(drawn(2), 0.42)
+        XCTAssertEqual(drawn(3), 0.42)
+        XCTAssertEqual(drawn(4), 0.42)
     }
 
     /// With nothing lit — an intro, an outro — every line is a context line at
-    /// the far floor, never the sung line's own full white.
-    func testWithNothingLitEveryLineIsAtTheFarFloor() {
+    /// the far step, never the sung line's own full white.
+    func testWithNothingLitEveryLineIsAtTheFarStep() {
         let ramp = LyricRow.Ramp.panel(increaseContrast: false)
         let drawn = PlayerLayout.lyricOpacity(offset: LyricsStage.unlitOffset, ramp: ramp, reading: false)
-        XCTAssertEqual(drawn, ramp.floor)
+        XCTAssertEqual(drawn, 0.30)
+        let contrast = LyricRow.Ramp.panel(increaseContrast: true)
+        XCTAssertEqual(
+            PlayerLayout.lyricOpacity(
+                offset: LyricsStage.unlitOffset, ramp: contrast, reading: false, increaseContrast: true
+            ),
+            contrast.floor
+        )
     }
 
     func testReadingByHandLiftsEveryContextLineToTheReadingStep() {

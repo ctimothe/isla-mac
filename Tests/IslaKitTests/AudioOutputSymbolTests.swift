@@ -94,7 +94,7 @@ final class AudioOutputSymbolTests: XCTestCase {
     func testWiredHeadphonesReadAsHeadphones() {
         XCTAssertEqual(
             AudioOutputs.symbol(forTransport: kAudioDeviceTransportTypeUSB, dataSource: nil, name: "EarPods"),
-            "headphones"
+            "earpods"
         )
         XCTAssertEqual(
             AudioOutputs.symbol(forTransport: kAudioDeviceTransportTypeUSB, dataSource: nil, name: "Some USB Headset"),

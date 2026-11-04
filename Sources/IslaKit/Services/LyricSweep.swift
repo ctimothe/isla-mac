@@ -395,8 +395,11 @@ enum LyricSweep {
         return wordFraction(words: line.words, at: at, lineEnd: end)
     }
 
-    /// The moment a sweep reads on each display frame: the running clock, lead
-    /// added, or nil while the song is not moving.
+    /// The moment a fill drawn frame by frame reads on each display frame: the
+    /// running clock, lead added, or nil while the song is not moving. Only
+    /// the interlude track (`InterludeMarker`, on the stage and the lock card)
+    /// is drawn so since the word sweep moved to Core Animation (`songClock`,
+    /// Batch 19).
     ///
     /// The running clock, not `MediaController.position`. That one is
     /// published on the 0.1 s tick, so an edge read from it steps ten times a
@@ -407,27 +410,44 @@ enum LyricSweep {
     /// still song has nothing to show between frames, and a frame callback
     /// for it would be spent on nothing.
     static func frameClock(
-        media: MediaController, lead: TimeInterval
+        media: MediaController, lead: TimeInterval, held: NowPlayingPresenter.HeldClock? = nil
     ) -> (@MainActor () -> TimeInterval)? {
-        guard media.isPlaying else { return nil }
+        // A song held on screen while the next one loads has a still clock
+        // (`NowPlayingPresenter`): the live one already belongs to the next.
+        guard held == nil, media.isPlaying else { return nil }
         return { media.extrapolatedPosition() + lead }
     }
 
-    /// The sweep of a line being sung, read against `clock` whenever it is
-    /// asked — every display frame, from `KaraokeText` — or nil when the
-    /// sweep has no reason to move between publishes.
-    ///
-    /// Only a word-timed line moves: line timing and a word-less line draw 1
-    /// (`drawnFraction`), a credit draws 0, and a sweep that cannot change
-    /// costs no frame callback. The arithmetic is `drawnFraction`'s, called
-    /// rather than restated, so the edge a frame draws is the edge the lab
-    /// reports.
-    static func liveFraction(
-        line: LyricsStore.Line, end: TimeInterval, wordTiming: Bool,
-        clock: (@MainActor () -> TimeInterval)?
-    ) -> (@MainActor () -> Double)? {
-        guard let clock, wordTiming, !line.isCredit, !line.words.isEmpty else { return nil }
-        return { drawnFraction(line: line, isCurrent: true, at: clock(), end: end, wordTiming: true) }
+    /// The song's clock for a sweep, lead added: what Core Animation is
+    /// handed instead of a frame callback (`KaraokeTrack`). Nil while the
+    /// song is not moving or is held on screen while the next one loads, as
+    /// `frameClock` is.
+    static func songClock(
+        media: MediaController, lead: TimeInterval, held: NowPlayingPresenter.HeldClock? = nil
+    ) -> SongClock? {
+        guard held == nil else { return nil }
+        return media.songClock?.leading(lead)
+    }
+
+    /// The same, from a surface's motion (`NowPlayingPresenter.shownMotion`),
+    /// which is still during a hold: for a body that observes the clock's
+    /// course and not its every tick.
+    static func songClock(motion: PlaybackClock.Motion, lead: TimeInterval) -> SongClock? {
+        guard case .moving(let clock) = motion else { return nil }
+        return clock.leading(lead)
+    }
+
+    /// A word-timed line being sung, as a value the surfaces hand
+    /// `KaraokeText` (Batch 19, 2026-10-30), or nil for a line nothing sweeps:
+    /// line timing and a word-less line are lit whole and a credit not at
+    /// all, as `drawnFraction` draws them. A line that sweeps keeps its `LiveSweep`
+    /// while the song is paused, with no clock, so the line drawn does not
+    /// change kind each time the song stops and starts.
+    static func liveSweep(
+        line: LyricsStore.Line, end: TimeInterval, wordTiming: Bool, clock: SongClock?
+    ) -> LiveSweep? {
+        guard wordTiming, !line.isCredit, !line.words.isEmpty else { return nil }
+        return LiveSweep(words: line.words, end: end, clock: clock)
     }
 
     /// What every lyric surface draws for one reading of the clock. The stage,
@@ -830,5 +850,35 @@ enum LyricReadAhead: CaseIterable, Identifiable, Sendable {
         case .threeTenths: return localized("0.3 s")
         case .half: return localized("0.5 s")
         }
+    }
+}
+
+/// One word-timed line and the clock it is sung on: everything the sweep's
+/// edge will do, known in advance, which is what lets Core Animation draw it
+/// with no help from the app (`KaraokePlan`).
+struct LiveSweep: Equatable, Sendable {
+    var words: [LyricWord]
+    var end: TimeInterval
+    /// Nil while the song stands still: the edge then stays at the published
+    /// fraction.
+    var clock: SongClock?
+
+    /// How much of the line is sung at song time `t`: `wordFraction`, the
+    /// arithmetic `drawnFraction` and the lab's resolutions report.
+    @MainActor func fraction(atSong t: TimeInterval) -> Double {
+        LyricSweep.wordFraction(words: words, at: t, lineEnd: end)
+    }
+
+    /// The song times where the fraction stops running straight: each word's
+    /// start and end, and the line's end. Between two of them the edge moves
+    /// at one speed or stands still, so these and nothing else are keyframes.
+    var knots: [TimeInterval] {
+        var times = [end]
+        for (index, word) in words.enumerated() {
+            let next = index + 1 < words.count ? words[index + 1].at : end
+            times.append(word.at)
+            times.append(min(word.end ?? next, next))
+        }
+        return times.sorted()
     }
 }

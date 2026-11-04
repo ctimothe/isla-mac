@@ -114,7 +114,7 @@ extension NotchViewModel {
         on activity: IslandActivity, live: IslandActivity, hasTrack: Bool = false, lastPage: Surface = .player
     ) -> IslandClick {
         switch activity {
-        case .hud, .ambient: return .foldAlert
+        case .hud, .confirmation, .ambient: return .foldAlert
         case .update: return .nothing
         case .peek: return .open(.player)
         case .music, .shelf, .none: return .open(openTarget(live: live, hasTrack: hasTrack, lastPage: lastPage))
@@ -136,7 +136,7 @@ extension NotchViewModel {
         switch live {
         case .peek, .music: return .player
         case .shelf: return .tray
-        case .hud, .ambient, .update, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
+        case .hud, .confirmation, .ambient, .update, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
         }
     }
 }

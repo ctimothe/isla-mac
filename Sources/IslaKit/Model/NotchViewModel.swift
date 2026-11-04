@@ -24,6 +24,20 @@ final class NotchViewModel: ObservableObject {
             // back (spec §9.3): a field left open would be waiting, with its
             // query, inside the next visit.
             if !isOpen, oldValue {
+                // The capsule under the panel goes with it, in the close's own
+                // transaction: it folds as the panel does, and the next press
+                // is the shut island's pill, not a second indicator beside a
+                // panel that is leaving.
+                hudStrip = nil
+                // And the charger, headphones or a confirmation in it, told to
+                // the controller first: a "Copied" that Return posted as it
+                // closed the panel is owed to the shut island. Told on every
+                // close, not only with a notice up (Codex review 2026-10-26):
+                // a "Copied" waiting behind the level has no `stripNotice`
+                // yet, and was lost with the panel.
+                let notice = stripNotice
+                stripNotice = nil
+                onStripClosed?(notice)
                 // A swipe does not outlive the panel it was made on.
                 pageTravel.finish()
                 pageSwipe = PageSwipe()
@@ -61,11 +75,17 @@ final class NotchViewModel: ObservableObject {
             }
             guard isOpen, !oldValue else { return }
             ambient = nil
+            // A confirmation answers an act on a shut island; the panel that
+            // opened over it is where the person is now, and it shows its own.
+            confirmation = nil
             isPeeking = false
             endCollectedMoment()
-            // The pop-up too: the panel has the player's own slider, and a
-            // pill left standing over a panel that just opened would fold
-            // under it with nobody asking (spec §12).
+            // The pop-up's pill too: a pill left standing over a panel that
+            // just opened would fold under it with nobody asking (spec §12).
+            // The level is not lost — the next press draws it as the capsule
+            // under the panel (`NotchController.hudPlacement`) — and nothing
+            // is handed over mid-opening, which would show the same level
+            // twice for the length of the open.
             hud = nil
             // And the update alert, which is not answered by being opened
             // over: the controller offers it again once the panel closes.
@@ -73,7 +93,14 @@ final class NotchViewModel: ObservableObject {
         }
     }
     @Published var isDropTargeted = false {
-        didSet { if isDropTargeted { endPageGesture() } }
+        didSet {
+            guard isDropTargeted else { return }
+            endPageGesture()
+            // The drop surface is the panel's whole answer while a drag is
+            // over it; a level under it would be a second thing to look at.
+            hudStrip = nil
+            stripNotice = nil
+        }
     }
     /// Which of the Shelf's two wells a drag in flight is over (spec §8.3): the
     /// one the drop will use, and the one that lights. Meaningful only while
@@ -110,9 +137,79 @@ final class NotchViewModel: ObservableObject {
     @Published var isPeeking = false
     /// The charger or headphones, shown for a moment. See `AmbientActivity`.
     @Published var ambient: AmbientActivity?
-    /// The volume or brightness pop-up, while it is up (spec §12). The highest
-    /// of the island's alerts: see `IslandActivity`.
-    @Published var hud: HUDMoment?
+    /// The volume or brightness pop-up on the shut island, while it is up
+    /// (spec §12). The highest of the island's alerts: see `IslandActivity`.
+    ///
+    /// Whether it is up is published; what it shows is not. A held key presses
+    /// every 30 to 35 ms, and a `@Published` moment made every press re-run
+    /// the island's whole body to move a bar. The moment lives in `hudLive`,
+    /// which only the pop-up's own views observe, so assigning a new level
+    /// while the pop-up stands publishes nothing here (`hudShown` stays true)
+    /// and assigning nil or a first moment is the arrival and the fold, which
+    /// the island does need to hear. Everything that read `hud` as a value —
+    /// `activity`, the tests — reads it unchanged.
+    var hud: HUDMoment? {
+        get { hudShown ? hudLive.moment : nil }
+        set {
+            if let newValue {
+                hudLive.update(newValue)
+                if !hudShown { hudShown = true }
+            } else if hudShown {
+                hudShown = false
+            }
+        }
+    }
+    @Published private(set) var hudShown = false
+    /// The same pop-up as a capsule under the open panel (spec §19.5 d,
+    /// amended 2026-10-25, `HUDStripLayout`): shown instead of the pill while
+    /// the panel is open, never beside it, and sharing the pill's live level.
+    /// Not an island activity: the island is the panel then, and the capsule
+    /// is a satellite of it that takes no part in `activity`, `bodySize` or the
+    /// clickable region.
+    var hudStrip: HUDMoment? {
+        get { hudStripShown ? hudLive.moment : nil }
+        set {
+            if let newValue {
+                hudLive.update(newValue)
+                if !hudStripShown { hudStripShown = true }
+            } else if hudStripShown {
+                hudStripShown = false
+            }
+        }
+    }
+    @Published private(set) var hudStripShown = false
+    /// The level on screen, for whichever of the two is up.
+    let hudLive = HUDLiveLevel()
+    /// The charger, headphones or a confirmation in the same capsule under the
+    /// open panel (spec §19.5 d, amended again 2026-10-26: "every HUD should"
+    /// show under the open island). The pop-up outranks it and takes the
+    /// capsule whenever it comes; the controller keeps them one at a time
+    /// (`NotchController.presentInStrip`). Like `hudStrip`, not an island
+    /// activity.
+    @Published var stripNotice: StripNotice?
+    /// The panel closed, with the notice that was in the capsule if any: the
+    /// controller may hand one that had barely arrived, or one still waiting
+    /// for the capsule, to the shut island (`StripNotice.handsBack`).
+    var onStripClosed: ((StripNotice?) -> Void)?
+    /// A confirmation of the person's own act, while it is up: rank 5, below
+    /// the pop-up. The controller decides when it shows (`IslandConfirmation`).
+    @Published var confirmation: IslandConfirmation?
+    /// An act asked for a confirmation. The controller's, which puts it
+    /// through the island's alert queue.
+    var onConfirmation: ((IslandConfirmation) -> Void)?
+
+    /// Asks the island to confirm an act, and says it once to VoiceOver when
+    /// the act's own path has not already (`announcesAtTheAct`). Spoken here,
+    /// at the act, and never when the pill draws: whether the pill is drawn
+    /// depends on the panel and the second it may wait, and the person on
+    /// VoiceOver is owed the answer either way — as the volume pop-up's level
+    /// is spoken over an open panel that draws nothing.
+    func confirm(_ kind: IslandConfirmation.Kind) {
+        let confirmation = IslandConfirmation(kind)
+        if confirmation.announcesAtTheAct { Announcer.shared.announce(confirmation.title) }
+        onConfirmation?(confirmation)
+    }
+
     /// The update alert, while it is up (spec §19.5 f): rank 9, below the
     /// pop-up and the charger or headphones, above the peek. The controller
     /// decides when it shows; its buttons report through `onUpdateAction`.
@@ -134,7 +231,7 @@ final class NotchViewModel: ObservableObject {
     /// the Shelf, else the bare notch.
     var activity: IslandActivity {
         IslandActivity.current(
-            hud: hud, ambient: ambient, update: updateOffer, isPeeking: isPeeking,
+            hud: hud, confirmation: confirmation, ambient: ambient, update: updateOffer, isPeeking: isPeeking,
             musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount
         )
     }
@@ -185,6 +282,10 @@ final class NotchViewModel: ObservableObject {
                 endCollectedMoment()
                 pageTravel.finish()
                 pageSwipe = PageSwipe()
+                // A pull under way does not cross the lock: the shell it was
+                // stretching is not drawn over the shield.
+                islandPull = IslandPull()
+                pullStretch.track(0)
             }
         }
     }
@@ -230,7 +331,10 @@ final class NotchViewModel: ObservableObject {
     /// is already written; this asks macOS for Accessibility when it went on and
     /// lets the key tap follow the setting and the permission together.
     func setVolumeAndBrightness(_ enabled: Bool) {
-        if !enabled { hud = nil }
+        if !enabled {
+            hud = nil
+            hudStrip = nil
+        }
         stores.hud.settingChanged(to: enabled)
     }
 
@@ -319,6 +423,12 @@ final class NotchViewModel: ObservableObject {
     /// The swipe under way: what its first 10 pt decided, and where its
     /// fingers have the pages.
     private var pageSwipe = PageSwipe()
+    /// The vertical two-finger pull that opens and closes the panel
+    /// (`IslandPull`), fed by the controller's scroll monitor.
+    private var islandPull = IslandPull()
+    /// What the pull draws while the fingers track: watched by the shell's
+    /// outline alone.
+    let pullStretch = IslandPullStretch()
     /// Set while the pages turn `surface` themselves, so their own turn does
     /// not end their travel.
     private var isTurningByTravel = false
@@ -816,6 +926,12 @@ final class NotchViewModel: ObservableObject {
             // through the editor, so this text does not count as typed and
             // stays covered.
             privacy.conceal(TranslatePane.revealID)
+            // A standing Use Online press is for what is typed, never for
+            // what the clipboard brings: a copied password or token would
+            // otherwise go to MyMemory on a press made for other words, with
+            // nobody looking (owner, 2026-10-26). The card asks again — "not
+            // downloaded" and Use Online — for this text.
+            translator.revokeOnlineRequest()
             translator.input = text
             // The text lands in the field, and the field is under the list while
             // History is up.
@@ -901,16 +1017,19 @@ final class NotchViewModel: ObservableObject {
     /// Shared by every pane that shows something worth not showing.
     let privacy: PrivacyMode
     /// The colour the cover lends the island's equalizer (spec §3.4). The
-    /// fallback until a cover has been read, and for none.
+    /// fallback until a cover has been read, and for none. The presented
+    /// song's, so the bars recolour in the swap rather than a step after it.
     @Published private(set) var coverTint = CoverTint.fallback
-    /// The machine's audio state for the player's volume slider and Output
-    /// menu. Started and stopped by the Music pane while it is on screen — a
-    /// listener on CoreAudio costs nothing while nobody looks — and *quiet*
-    /// under test: a pane built in a test must never reach the owner's output
-    /// devices, even to read them.
-    let playerAudio: AudioWatch = PlayerBridge.isRunningTests
-        ? AudioWatch(read: { ([], nil, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {})
-        : AudioWatch()
+    /// What every surface draws of the song, swapped once per song
+    /// (`NowPlayingPresenter`). Owned here, beside the tint it now carries.
+    let nowPlaying: NowPlayingPresenter
+    /// The machine's audio route for the player's Output button and menu —
+    /// the outputs and the current device, never the volume
+    /// (`AudioWatch.followsLevel`, 2026-10-25). Started and stopped by the
+    /// Music pane while it is on screen — a listener on CoreAudio costs nothing
+    /// while nobody looks — and *quiet* under test: a pane built in a test must
+    /// never reach the owner's output devices, even to read them.
+    let playerAudio: AudioWatch = AudioWatch.player()
     /// The session's stores, borrowed rather than owned — see `NotchStores`.
     private let stores: NotchStores
 
@@ -931,6 +1050,7 @@ final class NotchViewModel: ObservableObject {
         self.localLyricsLibrary = stores.localLyricsLibrary
         self.lyricsCoordinator = stores.lyricsCoordinator
         self.privacy = stores.privacy
+        self.nowPlaying = NowPlayingPresenter.live(media: stores.media, lyrics: stores.lyrics)
 
         // The panel header reads through to the stores — counters, the source
         // name, the equalizer. Nested ObservableObjects do not propagate on
@@ -958,10 +1078,15 @@ final class NotchViewModel: ObservableObject {
         // invalidated the whole view graph at 4 Hz on the notes tab, and the
         // helper's idle heartbeat — an empty snapshot every two seconds
         // forever — invalidated it at 0.5 Hz with nothing playing at all.
+        //
+        // The track and its cover come from the presenter, not the controller:
+        // the shell draws the presented song, which changes once per skip
+        // where the controller's fields change once per field. The held clock
+        // too, which the player is handed by value.
         Publishers.MergeMany(
-            media.$track.map { $0?.key }.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            nowPlaying.$presented.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
+            nowPlaying.$held.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
             media.$isPlaying.removeDuplicates().map { _ in () }.eraseToAnyPublisher(),
-            media.$artwork.removeDuplicates { $0 === $1 }.map { _ in () }.eraseToAnyPublisher(),
             // The open header names the app the audio belongs to, and that name
             // can arrive a snapshot late — the pid→name lookup fails on the
             // first poll after a player launches and succeeds on the next —
@@ -1007,12 +1132,15 @@ final class NotchViewModel: ObservableObject {
             .sink { [weak self] selection in self?.shelfSelectionChanged(to: selection) }
             .store(in: &cancellables)
 
-        // One tint per artwork. A cover already read, and no cover at all, are
-        // answered on the spot; a new one is read off the main actor and
-        // lands a frame or two after the cover itself, which is never seen —
-        // the equalizer takes a colour change as a fade.
-        media.$artwork.removeDuplicates { $0 === $1 }
-            .sink { [weak self] image in self?.updateCoverTint(for: image) }
+        // One tint per artwork, read by the presenter before it swaps a cover
+        // in, so the bars take the new colour in the same swap. It used to be
+        // read here after the cover had already landed: a third step on every
+        // skip, after the title and the cover (owner, 2026-10-25).
+        nowPlaying.$presented.map { $0?.tint ?? CoverTint.fallback }.removeDuplicates()
+            .sink { [weak self] tint in
+                guard let self, self.coverTint != tint else { return }
+                self.coverTint = tint
+            }
             .store(in: &cancellables)
 
         // A pause that settles folds the island into the notch; playing again,
@@ -1064,21 +1192,6 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
-    private func updateCoverTint(for image: NSImage?) {
-        if let known = CoverTint.cachedTint(for: image) {
-            if coverTint != known { coverTint = known }
-            return
-        }
-        Task { [weak self] in
-            let tint = await CoverTint.resolve(image)
-            // Only if this is still the cover on show: a skip can overtake a
-            // slow read, and a stale colour on the new song's bars is worse than
-            // the fallback it replaces.
-            guard let self, self.media.artwork === image, self.coverTint != tint else { return }
-            self.coverTint = tint
-        }
-    }
-
     /// Turns lyrics on from the lyrics page itself. The headline feature was
     /// off by default behind a switch in Settings, and the page only said so,
     /// so somebody who opened it to find words was sent somewhere else to get
@@ -1112,7 +1225,15 @@ final class NotchViewModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        importLocalLyricsFile(at: url, for: identity, from: origin)
+        // A main-actor turn later, not straight out of `runModal`: the picker
+        // is still on screen until the run loop has had a pass to take it
+        // down, and an import answered at once drew its confirmation (and any
+        // refusal's notice) under a sheet that was about to vanish — the
+        // island said "Lyrics imported" to nobody (MR-7, §10.4).
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.importLocalLyricsFile(at: url, for: identity, from: origin)
+        }
     }
 
     /// The import itself, apart from the panel so it can be tested.
@@ -1120,6 +1241,7 @@ final class NotchViewModel: ObservableObject {
         lyricsNotice = nil
         do {
             try lyricsCoordinator.importLocalFile(at: url, for: identity)
+            confirm(.lyricsImported)
         } catch {
             report(Self.importFailure(error), from: origin)
         }
@@ -1466,7 +1588,17 @@ final class NotchViewModel: ObservableObject {
         )
         switch activity {
         case .hud(let hud):
+            // Over the lock screen the pop-up keeps to the pill's own height
+            // (spec §3.7, amended 2026-10-26): the 103 pt alert would hang
+            // over the lock screen's clock.
+            if isLockedPresentation {
+                return LockedHUDLayout.bodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+            }
             return Self.hudBodySize(hud, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+        case .confirmation(let confirmation):
+            return ConfirmationLayout.bodySize(
+                title: confirmation.title, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
+            )
         case .ambient(let ambient):
             return Self.ambientBodySize(ambient, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .update:
@@ -1815,8 +1947,12 @@ final class NotchViewModel: ObservableObject {
     ///
     /// Nothing above the login shield can sample the wallpaper, so every style
     /// is a recipe the card draws for itself (`LockScreenCard.glassRouting`).
-    /// **Automatic** (redesign 2026-10-15, spec §7.2) is the default when
-    /// nothing is stored: the cover's light, today's Tinted recipe, at an
+    /// **Transparent** is the default when nothing is stored (owner,
+    /// 2026-10-31: the card should show the wallpaper by default; spec §7.2
+    /// amended). Its black wash is only a floor — the contrast solver raises
+    /// it until the dimmest type clears 4.5:1 — so the lyric stays legible on
+    /// a bright wallpaper. **Automatic** (redesign 2026-10-15) was the default
+    /// before that: the cover's light, today's Tinted recipe, at an
     /// opacity chosen from how bright the wallpaper behind the card is
     /// (`LockCardMaterial.automaticAlpha`) and never under 0.84 (owner
     /// decision 5), because a lighter tint let Aerial's bright lines run
@@ -1859,17 +1995,23 @@ final class NotchViewModel: ObservableObject {
 
     static let lockCardSizeKey = "lockCardSize"
 
-    static var lockCardSize: LockCardSize {
-        LockCardSize(rawValue: UserDefaults.standard.string(forKey: lockCardSizeKey) ?? "") ?? .standard
+    /// The stored choice, or **Compact** when nothing (or nothing this build
+    /// knows) is stored (owner, 2026-10-31: the smaller card is the default;
+    /// spec §7.1 amended). A person who picked Standard keeps it.
+    static func lockCardSize(in defaults: UserDefaults) -> LockCardSize {
+        LockCardSize(rawValue: defaults.string(forKey: lockCardSizeKey) ?? "") ?? .compact
     }
+
+    static var lockCardSize: LockCardSize { lockCardSize(in: .standard) }
 
     static let lockCardStyleKey = "lockCardStyle"
 
-    /// The stored choice, or **Automatic** when nothing (or nothing this build
-    /// knows) is stored — only the default changed in the redesign (spec §7.2,
-    /// §14), so a person who picked Transparent, Tinted or Solid keeps it.
+    /// The stored choice, or **Transparent** when nothing (or nothing this
+    /// build knows) is stored — only the default changed, in the redesign and
+    /// again on 2026-10-31 (spec §7.2, §14), so a person who picked a style
+    /// keeps it.
     static func lockCardStyle(in defaults: UserDefaults) -> LockCardStyle {
-        LockCardStyle(rawValue: defaults.string(forKey: lockCardStyleKey) ?? "") ?? .automatic
+        LockCardStyle(rawValue: defaults.string(forKey: lockCardStyleKey) ?? "") ?? .clear
     }
 
     static var lockCardStyle: LockCardStyle { lockCardStyle(in: .standard) }
@@ -1908,6 +2050,11 @@ final class NotchViewModel: ObservableObject {
     nonisolated static var opensOnHoverEnabled: Bool {
         UserDefaults.standard.bool(forKey: opensOnHoverKey)
     }
+
+    /// Swipe to Open and Close (`IslandPull`), on unless switched off. Read at
+    /// each gesture's began, so the switch takes effect on the next swipe.
+    static let swipeToOpenKey = "island.swipeToOpen"
+    static var swipeToOpenEnabled: Bool { SettingsRowID.swipeToOpen.isOn(in: .standard) }
 
     /// How long a pointer rests on the notch before the panel opens.
     static let hoverDelayKey = "hoverOpenDelay"
@@ -2141,6 +2288,33 @@ final class NotchViewModel: ObservableObject {
             pageTravel.settle(to: target, velocity: velocity, reduceMotion: SystemAppearance.shared.reduceMotion)
             return true
         }
+    }
+
+    /// One scroll event that landed on the panel, for the vertical pull: what
+    /// the pull says, with its stretch drawn here. The controller swallows the
+    /// event for anything but `.pass` and plays out an open, a close or a
+    /// refusal — the panel's machinery is its, as a click's is.
+    ///
+    /// It runs beside `pageScroll`, not inside it: the pages hear events only
+    /// while a page is open, and the pull is mostly for the shut island. The
+    /// two cannot both take a gesture — the first 10 pt give it to one or the
+    /// other, by its direction — so neither asks the other.
+    func pullScroll(_ event: PageScroll, region: IslandPull.Region) -> IslandPull.Outcome {
+        let context = IslandPull.Context(
+            enabled: Self.swipeToOpenEnabled, isOpen: isOpen, locked: isLockedPresentation, region: region,
+            surface: presented, travelling: pageTravel.leg != nil
+        )
+        let outcome = islandPull.handle(event, context)
+        let reduceMotion = SystemAppearance.shared.reduceMotion
+        switch outcome {
+        case .stretch(let points):
+            pullStretch.track(reduceMotion || isLockedPresentation ? 0 : points)
+        case .open, .close, .refuse, .settle:
+            pullStretch.settle(reduceMotion: reduceMotion)
+        case .pass, .swallow:
+            break
+        }
+        return outcome
     }
 
     /// A dot, VoiceOver's increment and decrement, ⌃Tab (§19.16): the page
@@ -2406,6 +2580,11 @@ final class NotchViewModel: ObservableObject {
             // list: the panel stays, on what is left.
             guard clipboard.copy(listing.items[index]) else { return .handled }
             Announcer.shared.announce(localized("Copied"))
+            // Return copies and closes in one press, so the row's own tick is
+            // gone with the panel: the island, once shut, is the one place
+            // left to say it. Posted now, with the panel still open, it waits
+            // its second in the queue and shows as the panel folds.
+            confirm(.copied)
             return .handledAndClose
         }
     }
@@ -2489,7 +2668,14 @@ final class NotchViewModel: ObservableObject {
     /// are never a Shelf card, and refusing them mid-drag would lose them.
     func acceptDrop(urls: [URL]) -> Bool {
         if ShelfDragSource.isDraggingOut { return false }
-        return accept(urls: urls)
+        guard accept(urls: urls) else { return false }
+        // The panel is open or a drag is under way, so the confirmation waits
+        // in the alert queue for the panel to close and shows on the island
+        // then, up to five seconds later. Over a panel that was already open
+        // the drop returns to the player or Clipboard, not the tray
+        // (`endDropSurface`), so nothing else answers the drop.
+        confirm(.addedToShelf)
+        return true
     }
 
 }

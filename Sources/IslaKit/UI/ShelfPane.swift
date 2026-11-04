@@ -66,15 +66,28 @@ struct ShelfPane: View {
 
     // MARK: - Empty (§19.7)
 
-    /// One line, centred: what the Shelf is for and how files reach it.
+    /// The `tray` glyph over one sentence, centred (owner, 2026-10-25: empty
+    /// states are a glyph and one sentence, as Apple's are). The glyph is the
+    /// Clipboard's empty one — 26 regular, the tertiary grey — so the pages
+    /// that can be empty look like one family; it is decoration, and the
+    /// sentence says what it means. The sentence says what to do, not where:
+    /// files reach the Shelf by dropping them on the island or on the open
+    /// panel, and "the notch" was true of only one of those.
     private var emptyLine: some View {
-        Text(localized("Drag files to the notch to keep them here."))
-            .font(.system(size: ShelfLayout.emptyLineSize, weight: .regular))
-            .tracking(Theme.tracking(forSize: ShelfLayout.emptyLineSize))
-            .foregroundStyle(.white.opacity(Theme.shelfEmptyLineOpacity))
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 16)
-            .frame(width: bodyWidth, height: ShelfLayout.viewport(bodyWidth: bodyWidth).height)
+        VStack(spacing: 6) {
+            Image(systemName: "tray")
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(Theme.tertiary)
+                .accessibilityHidden(true)
+                .padding(.bottom, 4)
+            Text(localized("Drop files here to keep them handy."))
+                .font(.system(size: ShelfLayout.emptyLineSize, weight: .regular))
+                .tracking(Theme.tracking(forSize: ShelfLayout.emptyLineSize))
+                .foregroundStyle(.white.opacity(Theme.shelfEmptyLineOpacity))
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 16)
+        .frame(width: bodyWidth, height: ShelfLayout.viewport(bodyWidth: bodyWidth).height)
     }
 
     // MARK: - The grid (§19.7)
@@ -127,7 +140,7 @@ struct ShelfPane: View {
     /// in place of the row while the question stands.
     private var clearQuestion: some View {
         VStack(spacing: 10) {
-            Text(localized("Remove all %d items? Files are untouched.", shelf.items.count))
+            Text(ShelfClearConfirmation.question(count: shelf.items.count))
                 .islandFont(.body, weight: .regular)
                 .foregroundStyle(Theme.secondary)
                 .multilineTextAlignment(.center)
@@ -198,11 +211,20 @@ final class ShelfClearConfirmation: ObservableObject {
     @Published private(set) var isAsking = false
     private var token: UUID?
 
+    /// The question, drawn and said: the one source for both. One card is
+    /// its own sentence — "Remove all 1 items?" was what a one-card tray
+    /// asked (`CountedSentenceTests`).
+    static func question(count: Int) -> String {
+        count == 1
+            ? localized("Remove 1 item? Its file is untouched.")
+            : localized("Remove all %d items? Files are untouched.", count)
+    }
+
     func ask(count: Int) {
         guard !isAsking, count > 0 else { return }
         isAsking = true
         token = ArmedConfirmations.shared.register { [weak self] in self?.cancel() }
-        Announcer.shared.announce(localized("Remove all %d items? Files are untouched.", count))
+        Announcer.shared.announce(Self.question(count: count))
     }
 
     func cancel() {
@@ -237,7 +259,7 @@ private struct ShelfTile: View {
     private var isSelected: Bool { shelf.isSelected(item) }
 
     private var well: ShelfWell? {
-        ShelfWell.state(isSelected: isSelected, isHovered: isHovered, isAlreadyKept: isAlreadyKept)
+        ShelfWell.state(isSelected: isSelected, isAlreadyKept: isAlreadyKept)
     }
 
     /// The picture's box: a thumbnail at its own shape, long side 42, centred in
@@ -311,8 +333,8 @@ private struct ShelfTile: View {
         // overlay, which has no accessibility, so nothing on the Shelf could be
         // used (F-006). `.ignore` swallows that overlay and the badge too; what
         // they do is offered here instead.
-        // The name, now that the tile shows when it was added instead.
-        .help(item.name)
+        // The name and the moment it was added, whole.
+        .help(item.date.map { "\(item.name)\n\(ShelfTileInfo.full($0))" } ?? item.name)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(item.name)
         .accessibilityValue(accessibilityValue)
@@ -337,11 +359,16 @@ private struct ShelfTile: View {
         .animation(Theme.contentAnimation, value: well)
     }
 
-    /// The plate, the picture and the name — everything a tile draws.
+    /// The picture and the name — everything a tile draws. Finder's icon
+    /// view: nothing behind a resting or hovered tile; a picked one has the
+    /// icon's backdrop (`backdrop`) and its name on the selection pill.
     private var visual: some View {
         ZStack(alignment: .topLeading) {
-            plate
+            flash
                 .frame(width: ShelfLayout.tile.width, height: ShelfLayout.tile.height)
+            backdrop
+                .frame(width: ShelfLayout.iconBackdrop.width, height: ShelfLayout.iconBackdrop.height)
+                .offset(x: ShelfLayout.iconBackdrop.minX, y: ShelfLayout.iconBackdrop.minY)
             picture
                 .frame(width: iconFrame.width, height: iconFrame.height)
                 .offset(x: iconFrame.minX, y: iconFrame.minY)
@@ -351,20 +378,21 @@ private struct ShelfTile: View {
         }
     }
 
-    /// White 0.10, 0.14 under the pointer; picked, 0.18 inside a blue ring;
-    /// a drop it already held, the drop target's lit look.
+    /// Finder's unemphasized icon highlight: a rounded square behind the
+    /// picture alone, never reaching the name.
     @ViewBuilder
-    private var plate: some View {
-        let shape = RoundedRectangle(cornerRadius: ShelfLayout.tileRadius, style: .continuous)
-        switch well {
-        case .none:
-            shape.fill(Theme.shelfTilePlate)
-        case .hover:
-            shape.fill(Theme.shelfHoverWell)
-        case .selected:
-            shape.fill(Theme.shelfSelectedWell)
-                .overlay(shape.strokeBorder(Theme.shelfBlue, lineWidth: Theme.shelfSelectedRingWidth))
-        case .alreadyKept:
+    private var backdrop: some View {
+        if well == .selected {
+            RoundedRectangle(cornerRadius: Theme.shelfIconBackdropRadius, style: .continuous)
+                .fill(Theme.shelfSelectedWell)
+        }
+    }
+
+    /// A drop it already held, the drop target's lit look over the whole tile.
+    @ViewBuilder
+    private var flash: some View {
+        if well == .alreadyKept {
+            let shape = RoundedRectangle(cornerRadius: ShelfLayout.tileRadius, style: .continuous)
             shape.fill(Theme.shelfDropWellLit)
                 .overlay(shape.strokeBorder(Theme.shelfBlue, lineWidth: Theme.shelfDropRingWidth))
         }
@@ -391,36 +419,51 @@ private struct ShelfTile: View {
             .accessibilityHidden(true)
     }
 
-    /// When the card was added — the day over the time (`ShelfItem.added`),
-    /// in the two lines the name had — and the name itself only for a card
-    /// from before dates were kept. The name is the tile's tooltip and its
-    /// VoiceOver label either way.
+    /// Finder's label: the name in up to two lines, 12 regular, the second
+    /// cut in the middle; under it the item-info line, the date added, one
+    /// line in the secondary grey. A card from before dates were kept has the
+    /// name alone. The date is never on the pill.
     @ViewBuilder
     private var nameBlock: some View {
-        if let date = item.date {
-            let added = ShelfItem.added(date)
-            VStack(spacing: 0) {
-                captionLine(added.day, weight: .semibold, color: Color.white.opacity(Theme.shelfTileNameOpacity))
-                captionLine(added.time, weight: .medium, color: Theme.secondary)
-                    .monospacedDigit()
+        VStack(spacing: 0) {
+            ForEach(Array(ShelfTileName.drawnLines(item.name, selected: isSelected).enumerated()), id: \.offset) { _, line in
+                captionLine(line)
             }
-        } else {
-            VStack(spacing: 0) {
-                ForEach(Array(ShelfTileName.drawnLines(item.name, selected: false).enumerated()), id: \.offset) { _, line in
-                    captionLine(line, weight: .semibold, color: Color.white.opacity(Theme.shelfTileNameOpacity))
-                }
+            if let date = item.date {
+                infoLine(ShelfTileInfo.line(date))
             }
         }
     }
 
-    private func captionLine(_ text: String, weight: Font.Weight, color: Color) -> some View {
-        Text(text)
-            .font(.system(size: ShelfLayout.nameSize, weight: weight))
+    /// One line of the name. Picked, it is white on the selected-text colour,
+    /// each line in its own rounded fill hugging its words — Finder's selected
+    /// name.
+    private func captionLine(_ text: String) -> some View {
+        let picked = isSelected && !item.isOffline
+        return Text(text)
+            .font(.system(size: ShelfLayout.nameSize, weight: .regular))
             .tracking(Theme.tracking(forSize: ShelfLayout.nameSize))
-            .foregroundStyle(item.isOffline ? Theme.tertiary : color)
+            .foregroundStyle(item.isOffline ? Theme.tertiary : picked ? Color.white : Theme.shelfTileName)
             .lineLimit(1)
             .fixedSize()
+            .padding(.horizontal, Theme.shelfCaptionHighlightInset)
             .frame(height: ShelfLayout.nameLineHeight)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.shelfCaptionHighlightRadius, style: .continuous)
+                    .fill(picked ? Theme.shelfCaptionHighlight : Color.clear)
+            )
+    }
+
+    private func infoLine(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: ShelfLayout.infoSize, weight: .regular))
+            .tracking(Theme.tracking(forSize: ShelfLayout.infoSize))
+            .monospacedDigit()
+            .foregroundStyle(item.isOffline ? Theme.tertiary : Theme.shelfTileInfo)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .minimumScaleFactor(0.85)
+            .frame(width: ShelfLayout.nameWidth, height: ShelfLayout.infoLineHeight)
     }
 
     /// The badge: `xmark.circle.fill` 17 at the tile's (57.75, 5.5), white 0.62

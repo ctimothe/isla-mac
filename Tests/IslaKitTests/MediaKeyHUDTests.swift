@@ -550,7 +550,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(applier.applied[0].1, false)
         XCTAssertEqual(applier.applied[1].1, true)
         await drain()
-        XCTAssertEqual(readings.count, 2)
+        XCTAssertEqual(readings.count, 1, "two presses before the main actor ran: the latest wins")
     }
 
     func testTheHandlerTheTapIsGivenIsTheSameDecision() {
@@ -653,6 +653,38 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertEqual(taps.handler?(down(.volumeUp), .none), true, "the unlock reaches the mirror too")
     }
 
+    /// Over the lock screen (2026-10-26): a key is taken, applied and shown
+    /// only while the island is over the shield to draw it, and the lock path
+    /// mirrors that after the lift. Not over it, the key stays the system's.
+    func testALockedKeyIsTakenAndShownOnlyWhileTheIslandIsOverTheShield() async {
+        let hud = hud()
+        var locked = false
+        var overShield = false
+        hud.isLocked = { locked }
+        hud.drawsWhileLocked = { overShield }
+        on(hud)
+        applier.reading = HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil, outputDevice: 42)
+        locked = true
+        hud.lockChanged()
+        XCTAssertEqual(taps.handler?(down(.volumeUp), .none), false, "locked, not lifted: the system's")
+        XCTAssertEqual(taps.handler?(up(.volumeUp), .none), false)
+        overShield = true
+        XCTAssertEqual(taps.handler?(down(.volumeUp), .none), false, "nothing mirrored the lift yet")
+        _ = taps.handler?(up(.volumeUp), .none)
+        hud.lockChanged()
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none), "lifted and mirrored: Isla's")
+        await drain()
+        XCTAssertEqual(readings.count, 1, "and the reading reaches the locked island")
+        XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: .none))
+        overShield = false
+        hud.lockChanged()
+        XCTAssertFalse(hud.handle(down(.volumeUp), modifiers: .none), "the island went under: the system's again")
+        _ = hud.handle(up(.volumeUp), modifiers: .none)
+        locked = false
+        hud.lockChanged()
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none), "unlocked: as before")
+    }
+
     func testThePopUpCarriesTheApplierLabelInOneHop() async {
         let hud = hud()
         on(hud)
@@ -663,7 +695,7 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: .none))
         for _ in 0..<5 { _ = hud.handle(down(.volumeUp, isRepeat: true), modifiers: .none) }
         await drain()
-        XCTAssertEqual(readings.count, 6, "every step, after a single main-queue turn")
+        XCTAssertEqual(readings.count, 1, "six steps, one main-queue turn, one reading: the latest")
         XCTAssertTrue(readings.allSatisfy { $0.deviceSymbol == "airpods.pro" && $0.deviceName == "AirPods Pro" })
 
         applier.reading = HUDReading(kind: .display, level: 0.5, muted: false, deviceSymbol: nil)
@@ -781,6 +813,41 @@ final class MediaKeyHUDTests: XCTestCase {
         XCTAssertTrue(applier.applied.isEmpty)
         await drain()
         XCTAssertTrue(readings.isEmpty)
+    }
+
+    /// R5-H7, from the flags the keyboard sends to the step that is applied:
+    /// ⌥+volume is Sound settings and ⇧+volume is macOS's silent step, so Isla
+    /// takes neither — it neither applies nor consumes them, and the system
+    /// does what it does. ⌥⇧ is Isla's own: consumed, forwarded as the fine
+    /// step, and a fine step is a quarter of a coarse one.
+    ///
+    /// What stays on the Mac is the system's half — that macOS really opens
+    /// Sound settings for ⌥ and really steps silently for ⇧ with Isla's tap
+    /// listening — which no fake can show.
+    func testOptionAndShiftAreLeftToTheSystemAndOptionShiftStepsInQuarters() {
+        let hud = hud()
+        on(hud)
+        for key in [MediaKey.volumeUp, .volumeDown, .brightnessUp, .brightnessDown] {
+            for (name, flags) in [("⌥", CGEventFlags.maskAlternate), ("⇧", .maskShift)] {
+                let modifiers = MediaKeyModifiers(flags: flags)
+                XCTAssertTrue(modifiers.leavesToTheSystem, "\(name) is the system's")
+                XCTAssertFalse(hud.handle(down(key), modifiers: modifiers), "\(name)+\(key) goes to the system")
+                XCTAssertFalse(hud.handle(up(key), modifiers: modifiers), "and so does its release")
+            }
+        }
+        XCTAssertTrue(applier.applied.isEmpty, "Isla applied nothing for ⌥ or ⇧ alone")
+
+        let fine = MediaKeyModifiers(flags: [.maskAlternate, .maskShift])
+        XCTAssertFalse(fine.leavesToTheSystem)
+        XCTAssertTrue(hud.handle(down(.volumeUp), modifiers: fine), "⌥⇧ is Isla's")
+        XCTAssertTrue(hud.handle(up(.volumeUp), modifiers: fine))
+        XCTAssertEqual(applier.applied.count, 1)
+        XCTAssertEqual(applier.applied.first?.0, .volumeUp)
+        XCTAssertEqual(applier.applied.first?.1, true, "forwarded as the fine step")
+
+        XCTAssertEqual(HUDStep.coarse / HUDStep.fine, 4, "a fine step is a quarter")
+        XCTAssertEqual(HUDStep.stepped(0.5, raising: true, fine: true) - 0.5, HUDStep.coarse / 4, accuracy: 1e-6)
+        XCTAssertEqual(HUDStep.stepped(0.5, raising: true, fine: false) - 0.5, HUDStep.coarse, accuracy: 1e-6)
     }
 
     // MARK: A press-and-hold is decided once

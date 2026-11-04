@@ -96,6 +96,11 @@ struct LyricsStage: View {
     /// idle one — which translates nothing — everywhere a stage is drawn on its
     /// own. Observed, so the rows arrive together the moment its batch does.
     @ObservedObject var translation: LyricTranslation = .idle
+    /// The clock of a song held on screen while the next one loads
+    /// (`NowPlayingPresenter`): the lines stay where they were rather than
+    /// resolving the held song's words at the next song's position. Nil runs
+    /// the controller's clock, as everywhere outside the panel.
+    var heldClock: NowPlayingPresenter.HeldClock? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// False once the reader has scrolled away under their own hand — a
@@ -148,7 +153,7 @@ struct LyricsStage: View {
         )
     }
 
-    private var now: TimeInterval { media.position + lead }
+    private var now: TimeInterval { (heldClock?.position ?? media.position) + lead }
 
     private var wordTimingEnabled: Bool {
         LyricsPresentation.usesWordTiming(
@@ -160,7 +165,7 @@ struct LyricsStage: View {
 
     private var inputs: LyricInputs {
         LyricInputs(
-            position: media.position, precisionSync: media.precisionSync,
+            position: heldClock?.position ?? media.position, precisionSync: media.precisionSync,
             userOffset: lyrics.userOffset, trackOffset: lyrics.trackOffset,
             wordTiming: wordTimingEnabled
         )
@@ -229,20 +234,6 @@ struct LyricsStage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Diagnostic readout, environment-gated like the open hook: says which
-        // branch is live and why, in the corner, only when an agent launched
-        // the binary with the variable set. Never present in a normal run.
-        .overlay(alignment: .bottomLeading) {
-            if DebugTrail.openLyrics {
-                Text(debugStateDescription)
-                    .font(Theme.TypeRole.caption.font().monospacedDigit())
-                    .foregroundStyle(.yellow)
-                    .padding(6)
-                    // A readout is not a control. Left hittable it sat over the
-                    // sync pill and swallowed every tap meant for it.
-                    .allowsHitTesting(false)
-            }
-        }
         .onAppear {
             if DebugTrail.openLyrics {
                 DebugTrail.note("stage appeared: \(debugStateDescription)")
@@ -699,9 +690,9 @@ struct LyricsStage: View {
             distance: distance,
             at: now,
             end: LyricSweep.end(of: index, in: lines),
-            // Only the sung row reads the clock per frame; every other row is
-            // lit whole or not at all.
-            clock: isCurrent ? LyricSweep.frameClock(media: media, lead: lead) : nil,
+            // Only the sung row is handed the clock; every other row is lit
+            // whole or not at all.
+            clock: isCurrent ? LyricSweep.songClock(media: media, lead: lead, held: heldClock) : nil,
             // The stage reads at 22 bold, the sung line at full white and never
             // larger (decision 6). A long line wraps to a second and only past
             // that is cut at its tail, its full words still what VoiceOver
@@ -763,22 +754,26 @@ struct LyricsStage: View {
         following = true
     }
 
-    /// The silence before a line, in the slot a line would take: three dots
-    /// where the sung line goes (spec §5.4). No seek and no hint: there are no
+    /// The silence before a line, in the slot a line would take: the lock
+    /// card's note and track, filling toward the voice where the sung line
+    /// goes (spec §5.4, amended 2026-10-31). No seek and no hint: there are no
     /// words here to jump to, and the line it leads to is the next row down.
     private func interludeRow(_ slot: LyricSlot, at: TimeInterval, isCurrent: Bool, distance: Int) -> some View {
-        InterludeMarker(
+        // Only the interlude playing reads the clock per frame, and only
+        // while the song moves: the frames are spent on the one row somebody
+        // is waiting through.
+        let clock: (@MainActor () -> Double)? = InterludeMarker.liveFill(
+            for: slot, isCurrent: isCurrent, media: media, lead: lead, held: heldClock
+        )
+        return InterludeMarker(
             progress: LyricSweep.interludeProgress(slot, at: at),
             isCurrent: isCurrent,
             distance: distance,
-            // Only the interlude playing reads the clock per frame — and the
-            // dots, which carry no progress, have no use for it.
-            clock: nil,
+            clock: clock,
             fontSize: metrics.fontSize,
             weight: metrics.weight,
             reading: !following,
-            reduceMotion: reduceMotion,
-            style: .dots
+            reduceMotion: reduceMotion
         )
         .frame(maxHeight: .infinity, alignment: .center)
     }
@@ -848,7 +843,10 @@ struct LyricsStage: View {
                 statusLine(sentence)
             case .noneFound(let offersSearchOnline):
                 statusGlyph("quote.bubble")
-                statusLine(LyricsPageState.noneFoundSentence)
+                // The page says it shortly (owner, 2026-10-25: empty states are
+                // a glyph and one sentence, as Apple's are); the compact
+                // caption keeps `noneFoundSentence`, its full-stopped form.
+                statusLine(localized("No lyrics for this song"))
                 HStack(spacing: 8) {
                     offerButton(localized("Import LRC…"), action: importLocalFile)
                     if offersSearchOnline {

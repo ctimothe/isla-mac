@@ -176,6 +176,51 @@ final class PageDotsTests: XCTestCase {
         )
     }
 
+    /// R8b-H5's other half, through the element VoiceOver finds: its decrement
+    /// and increment turn one page each and stop at the ends — nothing left of
+    /// Music, nothing right of Translate — and the value VoiceOver reads after
+    /// each is the page it reached. (Opened onto Translate by VoiceOver and
+    /// moving into the editor taking the keyboard needs the real screen reader.)
+    func testTheAdjustableRowTurnsOnePageAndStopsAtBothEndsThroughVoiceOver() async throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        vm.pageTravel.clock = ManualPageClock()
+        vm.isOpen = true
+        vm.open(.player)
+        let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
+
+        func slider() async throws -> AXNode {
+            let root = await AXProbe.tree(of: NotchContentView(vm: vm).defaultAppStorage(isolated.suite), size: size)
+            return try XCTUnwrap(root.flattened.first { $0.label == "Pages" }, root.dump)
+        }
+        func spoken(_ node: AXNode) -> String? {
+            node.element.value(forKey: "accessibilityValueDescription") as? String
+        }
+        func adjust(_ selector: String) async throws -> String? {
+            let node = try await slider()
+            _ = node.element.perform(NSSelectorFromString(selector))
+            return spoken(try await slider())
+        }
+
+        let first = try await slider()
+        XCTAssertEqual(spoken(first), "Page 1 of 4, Music")
+        var reads: [String?] = []
+        reads.append(try await adjust("accessibilityPerformDecrement"))
+        XCTAssertEqual(vm.surface, .player, "nothing left of Music")
+        for _ in 0..<5 { reads.append(try await adjust("accessibilityPerformIncrement")) }
+        XCTAssertEqual(vm.surface, .translate, "and nothing right of Translate")
+        reads.append(try await adjust("accessibilityPerformDecrement"))
+        XCTAssertEqual(vm.surface, .clipboard)
+        XCTAssertEqual(reads, [
+            "Page 1 of 4, Music",
+            "Page 2 of 4, Shelf", "Page 3 of 4, Clipboard", "Page 4 of 4, Translate",
+            "Page 4 of 4, Translate", "Page 4 of 4, Translate",
+            "Page 3 of 4, Clipboard",
+        ], "what VoiceOver reads after each")
+        XCTAssertFalse(vm.wantsKeyboard, "a page turned by VoiceOver does not take the keyboard")
+    }
+
     /// The stage with no song is drawn as the empty player, so Music's dot is
     /// the current one there and does nothing. It used to travel a strip of
     /// two Music pages — two panes under one identity, and the player sliding

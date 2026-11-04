@@ -19,6 +19,12 @@ struct PageScroll: Equatable {
     var momentumPhase: ScrollSample.Phase = .none
     var precise: Bool = true
     var time: TimeInterval = 0
+    /// AppKit's `isDirectionInvertedFromDevice`: true under natural scrolling,
+    /// the Mac's default. The pages never need it — content follows the
+    /// owner's direction, and so do they — but the vertical pull is about the
+    /// hand, not the content (`IslandPull.fingersDown`): "two fingers down
+    /// opens" must mean down on the trackpad whichever way the owner scrolls.
+    var invertedFromDevice: Bool = true
 }
 
 // MARK: - The pages side by side

@@ -27,11 +27,11 @@ enum IslandBubbleLayout {
     static let bottomRadius: CGFloat = 14
 
     /// `tray.full.fill` 18 × 14, white; 5 pt; the count, 13 semibold,
-    /// tabular, in the system blue.
+    /// tabular, in white (owner, 2026-10-25: it was the system blue).
     static let glyphSize = CGSize(width: 18, height: 14)
     static let spacing: CGFloat = 5
     static let countSize: CGFloat = 13
-    static var countColor: Color { Theme.SettingsTint.blue.color }
+    static var countColor: Color { Color.white }
 
     /// How far right of the island's centre the bubble's centre sits. The
     /// bubble only ever stands beside Music, a compact activity, so the
@@ -53,11 +53,18 @@ enum IslandBubbleLayout {
 struct IslandBubble: View {
     let count: Int
     let height: CGFloat
+    /// The black shape's own height: the pill's beside it, which on a real
+    /// notch drops half the stroke below the body (`NotchContentView.clearingCutout`)
+    /// so the two bottom lines meet. The content and the press keep `height`.
+    var outlineHeight: CGFloat? = nil
     let increaseContrast: Bool
     let action: () -> Void
 
+    /// The bubble's name, and the island's value while the Shelf holds it.
+    /// One file is "Shelf, 1 item": it said "1 items", the first words
+    /// VoiceOver had for a single dropped file (`CountedSentenceTests`).
     static func label(count: Int) -> String {
-        localized("Shelf, %d items", count)
+        count == 1 ? localized("Shelf, 1 item") : localized("Shelf, %d items", count)
     }
 
     var body: some View {
@@ -65,7 +72,8 @@ struct IslandBubble: View {
             content
         }
         .buttonStyle(BubbleStyle(
-            width: IslandBubbleLayout.width(count: count), height: height, increaseContrast: increaseContrast
+            width: IslandBubbleLayout.width(count: count), height: height,
+            outlineHeight: outlineHeight ?? height, increaseContrast: increaseContrast
         ))
         .accessibilityLabel(Self.label(count: count))
     }
@@ -95,21 +103,26 @@ struct IslandBubble: View {
     private struct BubbleStyle: ButtonStyle {
         let width: CGFloat
         let height: CGFloat
+        let outlineHeight: CGFloat
         let increaseContrast: Bool
 
         func makeBody(configuration: Configuration) -> some View {
-            ZStack {
-                NotchShape(topRadius: IslandBubbleLayout.topRadius, bottomRadius: IslandBubbleLayout.bottomRadius)
-                    .fill(configuration.isPressed ? Theme.islandHover : Color.black)
-                IslandStrokeShape(topRadius: IslandBubbleLayout.topRadius, bottomRadius: IslandBubbleLayout.bottomRadius)
-                    .stroke(
-                        IslandStroke.color(tint: nil, increaseContrast: increaseContrast),
-                        lineWidth: Theme.islandStrokeWidth
-                    )
-                    .allowsHitTesting(false)
+            ZStack(alignment: .top) {
+                ZStack {
+                    NotchShape(topRadius: IslandBubbleLayout.topRadius, bottomRadius: IslandBubbleLayout.bottomRadius)
+                        .fill(configuration.isPressed ? Theme.islandHover : Color.black)
+                    IslandStrokeShape(topRadius: IslandBubbleLayout.topRadius, bottomRadius: IslandBubbleLayout.bottomRadius)
+                        .stroke(
+                            IslandStroke.color(tint: nil, increaseContrast: increaseContrast),
+                            lineWidth: Theme.islandStrokeWidth
+                        )
+                        .allowsHitTesting(false)
+                }
+                .frame(width: width, height: outlineHeight)
                 configuration.label
+                    .frame(width: width, height: height)
             }
-            .frame(width: width, height: height)
+            .frame(width: width, height: height, alignment: .top)
             .contentShape(Rectangle())
             .animation(Theme.contentAnimation, value: configuration.isPressed)
         }

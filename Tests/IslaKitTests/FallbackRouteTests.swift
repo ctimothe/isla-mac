@@ -247,11 +247,20 @@ final class FallbackRouteTests: XCTestCase {
         media.stop()
     }
 
-    /// The helper route waits 180 ms before blanking a skipped song's cover,
-    /// so a cover arriving in that gap is one swap rather than two. The
-    /// fallback blanked at once, every skip.
-    func testAFallbackSkipKeepsTheOldCoverForAMoment() async throws {
+    /// A fallback skip whose cover is still on its way keeps the old song —
+    /// title and cover together — drawn until the swap, which the helper route
+    /// does the same way.
+    ///
+    /// This used to assert the controller's own 180 ms grace: the old cover
+    /// left standing under the new title. That grace is gone (owner,
+    /// 2026-10-25): the controller's field takes the old cover down at once,
+    /// and `NowPlayingPresenter` keeps the whole old song on screen instead,
+    /// so the new title never sits over the old picture.
+    func testAFallbackSkipKeepsTheOldSongDrawnUntilTheSwap() async throws {
         let (media, _) = controller(replies: [song("A", album: "First"), song("Next", album: "Second")])
+        let presenter = NowPlayingPresenter.live(media: media, lyrics: LyricsStore(
+            offsetsDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        ))
         let first = image()
         media.heldArtwork = { (state: PlayerState, reply: @escaping (NSImage?) -> Void) in
             // The new song's cover is still on its way.
@@ -260,13 +269,17 @@ final class FallbackRouteTests: XCTestCase {
         media.switchToScriptingFallback(.keptStopping)
         try await Task.sleep(for: .milliseconds(20))
         XCTAssertTrue(media.artwork === first)
+        XCTAssertTrue(presenter.presented?.artwork === first)
 
         media.refreshFromPlayers()
         XCTAssertEqual(media.track?.title, "Next")
-        XCTAssertTrue(media.artwork === first, "the old cover stands while the new one is fetched")
+        XCTAssertNil(media.artwork, "the field says what is true: not this song's cover")
+        XCTAssertEqual(presenter.presented?.track.title, "A", "the old song stays drawn")
+        XCTAssertTrue(presenter.presented?.artwork === first, "with its own cover")
 
-        try await Task.sleep(for: .milliseconds(400))
-        XCTAssertNil(media.artwork, "and gives way once the grace has run out")
+        try await Task.sleep(for: .milliseconds(450))
+        XCTAssertEqual(presenter.presented?.track.title, "Next", "swapped once the deadline passed")
+        XCTAssertNil(presenter.presented?.artwork, "with the placeholder, never the old cover")
         media.stop()
     }
 

@@ -24,7 +24,91 @@ final class AmbientWatch {
         var symbol: String
     }
 
+    /// What the watch reads and how it waits: the system's own sources in the
+    /// app, and a scripted battery, port and Bluetooth list with a clock that
+    /// runs at once in a test. Only the sequencing — a failed read, a pull
+    /// before the read lands, a re-read after a pull, a CoreAudio read that
+    /// came back empty — was untested before this seam (maturity program
+    /// Batch 1, 2026-10-29); each of those is a bug this file names.
+    struct Environment {
+        /// The internal battery, or nil on a Mac that has none or a failed read.
+        var readPower: @Sendable () -> Power?
+        /// The port, the adapter's rating and, for a battery not charging, the
+        /// reason (`ChargeHoldReading`) — `.settling` when it gives none.
+        var readPort: @Sendable (Power) -> (port: ChargePort, watts: Int?, hold: ChargeHold?)
+        /// Bluetooth outputs, or nil when CoreAudio returned no devices at all.
+        var readHeadphones: @MainActor () -> [Headphones]?
+        /// Runs a registry read away from the main thread, and hands its answer
+        /// back to it.
+        var offMain: @Sendable (@escaping @Sendable () -> Void) -> Void
+        var onMain: @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
+        /// Runs `work` on the main actor after `delay` seconds.
+        var after: @MainActor (_ delay: TimeInterval, _ work: @escaping @MainActor @Sendable () -> Void) -> Void
+        var now: @MainActor () -> Date
+
+        static let live = Environment(
+            readPower: { AmbientWatch.readPower() },
+            readPort: { power in
+                let port = ChargePortReading.read()
+                // Only asked of a battery that is not charging: a charging one
+                // has no reason to give, and the read is one more registry round
+                // trip. A battery not charging with no reason to give is one
+                // still settling: every read here is within seconds of a plug-in.
+                let hold = power.isCharging ? nil : (ChargeHoldReading.read() ?? .settling)
+                return (port.port, port.watts, hold)
+            },
+            readHeadphones: { AmbientWatch.readHeadphones() },
+            // User-initiated, not utility: this read is what stands between
+            // the cable and the island.
+            offMain: { DispatchQueue.global(qos: .userInitiated).async(execute: $0) },
+            onMain: { work in DispatchQueue.main.async { MainActor.assumeIsolated { work() } } },
+            after: { delay, work in
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { work() } }
+            },
+            now: { Date() }
+        )
+    }
+
+    private let environment: Environment
+
+    init(environment: Environment = .live) {
+        self.environment = environment
+    }
+
     var onEvent: ((AmbientActivity) -> Void)?
+
+    /// A charging moment's reading changed while it may still be on the
+    /// island — the battery began taking charge, the adapter reported its
+    /// watts. The controller applies it only to a Charging moment that is up,
+    /// without announcing it again or restarting its hold.
+    var onChargeUpdate: ((AmbientActivity) -> Void)?
+
+    /// How long power must have been away for its return to be a plug-in.
+    ///
+    /// The moment used to wait 0.6 s after the edge before it was even read
+    /// (`chargeSettle`, 2026-10-26), and kept a 30 s quiet window after each
+    /// one it showed. The owner, 2026-10-27: the island was visibly late
+    /// behind the menu bar's bolt, and a cable pulled and put back sometimes
+    /// showed nothing. The recorder (2026-10-26 15:37) showed what the edge
+    /// already knows: AC, the adapter's 61 W and the battery's reason all
+    /// arrive in the same 100 ms sample, so the moment is read and shown at
+    /// the edge, and corrected in place by `chargeRereads`. Every plug-in is
+    /// shown; only a return within this blip — a loose dock's dropout (G-033)
+    /// — is not news. The owner's own pulls lasted 2.3 s and 3.7 s.
+    nonisolated static let blip: TimeInterval = 1
+
+    /// When the charge is read again after the edge, while the moment is up.
+    /// The battery's reason lags the plug (owner's recording, 2026-10-26
+    /// 15:06, Apple's 61 W USB-C at 80 percent): read at the settle, the
+    /// moment said "61 W Not Charging"; the same registry read a moment later
+    /// gave the hold, 16777216, and nothing asked again — the level and
+    /// `IsCharging` never change across a hold, so no power notification
+    /// came to prompt `onChargeUpdate`. The first two catch the adapter's
+    /// contract, which powerd has logged as late as 0.53 s after the edge
+    /// (2026-10-26 09:55:43). Reads inside the hold, each
+    /// one dropped if power left or a newer plug came, and each a no-op when
+    /// the answer is unchanged (`NotchController.updateShownCharge`).
+    nonisolated static let chargeRereads: [TimeInterval] = [0.3, 0.6, 1, 2, 3]
 
     /// How long after announcing a device the same device stays quiet.
     /// AirPods hopping between a phone and this Mac, or a coreaudiod restart,
@@ -33,6 +117,13 @@ final class AmbientWatch {
 
     private var powerSource: CFRunLoopSource?
     private var lastPower: Power?
+    /// Stamps each arrival, so a reading that settles after the charger was
+    /// pulled, or after a newer arrival, is dropped.
+    private var arrivalGeneration = 0
+    /// Until when power notifications may update a charging moment in place:
+    /// the settle plus the hold. Past it nothing is on the island to update,
+    /// and the minute-by-minute capacity notifications cost no registry read.
+    private var chargeUpdatesUntil: Date?
     private var knownHeadphones: Set<String> = []
     private var lastAnnounced: [String: Date] = [:]
     private var devicesListener: AudioObjectPropertyListenerBlock?
@@ -44,8 +135,7 @@ final class AmbientWatch {
 
     func start() {
         stop()
-        lastPower = Self.readPower()
-        if let headphones = Self.readHeadphones() { knownHeadphones = Set(headphones.map(\.uid)) }
+        seed()
 
         // IOKit calls back on the run loop the source is added to, the main
         // one here, with the context pointer it was given. Unretained is safe:
@@ -71,6 +161,13 @@ final class AmbientWatch {
         }
     }
 
+    /// What is already there when the watch starts is not news: the charger
+    /// a Mac launched on, the headphones already connected.
+    func seed() {
+        lastPower = environment.readPower()
+        if let headphones = environment.readHeadphones() { knownHeadphones = Set(headphones.map(\.uid)) }
+    }
+
     func stop() {
         if let powerSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .defaultMode)
@@ -91,35 +188,87 @@ final class AmbientWatch {
 
     // MARK: - Power
 
-    private func powerChanged() {
+    /// IOKit's power notification. Internal, so a test can send one.
+    func powerChanged() {
         // A failed read keeps the last good one. Stored as nil, it made the
         // next real plug-in look like the first reading, which is no event.
-        guard let now = Self.readPower() else { return }
+        guard let now = environment.readPower() else { return }
         defer { lastPower = now }
-        let date = Date()
-        guard Self.pluggedIn(previous: lastPower, now: now, lastAnnounced: lastPowerAnnounced, at: date) else { return }
-        lastPowerAnnounced = date
-        onEvent?(.charging(level: now.level, isCharging: now.isCharging))
+        let date = environment.now()
+        guard now.onExternalPower else {
+            // Pulled: an arrival still settling is not one any more.
+            arrivalGeneration &+= 1
+            chargeUpdatesUntil = nil
+            if lastPower?.onExternalPower == true { unpluggedAt = date }
+            return
+        }
+        if arrives(previous: lastPower, now: now, at: date) {
+            scheduleArrival()
+        } else if let until = chargeUpdatesUntil, date < until, now != lastPower {
+            readCharge { [weak self] activity in self?.onChargeUpdate?(activity) }
+        }
     }
 
-    /// When the charger was last announced, for `repeatQuiet`.
-    private var lastPowerAnnounced: Date?
+    /// When external power last went away, for `blip`.
+    private var unpluggedAt: Date?
 
-    /// Only the moment external power arrives, and not again within `quiet`
-    /// of the last time it was announced. A level change while charging, or a
-    /// desktop Mac that was on AC all along, is not an event.
-    ///
-    /// The window is G-033: a loose USB-C dock drops and restores power every
-    /// few seconds, each restore is a genuine false-to-true edge, and with no
-    /// window each one re-grew the pill. Headphones had the same window from
-    /// the start for the same reason; the charger now keeps it too.
+    /// Whether a reading is a plug-in to show. Its own function so the
+    /// measured pulls are a test.
+    func arrives(previous: Power?, now: Power, at date: Date) -> Bool {
+        Self.pluggedIn(previous: previous, now: now, unpluggedAt: unpluggedAt, at: date)
+    }
+
+    /// Reads the charge off the main thread at once and hands it over unless
+    /// power left, or a newer edge came, first; the re-reads correct it in
+    /// place.
+    private func scheduleArrival() {
+        arrivalGeneration &+= 1
+        let generation = arrivalGeneration
+        chargeUpdatesUntil = environment.now().addingTimeInterval(AmbientActivity.chargingHold + 1)
+        readCharge { [weak self] activity in
+            guard let self, generation == self.arrivalGeneration else { return }
+            self.onEvent?(activity)
+        }
+        for delay in Self.chargeRereads {
+            environment.after(delay) { [weak self] in
+                guard let self, generation == self.arrivalGeneration else { return }
+                self.readCharge { [weak self] activity in
+                    guard let self, generation == self.arrivalGeneration else { return }
+                    self.onChargeUpdate?(activity)
+                }
+            }
+        }
+    }
+
+    /// The battery, the port and the adapter, read on a utility queue — the
+    /// registry is IPC to the kernel, and IOPS a round trip to powerd — and
+    /// delivered on the main actor. Nothing if power is gone by then.
+    private func readCharge(_ deliver: @escaping @MainActor (AmbientActivity) -> Void) {
+        let environment = self.environment
+        environment.offMain {
+            guard let power = environment.readPower(), power.onExternalPower else { return }
+            let port = environment.readPort(power)
+            let activity = Self.chargeActivity(power: power, port: port.port, watts: port.watts, hold: port.hold)
+            environment.onMain { deliver(activity) }
+        }
+    }
+
+    /// The moment a settled reading makes. Pure, so the mapping is a test.
+    nonisolated static func chargeActivity(
+        power: Power, port: ChargePort, watts: Int?, hold: ChargeHold? = nil
+    ) -> AmbientActivity {
+        .charging(level: power.level, isCharging: power.isCharging, port: port, watts: watts, hold: hold)
+    }
+
+    /// Only the moment external power arrives, and not a return within
+    /// `blip` of it leaving. A level change while charging, or a desktop Mac
+    /// that was on AC all along, is not an event.
     nonisolated static func pluggedIn(
-        previous: Power?, now: Power, lastAnnounced: Date?, at date: Date,
-        quiet: TimeInterval = repeatQuiet
+        previous: Power?, now: Power, unpluggedAt: Date?, at date: Date, blip: TimeInterval = blip
     ) -> Bool {
         guard let previous, !previous.onExternalPower, now.onExternalPower else { return false }
-        guard let lastAnnounced else { return true }
-        return date.timeIntervalSince(lastAnnounced) >= quiet
+        guard let unpluggedAt else { return true }
+        return date.timeIntervalSince(unpluggedAt) >= blip
     }
 
     /// The internal battery, or nil on a Mac that has none.
@@ -148,13 +297,14 @@ final class AmbientWatch {
 
     // MARK: - Headphones
 
-    private func devicesChanged() {
+    /// CoreAudio's device-list notification. Internal, so a test can send one.
+    func devicesChanged() {
         // A read that finds no devices at all is a read that failed (a Mac
         // always has somewhere to play), not headphones going away. Taken at
         // its word, it emptied the known set and the next good read
         // announced everything already connected.
-        guard let headphones = Self.readHeadphones() else { return }
-        let now = Date()
+        guard let headphones = environment.readHeadphones() else { return }
+        let now = environment.now()
         let arrived = Self.announcements(
             known: knownHeadphones, now: headphones, lastAnnounced: lastAnnounced, at: now
         )
@@ -194,7 +344,7 @@ final class AmbientWatch {
     }
 
     /// Bluetooth outputs, or nil when CoreAudio returned no devices at all.
-    private static func readHeadphones() -> [Headphones]? {
+    static func readHeadphones() -> [Headphones]? {
         let outputs = AudioOutputs.available()
         guard !outputs.isEmpty else { return nil }
         return outputs

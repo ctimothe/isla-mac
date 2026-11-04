@@ -308,22 +308,35 @@ extension PlayerLayout {
         return offset < 0 ? 0.20 : 0.18
     }
 
-    /// The opacity a context line is *drawn* at: the board's, raised to the
-    /// ramp's contrast floor where the board is dimmer.
+    /// The opacity a context line is *drawn* at.
     ///
-    /// `Theme`'s floor (`LyricRow.Ramp`, WCAG 3:1 over black, held by
-    /// `ContrastRampTests`) is 0.36 and the neighbour's 0.42, and the floor wins
-    /// over the boards (§2.1). So the board's order — the line after the sung
-    /// one the brightest context, the lines above dimmer than those below — is
-    /// kept where it clears the floor: the line above becomes 0.42, the line
-    /// after it stays 0.50, and every line the board draws under the floor is
-    /// drawn at it. Reading by hand lifts every context line to the ramp's
-    /// reading step, as it does everywhere.
-    static func lyricOpacity(offset: Int, ramp: LyricRow.Ramp, reading: Bool) -> Double {
+    /// Since 2026-10-25 (owner) the stage's depth reads as four steps: the
+    /// sung line 1.0, the next line 0.45, every line further to come 0.30 and
+    /// every line already sung 0.20 — the way Apple Music's lyrics fall off,
+    /// dimmer than the contrast floor below. Reading by hand still lifts every
+    /// context line to the ramp's reading step, as it does everywhere.
+    ///
+    /// **Increase Contrast keeps the old ramp.** `Theme`'s floor
+    /// (`LyricRow.Ramp`, WCAG 3:1 over black, held by `ContrastRampTests`) is
+    /// the legibility floor of the setting that asks for more contrast, so
+    /// with it on the board's values are raised to the ramp's floor (0.42) and
+    /// neighbour (0.46) steps as before, and the order the board gives — the
+    /// line after the sung one the brightest context — is kept where it
+    /// clears them. Only the default setting takes the dimmer ramp.
+    static func lyricOpacity(
+        offset: Int, ramp: LyricRow.Ramp, reading: Bool, increaseContrast: Bool = false
+    ) -> Double {
         if offset == 0 { return 1 }
         if reading { return ramp.reading }
-        let floor = abs(offset) == 1 ? ramp.neighbour : ramp.floor
-        return max(boardLyricOpacity(offset: offset), floor)
+        if increaseContrast {
+            let floor = abs(offset) == 1 ? ramp.neighbour : ramp.floor
+            return max(boardLyricOpacity(offset: offset), floor)
+        }
+        switch offset {
+        case 1: return 0.45
+        case 2...: return 0.30
+        default: return 0.20
+        }
     }
 
     /// The translation row's type (§5.3 on the stage): 13 regular, under the

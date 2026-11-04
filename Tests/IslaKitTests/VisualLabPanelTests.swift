@@ -91,7 +91,7 @@ final class VisualLabPanelTests: VisualLabCase {
         // The status names it and the one remedy is Open Settings; the
         // Russian sentence is the long one, so it is drawn at 480 pt too.
         try await shoot.shoot("nothing-shown-music-only-hides-a-video",
-                              variants: [.base, .w480, .russian, LabVariant(name: "ru-w480", width: 480, language: "ru"), .baseIR],
+                              variants: [.base, .w480, .russian, .russianNarrow, .baseIR],
                               size: size,
                               notes: "A YouTube tab in a browser is playing; Music Only filters it.") { variant in
             Self.scene(try await self.openPanel(session, prepare: { stores in
@@ -238,7 +238,7 @@ final class VisualLabPanelTests: VisualLabCase {
         }
         // G-007: an Import from the page refused at line 2. The notice sits
         // under the header, and has to fit the narrowest panel in Russian.
-        let russianNarrow = LabVariant(name: "ru-w480", width: 480, language: "ru")
+        let russianNarrow = LabVariant.russianNarrow
         try await shoot.shoot("import-notice", variants: [.base, .w480, .russian, russianNarrow], size: size, settle: 0.3,
                               notes: note + " The notice an Import from the page leaves when the file has a broken stamp.") { variant in
             var track = LabFixtures.Track(elapsed: 27)
@@ -318,7 +318,7 @@ final class VisualLabPanelTests: VisualLabCase {
         // M-22: under a drag the headline says what letting go does.
         // Russian at 480 pt is the longest it gets and the narrowest it is
         // drawn, here and on the populated strip's pill below.
-        let russianNarrowDrag = LabVariant(name: "ru-w480", width: 480, language: "ru")
+        let russianNarrowDrag = LabVariant.russianNarrow
         try await shoot.shoot("drop-target", variants: [.base, .contrast, russianNarrowDrag], size: size,
                               notes: "A drag over the island: the drop surface, with the Keep target lit and its second line saying Release.") { variant in
             Self.scene(try await self.openPanel(session, surface: .tray, configure: { $0.isDropTargeted = true }), variant, height: size.height)
@@ -350,10 +350,11 @@ final class VisualLabPanelTests: VisualLabCase {
             Self.scene(try await self.openPanel(session, surface: .tray, prepare: { self.stock($0.shelf, session: session, urls: few) }),
                        variant, height: size.height)
         }
-        // A picked tile wears its ring and its remove badge (decision 9); the
-        // selection bar went with the grid (§19.11).
+        // A picked tile is Finder's icon view: the icon's backdrop, the name on
+        // the selected-text pill, the date line untouched, and the remove badge
+        // (decision 9); the selection bar went with the grid (§19.11).
         try await shoot.shoot("two-selected", variants: [.base, .contrast, .russian], size: size, settle: 0.8,
-                              notes: note + " Two tiles picked: each wears a blue ring and its remove badge.") { variant in
+                              notes: note + " Two tiles picked: each has the grey backdrop behind its icon, its name on the Highlight-colour pill (the lab's own accent here), the date line plain, and its remove badge.") { variant in
             Self.scene(try await self.openPanel(session, surface: .tray, prepare: { stores in
                 self.stock(stores.shelf, session: session, urls: few)
             }, configure: { vm in
@@ -462,7 +463,8 @@ final class VisualLabPanelTests: VisualLabCase {
             clipboard.accessBehavior = { .denied }
             clipboard.recheckAccess()
         }
-        try await shoot.shoot("access-denied", variants: [.base, .light, .contrast, .w480, .russian], size: size,
+        try await shoot.shoot("access-denied", variants: [.base, .light, .contrast, .w480, .russian,
+                                                          .russianNarrow], size: size,
                               notes: "Paste from Other Apps set to Don't Allow, with history kept from before the refusal.") { variant in
             Self.scene(try await self.openPanel(session, surface: .clipboard, prepare: { stores in
                 self.fill(session, stores.clipboard)
@@ -476,7 +478,7 @@ final class VisualLabPanelTests: VisualLabCase {
         }
         for (variant, sentence) in [
             ("dark", "macOS is not letting Isla read what you copy, so nothing new is kept."),
-            ("ru", "macOS не разрешает Isla читать скопированное, поэтому новое не сохраняется."),
+            ("ru", "macOS не разрешает Isla читать скопированное — новое не сохраняется."),
         ] {
             for state in ["access-denied", "access-denied-empty"] {
                 let url = session.root.appendingPathComponent("a11y/panel-clipboard/\(state)__\(variant).txt")
@@ -646,21 +648,33 @@ final class VisualLabPanelTests: VisualLabCase {
             }), variant, height: size.height)
         }
         try await shoot.shoot("section-lyrics-delay-preview",
-                              variants: [LabVariant(name: "ru-w480", width: 480, language: "ru")],
+                              variants: [.russianNarrow],
                               size: size, settle: 0.4, defaults: [NotchViewModel.showLyricsKey: true],
                               notes: "The same at 480 in Russian, where labels wrap before controls.") { variant in
             Self.scene(try await self.openPanel(session, surface: .settings, prepare: playingWithLyrics, configure: { vm in
                 vm.settingsSection = .lyrics
             }), variant, height: size.height)
         }
-        try await shoot.shoot("section-spotify-connected", variants: [.base], size: size, settle: 0.4,
+        try await shoot.shoot("section-connections-spotify-connected", variants: [.base, .russian], size: size, settle: 0.4,
                               notes: "A connected Spotify account, stood in by the lab's isolated account and its temporary credential file.") { variant in
             await session.connectSpotify(liked: false)
             return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
-                vm.settingsSection = .spotify
+                vm.settingsSection = .connections
             }), variant, height: size.height)
         }
         await session.disconnectSpotify()
+        // MR-H17: a Connect that Spotify refused shows Spotify's own reason as
+        // one line under the row (here Development Mode's unlisted account).
+        try await shoot.shoot("section-connections-spotify-refused", variants: [.base, .russian], size: size, settle: 0.4,
+                              notes: "Connect refused by Spotify's token endpoint: its own words and status, one line under the row.") { variant in
+            SpotifyAccount.shared.presentSignInForTests(.failed(SpotifyAccount.SignInFailure(
+                stage: .exchange, status: 403, error: "access_denied", detail: "User not registered in the Developer Dashboard"
+            )))
+            return Self.scene(try await self.openPanel(session, surface: .settings, configure: { vm in
+                vm.settingsSection = .connections
+            }), variant, height: size.height)
+        }
+        SpotifyAccount.shared.presentSignInForTests(nil)
     }
 
     // MARK: Welcome

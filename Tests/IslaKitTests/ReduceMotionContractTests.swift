@@ -27,6 +27,14 @@ final class ReduceMotionContractTests: XCTestCase {
 
     private static let allowed: [Allowed] = [
         Allowed(
+            file: "StageVolumeControl.swift",
+            line: ".animation(reduceMotion ? nil : Theme.trackSwapSpring, value: volume.isDragging)",
+            count: 1,
+            reason: "the lyric stage's volume track thickens under a dragging finger, as the "
+                + "system's own sliders do: a change of size, which Reduce Motion asks to have "
+                + "happen at once rather than grow (2026-10-26, spec §19.6 amendment)."
+        ),
+        Allowed(
             file: "LockScreenCard.swift",
             line: ".animation(jump || reduceMotion ? nil : Theme.lyricScroll, value: centre)",
             count: 1,
@@ -51,15 +59,6 @@ final class ReduceMotionContractTests: XCTestCase {
                 + "(Settings > About, Update Now). That is geometry that travels, so with Reduce "
                 + "Motion the fill steps to each new length instead of gliding; the card's own "
                 + "change of state is the 0.24 s crossfade."
-        ),
-        Allowed(
-            file: "Theme.swift",
-            line: "reduceMotion ? nil : hudLevel",
-            count: 1,
-            reason: "the volume pop-up's level bar, whose fill changes length with each press "
-                + "(redesign 2026-10-15, spec §2.4: \"appears and folds by crossfade; the bar "
-                + "steps\"). A glide is travel, and the presses are what a person counts; the "
-                + "pop-up itself still crossfades in and out."
         ),
     ]
 

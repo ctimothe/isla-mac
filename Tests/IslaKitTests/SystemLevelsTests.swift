@@ -355,6 +355,7 @@ final class SystemLevelsTests: XCTestCase {
         // The output became one with no settable volume; its listener says so.
         volume.state = nil
         watch.fire(.volume)
+        sut.settleListeners()
         XCTAssertFalse(sut.canApply(.volumeUp))
     }
 
@@ -382,8 +383,14 @@ final class SystemLevelsTests: XCTestCase {
             }
         }
         wait(for: [done], timeout: 2)
+        sut.settle()
         XCTAssertEqual(delivered.value, [0.5625, 0.625, 0.6875], "in order")
-        XCTAssertEqual(volume.writesOnMain, [false, false, false], "every write on the applier's queue")
+        // Since 2026-10-25 one writer takes the newest target: three presses
+        // are one to three writes, never more, and the last one is the level.
+        XCTAssertFalse(volume.writesOnMain.isEmpty)
+        XCTAssertLessThanOrEqual(volume.writesOnMain.count, 3)
+        XCTAssertFalse(volume.writesOnMain.contains(true), "every write on the applier's writer")
+        XCTAssertEqual(volume.writes.last?.level, 0.6875)
         XCTAssertEqual(volume.reads, 1, "from the cached level")
     }
 
@@ -393,6 +400,7 @@ final class SystemLevelsTests: XCTestCase {
         sut.prepare()
         volume.state = (0.25, true)   // the menu bar slider, then mute
         watch.fire(.volume)
+        sut.settleListeners()
         let reading = sut.apply(.volumeUp, fine: false)
         XCTAssertEqual(reading?.level, 0.3125)
         XCTAssertEqual(reading?.muted, false, "volume up unmutes, from the cached mute")

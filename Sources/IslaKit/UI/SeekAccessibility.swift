@@ -82,8 +82,13 @@ extension View {
     /// clamped to 0...1. A muted output is heard as "Muted" rather than as a
     /// level nobody can hear (G-023); the increment still raises it, which
     /// unmutes, as the volume keys do.
-    func volumeAccessibility(level: Double, muted: Bool = false, set: @escaping (Double) -> Void) -> some View {
-        let label = localized("Volume")
+    ///
+    /// `label` says whose volume it is: "Volume" for the Mac's output (the
+    /// lock card), "Spotify volume" or "Music volume" for the lyric stage's
+    /// control when it moves the player's own (`PlayerVolumeTarget.label`).
+    func volumeAccessibility(
+        level: Double, muted: Bool = false, label: String = localized("Volume"), set: @escaping (Double) -> Void
+    ) -> some View {
         return self
             .accessibilityRepresentation {
                 Slider(value: Binding(get: { level }, set: { set(min(max($0, 0), 1)) }), in: 0...1) {

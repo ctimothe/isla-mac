@@ -21,7 +21,7 @@ enum AudioOutputs {
         var dataSource: UInt32?
 
         var symbol: String {
-            AudioOutputs.symbol(forTransport: transport, dataSource: dataSource, name: name)
+            AudioOutputs.symbol(forTransport: transport, dataSource: dataSource, name: name, host: .current)
         }
     }
 
@@ -117,69 +117,40 @@ enum AudioOutputs {
     /// the headphone jack: the transport is still `bltn`, and the card would
     /// keep drawing a laptop while the sound went to headphones. The data
     /// source is the field that knows, so it is asked first.
+    ///
+    /// The choice is Apple's own symbol for the kind of device, as the Sound
+    /// menu draws it (`OutputGlyph.candidates`), taken from a candidate list
+    /// and checked against the running macOS (`OutputGlyph.resolve`): a symbol
+    /// newer than the Mac degrades to the one that always shipped, never to an
+    /// empty glyph. `host` is the Mac the built-in speakers belong to; it
+    /// defaults to a laptop so a caller that does not know draws the same
+    /// glyph the app always has, and the device list passes the real one.
     static func symbol(
-        forTransport transport: UInt32, dataSource: UInt32? = nil, name: String? = nil
+        forTransport transport: UInt32, dataSource: UInt32? = nil, name: String? = nil,
+        host: HostMac = .laptop
     ) -> String {
-        // The device's own name first, because it is the only thing that tells
-        // AirPods Pro from AirPods Max: both arrive over Bluetooth, both publish
-        // no data source, and CoreAudio has no notion of a product family. The
-        // system's own output menu draws the same distinction, and these are the
-        // symbols Apple ships for it — not lookalikes.
-        //
-        // Matching on a product name is a heuristic, and it is used only to pick
-        // a *better* glyph: anything unrecognised falls through to the transport
-        // below and is merely generic, never wrong. Product names are the same
-        // in every language, which is what makes this survive a localised Mac.
-        if let name = name?.lowercased() {
-            if name.contains("airpods max") { return "airpods.max" }
-            if name.contains("airpods pro") { return "airpods.pro" }
-            if name.contains("airpods") { return "airpods" }
-            if name.contains("beats") || name.contains("powerbeats") { return "beats.headphones" }
-            if name.contains("homepod") { return "homepod" }
-            if name.contains("apple tv") { return "appletv" }
-            if name.contains("studio display") || name.contains("pro display") { return "display" }
-            // Wired Apple headphones, and the generic word every third-party
-            // headset puts in its name.
-            if name.contains("earpods") || name.contains("headphone")
-                || name.contains("headset") || name.contains("earbud") {
-                return "headphones"
-            }
-        }
-        switch dataSource {
-        case DataSource.headphones: return "headphones"
-        case DataSource.internalSpeaker: return "laptopcomputer"
-        case DataSource.externalSpeaker: return "hifispeaker"
-        default: break
-        }
-        switch transport {
-        case kAudioDeviceTransportTypeBuiltIn: return "laptopcomputer"
-        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "headphones"
-        case kAudioDeviceTransportTypeAirPlay: return "airplayaudio"
-        case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort: return "tv"
-        // Neutral on purpose. USB is a wire, not a kind of thing: USB-C EarPods
-        // and a pair of studio monitors arrive identically, publish no data
-        // source, and nothing else in CoreAudio distinguishes them. This used
-        // to draw a floor-standing speaker, which is confidently wrong for the
-        // commonest case of the two. A generic output glyph is merely vague.
-        case kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeFireWire: return "speaker.wave.2"
-        case kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeAggregate: return "waveform"
-        default: return "speaker.wave.2"
-        }
+        OutputGlyph.resolve(
+            OutputGlyph.candidates(transport: transport, dataSource: dataSource, name: name, host: host)
+        )
     }
 
     /// The glyph for the device the sound goes to now, or `fallback` when the
     /// list does not hold it (nothing read yet, no default, a device that has
     /// just gone). The one place that turns "which device is current" into a
     /// symbol, so the lock card's foot rail and the island's Output button name
-    /// the same device the same way; each passes the fallback that suits it —
-    /// the card's AirPlay glyph, the island's plain speaker.
+    /// the same device the same way; the fallback is a parameter only so tests can
+    /// tell it from a device glyph:
+    /// the lock card and the island's Output button both pass
+    /// `outputFallbackSymbol`, so the two never disagree about an unknown route.
     static func symbol(outputs: [Output], current: AudioDeviceID?, fallback: String) -> String {
         guard let current, let device = outputs.first(where: { $0.id == current }) else { return fallback }
         return device.symbol
     }
 
-    /// What the island's Output button draws before it knows where the sound
-    /// goes: a speaker says "output" without naming a device it has not seen.
+    /// What the island's Output button and the lock card's foot rail draw
+    /// before they know where the sound goes: a speaker says "output" without
+    /// naming a device it has not seen. The card used to fall back to the
+    /// AirPlay glyph, which claimed a wireless route nobody had picked.
     static let outputFallbackSymbol = "speaker.wave.2"
 
     // MARK: - Output latency
@@ -389,6 +360,27 @@ final class AudioWatch: ObservableObject {
     /// Runs the device-list re-read once a burst of notifications has settled.
     private let debounce: (@escaping @Sendable () -> Void) -> Void
 
+    /// One reading, as `start()` takes it away from the main thread.
+    typealias Reading = (outputs: [AudioOutputs.Output], current: AudioDeviceID?, volume: Float?)
+    /// Where `start()` takes its first reading: given the read and what to
+    /// do with the answer on the main actor, it runs the one somewhere and
+    /// hands the other back. Nil reads on the caller's turn (the lock card's
+    /// watch: its first frame draws from that reading).
+    typealias ReadAway = (_ read: @escaping () -> Reading, _ deliver: @escaping @MainActor @Sendable (Reading) -> Void) -> Void
+    private let readAway: ReadAway?
+    /// Which `start()` a reading taken away belongs to: one that lands after
+    /// a stop, or after a stop and a fresh start, is dropped.
+    private var startGeneration = 0
+
+    /// Whether this watch reads and listens to the level and the mute at all.
+    /// The lock card's does (its bar); the player's does not (2026-10-25): it
+    /// has had no volume control since 2026-10-16, yet its watch kept a volume
+    /// and mute listener on the main queue that read some fourteen properties
+    /// per event and republished `volume`, and the player, observing the whole
+    /// watch, redrew on every press of a held volume key. Its Output button
+    /// needs the route — the outputs and the current device — and nothing else.
+    let followsLevel: Bool
+
     /// The device the volume listener is attached to. The listener must follow
     /// the default, and this is what tells the watch when it has to move.
     private var listeningTo: AudioDeviceID?
@@ -407,9 +399,15 @@ final class AudioWatch: ObservableObject {
         readMuted: (() -> Bool)? = nil,
         installListeners: (() -> Void)? = nil,
         removeListeners: (() -> Void)? = nil,
-        debounce: ((@escaping @Sendable () -> Void) -> Void)? = nil
+        debounce: ((@escaping @Sendable () -> Void) -> Void)? = nil,
+        followsLevel: Bool = true,
+        readAway: ReadAway? = nil
     ) {
-        self.read = read ?? { (AudioOutputs.available(), AudioOutputs.current(), SystemVolume.current()) }
+        self.followsLevel = followsLevel
+        self.readAway = readAway
+        self.read = read ?? {
+            (AudioOutputs.available(), AudioOutputs.current(), followsLevel ? SystemVolume.current() : nil)
+        }
         // An injected `read` answers for the volume too, unless the test says
         // otherwise: the card's render tests inject only `read`, and must
         // never reach the machine's own level through the default here.
@@ -443,18 +441,57 @@ final class AudioWatch: ObservableObject {
             self.installListeners = { [weak self] in
                 guard let self else { return }
                 self.installCoreAudioListeners(
-                    attachingVolumeTo: self.current,
-                    removingVolumeFrom: self.listeningTo
+                    attachingVolumeTo: self.volumeListenerDevice,
+                    removingVolumeFrom: self.followsLevel ? self.listeningTo : nil
                 )
             }
         }
         if removeListeners == nil {
             self.removeListeners = { [weak self] in
                 guard let self else { return }
-                self.removeCoreAudioListeners(removingVolumeFrom: self.listeningTo)
+                self.removeCoreAudioListeners(removingVolumeFrom: self.followsLevel ? self.listeningTo : nil)
             }
         }
     }
+
+    /// The player's watch: the route only (see `followsLevel`), its first
+    /// reading taken off the main thread (`offMain`). Quiet — it reads an
+    /// empty machine and installs nothing — under test.
+    static func player(quiet: Bool = PlayerBridge.isRunningTests) -> AudioWatch {
+        quiet
+            ? AudioWatch(
+                read: { ([], nil, nil) }, readMuted: { false }, installListeners: {}, removeListeners: {},
+                followsLevel: false
+            )
+            : AudioWatch(followsLevel: false, readAway: offMain)
+    }
+
+    /// The player's first reading, on a queue of its own (MR-H18, 2026-10-26).
+    ///
+    /// The player started its watch as it appeared — inside the panel's open
+    /// — and `start()` enumerated every device (streams, name, transport,
+    /// data source: six CoreAudio round trips each) on the main thread before
+    /// the open's frame could commit. Measured on a MacBook Pro with two
+    /// outputs: 0.6 to 1.1 ms a read once CoreAudio is up, and 82 ms for the
+    /// first read in a process, which connects to the audio server — the
+    /// first open after launch paid that in its first frame. Property reads
+    /// are safe from any thread; only the publishing and the listener
+    /// registrations stay on the main actor, where the answer is handed back.
+    /// Until it lands the Output button shows the route it last read.
+    nonisolated static let offMain: ReadAway = { read, deliver in
+        let box = UncheckedBox((read, deliver))
+        readQueue.async {
+            let reading = box.value.0()
+            let result = UncheckedBox(reading)
+            DispatchQueue.main.async { MainActor.assumeIsolated { box.value.1(result.value) } }
+        }
+    }
+
+    private nonisolated static let readQueue = DispatchQueue(label: "com.ctimothe.isla.audio-watch", qos: .userInitiated)
+
+    /// The device the glue attaches the volume and mute listener to: the
+    /// current one, or none for a watch that does not follow the level.
+    var volumeListenerDevice: AudioDeviceID? { followsLevel ? current : nil }
 
     /// The full re-read: the entry the default-output listener calls, the
     /// tests drive in its place, and the card calls on a pane change. Every
@@ -477,12 +514,14 @@ final class AudioWatch: ObservableObject {
     /// as well), so the mute is read here too: one more property, not a
     /// device enumeration.
     func volumeChanged() {
+        guard followsLevel else { return }
         let fresh = readVolume()
         if volume != fresh { volume = fresh }
         readMute()
     }
 
     private func readMute() {
+        guard followsLevel else { return }
         let fresh = readMuted()
         if muted != fresh { muted = fresh }
     }
@@ -548,16 +587,40 @@ final class AudioWatch: ObservableObject {
     private func apply(_ fresh: (outputs: [AudioOutputs.Output], current: AudioDeviceID?, volume: Float?)) {
         if outputs != fresh.outputs { outputs = fresh.outputs }
         if current != fresh.current { current = fresh.current }
-        if volume != fresh.volume { volume = fresh.volume }
+        let level = followsLevel ? fresh.volume : nil
+        if volume != level { volume = level }
     }
 
     func start() {
         guard !running else { return }
         running = true
-        // Read before installing: the glue attaches the volume listener to
-        // whatever `current` reads as, so the first frame draws from a
-        // synchronously taken reading and the attachment matches it.
-        apply(read())
+        startGeneration &+= 1
+        guard let readAway else {
+            // Read before installing: the glue attaches the volume listener to
+            // whatever `current` reads as, so the first frame draws from a
+            // synchronously taken reading and the attachment matches it.
+            began(with: read())
+            return
+        }
+        // Away from the caller's turn (`offMain`); the listeners go on with
+        // the answer, so the attachment still matches what was read.
+        let generation = startGeneration
+        readAway(read) { [weak self] reading in
+            guard let self, Self.deliveryCounts(running: self.running, generation: generation, current: self.startGeneration)
+            else { return }
+            self.began(with: reading)
+        }
+    }
+
+    /// Whether a reading taken away for one `start()` may be published: only
+    /// while that start still stands — not after a stop, nor after a stop and
+    /// a fresh start, whose own reading is on its way. Pure, for the tests.
+    nonisolated static func deliveryCounts(running: Bool, generation: Int, current: Int) -> Bool {
+        running && generation == current
+    }
+
+    private func began(with reading: Reading) {
+        apply(reading)
         readMute()
         installListeners()
         listeningTo = current
@@ -575,7 +638,7 @@ final class AudioWatch: ObservableObject {
         // at dismiss, and this only catches a watch torn down without its
         // stop. Without it, the listeners would outlive the object owning
         // them, firing into a block that holds nothing.
-        if running { removeCoreAudioListeners(removingVolumeFrom: listeningTo) }
+        if running { removeCoreAudioListeners(removingVolumeFrom: followsLevel ? listeningTo : nil) }
     }
 
     // MARK: - CoreAudio glue (deliberately untested)
@@ -840,4 +903,12 @@ final class OutputLatencyMonitor {
             AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block
         )
     }
+}
+
+/// Carries a value the compiler cannot prove sendable across one hop and back
+/// (`AudioWatch.offMain`): the read is called on the queue and nowhere else,
+/// the delivery on the main actor and nowhere else.
+private struct UncheckedBox<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }

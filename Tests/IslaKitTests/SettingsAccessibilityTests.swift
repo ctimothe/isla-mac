@@ -123,6 +123,27 @@ final class SettingsAccessibilityTests: XCTestCase {
         XCTAssertEqual(slider.map(Self.spoken), "0.25 seconds", root.dump)
     }
 
+    /// Russian VoiceOver hears Panel Width in points, never "пт" (run sheet
+    /// 1269, held here since Batch 5, 2026-10-29). The spoken value was the
+    /// drawn abbreviation, "560 пт", and «Пт» is how Russian writes Friday:
+    /// the owner was to listen for whether VoiceOver said a weekday. English
+    /// spells "points" in full for the same reason. The slider runs through
+    /// every whole number from 480 to 620, so the Russian is the table's
+    /// "label: N" form, which needs no plural ending: "пунктов: 560".
+    func testRussianVoiceOverHearsPointsNotAWeekday() async {
+        defer { LabLocalization.use("en") }
+        LabLocalization.use("ru")
+        let (root, isolated) = await probePane(.general)
+        defer { isolated.release() }
+        let width = root.all(role: "AXSlider").first { $0.label == localized("Panel Width") }
+        let spoken = width.map(Self.spoken) ?? ""
+        let points = Int(NotchViewModel.bodyWidth)
+        XCTAssertEqual(spoken, "пунктов: \(points)", root.dump)
+        for value in [480, 481, 482, 485, 511, 620] {
+            XCTAssertFalse(localized("%d points", value).contains("пт"), "\(value) is read as an abbreviation")
+        }
+    }
+
     /// **The real pane's rows, not a copy of them** (review 2026-10-15): Card Style
     /// and Card Size are radio groups named by their rows, Card Style with the four
     /// styles of spec §7.2 in order.

@@ -15,12 +15,107 @@ final class MediaController: ObservableObject {
         var key: String
     }
 
-    @Published private(set) var track: Track?
-    @Published private(set) var artwork: NSImage?
-    @Published private(set) var isPlaying = false
-    @Published private(set) var duration: TimeInterval = 0
-    @Published private(set) var position: TimeInterval = 0 {
-        didSet { holdLabelSecond() }
+    @Published private(set) var track: Track? {
+        didSet {
+            publishReadingUnlessBatched()
+            publishClockReadings()
+        }
+    }
+    @Published private(set) var artwork: NSImage? {
+        didSet {
+            // A picture taken away belongs to nobody; one put up is owned by
+            // whoever put it up (`coverKey`), which every writer sets first.
+            if artwork == nil { coverKey = nil }
+            publishReadingUnlessBatched()
+        }
+    }
+    @Published private(set) var isPlaying = false {
+        didSet { publishClockReadings() }
+    }
+    @Published private(set) var duration: TimeInterval = 0 {
+        didSet {
+            publishReadingUnlessBatched()
+            publishClockReadings()
+        }
+    }
+
+    /// What one report says about the song, published once per report rather
+    /// than field by field.
+    ///
+    /// `track`, `duration` and `artwork` are each `@Published`, and a skip used
+    /// to reach subscribers as three separate events: the new title paired
+    /// with the old song's length, then the length, then — up to 180 ms later —
+    /// the cover (owner, 2026-10-25: "the contents are loading and they are
+    /// not even consistent"). The lyrics coordinator rebuilt its identity on
+    /// the first event and again on the second, so every skip asked for the
+    /// new song's words twice, once with the wrong length. This is the same
+    /// facts, assigned at the end of `apply` and `clear` with everything in
+    /// place, so a subscriber sees one consistent reading per report. The
+    /// coordinator and `NowPlayingPresenter` read it; the fields stay for
+    /// everything that only needs one of them.
+    struct Reading: Equatable {
+        var track: Track?
+        var duration: TimeInterval = 0
+        var artwork: NSImage?
+        /// The track `artwork` was decoded, fetched or carried for. On a skip
+        /// the previous cover can still be up while the new one decodes, and
+        /// only this says whether the picture is the new song's yet.
+        var coverKey: String?
+        var sourceIcon: NSImage?
+
+        /// Whether the song's own cover is in: a picture, put up for it.
+        var hasCover: Bool { artwork != nil && coverKey != nil && coverKey == track?.key }
+
+        static func == (lhs: Reading, rhs: Reading) -> Bool {
+            lhs.track == rhs.track && lhs.duration == rhs.duration && lhs.artwork === rhs.artwork
+                && lhs.coverKey == rhs.coverKey && lhs.sourceIcon === rhs.sourceIcon
+        }
+    }
+    @Published private(set) var reading = Reading()
+    /// The track the cover on show belongs to. See `Reading.coverKey`.
+    private var coverKey: String? {
+        didSet { publishReadingUnlessBatched() }
+    }
+    /// Above zero while `apply` or `clear` is mid-way: their writes land as one
+    /// reading when the outermost one finishes.
+    private var readingBatchDepth = 0
+
+    private func publishReadingUnlessBatched() {
+        guard readingBatchDepth == 0 else { return }
+        let fresh = Reading(
+            track: track, duration: duration, artwork: artwork, coverKey: coverKey, sourceIcon: sourceIcon
+        )
+        // `@Published` never compares; an identical reading every two-second
+        // poll would wake every subscriber for nothing.
+        if fresh != reading { reading = fresh }
+    }
+
+    private func batchingReading<T>(_ body: () -> T) -> T {
+        readingBatchDepth += 1
+        defer {
+            readingBatchDepth -= 1
+            publishReadingUnlessBatched()
+        }
+        return body()
+    }
+
+    /// Isla is about to see another song: its own Next or Previous (not a
+    /// restart), or Spotify announcing a different song before any report
+    /// names it. `NowPlayingPresenter` starts its hold on this, so the song on
+    /// screen stays drawn, still, rather than wearing the next one's 0:00.
+    let trackChangeExpected = PassthroughSubject<Void, Never>()
+    /// Where the position lives: on `clock`, which only the views that read
+    /// it observe, so a tick does not announce a change of the whole
+    /// controller (`PlaybackClock`). An unchanged value is not set again, so a
+    /// frozen anchor redraws nothing.
+    let clock = PlaybackClock()
+    private(set) var position: TimeInterval {
+        get { clock.position }
+        set {
+            if clock.position != newValue { clock.position = newValue }
+            holdLabelSecond()
+            publishClockReadings()
+        }
     }
 
     /// The whole second the elapsed label last showed, and for which song.
@@ -39,6 +134,70 @@ final class MediaController: ObservableObject {
               Double(shown.second) > position.rounded(),
               Double(shown.second) - position < 1.5 else { return position }
         return Double(shown.second)
+    }
+
+    /// The clock's coarse readings (`PlaybackClock.seconds`, `.motion`), set
+    /// only when they change: what the labels show and how the bar moves are
+    /// worked out on every tick, and published on the few that change them.
+    /// Called wherever an input to either changes — the position, the anchor,
+    /// the rate, playing, the length and the song — so none can be missed.
+    ///
+    /// `linesChanged` is `setLyricBoundaries`', whose new lines turn on
+    /// boundaries the reading was not kept against.
+    private func publishClockReadings(linesChanged: Bool = false) {
+        let seconds = PlaybackClock.Seconds(shown: min(labelPosition, duration), duration: duration)
+        if clock.seconds != seconds { clock.seconds = seconds }
+        let motion: PlaybackClock.Motion = songClock.map { .moving($0) } ?? .still(position)
+        // A stop, or a seek while stopped, re-stamps the line's reading: a
+        // paused word sweep is drawn at it. A correction while playing need
+        // not, since the boundary check below already keeps the reading on
+        // the line the clock is on, and the moving sweep's edge reads
+        // `motion` itself; re-stamping on every re-anchor would re-run the
+        // line at the player's report rate.
+        var stopped = false
+        if clock.motion != motion {
+            clock.motion = motion
+            if case .still = motion { stopped = true }
+        }
+        let lead = lyricLead()
+        let line = Self.linePosition(
+            position: position, published: clock.linePosition, boundaries: lyricBoundaries,
+            lead: lead, turned: stopped || linesChanged
+        )
+        if clock.linePosition != line { clock.linePosition = line }
+        if clock.lineLead != lead { clock.lineLead = lead }
+    }
+
+    /// The sung line's reading of the clock (`PlaybackClock.linePosition`):
+    /// the one already `published` while `position` is on the same side of
+    /// every boundary, the position itself once it crosses one, once `turned`
+    /// (the clock stopped, or new boundaries came), or when there are no
+    /// boundaries to keep it against.
+    ///
+    /// The lead is the one asked now, for both readings, so a reading kept
+    /// under the last lead is kept only if it still names the line the
+    /// position does under this one.
+    nonisolated static func linePosition(
+        position: TimeInterval, published: TimeInterval, boundaries: [TimeInterval],
+        lead: TimeInterval, turned: Bool
+    ) -> TimeInterval {
+        guard !turned, !boundaries.isEmpty else { return position }
+        let same = boundariesReached(boundaries, at: position + lead)
+            == boundariesReached(boundaries, at: published + lead)
+        return same ? published : position
+    }
+
+    /// How many of the sorted `boundaries` the lyric moment `at` has reached.
+    /// Reached means `boundary <= at`, the comparison every lyric rule makes
+    /// (`LyricSweep.index`, `moment`'s honoured end, `readingMoment`), so two
+    /// moments with one count draw one caption.
+    nonisolated static func boundariesReached(_ boundaries: [TimeInterval], at: TimeInterval) -> Int {
+        var low = 0, high = boundaries.count
+        while low < high {
+            let mid = (low + high) / 2
+            if boundaries[mid] <= at { low = mid + 1 } else { high = mid }
+        }
+        return low
     }
 
     private func holdLabelSecond() {
@@ -60,7 +219,9 @@ final class MediaController: ObservableObject {
     /// bundle identifiers we happen to know, so a browser tab, a podcast app or
     /// something nobody here has heard of all get their own icon for free — and
     /// none of them needs this app updated to be recognised.
-    @Published private(set) var sourceIcon: NSImage?
+    @Published private(set) var sourceIcon: NSImage? {
+        didSet { publishReadingUnlessBatched() }
+    }
     /// Whether the player accepts skipping at all. A browser tab playing one
     /// video registers no handler for it — the command leaves and nothing
     /// happens — so the buttons go dim rather than dead, the way the system's
@@ -113,8 +274,12 @@ final class MediaController: ObservableObject {
     /// twice a second, forever.
     private var artworkRequestedFor: Set<String> = []
     private var anchor: (position: TimeInterval, atMono: TimeInterval)? {
-        // A new anchor moves every boundary's wall time with it.
-        didSet { armBoundaryTimer() }
+        // A new anchor moves every boundary's wall time with it, and the bar's
+        // motion.
+        didSet {
+            armBoundaryTimer()
+            publishClockReadings()
+        }
     }
     /// The clock the anchor extrapolates on. Wall time jumps on NTP steps and
     /// across sleep, and the anchor used to ride it — a +5s step teleported the
@@ -122,7 +287,7 @@ final class MediaController: ObservableObject {
     /// survives both. A seam, like `foreignHoldWindow`: tests freeze it while
     /// the wall runs on. `Date` stays only inside the 1.5s seek-verdict window,
     /// where what matters is ordering recent events, not measuring durations.
-    var monotonicNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    var monotonicNow: () -> TimeInterval = SongClock.hostNow
     /// How fast the player says the track is moving. Podcast and video apps
     /// routinely play at 1.5× or 2×, and the ticker extrapolating at 1×
     /// regardless meant the bar fell behind between polls and lurched forward
@@ -145,7 +310,10 @@ final class MediaController: ObservableObject {
                 anchor = (extrapolatedPosition(at: nowMono), nowMono)
             }
         }
-        didSet { if playbackRate != oldValue { armBoundaryTimer() } }
+        didSet {
+            if playbackRate != oldValue { armBoundaryTimer() }
+            publishClockReadings()
+        }
     }
 
     /// Where the clock stands at `nowMono` (now, by default): the anchor run
@@ -157,9 +325,18 @@ final class MediaController: ObservableObject {
     /// the lyric surfaces once came to disagree (see `LyricSweep`). Only the
     /// lyric wake runs its own, uncapped, and says why.
     func extrapolatedPosition(at nowMono: TimeInterval? = nil) -> TimeInterval {
-        guard isPlaying, let anchor else { return position }
-        let value = anchor.position + ((nowMono ?? monotonicNow()) - anchor.atMono) * playbackRate
-        return duration > 0 ? min(value, duration) : value
+        guard let songClock else { return position }
+        return songClock.position(at: nowMono ?? monotonicNow())
+    }
+
+    /// The clock `extrapolatedPosition` reads, as a value: the anchor and the
+    /// rate it runs at, capped at the track's end. Nil while the song is not
+    /// moving. The word sweep hands it to Core Animation (`KaraokeTrack`).
+    var songClock: SongClock? {
+        guard isPlaying, let anchor else { return nil }
+        return SongClock(
+            position: anchor.position, atMono: anchor.atMono, rate: playbackRate, cap: duration > 0 ? duration : nil
+        )
     }
     /// Where we asked the player to jump, when — and from where, because the
     /// pre-seek trajectory is the only thing that can unmask a reading taken
@@ -280,6 +457,7 @@ final class MediaController: ObservableObject {
     func setLyricBoundaries(_ boundaries: [TimeInterval], lead: @escaping @MainActor () -> TimeInterval) {
         lyricBoundaries = boundaries.sorted()
         lyricLead = lead
+        publishClockReadings(linesChanged: true)
         armBoundaryTimer()
     }
 
@@ -453,8 +631,6 @@ final class MediaController: ObservableObject {
     private var musicStateObserver: (any NSObjectProtocol)?
 
     private var ticker: Timer?
-    /// Deferred blanking of a cover whose replacement is still in flight.
-    private var blankArtwork: Task<Void, Never>?
     private var observers: [Any] = []
     /// Whether the panel is open — the ticker below runs only then.
     private var isActive = false
@@ -635,6 +811,7 @@ final class MediaController: ObservableObject {
         guard pendingSeek == nil else { return }
         if broadcastNamesAnotherSong(info) {
             beginAwaitingTrackChange("Spotify announced another song")
+            trackChangeExpected.send()
             return
         }
         if isAwaitingTrackChange() { return }
@@ -771,6 +948,31 @@ final class MediaController: ObservableObject {
     /// when the Spotify account can save the song instead.
     @Published private(set) var musicFavorite: Bool?
 
+    /// The star's last tap, held until Music says the same: a catalogue
+    /// song's favourite reads back false for seconds after it was set.
+    private(set) var favoriteHold = MusicFavoriteHold()
+
+    /// The player's shuffle, repeat and favourite, read over AppleScript.
+    /// Injectable, like `heldPlayerState`, so a test can answer stale, late
+    /// or not at all without Music.
+    var playbackModesReader: (PlayerApp, @escaping @MainActor (PlayerBridge.PlaybackModes?) -> Void) -> Void = {
+        app, reply in PlayerBridge.playbackModes(of: app, completion: reply)
+    }
+
+    /// Music's favourite, written over AppleScript; the reply says whether
+    /// Music took the command. Injectable for the same reason.
+    var favoriteWriter: (PlayerApp, Bool, @escaping @MainActor (Bool) -> Void) -> Void = {
+        app, isFavorite, reply in PlayerBridge.setFavorite(app, isFavorite, completion: reply)
+    }
+
+    /// Runs the star's read-backs and the end of its hold, `delay` seconds on.
+    /// Injectable so a test can step through fifteen seconds without waiting.
+    var favoriteTimer: (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            MainActor.assumeIsolated { work() }
+        }
+    }
+
     /// Asks the displayed player where its switches stand. Cheap enough to
     /// call on pane appearance and after every toggle; a no-op for sessions
     /// that cannot answer.
@@ -782,15 +984,24 @@ final class MediaController: ObservableObject {
             shuffleEnabled = nil
             repeatMode = nil
             musicFavorite = nil
+            favoriteHold.forget()
             return
         }
         supportsRepeatOne = app == .music
         guard mayScript(app) else { return }
-        PlayerBridge.playbackModes(of: app) { [weak self] modes in
+        let askedAbout = track?.key
+        playbackModesReader(app) { [weak self] modes in
             guard let self, self.displayedPlayerApp == app else { return }
             self.shuffleEnabled = modes?.shuffle
             self.repeatMode = modes?.repeatMode
-            self.musicFavorite = app == .music ? modes?.favorite : nil
+            // Asked about the song before this one: its favourite is that
+            // song's, and the new song's own question is already queued
+            // behind it. Taken as this one's, the star wore the last song's
+            // answer until the next read.
+            guard self.track?.key == askedAbout else { return }
+            self.musicFavorite = app == .music
+                ? self.favoriteHold.shown(answer: modes?.favorite, trackKey: askedAbout, at: self.monotonicNow())
+                : nil
         }
     }
 
@@ -804,14 +1015,37 @@ final class MediaController: ObservableObject {
     }
 
     /// Music's star, optimistic like shuffle: the star answers the click now
-    /// and the read-back corrects it if Music refused.
+    /// and stays there until Music agrees (`MusicFavoriteHold`). Music refusing
+    /// the command puts it back at once; Music never catching up puts it back
+    /// when the hold's window runs out.
     func toggleMusicFavorite() {
         guard let current = musicFavorite else { return }
-        musicFavorite = !current
-        if musicFavoriteForTests != nil { return }
-        guard let app = displayedPlayerApp, app == .music else { return }
-        PlayerBridge.setFavorite(app, !current)
-        readBackModes()
+        if musicFavoriteForTests != nil {
+            musicFavorite = !current
+            return
+        }
+        guard let app = displayedPlayerApp, app == .music, let key = track?.key else { return }
+        let tap = favoriteHold.tapped(trackKey: key, wants: !current, at: monotonicNow())
+        musicFavorite = tap.wants
+        favoriteWriter(app, tap.wants) { [weak self] accepted in
+            guard let self, !accepted, self.favoriteHold.refused(tap) else { return }
+            // Back where it was before the tap, then asked: a refresh that may
+            // not ask (no consent) would otherwise leave the tap's star up.
+            self.musicFavorite = current
+            self.refreshPlaybackModes()
+        }
+        for delay in MusicFavoriteHold.readBacks {
+            favoriteTimer(delay) { [weak self] in
+                // Music agreed, a later tap replaced this one, or the song
+                // moved on: nothing left to ask about.
+                guard let self, self.favoriteHold.tap == tap else { return }
+                self.refreshPlaybackModes()
+            }
+        }
+        favoriteTimer(MusicFavoriteHold.window) { [weak self] in
+            guard let self, self.favoriteHold.expired(tap) else { return }
+            self.refreshPlaybackModes()
+        }
     }
 
     func toggleShuffle() {
@@ -873,6 +1107,14 @@ final class MediaController: ObservableObject {
     private var displayedPlayerApp: PlayerApp? {
         guard let pid = displayedPlayerPID, let bundle = bundleIdentifierForPID(pid) else { return nil }
         return PlayerApp.allCases.first { $0.bundleID == bundle }
+    }
+
+    /// The bundle id behind the displayed session, nil when there is none or
+    /// it cannot be named. The lyric stage's volume control reads it when it
+    /// opens and when the song's source changes, to pick whose volume it moves
+    /// (`PlayerVolumeTarget.forSource`, owner 2026-10-26).
+    var displayedSourceBundleID: String? {
+        displayedPlayerPID.flatMap(bundleIdentifierForPID)
     }
 
     /// A coarse player class for lyric matching. It is metadata, never an
@@ -1266,6 +1508,7 @@ final class MediaController: ObservableObject {
         guard transportReachesShownPlayer else { return false }
         trace("cmd next")
         beginAwaitingTrackChange("cmd next")
+        trackChangeExpected.send()
         dispatch(feed: .next, transport: .next)
         return true
     }
@@ -1282,6 +1525,9 @@ final class MediaController: ObservableObject {
             restartExpectedUntil = Date().addingTimeInterval(1.5)
         } else {
             beginAwaitingTrackChange("cmd previous")
+            // Only here: a restart keeps the song, and holding the picture of
+            // a song that is not leaving would only freeze its clock.
+            trackChangeExpected.send()
         }
         dispatch(feed: .previous, transport: .previous)
         return true
@@ -1733,10 +1979,11 @@ final class MediaController: ObservableObject {
         guard let key = track?.key, state.app != .music || mayScript(.music) else { return }
         heldArtwork(state) { [weak self] image in
             guard let self, self.track?.key == key, let image else { return }
-            self.blankArtwork?.cancel()
-            self.blankArtwork = nil
-            self.artworkKey = key
-            self.artwork = image
+            self.batchingReading {
+                self.artworkKey = key
+                self.artwork = image
+                self.coverKey = key
+            }
         }
     }
 
@@ -1802,6 +2049,11 @@ final class MediaController: ObservableObject {
     }
 
     func apply(_ snapshot: NowPlayingFeed.Snapshot) {
+        // Every field below lands as one `reading` when this returns.
+        batchingReading { applyReport(snapshot) }
+    }
+
+    private func applyReport(_ snapshot: NowPlayingFeed.Snapshot) {
         guard !snapshot.isEmpty else { return clear() }
         let positionBefore = position
         let previousTrack = track
@@ -1880,6 +2132,7 @@ final class MediaController: ObservableObject {
             // Music is asked again rather than wearing the last one's answer.
             if musicFavoriteForTests == nil {
                 musicFavorite = nil
+                favoriteHold.forget()
                 if trackChanged, !playerChanged, isActive { refreshPlaybackModes() }
             }
         }
@@ -2039,8 +2292,6 @@ final class MediaController: ObservableObject {
         if let queuedTarget { dispatchPlayback(queuedTarget) }
 
         if let data = snapshot.artwork {
-            blankArtwork?.cancel()
-            blankArtwork = nil
             artworkKey = key
             artworkRequestedFor.insert(key)
             decodeArtwork(data, for: key)
@@ -2059,10 +2310,10 @@ final class MediaController: ObservableObject {
             // Blanking it while the report caught up dropped the picture to the
             // placeholder and brought the same one back half a second later
             // (filmed 2026-09-21). Kept, and replaced if the song's own
-            // cover arrives different.
-            blankArtwork?.cancel()
-            blankArtwork = nil
+            // cover arrives different. It is this song's cover now, so the
+            // presenter may swap on it at once (`Reading.hasCover`).
             artworkKey = key
+            coverKey = key
             artworkRequestedFor = []
         } else if artworkKey != key {
             artworkKey = key
@@ -2070,20 +2321,16 @@ final class MediaController: ObservableObject {
             // reset rather than added to, so it holds one key rather than every
             // song of the session.
             artworkRequestedFor = []
-            // Measured: on a skip the new title arrives at +51ms and its
-            // artwork at +68ms, in the very next line. Blanking the moment the
-            // title changes therefore buys nothing and costs two crossfades —
-            // old cover to skeleton, skeleton to new cover — where one would
-            // do, which is most of what makes a skip feel slow. Waiting out
-            // that gap first collapses it to a single swap; a track that
-            // genuinely has no cover still falls back to the skeleton, just
-            // late enough that nobody sees a flash.
-            blankArtwork?.cancel()
-            blankArtwork = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(180))
-                guard !Task.isCancelled else { return }
-                self?.artwork = nil
-            }
+            // A different song's cover is not this one's, so it comes down at
+            // once. It used to wait 180 ms first, on the measurement that the
+            // new cover usually lands within 68 ms and one crossfade beats two;
+            // but the title had already changed, so the new title sat over the
+            // old cover for those 180 ms, then over the placeholder, then the
+            // new cover (owner, 2026-10-25). Hiding that gap is now
+            // `NowPlayingPresenter`'s job, which keeps the whole old song drawn
+            // until the new one's title and cover can be swapped in together;
+            // this field only ever says what is true.
+            if artwork != nil { artwork = nil }
         }
     }
 
@@ -2136,9 +2383,8 @@ final class MediaController: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let image = Self.artworkImage(data) else {
                 // An undecodable payload must not leave the previous track's
-                // cover standing: the deferred blank was already cancelled on
-                // the strength of this data existing, and no later snapshot
-                // for this track will schedule another one.
+                // cover standing: no later snapshot for this track will take it
+                // down.
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.artworkKey == key else { return }
                     self.artwork = nil
@@ -2147,7 +2393,13 @@ final class MediaController: ObservableObject {
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.artworkKey == key else { return }
-                self.artwork = image
+                // One reading, picture and owner together: a reading with the
+                // new picture still owned by the old song would read as "not
+                // in yet" for a turn.
+                self.batchingReading {
+                    self.artwork = image
+                    self.coverKey = key
+                }
             }
         }
     }
@@ -2193,6 +2445,10 @@ final class MediaController: ObservableObject {
     }
 
     private func clear() {
+        batchingReading { clearReport() }
+    }
+
+    private func clearReport() {
         // The helper publishes an empty record every two seconds whether or not
         // anything is playing, so this runs forever on an idle Mac. `@Published`
         // does not compare before firing, so writing nil over nil still
@@ -2204,8 +2460,6 @@ final class MediaController: ObservableObject {
         }
         activeApp = nil
         track = nil
-        blankArtwork?.cancel()
-        blankArtwork = nil
         artwork = nil
         artworkKey = nil
         // The session is gone, so the next one has earned a fresh ask — this is
@@ -2234,6 +2488,7 @@ final class MediaController: ObservableObject {
         shuffleEnabled = nil
         repeatMode = nil
         if musicFavoriteForTests == nil { musicFavorite = nil }
+        favoriteHold.forget()
         // The rest of the clock's state, which used to survive the session it
         // belonged to: a leftover `pendingSeek` gated the *next* session's
         // first snapshot through the seek-settle path, and the precision loop
@@ -2525,7 +2780,7 @@ final class MediaController: ObservableObject {
     /// request cost the song its cover for as long as it played. Two tries
     /// per song now: the next refresh retries a failure, and a cover that
     /// truly does not exist is not polled. Whatever `apply` decided about the
-    /// old cover — kept for an album-mate, or blanked after its 180 ms grace —
+    /// old cover — kept for an album-mate, or taken down at once —
     /// stands until this one lands.
     private func fallbackArtwork(for state: PlayerState, key: String) {
         // Before an attempt is counted: a cover consent kept back is not a
@@ -2540,10 +2795,11 @@ final class MediaController: ObservableObject {
         fallbackArtworkAttempts[key] = attempts + 1
         heldArtwork(state) { [weak self] image in
             guard let self, self.track?.key == key, let image else { return }
-            self.blankArtwork?.cancel()
-            self.blankArtwork = nil
-            self.artworkKey = key
-            self.artwork = image
+            self.batchingReading {
+                self.artworkKey = key
+                self.artwork = image
+                self.coverKey = key
+            }
         }
     }
 

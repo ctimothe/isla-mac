@@ -104,6 +104,47 @@ final class LyricDelayCopyTests: XCTestCase {
         XCTAssertEqual(fixture.lyrics.userOffset, -0.05, accuracy: 1e-9)
     }
 
+    /// The upgrade, as the owner meets it in Settings → Music (checklist, the
+    /// sign flip): a correction an older build stored as −0.25 s now reads
+    /// "0.25 s later" in the row, the lines sit exactly where they sat — the
+    /// lead is the number it was — and moving the slider's step right moves
+    /// the lines later still.
+    func testAnUpgradedDelayReadsPlusWhereItReadMinusAndMovesNoLine() async throws {
+        let before = LyricSweep.standardLead + (-0.25)
+        let fixture = Fixture(storedBeforeTheSignFlip: -0.25)
+        defer { fixture.release() }
+
+        XCTAssertEqual(fixture.lyrics.userOffset, 0.25, accuracy: 1e-9, "negated once as the store opens")
+        XCTAssertEqual(
+            LyricSweep.lead(precisionSync: false, userOffset: fixture.lyrics.userOffset), before, accuracy: 1e-9,
+            "the lines sit exactly where they sat before the upgrade"
+        )
+        let root = await fixture.tree()
+        guard let slider = root.all(role: "AXSlider").first(where: { $0.label == localized("Lyric Delay") }) else {
+            return XCTFail("no Lyric Delay slider\n\(root.dump)")
+        }
+        XCTAssertEqual(Self.spoken(slider), localized("%.2f s later", 0.25), root.dump)
+
+        // Dragging right is later: one more step lowers the lead, so a line
+        // is lit at a larger player position.
+        guard let later = root.first(label: localized("Later")) else { return XCTFail(root.dump) }
+        XCTAssertTrue(later.press(), root.dump)
+        await AXProbe.wait(0.05)
+        XCTAssertEqual(fixture.lyrics.userOffset, 0.30, accuracy: 1e-9)
+        XCTAssertLessThan(
+            LyricSweep.lead(precisionSync: false, userOffset: fixture.lyrics.userOffset), before,
+            "a later delay shows the line later"
+        )
+
+        // And a second launch on the same defaults reads what the first
+        // wrote, not the old number negated again.
+        let again = LyricsStore(
+            offsetsDirectory: fixture.isolated.temp.appendingPathComponent("delay-offsets", isDirectory: true),
+            defaults: fixture.isolated.suite
+        )
+        XCTAssertEqual(again.userOffset, 0.30, accuracy: 1e-9)
+    }
+
     /// While a song with lyrics plays, the row shows the line the caption
     /// would draw at this moment, through the same delay — so moving the
     /// delay moves the line, which is the whole point of the preview.
@@ -171,7 +212,13 @@ final class LyricDelayCopyTests: XCTestCase {
         let lyrics: LyricsStore
         var media: MediaController { isolated.stores.media }
 
-        init() {
+        /// - Parameter storedBeforeTheSignFlip: a correction an older build left
+        ///   in defaults, written in the old sign (positive made lines earlier),
+        ///   which the store negates once as it opens.
+        init(storedBeforeTheSignFlip: Double? = nil) {
+            if let storedBeforeTheSignFlip {
+                isolated.suite.set(storedBeforeTheSignFlip, forKey: LyricsStore.offsetKey)
+            }
             lyrics = LyricsStore(
                 offsetsDirectory: isolated.temp.appendingPathComponent("delay-offsets", isDirectory: true),
                 defaults: isolated.suite

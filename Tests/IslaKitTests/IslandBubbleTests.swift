@@ -133,12 +133,12 @@ final class IslandBubbleTests: XCTestCase {
     // MARK: Content
 
     /// Centred, 5 apart: `tray.full.fill` 18 × 14, white, and the count, 13
-    /// semibold, tabular, blue. Its label is the Shelf activity's.
+    /// semibold, tabular, white (owner, 2026-10-25). Its label is the Shelf activity's.
     func testTheBubbleHoldsTheTrayAndTheCount() {
         XCTAssertEqual(IslandBubbleLayout.glyphSize, CGSize(width: 18, height: 14))
         XCTAssertEqual(IslandBubbleLayout.spacing, 5)
         XCTAssertEqual(IslandBubbleLayout.countSize, 13)
-        XCTAssertEqual(IslandBubbleLayout.countColor, Theme.SettingsTint.blue.color, "#0A84FF, the system blue")
+        XCTAssertEqual(IslandBubbleLayout.countColor, Color.white, "white, no longer the system blue")
         XCTAssertEqual(IslandBubble.label(count: 3), localized("Shelf, %d items", 3))
     }
 

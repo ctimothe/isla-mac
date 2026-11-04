@@ -38,8 +38,8 @@ final class SettingsFormTests: XCTestCase {
                 let frame = button.frame ?? .zero
                 XCTAssertEqual(frame.minX, 16, accuracy: 0.5, "row \(index) at \(width)")
                 XCTAssertEqual(frame.width, 122, accuracy: 0.5, "row \(index) at \(width)")
-                XCTAssertEqual(frame.minY, 8 + CGFloat(index) * 26, accuracy: 0.5, "row \(index) at \(width)")
-                XCTAssertEqual(frame.height, 24, accuracy: 0.5, "row \(index) at \(width)")
+                XCTAssertEqual(frame.minY, 8 + CGFloat(index) * 32, accuracy: 0.5, "row \(index) at \(width)")
+                XCTAssertEqual(frame.height, 28, accuracy: 0.5, "row \(index) at \(width)")
             }
 
             guard let launch = root.all(role: "AXCheckBox").first(where: { $0.label == localized("Launch at Login") })?.frame else {
@@ -47,9 +47,9 @@ final class SettingsFormTests: XCTestCase {
             }
             XCTAssertEqual(launch.minX, 150, accuracy: 0.5, "the form starts at body x 150 at \(width)")
             XCTAssertEqual(launch.width, formWidth, accuracy: 0.5, "the row is the form's width at \(width)")
-            XCTAssertEqual(launch.height, 28, accuracy: 0.5, "rows are 28 tall at \(width)")
+            XCTAssertEqual(launch.height, SettingsLayout.rowHeight, accuracy: 0.5, "rows are the native 38 at \(width)")
         }
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 396)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 390)
     }
 
     /// The pane starts under the header row, so the sidebar and the form begin
@@ -66,7 +66,9 @@ final class SettingsFormTests: XCTestCase {
         let first = root.all(where: { $0.label == localized("Settings sections") }).first?.all(role: "AXButton").first
         XCTAssertEqual(first?.frame?.minY ?? -1, 46 - 38, accuracy: 0.5, "sidebar")
         let launch = root.all(role: "AXCheckBox").first { $0.label == localized("Launch at Login") }
-        XCTAssertEqual((launch?.frame?.minY ?? -1), 46 - 38 + 19, accuracy: 1.5, "form's first row")
+        // Under the first group's header: 13 pt semibold and its 6 pt gap
+        // (native pass 2026-10-25; the header was 11 pt).
+        XCTAssertEqual((launch?.frame?.minY ?? -1), 46 - 38 + 22, accuracy: 1.5, "form's first row")
     }
 
     /// The section holds at both ends of the width range and in Russian: every
@@ -76,8 +78,8 @@ final class SettingsFormTests: XCTestCase {
         for language in ["en", "ru"] {
             LabLocalization.use(language)
             let pushTitles = Set(SettingsRowID.allCases.filter { $0.kind == .push }.map(\.title) + [
-                localized("Try Again"), localized("Open Automation Settings…"), localized("Connect Spotify Account…"),
-                localized("Import Account from Keychain…"), localized("Disconnect Spotify Account"), localized("Remove"),
+                localized("Try Again"), localized("Open Automation Settings…"),
+                localized("Import Account from Keychain…"), localized("Remove"),
             ])
             for width in [CGFloat(480), 620] {
                 let isolated = ProbeFixtures.isolatedStores()
@@ -110,7 +112,7 @@ final class SettingsFormTests: XCTestCase {
                     for button in controls where button.role == "AXButton" && pushTitles.contains(button.label) {
                         guard let frame = button.frame else { continue }
                         let word = (button.label as NSString).size(
-                            withAttributes: [.font: NSFont.systemFont(ofSize: Theme.TypeRole.body.size)]
+                            withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
                         ).width
                         XCTAssertGreaterThanOrEqual(
                             frame.width, word * 0.95, "\"\(button.label)\" is cut in \(section) at \(width) in \(language)"
@@ -163,6 +165,58 @@ final class SettingsFormTests: XCTestCase {
 
     // MARK: - Lock Screen: four real previews
 
+    /// The four styles stay inside the form at every width, in both languages,
+    /// whichever is chosen (Batch 10, 2026-10-29). At 480 the row was 332 pt
+    /// of options in a 310 pt form: each label is framed wider than its
+    /// preview, and the sizes left room for the previews alone, so the row
+    /// was cut 15 pt either side — Automatic's preview and, in Russian, the
+    /// «А» of «Автоматически». Drawn, not read from the accessibility tree:
+    /// the picker shows VoiceOver a radio group laid out in the form whatever
+    /// the drawn options do. The row insets 4 pt either side, so those
+    /// columns of the drawing stay empty unless an option runs into them.
+    func testTheCardStylesStayInsideTheFormAtEveryWidth() throws {
+        defer { LabLocalization.use("en") }
+        for language in ["en", "ru"] {
+            LabLocalization.use(language)
+            for body in [NotchMetrics.minimumBodyWidth, NotchMetrics.defaultBodyWidth, NotchMetrics.maximumBodyWidth] {
+                let form = SettingsLayout.formWidth(bodyWidth: body)
+                for chosen in NotchViewModel.LockCardStyle.allCases {
+                    let picker = LockStylePicker(title: "Card Style", selection: .constant(chosen), formWidth: form)
+                        .environment(\.colorScheme, .dark)
+                    let renderer = ImageRenderer(content: picker)
+                    renderer.scale = 2
+                    let image = try XCTUnwrap(renderer.cgImage, "\(language) at \(body): nothing drawn")
+                    let inset = Int(4 * renderer.scale)
+                    let painted = Self.paintedColumns(image, leading: inset, trailing: inset)
+                    XCTAssertEqual(
+                        painted, 0,
+                        "\(language) at \(body), \(chosen) chosen: an option runs into the form's edge (\(painted) columns)"
+                    )
+                }
+            }
+        }
+    }
+
+    /// How many of the image's first `leading` and last `trailing` columns
+    /// hold a pixel that is not transparent.
+    private static func paintedColumns(_ image: CGImage, leading: Int, trailing: Int) -> Int {
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return -1 }
+        let columns = Array(0..<min(leading, width)) + Array(max(0, width - trailing)..<width)
+        return columns.filter { x in
+            (0..<height).contains { y in pixels[(y * width + x) * 4 + 3] > 8 }
+        }.count
+    }
+
     /// The previews ask the card's own function for their material: what
     /// `LockCardMaterial.decision` says, for a song with a cover over the
     /// wallpaper the card assumes when it cannot measure one.
@@ -211,7 +265,7 @@ final class SettingsFormTests: XCTestCase {
         let name = { (node: AXNode) in node.title.isEmpty ? node.label : node.title }
         let radios = group.all(role: "AXRadioButton")
         XCTAssertEqual(radios.map(name), ["Automatic", "Transparent", "Tinted", "Solid"].map { localized($0) }, root.dump)
-        XCTAssertEqual(radios.filter { $0.value == "1" }.map(name), [localized("Automatic")], "Automatic until chosen\n\(root.dump)")
+        XCTAssertEqual(radios.filter { $0.value == "1" }.map(name), [localized("Transparent")], "Transparent until chosen\n\(root.dump)")
         XCTAssertNil(isolated.suite.object(forKey: NotchViewModel.lockCardStyleKey), "looking stores nothing")
 
         guard let solid = radios.first(where: { name($0) == localized("Solid") }) else { return XCTFail(root.dump) }
@@ -230,11 +284,11 @@ final class SettingsFormTests: XCTestCase {
     func testAStoredStyleIsTheOneRingedOnOpening() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        isolated.suite.set(NotchViewModel.LockCardStyle.clear.rawValue, forKey: NotchViewModel.lockCardStyleKey)
+        isolated.suite.set(NotchViewModel.LockCardStyle.automatic.rawValue, forKey: NotchViewModel.lockCardStyleKey)
         let root = await SettingsFixture.tree(isolated, section: .lockScreen)
         let on = root.all(role: "AXRadioGroup").first { $0.label == localized("Card Style") }?
             .all(role: "AXRadioButton").filter { $0.value == "1" }
-        XCTAssertEqual(on?.map { $0.title.isEmpty ? $0.label : $0.title }, [localized("Transparent")], root.dump)
+        XCTAssertEqual(on?.map { $0.title.isEmpty ? $0.label : $0.title }, [localized("Automatic")], root.dump)
     }
 
     // MARK: - The sidebar
@@ -259,13 +313,17 @@ final class SettingsFormTests: XCTestCase {
     func testALongNameIsCutToItsLabelAndHelpsWithTheWhole() async {
         LabLocalization.use("ru")
         let root = await AXProbe.tree(
-            of: SidebarHarness { _ in }.frame(width: 122, height: 260), size: CGSize(width: 122, height: 260)
+            of: SidebarHarness { _ in }.frame(width: 122, height: 340), size: CGSize(width: 122, height: 340)
         )
-        guard let privacy = root.all(role: "AXButton").first(where: { $0.label == "Конфиденциальность" }) else {
+        // The longest Russian title, whichever it is: the short ones the
+        // native pass chose (Приватность, Клавиши, Блокировка) all fit, and
+        // the rule still holds for the one that runs longest.
+        let longest = SettingsSection.allCases.map(\.title).max { $0.count < $1.count } ?? ""
+        guard let row = root.all(role: "AXButton").first(where: { $0.label == longest }) else {
             return XCTFail(root.dump)
         }
-        XCTAssertEqual(privacy.help, "Конфиденциальность")
-        XCTAssertLessThanOrEqual(privacy.frame?.maxX ?? 0, 122.5, "the row never runs under the form")
+        XCTAssertEqual(row.help, longest)
+        XCTAssertLessThanOrEqual(row.frame?.maxX ?? 0, 122.5, "the row never runs under the form")
     }
 
     // MARK: - A destructive action is a push button that asks
@@ -300,7 +358,7 @@ final class SettingsFormTests: XCTestCase {
     func testNoSectionDrawsAnArmedStateAtRest() async {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        for section in [SettingsSection.lyrics, .spotify, .screenshots, .about] {
+        for section in [SettingsSection.lyrics, .connections, .screenshots, .about] {
             let root = await SettingsFixture.tree(isolated, section: section, height: 1400)
             XCTAssertTrue(
                 root.all(role: "AXButton").filter { [localized("Delete These Files"), localized("Disconnect")].contains($0.label) }.isEmpty,

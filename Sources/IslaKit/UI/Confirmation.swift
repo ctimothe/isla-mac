@@ -67,7 +67,7 @@ struct CopyButton: View {
             Announcer.shared.announce(localized("Copied"))
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .islandFont(.caption, weight: .semibold)
+                .font(HeaderIcon.font)
                 .foregroundStyle(copied ? Theme.success : Theme.secondary)
                 .symbolSwap(value: copied, reduceMotion: reduceMotion)
                 .frame(width: side, height: side)
@@ -266,22 +266,42 @@ struct ConfirmPushButton: View {
     let title: String
     let armedTitle: String
     var disabled = false
+    /// AppKit's own bordered push button, destructive once armed — the form's
+    /// look in Settings (native pass 2026-10-25). The Shelf and Clipboard
+    /// keep the toolbar plate.
+    var native = false
     let action: () -> Void
 
     @StateObject private var arming = ConfirmationArming()
 
     var body: some View {
-        Button {
-            arming.press(armedTitle: armedTitle, action: action)
-        } label: {
-            Text(arming.armed ? armedTitle : title)
+        styled
+            .disabled(disabled)
+            .accessibilityLabel(arming.armed ? armedTitle : title)
+            .accessibilityHint(arming.armed ? "" : localized("Asks for confirmation before acting."))
+            .animation(Theme.contentAnimation, value: arming.armed)
+            .onHover { arming.hover($0) }
+            .onDisappear { arming.disarm() }
+    }
+
+    @ViewBuilder
+    private var styled: some View {
+        if native {
+            Button(role: arming.armed ? .destructive : nil) {
+                arming.press(armedTitle: armedTitle, action: action)
+            } label: {
+                Text(arming.armed ? armedTitle : title)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .lineLimit(1)
+        } else {
+            Button {
+                arming.press(armedTitle: armedTitle, action: action)
+            } label: {
+                Text(arming.armed ? armedTitle : title)
+            }
+            .buttonStyle(ToolbarPushButtonStyle(kind: arming.armed ? .danger : .normal))
         }
-        .buttonStyle(ToolbarPushButtonStyle(kind: arming.armed ? .danger : .normal))
-        .disabled(disabled)
-        .accessibilityLabel(arming.armed ? armedTitle : title)
-        .accessibilityHint(arming.armed ? "" : localized("Asks for confirmation before acting."))
-        .animation(Theme.contentAnimation, value: arming.armed)
-        .onHover { arming.hover($0) }
-        .onDisappear { arming.disarm() }
     }
 }

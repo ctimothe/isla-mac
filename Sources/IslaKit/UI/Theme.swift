@@ -151,7 +151,7 @@ enum Theme {
     /// something inside a surface.
     static let criticallyDampedSprings: [Animation] = [
         openAnimation, compactAnimation, captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph,
-        hudSpring, hudLevel,
+        hudSpring,
     ]
 
     /// The volume and brightness pop-up (redesign 2026-10-15, spec §2.4, §12)
@@ -175,32 +175,43 @@ enum Theme {
         reduceMotion ? reducedMotion : hudSpring
     }
 
-    /// The pop-up's content arriving and leaving: opacity and 0.94 of its
-    /// size about the top edge, on the transaction's curve — `hudSpring`.
+    /// The pop-up's content arriving and leaving on the shut island: opacity
+    /// alone, over a tenth of a second. The geometry is the outline's — it grows
+    /// out of the notch on `hudSpring` and clips the content as it goes — so the
+    /// content has nothing to travel. It used to start at opacity 0 and 0.94 of
+    /// its size on that same 0.3 s spring, which kept the symbol and the bar
+    /// faint for the first 100 ms of a pop-up the person had asked for with a
+    /// key press (owner, 2026-10-25: "no delaying"). Reduce Motion keeps the
+    /// 0.24 s crossfade.
     static func hudArrival(reduceMotion: Bool) -> AnyTransition {
-        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: hudArrivalScale, anchor: .top))
+        reduceMotion ? .opacity : .opacity.animation(hudContentFade)
+    }
+    /// The capsule under the open panel arriving and leaving: it has no
+    /// outline to grow out of, so its size rides `hudSpring` — 0.94 of itself
+    /// about its top edge — while its opacity is up within a tenth of a second.
+    static func hudStripArrival(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .opacity.animation(hudContentFade).combined(with: .scale(scale: hudArrivalScale, anchor: .top))
     }
     static let hudArrivalScale: CGFloat = 0.94
+    static let hudContentFadeDuration: TimeInterval = 0.1
+    static let hudContentFade = Animation.easeOut(duration: hudContentFadeDuration)
 
-    /// The level bar following each press: a critically damped spring of
-    /// 0.2 s (spec §2.4, amended 2026-10-18). Short, because a held key
-    /// presses again every few tens of milliseconds and a bar still
-    /// travelling when the next step lands would trail the keys; a spring
-    /// rather than the 0.12 s ease-out it was because a spring takes the next
-    /// step from where the bar is and at the speed it has, where each new
-    /// ease-out began from rest and the bar moved in a stutter of restarts.
-    static let hudLevel = Animation.spring(response: 0.2, dampingFraction: 1.0)
+    /// The level bar has no curve. It was a critically damped spring of 0.2 s
+    /// (spec §2.4, 2026-10-18), and a held key presses again every 30 to 35 ms,
+    /// so the bar was always one to two steps behind the number beside it and
+    /// the keys (owner, 2026-10-25: "it kind of lags … no freezing, no
+    /// delaying"). The system's own bar is at the level the instant the key is,
+    /// and a curve of any length, retargeted on every press, keeps SwiftUI
+    /// laying the bar out on every frame of the hold: measured at about a
+    /// quarter of the main thread's time in a held key (`hud-repeat`,
+    /// `Scripts/measure-hitches.sh`). The bar steps, under Reduce Motion too.
 
     /// How long the pop-up stays after the *last* press (spec §2.4: 1.5 s idle)
     /// before it folds on the outline's spring. Each press
     /// restarts it.
     static let hudLinger: TimeInterval = 1.5
-
-    /// The bar's step. Reduce Motion: it steps — a bar that glides is travel,
-    /// and the number of presses is what a person is counting.
-    static func hudLevel(reduceMotion: Bool) -> Animation? {
-        reduceMotion ? nil : hudLevel
-    }
 
     /// The body growing from 208 to 400 and back (spec §2.4, §6): spring 0.40 /
     /// 1.0. A little slower than the open's 0.34 because it moves a body that is
@@ -378,10 +389,41 @@ enum Theme {
         return high
     }
 
-    // A skip delivers its new title and cover in 68ms, so the crossfade is
-    // what the wait actually is. Short enough to read as immediate, long
-    // enough that the swap is still a fade rather than a cut.
-    static let artworkAnimation = Animation.easeOut(duration: 0.16)
+    /// The one swap of one song for the next, on every surface that draws a
+    /// song: the closed island, the open player, the lyric stage and the lock
+    /// card (`NowPlayingPresenter`, redesign spec §19.6 amendment 2026-10-25).
+    ///
+    /// Each surface used to animate whichever field it was handed, on its own
+    /// curve — the player in two transactions, the island's cover keyed on the
+    /// track and so crossfading the old picture into itself before cutting,
+    /// the lock card not at all (owner, 2026-10-25); the 0.16 s
+    /// `artworkAnimation` those used is withdrawn. One value now changes
+    /// once, and this is how it changes: the cover crossfades from 0.96 of
+    /// itself on a critically damped spring — nothing is thrown, so nothing
+    /// overshoots — and the words crossfade in the same transaction. Apple
+    /// Music's own skip is the reference: the picture settles, the type fades.
+    static let trackSwapSpring = Animation.spring(response: 0.3, dampingFraction: 1.0)
+
+    /// The swap's curve: the spring, or under Reduce Motion the plain fade
+    /// every other motion falls back to — a fade is not motion.
+    static func trackSwap(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotion : trackSwapSpring
+    }
+
+    /// Where the cover's scale starts on a swap.
+    static let trackSwapCoverScale: CGFloat = 0.96
+
+    /// The incoming cover's transition: from 0.96 and transparent, opacity only
+    /// under Reduce Motion. The outgoing one only fades, so the two are never
+    /// two sizes at once.
+    static func trackSwapCover(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .asymmetric(
+                insertion: .opacity.combined(with: .scale(scale: trackSwapCoverScale)),
+                removal: .opacity
+            )
+    }
 
     /// Motion-aware variants. Reduce Motion asks for the state change to
     /// still happen, just without the travel — so the spring becomes
@@ -612,13 +654,6 @@ enum Theme {
     static let editorFieldFill = Color.white.opacity(0.06)
     static let editorFieldEdge = Color.white.opacity(0.16)
 
-    /// The instrumental gap's three dots (spec §5.4): 7 pt, white at 0.9, 0.55
-    /// and 0.3 — a rest in the song, not a loading indicator, so they do not
-    /// move.
-    static let instrumentalDotSize: CGFloat = 7
-    static let instrumentalDotSpacing: CGFloat = 6
-    static let instrumentalDotOpacities: [Double] = [0.9, 0.55, 0.3]
-
     // MARK: - Artwork
 
     /// The two ends of the cover's travel between the pill and the open panel.
@@ -767,8 +802,6 @@ enum Theme {
     static let stageHairline = Color.white.opacity(0.12)
     /// The artist under the title, white 0.55.
     static let stageArtistOpacity: Double = 0.55
-    /// The transport's wells, white 0.10.
-    static let stageTransportFill = Color.white.opacity(0.10)
     /// The progress's track, white 0.18; its fill is the cover's tint.
     static let stageTrack = Color.white.opacity(0.18)
 
@@ -796,6 +829,15 @@ enum Theme {
 
     /// The system green, `#30D158`: the charging bolt and its level.
     static let chargingGreen = Color(red: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
+
+    /// The system red on a dark surface, `#FF453A`: a battery at 20 percent or
+    /// less on either Charging activity, as the battery menu fills one.
+    static let lowBatteryRed = Color(red: 255.0 / 255, green: 69.0 / 255, blue: 58.0 / 255)
+
+    /// The two charge colours under Increase Contrast: the system's own
+    /// accessible dark variants, `#30DB5B` and `#FF6961`.
+    static let chargingGreenContrast = Color(red: 48.0 / 255, green: 219.0 / 255, blue: 91.0 / 255)
+    static let lowBatteryRedContrast = Color(red: 255.0 / 255, green: 105.0 / 255, blue: 97.0 / 255)
 
     /// The island's stroke (spec §19.2), which replaced §3.3's key line: 2 pt
     /// centred on the outline, the activity's tint at 0.21 or white at 0.14,
@@ -854,14 +896,15 @@ enum Theme {
     /// label's backdrop is stated once and measured by `ContrastRampTests`.
     enum Fill {
         case surface, surfaceHover, selectedChip
-        /// The form's group and the sidebar's selected row (spec §10): a
-        /// footnote or a value sits on the first, a sidebar label on the second.
-        case settingsGroup, settingsSidebarSelection
+        /// The form's group (spec §10): a value or a row's second line sits on
+        /// it. The sidebar's selected row is the system accent since the
+        /// native pass (2026-10-25), and its white label is the system's
+        /// own pairing, so it is not a fill of this ramp.
+        case settingsGroup
 
         func opacity(increaseContrast: Bool) -> Double {
             switch self {
             case .settingsGroup: return Theme.settingsGroupOpacity(increaseContrast: increaseContrast)
-            case .settingsSidebarSelection: return Theme.settingsSidebarSelectionOpacity(increaseContrast: increaseContrast)
             case .surface: return Theme.surfaceOpacity(increaseContrast: increaseContrast)
             case .surfaceHover: return Theme.surfaceHoverOpacity(increaseContrast: increaseContrast)
             case .selectedChip: return Theme.selectedChipOpacity(increaseContrast: increaseContrast)
@@ -983,23 +1026,25 @@ enum Theme {
     /// whether the window is key, which is the whole point.
     static let switchOnFill = Color(nsColor: .controlAccentColor)
 
-    /// Off is a well shaded into the card, not a lighter fill on top of it.
+    /// Off is a faint light fill on the group, as the system's own off track
+    /// is — not the recess it was (native pass, 2026-10-25: the probe's
+    /// native off track measured 43/255 on black, a fill, and the dark well
+    /// vanished into the black panel).
     ///
-    /// The plan said `surfaceHover`, and the arithmetic said no: a white fill
-    /// on a white-0.16 card brightens the very thing the accent has to stand
-    /// out from, and graphite on that measured 1.86:1 and blue 1.55:1 —
-    /// on and off told apart by the knob again. Shading the card by 0.30
-    /// leaves every accent macOS offers at 3.47:1 or more (purple is the
-    /// lowest, graphite 5.04), and 0.50 holds it at 3.19 once Increase
-    /// Contrast has brightened the card itself. `ContrastRampTests` measures
-    /// all eight against the card. The well is still a shape — the hairline
-    /// draws its edge — the way AppKit's own off track is a recess.
-    static func switchWellOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.50 : 0.30
+    /// White 0.08 rather than `quaternaryLabelColor`'s 0.10: on the group's
+    /// 0.065 the 0.10 left purple, the dimmest accent macOS offers, at
+    /// 2.99:1 against the off track, a hair under WCAG's 3:1 for telling the
+    /// states apart; 0.08 holds it at 3.18. Increase Contrast keeps the dark
+    /// well with its outline, because on that setting's brighter group a
+    /// light fill cannot leave the accent its 3:1. `ContrastRampTests`
+    /// measures all eight accents against both.
+    static func switchOffGrey(increaseContrast: Bool) -> Double {
+        let group = settingsGroupOpacity(increaseContrast: increaseContrast)
+        return increaseContrast ? group * (1 - 0.50) : composite([group, 0.08])
     }
 
     @MainActor static var switchOffFill: Color {
-        Color.black.opacity(switchWellOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+        SystemAppearance.shared.increaseContrast ? Color.black.opacity(0.50) : Color.white.opacity(0.08)
     }
 
     /// The knob, white in both states as AppKit's is, with the faint shadow
@@ -1013,12 +1058,11 @@ enum Theme {
     /// relies on fill alone is exactly what the setting is for.
     static let switchContrastOutline = Color.white.opacity(0.7)
 
-    /// A little bigger than the 24×14 mini switch it replaces, so the state is
-    /// worth seeing from across a call, and still well inside the 26 pt row.
-    /// The size is no longer the target — the row is — so it can be sized for
-    /// the eye alone.
-    static let switchTrackSize = CGSize(width: 30, height: 17)
-    static let switchKnobDiameter: CGFloat = 13
+    /// The grouped form's own switch on macOS 27: `NSSwitch` at `.mini`,
+    /// 36 × 16 (native pass, 2026-10-25, measured in the probe; it was a
+    /// hand-picked 30 × 17). The knob fills the track less a point each side.
+    static let switchTrackSize = CGSize(width: 36, height: 16)
+    static let switchKnobDiameter: CGFloat = 14
 
     // MARK: - The lock card's own ramp
     //
@@ -1143,20 +1187,45 @@ enum Theme {
     /// The glyph's gradient and Install's capsule (at 0.22): the system's
     /// blue, as the Shelf's is.
     static var updateBlue: Color { SettingsTint.blue.color }
+    /// The Settings update card's progress bar: the person's accent, as every
+    /// native progress indicator is (native pass 2026-10-25; it was the fixed
+    /// system blue whatever accent the Mac was set to).
+    static var updateAccent: Color { Color(nsColor: .controlAccentColor) }
     /// Install's title, `#3E8EF7`: a lighter blue than the capsule's, so the
     /// default button's word still reads on blue 0.22 over black.
     static let updateInstallTitle = Color(red: 62.0 / 255, green: 142.0 / 255, blue: 247.0 / 255)
     /// Later's capsule (at 0.22): the system's grey.
     static var updateLaterFill: Color { SettingsTint.grey.color }
 
-    /// A tile's plate: white 0.10, 0.14 under the pointer; picked, white 0.18
-    /// inside a 1.5 pt blue ring (§19.7).
-    static let shelfTilePlate = Color.white.opacity(0.10)
-    static let shelfHoverWell = Color.white.opacity(0.14)
-    static let shelfSelectedWell = Color.white.opacity(0.18)
-    static let shelfSelectedRingWidth: CGFloat = 1.5
-    /// A tile's name: white 0.86.
-    static let shelfTileNameOpacity: Double = 0.86
+    /// A tile is Finder's icon view (§19.7, amended 2026-10-26, second
+    /// amendment): no plate behind a tile, resting or under the pointer — a
+    /// plate was the Photos grid's way of saying "card", and the Shelf holds
+    /// files. A picked tile gets the icon's backdrop only (Finder's
+    /// unemphasized icon highlight, white 0.15 on the dark panel, radius 5)
+    /// and its name on the selected-text pill.
+    static let shelfSelectedWell = Color.white.opacity(0.15)
+    static let shelfIconBackdropRadius: CGFloat = 5
+    /// The selected name's pill: `selectedContentBackgroundColor`, which is
+    /// the person's Highlight colour in System Settings › Appearance (the
+    /// accent unless it was set apart) and what Finder fills a selected
+    /// name with. Dynamic, so a change reaches the next frame. Finder greys
+    /// it in a window that is not key; this panel never becomes key (Shell,
+    /// CLAUDE.md) while it is plainly the thing in use, so it keeps the active
+    /// look, as the switches do (`switchOnFill`).
+    static let shelfCaptionHighlight = Color(nsColor: .selectedContentBackgroundColor)
+    static let shelfCaptionHighlightRadius: CGFloat = 4
+    /// Room either side of a highlighted line, so the fill does not end on the
+    /// glyphs' edges.
+    static let shelfCaptionHighlightInset: CGFloat = 3
+    /// A tile's name: `labelColor`, white under Increase Contrast — the
+    /// panel is fixed `.darkAqua`, which does not pass that setting on to the
+    /// system colours (`settingsLabel`'s reason).
+    @MainActor static var shelfTileName: Color { settingsLabel }
+    /// The line under the name, Finder's "item info": `secondaryLabelColor`,
+    /// the grey Finder sets it in, and not the accent (the owner asked why a
+    /// tile's date wore the system colour; it is the pill that does, the date
+    /// never). White 0.75 under Increase Contrast, as `settingsSecondaryLabel`.
+    @MainActor static var shelfTileInfo: Color { settingsSecondaryLabel }
 
     /// The remove badge (§19.7): `xmark.circle.fill` at white 0.62 over a 14 pt
     /// disc of black 0.28, so the cross reads on a bright thumbnail.
@@ -1264,55 +1333,43 @@ enum Theme {
 
     // MARK: - Settings: the sidebar and the grouped form (spec §10)
 
-    /// The colour of a section's 18 pt icon in the sidebar, by name so the five
-    /// the boards use are tokens and not hex in a view. The values are the
-    /// system's own: the grey System Settings gives General and Keyboard, the
-    /// blue of Privacy & Security, the pink of Music, the orange of the lyric
-    /// bubble and the indigo of the lock screen.
+    /// The colour of a drawn section tile in the sidebar: the system's own
+    /// colours by name, never hex (native pass 2026-10-25; they were the dark
+    /// variants' hex values, which froze them against a macOS that retunes
+    /// its palette and against Increase Contrast). The grey System Settings
+    /// gives General and Keyboard, the blue of Privacy & Security, the pink
+    /// of Music, the orange of the lyric bubble and the indigo of the lock
+    /// screen — `ISEnclosureColor`'s names.
     enum SettingsTint: CaseIterable {
         case grey, blue, rose, orange, indigo
 
-        var hex: UInt32 {
+        var nsColor: NSColor {
             switch self {
-            case .grey: return 0x8E8E93
-            case .blue: return 0x0A84FF
-            case .rose: return 0xFF375F
-            case .orange: return 0xFF9F0A
-            case .indigo: return 0x5E5CE6
+            case .grey: return .systemGray
+            case .blue: return .systemBlue
+            case .rose: return .systemPink
+            case .orange: return .systemOrange
+            case .indigo: return .systemIndigo
             }
         }
 
-        var color: Color {
-            Color(
-                red: Double((hex >> 16) & 0xFF) / 255,
-                green: Double((hex >> 8) & 0xFF) / 255,
-                blue: Double(hex & 0xFF) / 255
-            )
-        }
+        var color: Color { Color(nsColor: nsColor) }
     }
 
-    /// "Connected" under Spotify's name (spec §2.1's `green`): the colour of the
-    /// charging bolt, because green means "on and working" in both places.
-    static let settingsConnected = chargingGreen
-
-    /// A form group's fill, white at 0.055 (spec §10). So faint a step is the
-    /// board's whole point — System Settings groups are a shade off the
-    /// window, not a card — and Increase Contrast raises it to 0.14 so the
-    /// group is still a shape (§2.1: every translucent fill steps up).
+    /// A form group's fill (native pass, 2026-10-25). System Settings' box is
+    /// +9/255 over its window; the system's own box vanishes on black (6/255,
+    /// probe), so Isla draws one at white 0.065 (≈ 17/255) — the native step,
+    /// re-derived for the black panel — with no outer edge, as native boxes
+    /// have none. Increase Contrast raises it to 0.14 so the group is still a
+    /// shape (§2.1: every translucent fill steps up).
     static func settingsGroupOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.14 : 0.055
+        increaseContrast ? 0.14 : 0.065
     }
 
-    /// The selected sidebar row, white at 0.12 (spec §10), 0.24 with Increase
-    /// Contrast.
-    static func settingsSidebarSelectionOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.24 : 0.12
-    }
-
-    /// A group header's white, 0.85 (spec §10): a step under the label so the
-    /// header reads as the heading of what is under it. Full white with
-    /// Increase Contrast, where a step down is the thing the setting asks
-    /// against.
+    /// A row label's and a header's white: `labelColor` under the dark
+    /// appearance is white at 0.85 (measured 224/255 on black), and so is
+    /// this. Full white with Increase Contrast, which the panel's fixed
+    /// `.darkAqua` appearance does not otherwise pass to the system colours.
     static func settingsHeaderOpacity(increaseContrast: Bool) -> Double {
         increaseContrast ? 1.0 : 0.85
     }
@@ -1320,34 +1377,49 @@ enum Theme {
     @MainActor static var settingsGroupFill: Color {
         Color.white.opacity(settingsGroupOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
-    @MainActor static var settingsSidebarSelection: Color {
-        Color.white.opacity(settingsSidebarSelectionOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    /// The selected sidebar row: the system accent, as System Settings draws
+    /// its selection while you use it (driver decision for the owner,
+    /// 2026-10-25: the active look, because the panel is plainly the thing
+    /// in use though it is never key — the same reasoning as the switches).
+    static let settingsSidebarSelection = Color(nsColor: .selectedContentBackgroundColor)
+    /// Labels and headers: `labelColor`, white under Increase Contrast.
+    @MainActor static var settingsLabel: Color {
+        SystemAppearance.shared.increaseContrast ? Color.white : Color(nsColor: .labelColor)
     }
-    @MainActor static var settingsHeader: Color {
-        Color.white.opacity(settingsHeaderOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
+    @MainActor static var settingsHeader: Color { settingsLabel }
+    /// Footers and a row's second line: `secondaryLabelColor` (white 0.55
+    /// under the dark appearance), white 0.75 under Increase Contrast.
+    @MainActor static var settingsSecondaryLabel: Color {
+        SystemAppearance.shared.increaseContrast
+            ? Color.white.opacity(secondaryOpacity(increaseContrast: true))
+            : Color(nsColor: .secondaryLabelColor)
+    }
+    /// The hairline between rows: `separatorColor`, which lands +13/255 over
+    /// the group as the native separator does over its box (probe), and the
+    /// panel's stronger hairline under Increase Contrast.
+    @MainActor static var settingsSeparator: Color {
+        SystemAppearance.shared.increaseContrast ? hairline : Color(nsColor: .separatorColor)
     }
 
-    /// The glyph on a sidebar icon's tile and the tile's lit top edge (the
-    /// board's half-point inset highlight), so a flat swatch reads as an icon.
+    /// The glyph on a drawn sidebar tile. The tile's 0.5 pt lit top edge went
+    /// in the native pass: IconServices' own tiles carry a gradient, and the
+    /// drawn ones copy that instead (`SettingsSectionIcon`).
     static let settingsIconGlyph = Color.white
-    static let settingsIconEdge = Color.white.opacity(0.25)
+    /// System Settings' pane icons sit their tile in 832 of a 1024 canvas on
+    /// macOS 27 (104/128 at 128 pt, 26/32 at 32 pt, probe), so an icon drawn
+    /// at `side × 1024 / 832` shows a `side` tile.
+    static let systemPaneIconOpticalScale: CGFloat = 1024.0 / 832.0
     /// The Lock Screen section's style previews: the ring round the chosen one
     /// (spec §10, accent 2 pt) and the hairline round the others.
     static let settingsPreviewRingWidth: CGFloat = 2
     static let settingsPreviewEdge = Color.white.opacity(0.2)
 
-    /// A group's inner edge, white at 0.06 (the board's half-point inset line);
-    /// the contrast variant is the panel's own hairline step.
-    static func settingsGroupEdgeOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? hairlineOpacity(increaseContrast: true) : 0.06
-    }
-    @MainActor static var settingsGroupEdge: Color {
-        Color.white.opacity(settingsGroupEdgeOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
-    }
-
-    /// The field that is recording a shortcut: the accent at 0.18 under a 1.5 pt
-    /// accent ring (spec §2.1, "the recording field").
-    static let recordingFill = accent.opacity(0.18)
+    /// The field that is recording a shortcut: the system accent at 0.18 under
+    /// a 1.5 pt accent ring (spec §2.1, "the recording field"). It was Isla's
+    /// own red until the native pass (2026-10-25): in Settings, "active" is
+    /// the person's accent, as everywhere else on their Mac.
+    static let recordingFill = Color(nsColor: .controlAccentColor).opacity(0.18)
+    static let recordingRing = Color(nsColor: .controlAccentColor)
     static let recordingRingWidth: CGFloat = 1.5
 
     /// How much larger than its frame an app's icon is drawn so its squircle
@@ -1458,8 +1530,9 @@ struct ToolbarPushButtonStyle: ButtonStyle {
     }
 }
 
-/// The default button of a form: the toolbar push button's shape in the system
-/// blue with white type, the one control a card offers when there is one thing
+/// The default button of a form: the toolbar push button's shape in the
+/// person's accent with white type (native pass 2026-10-25: it was the fixed
+/// system blue), the one control a card offers when there is one thing
 /// to do (Update Now). Same height, radius and padding as `ToolbarPushButtonStyle`
 /// so the two sit on one line; dims on press and steps back when disabled, as
 /// every panel button does.
@@ -1481,7 +1554,7 @@ struct ProminentPushButtonStyle: ButtonStyle {
                 .frame(height: ToolbarPushButtonStyle.height)
                 .background(
                     RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous)
-                        .fill(Theme.SettingsTint.blue.color)
+                        .fill(Color(nsColor: .controlAccentColor))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
                 .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
@@ -1684,26 +1757,43 @@ extension View {
         }
     }
 
-    /// Replaces one SF Symbol with the next the way Apple's own controls do,
-    /// whenever `value` changes, and cuts under Reduce Motion.
+    /// Replaces one SF Symbol with the next whenever `value` changes: the old
+    /// glyph shrinks out as the new one grows in, and under Reduce Motion the
+    /// two cross-fade.
     ///
-    /// A symbol content transition only plays inside an animated transaction;
-    /// in a plain one the glyph is simply swapped. Play/pause flips when the
-    /// player says so (the helper's stream, a media key) and the Liked Songs
-    /// heart when the library answers, both outside any `withAnimation`, so the
+    /// This was a symbol content transition, Apple's own replace
+    /// (`.replace.downUp`), until the hitch lab found what it cost (2026-10-29).
+    /// SwiftUI draws a symbol content transition into an `RBDrawingLayer`,
+    /// even `.identity`, and every frame that layer's display waited in
+    /// `-[CAContext waitForCommitId:]` for the render server to finish the
+    /// frame before: the main thread sat blocked through the effect. The gear
+    /// turns into Settings' X in the same transaction that swaps the pane, so
+    /// player to Settings missed 27 frames of 125 with lyrics live; with this
+    /// transition, 4 (Settings back to the player: 7 to 4). A plain transition on an
+    /// image keyed by the value is ordinary layers, and the shape is the
+    /// same as the effect's.
+    ///
+    /// The transition only plays inside an animated transaction; in a plain
+    /// one the glyph is simply swapped. Play/pause flips when the player says
+    /// so (the helper's stream, a media key) and the Liked Songs heart when
+    /// the library answers, both outside any `withAnimation`, so the
     /// most-watched control in the app could hard-cut beside a comment saying
     /// it was replaced (F-046). The repeat toggle animated `isOn`, which stays
     /// true from "all" to "one" while the glyph changes. Carrying the
     /// animation here, on the value that moves the glyph, means a caller
-    /// cannot ask for the replace without the transaction that runs it.
+    /// cannot ask for the swap without the transaction that runs it.
     ///
-    /// The fade of a tint that changes with the same value rides along; under
-    /// Reduce Motion that is all that is left, since a fade is not motion.
-    /// `MotionValuesTests.testEverySymbolSwapCarriesItsAnimation` keeps the
-    /// bare transition out of the sources.
-    func symbolSwap<Value: Equatable>(value: Value, reduceMotion: Bool) -> some View {
-        contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
-            .animation(Theme.contentAnimation, value: value)
+    /// A tint that changes with the same value goes with its glyph. The value
+    /// is the view's identity here, so `self` must hold no state of its own:
+    /// every caller hands it a bare `Image`. `SymbolSwapLayerTests` holds the
+    /// layers; `MotionValuesTests.testEverySymbolSwapCarriesItsAnimation`
+    /// keeps the symbol effect out of the sources.
+    func symbolSwap<Value: Hashable>(value: Value, reduceMotion: Bool) -> some View {
+        ZStack {
+            self.id(value)
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
+        }
+        .animation(Theme.contentAnimation, value: value)
     }
 }
 

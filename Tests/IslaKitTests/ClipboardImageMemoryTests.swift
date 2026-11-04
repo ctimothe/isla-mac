@@ -335,6 +335,75 @@ final class ClipboardImageMemoryTests: XCTestCase {
 
     // MARK: Paste-back through the pipeline
 
+    /// R8c-H7 as the owner runs it: copy a 20 MB screenshot ten times with
+    /// Clipboard on, watch Activity Monitor's memory for Isla come back to near
+    /// where it began, and paste the oldest to get the full picture. Each copy
+    /// goes through the same pipeline a real one does (pasteboard, poll,
+    /// spool); the figure is the process's own `phys_footprint`, the number
+    /// Activity Monitor's Memory column shows. Ten different pictures, so none
+    /// is a repeat of the last (an identical consecutive one is not added at
+    /// all, which `testAnIdenticalConsecutivePictureIsNotAddedOrSavedTwice`
+    /// holds).
+    ///
+    /// The pictures are one 20 MB TIFF with a byte changed for each copy, not
+    /// ten drawn by `NSBitmapImageRep`: that keeps about 20 MB of its own per
+    /// picture it encodes (measured: ten encodes alone grow the process 207 MB),
+    /// which would read as the history's memory. The bound is a quarter of what
+    /// ten kept originals would be.
+    func testTenTwentyMegabyteCopiesLeaveTheFootprintNearWhereItStartedAndTheOldestPastesInFull() throws {
+        func footprintMegabytes() -> Double {
+            var info = task_vm_info_data_t()
+            var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+            let result = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                    task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+                }
+            }
+            return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+        }
+        let base = try tiff(megabytes: 20, fill: 7)
+        /// Copy `index` of the ten: the base picture with one pixel's byte
+        /// changed, 4 KB in so it is inside the pixel data.
+        func screenshot(_ index: Int) -> Data {
+            var data = base
+            data[4096 + index] = UInt8(index + 1)
+            return data
+        }
+
+        let started = footprintMegabytes()
+        XCTAssertGreaterThan(started, 0, "the footprint can be read")
+        for index in 0..<10 {
+            autoreleasepool {
+                board.clearContents()
+                board.setData(screenshot(index), forType: .tiff)
+            }
+            store.pollNow()
+            settle { self.store.items.count == index + 1 }
+            XCTAssertEqual(store.items.count, index + 1, "copy \(index + 1) is in the history")
+        }
+        board.clearContents()
+        // Let the main queue finish whatever the last copies queued (thumbnails,
+        // the spool's writes) before the number is taken.
+        settle(until: { false }, timeout: 0.3)
+
+        let grown = footprintMegabytes() - started
+        XCTAssertLessThan(
+            grown, 50,
+            "ten 20 MB pictures grew the process by \(Int(grown)) MB; kept as heap Data they would be 200"
+        )
+        XCTAssertEqual(store.residentPictureBytes, 0, "none of them stays in memory")
+        XCTAssertEqual(filesOnDisk().count, 10, "each has its file")
+
+        // The oldest is the last in the list, and pastes back whole.
+        let oldest = try XCTUnwrap(store.items.last)
+        guard case .image(let image) = oldest.payload else { return XCTFail("not a picture entry") }
+        board.clearContents()
+        store.copy(oldest)
+        let pasted = try XCTUnwrap(board.data(forType: .tiff), "the oldest picture is on the pasteboard")
+        XCTAssertEqual(image.type, .tiff)
+        XCTAssertEqual(pasted, screenshot(0), "the full picture, byte for byte")
+    }
+
     func testALargeCopiedPictureIsFileBackedAndPastesBackAsTheOriginal() throws {
         let original = try tiff(megabytes: 20, fill: 42)
         board.clearContents()

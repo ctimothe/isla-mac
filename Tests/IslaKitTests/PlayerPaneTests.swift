@@ -49,7 +49,8 @@ final class PlayerPaneTests: XCTestCase {
     private func scene(
         lyrics: Bool = true, lyricBand: Bool = true, outputButton: Bool = true,
         duration: TimeInterval = 238, elapsed: TimeInterval = 9, playing: Bool = true, volume: Float? = 0.62,
-        title: String = "Waiting Room", cover: Bool = false, lines: [LyricsStore.Line] = PlayerPaneTests.lines
+        title: String = "Waiting Room", cover: Bool = false, lines: [LyricsStore.Line] = PlayerPaneTests.lines,
+        openStage: @escaping () -> Void = {}, bringPlayerForward: @escaping () -> Void = {}
     ) async -> Scene {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
@@ -66,7 +67,8 @@ final class PlayerPaneTests: XCTestCase {
             store.present(.ready(LyricTimeline(lines: lines, granularity: .line)))
         }
         let pane = MediaPane(
-            media: media, lyrics: store, morph: nil, audio: Self.audio(volume: volume),
+            media: media, lyrics: store, openStage: openStage, bringPlayerForward: bringPlayerForward,
+            morph: nil, audio: Self.audio(volume: volume),
             icons: SettingsFixture.macWithApps([:])
         )
         .defaultAppStorage(isolated.suite)
@@ -91,6 +93,56 @@ final class PlayerPaneTests: XCTestCase {
         XCTAssertEqual(frame.minY, expected.minY, accuracy: accuracy, "\(message) minY \(frame)", file: file, line: line)
         XCTAssertEqual(frame.width, expected.width, accuracy: accuracy, "\(message) width \(frame)", file: file, line: line)
         XCTAssertEqual(frame.height, expected.height, accuracy: accuracy, "\(message) height \(frame)", file: file, line: line)
+    }
+
+    // MARK: - The song block opens the stage
+
+    /// The title and the artist open the stage as the cover does (amended
+    /// 2026-10-26): each a single button element carrying the cover's hint, in
+    /// its own box, and pressing either is the cover's action.
+    func testTitleAndArtistOpenTheStageLikeTheCover() async throws {
+        for band in [true, false] {
+            var opened = 0
+            var forward = 0
+            let s = await scene(lyricBand: band, openStage: { opened += 1 }, bringPlayerForward: { forward += 1 })
+            let cover = try node(s.root, "Lyrics", role: "AXButton")
+            let titles = s.root.all { $0.label.contains("Waiting Room") }
+            XCTAssertEqual(titles.count, 1, "one element for the title, band \(band)\n\(s.root.dump)")
+            let title = try XCTUnwrap(titles.first)
+            XCTAssertEqual(title.role, "AXButton", "the title is a button, band \(band)")
+            XCTAssertEqual(title.help, cover.help, "the title carries the cover's hint, band \(band)")
+            XCTAssertFalse(title.help.isEmpty)
+            XCTAssertTrue(title.actionNames.contains("AXPress"))
+            let box = MediaPane.textBox(
+                x: s.layout.textLeading, baseline: s.layout.titleBaseline, width: s.layout.titleWidth,
+                size: PlayerLayout.titleSize, weight: .medium
+            )
+            try assertFrame(title, near: box, "the title's hit region", accuracy: 3)
+            title.press()
+            XCTAssertEqual(opened, 1, "the title opens the stage, band \(band)")
+            if !band {
+                let artist = try XCTUnwrap(s.root.all { $0.role == "AXButton" && $0.help == cover.help && $0.label != "Lyrics" && !$0.label.contains("Waiting Room") }.first, s.root.dump)
+                artist.press()
+                XCTAssertEqual(opened, 2, "the artist line opens the stage")
+            }
+            cover.press()
+            XCTAssertEqual(opened, band ? 2 : 3)
+            XCTAssertEqual(forward, 0)
+        }
+    }
+
+    /// With no lyrics the title does what the cover does: brings the player
+    /// forward, and says nothing about lyrics.
+    func testTitleBringsThePlayerForwardWithoutLyrics() async throws {
+        var opened = 0
+        var forward = 0
+        let s = await scene(lyrics: false, openStage: { opened += 1 }, bringPlayerForward: { forward += 1 })
+        let title = try XCTUnwrap(s.root.all { $0.label.contains("Waiting Room") }.first, s.root.dump)
+        XCTAssertEqual(title.role, "AXButton")
+        XCTAssertTrue(title.help.isEmpty)
+        title.press()
+        XCTAssertEqual(forward, 1)
+        XCTAssertEqual(opened, 0)
     }
 
     // MARK: - Where the board puts things
@@ -156,6 +208,83 @@ final class PlayerPaneTests: XCTestCase {
         let s = await scene(elapsed: 3, lines: lines)
         XCTAssertNotNil(s.root.all { $0.label == "Lyrics" && $0.value == "Second line" }.first, s.root.dump)
         assertTheArtistIsOnlyInTheTitle(s)
+    }
+
+    /// R8b-H10 on a song written the way the owner's is: an LRC with end
+    /// stamps — an empty stamp where the voice stops — so each pause is the
+    /// file's own. The subtitle holds the line coming next through every pause
+    /// the sweep honours (1.5 s or more, `LyricSweep.minimumHonouredGap`; a
+    /// shorter breath keeps the line before it lit), unswept — the dim — and
+    /// the artist stands only in the title's row; when the voice returns the
+    /// same row is sung, so the line fills in place with nothing turning.
+    ///
+    /// The checklist says "a second or more"; the sweep's own floor is 1.5 s
+    /// so that a file's empty stamp a breath before the next line does not
+    /// blink the line off and on. A pause between one and 1.5 s therefore
+    /// holds the line just sung, not the coming one — held below too, so the
+    /// difference is on record rather than a surprise on hardware.
+    func testEveryHonouredPauseOfAnLrcWithEndStampsHoldsTheComingLineDim() async throws {
+        let lrc = """
+        [ti:Song]
+        [ar:Artist]
+        [00:05.00]First line
+        [00:08.00]
+        [00:12.00]Second line
+        [00:14.00]
+        [00:15.50]Third line
+        [00:17.00]
+        [00:18.00]Fourth line
+        [00:21.00]
+        """
+        let document = try LocalLyricsDocument.parse(lrc)
+        let lines = document.lines
+        XCTAssertEqual(lines.map(\.text), ["First line", "Second line", "Third line", "Fourth line"])
+        XCTAssertEqual(lines.map(\.end), [8, 14, 17, 21], "the empty stamps are the lines' ends")
+        XCTAssertEqual(lines.indices.map { LyricSweep.effectiveEnd(of: $0, in: lines) }, [8, 14, nil, 21],
+                       "a 4 s and a 1.5 s pause are honoured, a 1 s breath is not")
+
+        func band(at position: TimeInterval) -> MediaPane.SungLine {
+            let inputs = LyricInputs(
+                position: position, precisionSync: true, userOffset: 0, trackOffset: 0, wordTiming: false
+            )
+            return MediaPane.SungLine(
+                isOn: true, lines: lines, resolution: MediaPane.captionResolution(lines: lines, inputs: inputs)
+            )
+        }
+        // Every instant of every honoured pause, up to the moment the lead
+        // lights the coming line: that line, dim.
+        let lead = LyricSweep.lead(precisionSync: true, userOffset: 0)
+        let beforeTheVoice = lead + 0.05
+        for (pause, coming) in [(8.1..<(12 - beforeTheVoice), 1), (14.1..<(15.5 - beforeTheVoice), 2)] {
+            var position = pause.lowerBound
+            while position < pause.upperBound {
+                let held = band(at: position)
+                XCTAssertEqual(held.index, coming, "at \(position) s the band holds line \(coming)")
+                XCTAssertFalse(held.isSung, "at \(position) s it waits, unsung")
+                XCTAssertEqual(held.fraction, 0, "at \(position) s nothing of it is lit")
+                position += 0.1
+            }
+        }
+        // The voice returning: the same row, now sung, filling from the left.
+        XCTAssertEqual(band(at: 12 - beforeTheVoice).index, band(at: 12.4).index, "no turn when the voice returns")
+        XCTAssertFalse(band(at: 12 - beforeTheVoice).isSung)
+        XCTAssertTrue(band(at: 12.4).isSung)
+        XCTAssertGreaterThan(band(at: 12.4).fraction, 0)
+        XCTAssertEqual(band(at: 15.5 - beforeTheVoice).index, band(at: 15.9).index)
+        // A 1 s breath is not a pause: the line just sung stays lit through it.
+        XCTAssertEqual(band(at: 17.5).index, 2)
+        XCTAssertTrue(band(at: 17.5).isSung)
+
+        // Hosted, as the owner sees it: the subtitle's text is the coming line
+        // and the artist is in the title and nowhere else.
+        for (elapsed, expected) in [(9.0, "Second line"), (11.5, "Second line"), (14.6, "Third line")] {
+            let s = await scene(elapsed: elapsed, lines: lines)
+            XCTAssertNotNil(
+                s.root.all { $0.label == "Lyrics" && $0.value == expected }.first,
+                "at \(elapsed) s the subtitle holds \(expected)\n\(s.root.dump)"
+            )
+            assertTheArtistIsOnlyInTheTitle(s)
+        }
     }
 
     /// The artist appears once while the band is on: in "Title · Artist".

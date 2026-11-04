@@ -43,17 +43,15 @@ final class ContrastRampTests: XCTestCase {
 
     /// A Settings switch that is on looks on, whatever accent drew it.
     ///
-    /// The track is measured where it is drawn — inside a Settings card, which
-    /// is `surface` white over the panel's black — rather than over bare black,
-    /// which flatters it: the plan's own off fill (`surfaceHover`) cleared 3:1
-    /// over black for neither graphite (2.97) nor blue (2.49), and over the
-    /// card it fell to 1.86 and 1.55. The off track is a well shaded into the
-    /// card instead, so the accent has the whole step to itself. 3:1 is
-    /// WCAG's non-text floor (1.4.11), held at both contrast settings.
+    /// The track is measured where it is drawn — inside a Settings group —
+    /// rather than over bare black, which flatters it. Since the native pass
+    /// (2026-10-25) the off track is a faint light fill, as the system's own
+    /// is, and Increase Contrast keeps the dark well; `Theme.switchOffGrey`
+    /// is the grey either makes. 3:1 is WCAG's non-text floor (1.4.11), held
+    /// at both contrast settings for every accent macOS offers.
     func testSwitchOnAndOffAreTellableApartOnEveryAccent() {
         for increaseContrast in [false, true] {
-            let card = Theme.surfaceOpacity(increaseContrast: increaseContrast)
-            let well = card * (1 - Theme.switchWellOpacity(increaseContrast: increaseContrast))
+            let well = Theme.switchOffGrey(increaseContrast: increaseContrast)
             let off = luminance(well * 255, well * 255, well * 255)
             for accent in Self.accents {
                 let on = luminance(accent.rgb.0, accent.rgb.1, accent.rgb.2)
@@ -146,17 +144,15 @@ final class ContrastRampTests: XCTestCase {
         XCTAssertEqual(ratio(0.46, on: [.surface, .surface], contrast: false), 3.26, accuracy: 0.02)
     }
 
-    /// Settings' grouped form (redesign 2026-10-15, spec §10): the footnote and the
-    /// value sit on the group's white 0.055, the sidebar's label on the selected
-    /// row's 0.12, and each clears 4.5:1 with the tertiary ramp as it is — the
-    /// groups are fainter than the old section card (0.16), so the ramp has the
-    /// room — at both Increase Contrast settings. The fills are shapes too: the
-    /// group is a 1.04:1 step off black by the board's own choice, which is why
-    /// it is edged with the half-point inset line, and Increase Contrast lifts it.
+    /// Settings' grouped form (native pass 2026-10-25): a value or a row's
+    /// second line sits on the group's white 0.065 and clears 4.5:1 with the
+    /// ramp as it is, at both Increase Contrast settings. The sidebar's
+    /// selection is the system accent under the system's white label, a
+    /// pairing macOS owns, so it is not measured here.
     func testSettingsFormTextClearsAAOnItsFills() {
         for contrast in [false, true] {
             let tertiary = Theme.tertiaryOpacity(increaseContrast: contrast)
-            for fill: Theme.Fill in [.settingsGroup, .settingsSidebarSelection] {
+            for fill: Theme.Fill in [.settingsGroup] {
                 let grey = Theme.composite([fill.opacity(increaseContrast: contrast)])
                 XCTAssertGreaterThanOrEqual(
                     Theme.contrast(textOpacity: tertiary, overGrey: grey), 4.5, "tertiary on \(fill), contrast \(contrast)"
@@ -179,13 +175,6 @@ final class ContrastRampTests: XCTestCase {
         XCTAssertGreaterThan(
             Theme.settingsGroupOpacity(increaseContrast: true), Theme.settingsGroupOpacity(increaseContrast: false)
         )
-        XCTAssertGreaterThan(
-            Theme.settingsSidebarSelectionOpacity(increaseContrast: true), Theme.settingsSidebarSelectionOpacity(increaseContrast: false)
-        )
-        // "Connected", in green over the black the Spotify head sits on, is text.
-        let green = luminance(48, 209, 88)
-        XCTAssertGreaterThanOrEqual((green + 0.05) / 0.05, 4.5, "Connected in green over black")
-        XCTAssertEqual(Theme.settingsConnected, Theme.chargingGreen)
     }
 
     /// The dimmest lyric context line. At white 0.18 it was 1.54:1.

@@ -132,11 +132,14 @@ struct TranslatePane: View {
             // After the text: setting `input` clears the notice.
             if let notice { translator.notice = notice }
         case .refused(let notice):
-            // The field keeps what it held. Assigned every time, not only the
-            // first: `@Published` publishes each assignment, and that
-            // publication is what makes the editor, which has already taken the
-            // rejected letter into its own storage, ask the binding for its text
-            // again and put the old one back.
+            // The field keeps what it held. The editor, which has already
+            // taken the rejected letter into its own storage, puts the old
+            // text back by itself once the binding answers with it: on
+            // 2026-10-29 it still did with this line removed
+            // (`testTheEditorOfAFullFieldDoesNotShowARefusedLetter` types
+            // into the real one). This line was once thought to be what made
+            // it; it is kept for the notice, assigned on every refusal so the
+            // line never lags one.
             translator.notice = notice
         }
     }
@@ -322,7 +325,7 @@ struct TranslatePane: View {
             choose { translator.swap() }
         } label: {
             Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 12, weight: .medium))
+                .font(HeaderIcon.font)
                 .foregroundStyle(Theme.secondary)
                 .frame(width: TranslateLayout.swapWidth, height: TranslateLayout.pairHeight)
                 .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))
@@ -507,16 +510,9 @@ struct TranslatePane: View {
     /// moment that appears (`Translator.pasteboardOffersText`).
     private var pasteButton: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
-            Button {
-                paste()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "doc.on.clipboard")
-                        .font(.system(size: 11, weight: .regular))
-                    Text(localized("Paste"))
-                }
-            }
-            .buttonStyle(ToolbarPushButtonStyle())
+            // The header's glyph-and-word well (`IconWordButton`), as Remove
+            // All is: it was a 22 pt push plate with its glyph at 11.
+            IconWordButton(symbol: "doc.on.clipboard", word: localized("Paste")) { paste() }
             // Off under Don't Allow as well, and the tooltip says why: macOS
             // would refuse the read, and a button that looked usable and then
             // reported an empty clipboard blamed the wrong thing.
@@ -768,7 +764,7 @@ struct TranslatePane: View {
             speaker.toggle(translator.output, languageCode: route.target.code)
         } label: {
             Image(systemName: "speaker.wave.2.fill")
-                .font(.system(size: 12, weight: .medium))
+                .font(HeaderIcon.font)
                 .foregroundStyle(speaking ? Color.white : Theme.secondary)
                 .frame(width: TranslateLayout.footerButton.width, height: TranslateLayout.footerButton.height)
                 .background(
@@ -838,8 +834,8 @@ struct TranslatePane: View {
             // The one button that sends text off the Mac without a switch: it
             // says where before it is pressed, in the tooltip and to VoiceOver.
             button
-                .help(localized("Sends this text to MyMemory over the internet."))
-                .accessibilityHint(localized("Sends this text to MyMemory over the internet."))
+                .help(localized("Sends this text, and what you type next in these languages, to MyMemory over the internet."))
+                .accessibilityHint(localized("Sends this text, and what you type next in these languages, to MyMemory over the internet."))
         } else {
             button
         }
@@ -951,18 +947,10 @@ struct TranslatePane: View {
 
     // MARK: - Scheduling
 
+    /// Waits out the typing — but not after a press, which already put the
+    /// spinner up — and translates (`Translator.runWhenSettled`).
     private func schedule() async {
-        let text = translator.trimmed
-        guard !text.isEmpty else {
-            translator.clear()
-            return
-        }
-        // Wait out the typing: a word is a handful of keystrokes, and a session
-        // per letter would be both wasteful and visibly jumpy.
-        try? await Task.sleep(for: .milliseconds(320))
-        guard !Task.isCancelled else { return }
-
-        await translator.translate()
+        await translator.runWhenSettled()
     }
 }
 

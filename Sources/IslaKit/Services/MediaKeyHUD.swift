@@ -33,8 +33,11 @@ import Foundation
 /// thread (`EventMediaKeyTap`), not the main run loop, and decides from
 /// `MediaKeyGate` — the setting, the lock and the hold table, mirrored there by
 /// this object whenever they change — plus the applier's cached `canApply`.
-/// The hardware write follows on the applier's queue, from cached levels, and
-/// the reading reaches the island in one hop to the main actor. Before, the
+/// Since 2026-10-25 a volume press is drawn before it is written: the applier
+/// steps its intended level on the tap's thread and the reading leaves at once,
+/// while one writer takes the newest target (`SystemLevelApplier`). The
+/// brightnesses' write follows on the applier's queue, from cached levels; either
+/// way the reading reaches the island in one hop to the main actor. Before, the
 /// callback sat on the main run loop and wrote the volume before answering,
 /// and the reading took a second main-queue turn for its glyph: a busy main
 /// thread (the owner's Mac loaded with agents) made every press heavy and let
@@ -123,8 +126,16 @@ final class MediaKeyHUD: ObservableObject {
     /// The setting. A closure, read at each use, so a switch in Settings and a
     /// test's value both act at once.
     var isEnabled: () -> Bool
-    /// The Mac is locked: every event passes through and nothing is shown.
+    /// The Mac is locked. Every event passes through and nothing is shown,
+    /// unless `drawsWhileLocked` says the island can show it there.
     var isLocked: () -> Bool = { false }
+    /// While locked, whether the island is over the shield to draw the
+    /// pop-up (spec §3.7, amended 2026-10-26): the panel lifted into the lock
+    /// screen's SkyLight space with the card, and the display awake. Only
+    /// then does a locked key get consumed; otherwise it goes to the system,
+    /// whose own pop-up shows as before. Read when the lock is mirrored, never
+    /// by a key.
+    var drawsWhileLocked: () -> Bool = { false }
     /// A key was applied; the island shows it.
     var onReading: ((HUDReading) -> Void)?
 
@@ -255,12 +266,24 @@ final class MediaKeyHUD: ObservableObject {
         self.sessionIsAvailable = sessionIsAvailable ?? {
             PlayerBridge.isRunningTests ? true : CodeIdentity.sessionIsAvailable
         }
+        let mailbox = LatestReadingMailbox()
         route = MediaKeyRoute(
             gate: gate,
             applier: self.applier,
             deliver: { [weak self] reading in
-                // The one hop to the main actor a press costs.
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.present(reading) } }
+                // The one hop to the main actor a press costs — and one per
+                // run-loop turn, not per press: readings that arrive while a
+                // hop is still waiting replace the one it will deliver, so a
+                // main thread that stalls for 100 ms under a held key wakes to
+                // the level the key is at, not to a backlog of twenty bars
+                // each drawn in turn (`LatestReadingMailbox`).
+                guard mailbox.post(reading) else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let latest = mailbox.take() else { return }
+                        self?.present(latest)
+                    }
+                }
             },
             settingWentOff: { [weak self] in
                 // The tap should not exist: end it, but not from inside its own
@@ -381,8 +404,9 @@ final class MediaKeyHUD: ObservableObject {
     }
 
     /// The display went to sleep, or the Mac locked: stop waiting for a
-    /// permission nobody can grant. The tap, if there is one, stays — a lock
-    /// passes every key through by itself and a sleeping display has no keys.
+    /// permission nobody can grant. The tap, if there is one, stays — over
+    /// the lock screen it takes a key only while the island can draw it
+    /// (`drawsWhileLocked`), and a sleeping display has no keys.
     func suspend() {
         isSuspended = true
         stopPolling()
@@ -397,6 +421,20 @@ final class MediaKeyHUD: ObservableObject {
     /// nothing, and until something mirrored it the tap's thread would keep
     /// leaving every key to the system.
     func lockChanged() {
+        // What the tap heard while the Mac was locked, said once per lock
+        // when it ends. Whether a session tap hears the media keys with the
+        // shield up is not documented (loginwindow takes Secure Event Input
+        // for the password field, which is documented to hide *key* events
+        // from taps, and media keys arrive as system-defined events, not key
+        // events); this line is the evidence the hardware check reads.
+        if !isLocked() {
+            let heard = gate.takeLockedPresses()
+            if heard.total > 0 || wasLockedAtLastMirror {
+                Log.app.info(
+                    "media keys while locked: \(heard.total, privacy: .public) heard, \(heard.consumed, privacy: .public) taken"
+                )
+            }
+        }
         mirrorGate()
     }
 
@@ -404,8 +442,14 @@ final class MediaKeyHUD: ObservableObject {
     /// path that changes either ends here: `refresh()` (the setting, the
     /// permission, the poll), `suspend()`/`resume()` and `lockChanged()`.
     private func mirrorGate() {
-        gate.mirror(enabled: isEnabled(), locked: isLocked())
+        let locked = isLocked()
+        wasLockedAtLastMirror = locked
+        gate.mirror(enabled: isEnabled(), locked: locked, drawsWhileLocked: locked && drawsWhileLocked())
     }
+
+    /// Whether the last mirror said locked, so an unlock says what the tap
+    /// heard even when it heard nothing — the answer "nothing" is the news.
+    private var wasLockedAtLastMirror = false
 
     /// The display woke, or the Mac unlocked. Looks again at once, which
     /// restarts the poll if the setting is on and the permission still missing.
@@ -621,7 +665,8 @@ final class MediaKeyHUD: ObservableObject {
     /// here asks CoreAudio — they used to be looked up here, on a second
     /// main-queue turn.
     private func present(_ reading: HUDReading) {
-        guard !isLocked(), isTapped else { return }
+        guard isTapped, !isLocked() || drawsWhileLocked() else { return }
+        HUDSignpost.signposter.emitEvent("hud presented")
         onReading?(reading)
     }
 
@@ -795,6 +840,10 @@ final class MediaKeyGate: @unchecked Sendable {
     // Guarded by `lock`.
     private var enabled = false
     private var locked = false
+    /// Locked, and the island over the shield to show the pop-up.
+    private var drawsWhileLocked = false
+    /// Fresh presses the tap heard while locked, and how many it took.
+    private var lockedPresses = (total: 0, consumed: 0)
     /// What the first key-down of a press-and-hold decided, kept until its
     /// key-up.
     private var holds: [MediaKey: Hold] = [:]
@@ -803,10 +852,19 @@ final class MediaKeyGate: @unchecked Sendable {
     /// coming.
     private var lastEvent: [MediaKey: TimeInterval] = [:]
 
-    func mirror(enabled: Bool, locked: Bool) {
+    func mirror(enabled: Bool, locked: Bool, drawsWhileLocked: Bool = false) {
         lock.withLock {
             self.enabled = enabled
             self.locked = locked
+            self.drawsWhileLocked = locked && drawsWhileLocked
+        }
+    }
+
+    /// The presses heard while locked since the last call, and starts again.
+    func takeLockedPresses() -> (total: Int, consumed: Int) {
+        lock.withLock {
+            defer { lockedPresses = (0, 0) }
+            return lockedPresses
         }
     }
 
@@ -851,9 +909,15 @@ final class MediaKeyGate: @unchecked Sendable {
     /// - A hold decided *pass* stays pass through every repeat, whatever
     ///   changes meanwhile (AirPods connecting, a lock, ⌘ pressed).
     /// - A hold decided *consume* stays consume. Each repeat applies another
-    ///   step when it can — setting still on, not locked — and is swallowed
-    ///   without a change when it cannot: a Mac that locks mid-hold sees no
-    ///   level move and no pop-up, and the key-up still pairs. A repeat that
+    ///   step when it can — setting still on, not locked out — and is
+    ///   swallowed without a change when it cannot: a Mac that locks mid-hold
+    ///   with the island not over the shield sees no level move and no
+    ///   pop-up, and the key-up still pairs.
+    /// - Locked (amended 2026-10-26): the same rules, while the island is over
+    ///   the shield to draw the pop-up (`drawsWhileLocked`); without it every
+    ///   fresh press passes, as before, and the system shows its own. The
+    ///   lock card's volume bar watches the same output, so it moves with a
+    ///   key either way. A repeat that
     ///   arrives with the modifiers changed still steps (with the quarter step
     ///   only while ⌥⇧ stay down); the hold is not re-decided.
     /// - A repeat or a key-up with no hold behind it (the tap began mid-press,
@@ -874,18 +938,26 @@ final class MediaKeyGate: @unchecked Sendable {
                 lastEvent.removeValue(forKey: key)
                 return holds.removeValue(forKey: key) == .consume ? .consume(apply: false) : .pass
             }
+            // Over the lock screen a key is Isla's only while the island is
+            // there to show it (`drawsWhileLocked`); without that it is the
+            // system's, whose own pop-up is the only one anyone would see.
+            let lockedOut = locked && !drawsWhileLocked
             if press.isRepeat {
                 guard holds[key] == .consume else { return .pass }
                 lastEvent[key] = now
-                return .consume(apply: key != .mute && enabled && !locked && capable)
+                return .consume(apply: key != .mute && enabled && !lockedOut && capable)
             }
             let verdict: Verdict
             if !enabled {
                 verdict = .settingOff
-            } else if locked || modifiers.leavesToTheSystem || !capable {
+            } else if lockedOut || modifiers.leavesToTheSystem || !capable {
                 verdict = .pass
             } else {
                 verdict = .consume(apply: true)
+            }
+            if locked {
+                lockedPresses.total += 1
+                if verdict == .consume(apply: true) { lockedPresses.consumed += 1 }
             }
             holds[key] = verdict == .consume(apply: true) ? .consume : .pass
             lastEvent[key] = now
@@ -895,13 +967,17 @@ final class MediaKeyGate: @unchecked Sendable {
 }
 
 /// The tap's handler, assembled: ask the applier whether the key's family can
-/// be applied (cached), let the gate decide, hand the write to the applier's
-/// queue, answer. Every member is immutable and `Sendable`, so it can be
+/// be applied (cached), let the gate decide, hand the key to the applier,
+/// answer. For the volume the applier draws the press's level before it
+/// returns (`deliver` on the tap's thread) and writes it later; the
+/// brightnesses deliver from the applier's queue after their write. Every
+/// member is immutable and `Sendable`, so it can be
 /// called from the tap's thread and from the main actor alike.
 final class MediaKeyRoute: Sendable {
     let gate: MediaKeyGate
     let applier: MediaKeyApplying
-    /// Called on the applier's queue with each reading to show.
+    /// Called with each reading to show: on the tap's thread for a volume
+    /// press, on the applier's queue for the rest. Must only post and hop.
     let deliver: @Sendable (HUDReading) -> Void
     /// Called on the tap's thread when a fresh press found the setting off.
     let settingWentOff: @Sendable () -> Void
@@ -928,6 +1004,44 @@ final class MediaKeyRoute: Sendable {
         case .consume(let apply):
             if apply { applier.submit(press.key, fine: modifiers.fine, deliver: deliver) }
             return true
+        }
+    }
+}
+
+/// The newest reading waiting for the main actor, and whether a hop to fetch it
+/// is already queued.
+///
+/// A held key repeats every 30 to 35 ms and each press is applied on the
+/// applier's queue, off the main thread. Handing each reading to the main queue
+/// separately meant that after the main thread stalled — a synchronous
+/// AppleScript, a page fault, a long layout — the whole backlog played back,
+/// one bar after another, long after the key had been released (diagnosed
+/// 2026-10-25, "it kind of lags … freezing"). Only the latest level is of any
+/// use to a person looking at a bar, so a reading replaces the one before it and
+/// only the first of a burst schedules the hop.
+///
+/// Thread-safe: `post` runs on the tap's thread (a volume press) or the
+/// applier's queue (a brightness), `take` on the main actor.
+final class LatestReadingMailbox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: HUDReading?
+
+    /// Stores `reading` over whatever waits. True when nothing was waiting,
+    /// which is to say the caller must schedule the hop that takes it.
+    func post(_ reading: HUDReading) -> Bool {
+        lock.withLock {
+            let first = pending == nil
+            pending = reading
+            return first
+        }
+    }
+
+    /// The newest reading, leaving the mailbox empty so the next `post` hops
+    /// again.
+    func take() -> HUDReading? {
+        lock.withLock {
+            defer { pending = nil }
+            return pending
         }
     }
 }

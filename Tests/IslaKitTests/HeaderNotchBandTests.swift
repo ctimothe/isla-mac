@@ -202,7 +202,7 @@ final class HeaderNotchBandTests: XCTestCase {
                     XCTAssertEqual(title.showsName(room: room), needed <= room, "\(name) on \(surface) under \(notchWidth)")
                     XCTAssertLessThanOrEqual(SurfaceHeaderLayout.titleGlyphBox.width, room, "the glyph always fits")
                     let withIcon = PlayerSourceTitle(name: name, icon: icon)
-                    let neededWithIcon = SurfaceHeaderLayout.toolSide + SurfaceHeaderLayout.titleGap + width
+                    let neededWithIcon = SurfaceHeaderLayout.glyphWidth(withIcon.glyph) + SurfaceHeaderLayout.titleGap + width
                     XCTAssertEqual(withIcon.showsName(room: room), neededWithIcon <= room, "\(name) with its icon on \(surface) under \(notchWidth)")
                     XCTAssertLessThanOrEqual(SurfaceHeaderLayout.glyphWidth(withIcon.glyph), room, "the app's icon always fits")
                 }
@@ -210,15 +210,25 @@ final class HeaderNotchBandTests: XCTestCase {
         }
     }
 
-    /// Whatever app is playing, its icon stands as tall as the gear across the
-    /// header (owner, 2026-10-18): the squircle macOS seats in 824 of an
-    /// icon's 1024 points is drawn the gear well's 26 pt, centred on the same
-    /// line, and 20 in from the left as the well is 20 in from the right.
-    func testThePlayersIconIsTheGearsHeight() {
+    /// Whatever app is playing, its icon shows the same squircle (owner,
+    /// 2026-10-18: one size for every player; 2026-10-25: the gear's 26 pt was
+    /// "just too big"; 2026-10-26: the same size as every other page's glyph):
+    /// the squircle macOS seats in 824 of an icon's 1024 points is drawn at
+    /// `HeaderIcon.size`, 14 pt, so its image is about 17.4 pt, centred on the
+    /// same line as the gear, and 20 in from the left as the well is 20 in
+    /// from the right.
+    func testThePlayersIconIsTheSymbolsSize() {
         let gear = SurfaceHeaderLayout.gear(bodyWidth: 480, notchHeight: 38)
         let squircle = SurfaceHeaderLayout.appIconSide * 824 / 1024
-        XCTAssertEqual(squircle, gear.height, accuracy: 0.001)
-        XCTAssertEqual(SurfaceHeaderLayout.glyphWidth(.app(NSImage(size: NSSize(width: 32, height: 32)))), gear.width)
+        XCTAssertEqual(squircle, HeaderIcon.size, accuracy: 0.001)
+        XCTAssertEqual(squircle, 14, accuracy: 0.001)
+        XCTAssertLessThan(squircle, gear.height, "smaller than the gear's well")
+        XCTAssertEqual(
+            SurfaceHeaderLayout.glyphWidth(.app(NSImage(size: NSSize(width: 32, height: 32)))),
+            SurfaceHeaderLayout.appIconSide, accuracy: 0.001
+        )
+        XCTAssertEqual(SurfaceHeaderLayout.appIconSide, 17.4, accuracy: 0.1)
+        XCTAssertLessThanOrEqual(SurfaceHeaderLayout.appIconSide, SurfaceHeaderLayout.titleGlyphBox.width, "the icon fits the symbols' box")
         XCTAssertEqual(SurfaceHeaderLayout.glyphWidth(.symbol("music.note")), SurfaceHeaderLayout.titleGlyphBox.width)
         let title = SurfaceHeaderLayout.title(bodyWidth: 480, notchWidth: 200, notchHeight: 38)
         XCTAssertEqual(title.midY, gear.midY, accuracy: 0.001, "the icon and the gear share a centre line")

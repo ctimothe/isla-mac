@@ -86,6 +86,9 @@ struct UpdateAlertView: View {
                 detailLine(text, line: 0, lines: 1)
                     // A step of the install changes the words in place.
                     .contentTransition(.opacity)
+                    // While it works the bar below says the step with its
+                    // fraction; read here too, the step was said twice.
+                    .accessibilityHidden(stage.progress != nil)
             }
             detailLine(localized("Isla restarts when it is done."), line: text == nil ? 0 : 1, lines: 1)
         } else if let text {
@@ -135,9 +138,14 @@ struct UpdateAlertView: View {
             }
             .animation(Theme.contentAnimation, value: progress)
             .placedAt(frame)
-            .accessibilityElement()
-            .accessibilityLabel(stage.detail(summary: nil) ?? "")
-            .accessibilityValue(Text(progress, format: .percent.precision(.fractionLength(0))))
+            // Read as a progress indicator, named by the step, with its
+            // percent. Two capsules given a label and a `Text` value came out
+            // as an unknown element with no value, so VoiceOver heard the
+            // step and never how far it had got (MomentAccessibilityTests,
+            // 2026-10-29).
+            .accessibilityRepresentation {
+                ProgressView(value: progress) { Text(stage.detail(summary: nil) ?? "") }
+            }
         }
     }
 }

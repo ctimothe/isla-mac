@@ -123,11 +123,10 @@ final class ClipboardAccessibilityTests: XCTestCase {
         defer { isolated.release() }
 
         let root = await AXProbe.tree(of: pane(isolated), size: size)
-        XCTAssertTrue(words(root).contains("Nothing copied yet"), root.dump)
-        // Redesign 2026-10-15 (spec §9.4): the line names every kind the tab
-        // now keeps.
-        XCTAssertTrue(words(root).contains("Text, links, images and files you copy appear here. Copies from password managers are skipped."),
-                      root.dump)
+        // One sentence under the glyph (owner, 2026-10-25); it replaced the
+        // headline and the two-line body.
+        XCTAssertTrue(words(root).contains("Copied text and images will appear here."), root.dump)
+        XCTAssertFalse(words(root).contains("Nothing copied yet"), root.dump)
         XCTAssertTrue(root.all { $0.label == "Paste" }.isEmpty, root.dump)
         XCTAssertTrue(root.all(role: "AXImage").isEmpty, root.dump)
         XCTAssertNil(root.first(label: "Turn On"), root.dump)

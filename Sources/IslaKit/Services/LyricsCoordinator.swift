@@ -210,10 +210,17 @@ final class LyricsCoordinator: ObservableObject {
 
     func start() {
         guard observers.isEmpty else { return }
-        media.$track
-            .combineLatest(media.$duration)
-            .sink { [weak self] track, duration in
-                self?.reconcileTrack(track: track, duration: duration)
+        // One reading per report, not `$track` and `$duration` combined: those
+        // two arrived as two events on every skip — the new title with the old
+        // song's length, then the length — and each rebuilt the identity, so
+        // a skip asked for the new song's words twice, the first time with a
+        // length that was not its own (owner, 2026-10-25). The reading carries
+        // both, assigned together at the end of `MediaController.apply`.
+        media.$reading
+            .map { TrackAndLength(track: $0.track, duration: $0.duration) }
+            .removeDuplicates()
+            .sink { [weak self] reading in
+                self?.reconcileTrack(track: reading.track, duration: reading.duration)
             }
             .store(in: &observers)
         library.$revision
@@ -228,6 +235,13 @@ final class LyricsCoordinator: ObservableObject {
             .sink { [weak self] choice in self?.registerBoundaries(readAhead: choice) }
             .store(in: &observers)
         reconcileTrack(track: media.track, duration: media.duration)
+    }
+
+    /// What the coordinator identifies a recording by, out of a reading: a
+    /// new cover is not a new song.
+    private struct TrackAndLength: Equatable {
+        var track: MediaController.Track?
+        var duration: TimeInterval
     }
 
     func stop() {
@@ -508,18 +522,40 @@ final class LyricsCoordinator: ObservableObject {
 
     private func recheckCurrentTrack() {
         guard currentIdentity != nil else { return }
-        resolveCurrentTrack()
+        resolveCurrentTrack(keepingShown: true)
     }
 
-    private func resolveCurrentTrack() {
+    /// `keepingShown` is a second look at the same song — a folder rescan,
+    /// an import elsewhere, Retry — rather than a new song.
+    private func resolveCurrentTrack(keepingShown: Bool = false) {
         guard let identity = currentIdentity else { return }
+        var shown: LocalLyricsCandidate?
+        if keepingShown, case .ready(let candidate) = localLookup { shown = candidate }
         localLookup = nil
         publishAvailability()
-        localLookup = library.lookup(identity: identity)
+        localLookup = Self.keepingShown(shown, over: library.lookup(identity: identity))
         // After the lookup, which prunes a binding whose document is gone.
         syncLocalOverride()
         publishAvailability()
         lookUpOnlineIfNeeded(for: identity)
+    }
+
+    /// What a second look at the song shows, given the file already on screen.
+    ///
+    /// A rescan that found a second copy of the shown file's song, tied with
+    /// it (same tags, a length within the match), answered `.ambiguous`, and
+    /// the lyric on screen gave way to "Choose local lyrics…" in the middle of
+    /// the song — the one thing hardware check 422 says a rescan must never
+    /// do. The shown file is still one of the candidates, so it stays; a song
+    /// that shows nothing yet still asks, as ambiguity always has. A file
+    /// keeps its id across rescans (`LocalLyricsLibrary`, by path), and the
+    /// fresh candidate is the one kept, so an edit to that file shows.
+    nonisolated static func keepingShown(
+        _ shown: LocalLyricsCandidate?, over lookup: LocalLyricsLookup
+    ) -> LocalLyricsLookup {
+        guard let shown, case .ambiguous(let candidates) = lookup,
+              let same = candidates.first(where: { $0.id == shown.id }) else { return lookup }
+        return .ready(same)
     }
 
     /// The network, and only where nothing else can answer.
@@ -726,6 +762,19 @@ final class LyricsCoordinator: ObservableObject {
     /// here. They are re-registered when the setting changes (`start`), which
     /// passes the new value because the store has not written it yet when
     /// that event arrives.
+    /// Every moment a lyric surface can turn its line: each line's start,
+    /// each honoured end and each read-ahead start. The clock wakes on these,
+    /// and the player's sung line reads the song only when one is crossed
+    /// (`PlaybackClock.linePosition`), so a moment left out here is a line
+    /// that turns late, at the next tick, or with the sung line not at all
+    /// until the next boundary. `SungLineTickTests` walks the caption across
+    /// every kind.
+    static func boundaries(of lines: [LyricsStore.Line], readAhead: LyricReadAhead) -> [TimeInterval] {
+        let ends = lines.indices.compactMap { LyricSweep.effectiveEnd(of: $0, in: lines) }
+        let early = lines.indices.compactMap { LyricSweep.readAheadStart(before: $0, in: lines, readAhead: readAhead) }
+        return lines.map(\.at) + ends + early
+    }
+
     private func registerBoundaries(readAhead: LyricReadAhead? = nil) {
         guard case .ready(let timeline) = availability else {
             media.setLyricBoundaries([], lead: { 0 })
@@ -733,11 +782,8 @@ final class LyricsCoordinator: ObservableObject {
         }
         let media = self.media
         let presentation = self.presentation
-        let lines = timeline.lines
-        let ends = lines.indices.compactMap { LyricSweep.effectiveEnd(of: $0, in: lines) }
         let ahead = readAhead ?? presentation?.readAhead ?? .off
-        let early = lines.indices.compactMap { LyricSweep.readAheadStart(before: $0, in: lines, readAhead: ahead) }
-        media.setLyricBoundaries(lines.map(\.at) + ends + early) {
+        media.setLyricBoundaries(Self.boundaries(of: timeline.lines, readAhead: ahead)) {
             LyricSweep.lead(
                 precisionSync: media.precisionSync,
                 userOffset: presentation?.userOffset ?? 0,

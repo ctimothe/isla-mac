@@ -137,6 +137,82 @@ final class LyricsCoordinatorTests: XCTestCase {
         )
     }
 
+    /// "A folder rescan must not replace a displayed lyric with an ambiguous or
+    /// lower-confidence candidate" (checklist, local-library prefetch), on the
+    /// coordinator that decides what a surface shows. The song shows the one
+    /// file its folder holds; a rescan finds a second file for it that is less
+    /// sure (another album, no album, a length too far out), and what is on
+    /// screen is the same timeline afterwards.
+    func testARescanThatFindsOnlyLowerConfidenceFilesKeepsTheShownLyric() throws {
+        let folder = root.appendingPathComponent("Library", isDirectory: true)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Shown".utf8)
+            .write(to: folder.appendingPathComponent("shown.lrc"), options: .atomic)
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+        media.apply(playingSnapshot())
+        guard case .ready(let shown) = coordinator.availability else {
+            return XCTFail("the fixture: the folder's file is showing: \(coordinator.availability)")
+        }
+
+        let rivals = [
+            "[ti:Song]\n[ar:Artist]\n[al:Greatest Hits]\n[length:03:00]\n[00:01.00]Other album",
+            "[ti:Song]\n[ar:Artist]\n[length:03:00]\n[00:01.00]No album",
+            "[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:09]\n[00:01.00]Nine seconds out",
+        ]
+        for (index, contents) in rivals.enumerated() {
+            try Data(contents.utf8).write(to: folder.appendingPathComponent("rival-\(index).lrc"), options: .atomic)
+            try library.rescanFolders()
+            guard case .ready(let after) = coordinator.availability else {
+                return XCTFail("rival \(index) took the lyric off the screen: \(coordinator.availability)")
+            }
+            XCTAssertEqual(after, shown, "rival \(index) replaced the shown lyric")
+        }
+    }
+
+    /// The same, for a second file that is *as* sure as the shown one — the
+    /// same tags, a length a second out: to the library that is a tie, and an
+    /// ambiguous song asks the listener to choose. The checklist says a rescan
+    /// must not replace a displayed lyric with an ambiguous candidate; today
+    /// the coordinator re-resolves from the library alone, remembers nothing
+    /// of what is on screen, and so the song's words are swapped for "Choose
+    /// local lyrics…" mid-song. This holds the checklist's wording.
+    func testARescanThatTiesWithTheShownLyricKeepsItShown() throws {
+        let folder = root.appendingPathComponent("Library", isDirectory: true)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:00]\n[00:01.00]Shown".utf8)
+            .write(to: folder.appendingPathComponent("shown.lrc"), options: .atomic)
+        let library = LocalLyricsLibrary(directory: root)
+        try library.addFolder(folder)
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+        media.setActive(true)
+        defer { media.setActive(false) }
+        media.apply(playingSnapshot())
+        guard case .ready(let shown) = coordinator.availability else {
+            return XCTFail("the fixture: the folder's file is showing: \(coordinator.availability)")
+        }
+
+        try Data("[ti:Song]\n[ar:Artist]\n[al:Album]\n[length:03:01]\n[00:01.00]A second copy".utf8)
+            .write(to: folder.appendingPathComponent("copy.lrc"), options: .atomic)
+        try library.rescanFolders()
+
+        XCTAssertEqual(
+            coordinator.availability, .ready(shown),
+            "a rescan replaced the shown lyric with \(String(describing: coordinator.localLookup))"
+        )
+    }
+
     /// Off by default, and off means no request is ever made.
     ///
     /// The switch is the whole privacy claim. A coordinator built without an
@@ -357,6 +433,35 @@ final class LyricsCoordinatorTests: XCTestCase {
             asked.last?.duration, 191,
             "the corrected length must re-open the lookup, not be ignored as the same track"
         )
+    }
+
+    /// One skip, one lookup, with the new song's own length.
+    ///
+    /// The title was published before the length, so the coordinator built an
+    /// identity from the new title and the old song's length, looked it up,
+    /// and then built and looked up a second one when the length landed
+    /// (owner, 2026-10-25). Both now arrive in one `MediaController.Reading`.
+    func testASkipIsLookedUpOnceWithItsOwnLength() throws {
+        var lookups: [LocalTrackIdentity] = []
+        let library = LocalLyricsLibrary(directory: root, onLookup: { lookups.append($0) })
+        let media = MediaController()
+        media.isolateFromPlayers()
+        let coordinator = LyricsCoordinator(media: media, library: library, isEnabled: { true })
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        media.apply(playingSnapshot())
+        XCTAssertEqual(lookups.count, 1, "the fixture: the first song, looked up once")
+
+        var next = playingSnapshot()
+        next.title = "Next Song"
+        next.duration = 214
+        next.elapsed = 0.1
+        media.apply(next)
+
+        XCTAssertEqual(lookups.count, 2, "one lookup for the skip, not one per field")
+        XCTAssertEqual(lookups.last?.title, "Next Song")
+        XCTAssertEqual(lookups.last?.duration, 214, "with its own length, never the previous song's")
     }
 
     /// A skip shows no loading state at all while the answer is quick.

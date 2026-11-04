@@ -116,20 +116,29 @@ final class ShelfLayoutTests: XCTestCase {
     }
 
     func testTheIconNameAndBadgeSitWhereTheBoardPutsThem() {
-        XCTAssertEqual(ShelfLayout.icon, CGRect(x: 19, y: 9, width: 42, height: 42))
+        XCTAssertEqual(ShelfLayout.icon, CGRect(x: 19, y: 7, width: 42, height: 42))
         XCTAssertEqual(ShelfLayout.nameOrigin.x, 4)
-        XCTAssertEqual(ShelfLayout.nameOrigin.y, 60.4, accuracy: 0.0001)
+        XCTAssertEqual(ShelfLayout.nameOrigin.y, 53, accuracy: 0.0001)
         XCTAssertEqual(ShelfLayout.nameWidth, 72)
-        XCTAssertEqual(ShelfLayout.nameSize, 11.5)
+        XCTAssertEqual(ShelfLayout.nameSize, 12, "Finder's icon-view label")
+        XCTAssertEqual(ShelfLayout.infoSize, 11)
         XCTAssertEqual(ShelfLayout.maximumNameLines, 2)
         XCTAssertEqual(ShelfLayout.badge, CGRect(x: 57.75, y: 5.5, width: 17, height: 17))
         XCTAssertEqual(ShelfLayout.badgeDisc, 14)
         // The icon is centred in the tile; the name sits under it, inside it.
         XCTAssertEqual(ShelfLayout.icon.midX, ShelfLayout.tile.width / 2)
         XCTAssertLessThan(ShelfLayout.icon.maxY, ShelfLayout.nameOrigin.y)
+        // A two-line name and the item-info line fit the tile exactly, so
+        // showing the date costs the tray no height.
         XCTAssertLessThanOrEqual(
-            ShelfLayout.nameOrigin.y + CGFloat(ShelfLayout.maximumNameLines) * ShelfLayout.nameLineHeight, ShelfLayout.tile.height
+            ShelfLayout.nameOrigin.y + CGFloat(ShelfLayout.maximumNameLines) * ShelfLayout.nameLineHeight
+                + ShelfLayout.infoLineHeight,
+            ShelfLayout.tile.height
         )
+        // The icon's backdrop is the icon's box and no more: it stops short of the name.
+        XCTAssertEqual(ShelfLayout.iconBackdrop, ShelfLayout.icon.insetBy(dx: -3, dy: -3))
+        XCTAssertLessThanOrEqual(ShelfLayout.iconBackdrop.maxY, ShelfLayout.nameOrigin.y)
+        XCTAssertGreaterThanOrEqual(ShelfLayout.iconBackdrop.minY, 0)
         XCTAssertLessThanOrEqual(ShelfLayout.badge.maxX, ShelfLayout.tile.width)
     }
 
@@ -245,7 +254,7 @@ final class ShelfLayoutTests: XCTestCase {
             XCTAssertLessThanOrEqual(ShelfTileName.measure(line), ShelfLayout.nameWidth, line)
         }
         XCTAssertTrue(lines.last?.hasSuffix(".png") ?? false)
-        // Picked, the name is medium and measures a hair wider; the lines are computed for it.
+        // Picked, the name is set in the same weight; the lines are computed for it all the same.
         let picked = ShelfTileName.lines(capture) { ShelfTileName.measure($0, selected: true) }
         for line in picked {
             XCTAssertLessThanOrEqual(ShelfTileName.measure(line, selected: true), ShelfLayout.nameWidth, line)
@@ -262,18 +271,17 @@ final class ShelfLayoutTests: XCTestCase {
     // MARK: - Tile wells (§19.7)
 
     func testTheWellsPriority() {
-        XCTAssertNil(ShelfWell.state(isSelected: false, isHovered: false, isAlreadyKept: false))
-        XCTAssertEqual(ShelfWell.state(isSelected: false, isHovered: true, isAlreadyKept: false), .hover)
-        XCTAssertEqual(ShelfWell.state(isSelected: true, isHovered: true, isAlreadyKept: false), .selected,
-                       "a picked tile under the pointer keeps its stronger well")
-        XCTAssertEqual(ShelfWell.state(isSelected: true, isHovered: true, isAlreadyKept: true), .alreadyKept,
+        // No plate at rest and none under the pointer: Finder shows neither.
+        XCTAssertNil(ShelfWell.state(isSelected: false, isAlreadyKept: false))
+        XCTAssertEqual(ShelfWell.state(isSelected: true, isAlreadyKept: false), .selected)
+        XCTAssertEqual(ShelfWell.state(isSelected: true, isAlreadyKept: true), .alreadyKept,
                        "the flash is the one that has to be seen in its second")
-        // White 0.10, 0.14 under the pointer; picked, white 0.18 inside a 1.5 pt
-        // blue ring.
-        XCTAssertEqual(Theme.shelfTilePlate, Color.white.opacity(0.10))
-        XCTAssertEqual(Theme.shelfHoverWell, Color.white.opacity(0.14))
-        XCTAssertEqual(Theme.shelfSelectedWell, Color.white.opacity(0.18))
-        XCTAssertEqual(Theme.shelfSelectedRingWidth, 1.5)
+        // Picked: white 0.15 behind the icon alone, radius 5, no ring; the name
+        // on the selected-text colour (Finder's selection, 2026-10-26).
+        XCTAssertEqual(Theme.shelfSelectedWell, Color.white.opacity(0.15))
+        XCTAssertEqual(Theme.shelfIconBackdropRadius, 5)
+        XCTAssertEqual(Theme.shelfCaptionHighlight, Color(nsColor: .selectedContentBackgroundColor),
+                       "the person's Highlight colour, never a fixed blue")
     }
 
     /// The remove badge shows on the hovered and the selected tile (decision 9).
@@ -317,6 +325,19 @@ final class ShelfLayoutTests: XCTestCase {
         let time = ShelfItem.added(at("2026-10-18T00:05:00Z"), now: now, calendar: calendar).time
         XCTAssertFalse(time.isEmpty)
         XCTAssertTrue(time.contains(":") || time.contains("."), "to the minute: \(time)")
+    }
+
+    /// The line under a name is one line: the time for today's cards, the day
+    /// for older ones (§19.7, amended 2026-10-26).
+    func testTheItemInfoLineIsOneLine() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        func at(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+        let now = at("2026-10-18T12:30:00Z")
+        let today = ShelfTileInfo.line(at("2026-10-18T09:05:00Z"), now: now, calendar: calendar)
+        XCTAssertEqual(today, ShelfItem.added(at("2026-10-18T09:05:00Z"), now: now, calendar: calendar).time)
+        XCTAssertEqual(ShelfTileInfo.line(at("2026-10-17T09:05:00Z"), now: now, calendar: calendar), localized("Yesterday"))
+        XCTAssertTrue(ShelfTileInfo.full(at("2026-10-17T09:05:00Z"), now: now, calendar: calendar).contains(localized("Yesterday") + ", "))
     }
 
     /// The tray's header is a title like every page's (§19.7, amended

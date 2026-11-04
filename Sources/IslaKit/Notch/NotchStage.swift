@@ -15,7 +15,9 @@ import SwiftUI
 /// 1. the outline's fill and shadow (`IslandOutlineHost.backdrop`),
 /// 2. the island (`hosting`): the SwiftUI content, its layer cut by the outline,
 /// 3. the Shelf's bubble (`bubble`): beside the island, so outside that cut,
-/// 4. the outline's line (`IslandOutlineHost.overlay`), over the content so
+/// 4. the level indicator under the open panel (`hudStrip`): below the island,
+///    so outside that cut too, and click-through,
+/// 5. the outline's line (`IslandOutlineHost.overlay`), over the content so
 ///    nothing lies over the border.
 @MainActor
 enum NotchStage {
@@ -23,6 +25,7 @@ enum NotchStage {
         let root: NotchRootView
         let hosting: NSHostingView<NotchContentView>
         let bubble: IslandBubbleHostingView
+        let hudStrip: IslandHUDStripHostingView
         let outline: IslandOutlineHost
     }
 
@@ -35,6 +38,8 @@ enum NotchStage {
         // The pages settle on this view's display link, frame by frame
         // (§19.16), rather than on a timer that drifts against the display.
         (vm.pageTravel.clock as? DisplayPageClock)?.view = hosting
+        // The vertical pull publishes once a frame, on the same clock.
+        (vm.pullStretch.clock as? DisplayPageClock)?.view = hosting
         hosting.frame = root.bounds
         hosting.autoresizingMask = [.width, .height]
         hosting.sizingOptions = []
@@ -46,11 +51,17 @@ enum NotchStage {
         bubble.sizingOptions = []
         outline.attach(bubble: bubble)
 
+        let hudStrip = IslandHUDStripHostingView(rootView: HUDStripLayer(vm: vm))
+        hudStrip.frame = root.bounds
+        hudStrip.autoresizingMask = [.width, .height]
+        hudStrip.sizingOptions = []
+
         root.addSubview(outline.backdrop)
         root.addSubview(hosting)
         root.addSubview(bubble)
+        root.addSubview(hudStrip)
         root.addSubview(outline.overlay)
         root.islandHosting = hosting
-        return Stack(root: root, hosting: hosting, bubble: bubble, outline: outline)
+        return Stack(root: root, hosting: hosting, bubble: bubble, hudStrip: hudStrip, outline: outline)
     }
 }

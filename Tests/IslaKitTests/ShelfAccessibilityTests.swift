@@ -108,8 +108,9 @@ final class ShelfAccessibilityTests: XCTestCase {
         XCTAssertEqual(last.all(role: "AXButton").filter { names.contains($0.label) }.count, 1, last.dump)
     }
 
-    /// The empty tray says what the Shelf is for in one line, and there is
-    /// no glyph or limit to read: the line is the whole state (§19.7).
+    /// The empty tray says what to do in one sentence under a decorative
+    /// `tray` glyph, and there is no limit to read: the sentence is the whole
+    /// state for VoiceOver (§19.7; glyph and wording 2026-10-25).
     func testTheEmptyShelfSaysWhatToDo() async {
         let fixture = Fixture(files: [])
         defer { fixture.release() }
@@ -117,7 +118,7 @@ final class ShelfAccessibilityTests: XCTestCase {
         let root = await AXProbe.tree(of: tray(fixture.shelf), size: paneSize)
         let texts = root.all(role: "AXStaticText")
         let words = texts.map { $0.label.isEmpty ? $0.value : $0.label }
-        XCTAssertEqual(words, ["Drag files to the notch to keep them here."], root.dump)
+        XCTAssertEqual(words, ["Drop files here to keep them handy."], root.dump)
         XCTAssertTrue(root.all { $0.label == "Download Multiple" }.isEmpty, root.dump)
         XCTAssertTrue(root.all(role: "AXImage").isEmpty, root.dump)
         XCTAssertTrue(root.all(role: "AXButton").isEmpty, "nothing to press on an empty tray\n\(root.dump)")

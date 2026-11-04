@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import OSLog
 
 /// The one Spotify feature that has no local API: Liked Songs.
 ///
@@ -70,7 +71,9 @@ final class SpotifyAccount: ObservableObject {
         /// client is one — not on each person who signs in to it, so the
         /// explanation does not tell the listener to upgrade.
         case premiumRequired
-        case other
+        /// Anything else, with Spotify's own message when it sent one, so
+        /// Settings says what Spotify said rather than a guess (2026-10-25).
+        case other(String?)
 
         /// Read from the 403's own message, because the status alone cannot
         /// tell the two apart and the user can fix only one of them.
@@ -78,27 +81,42 @@ final class SpotifyAccount: ObservableObject {
             guard let body,
                   let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                   let error = object["error"] as? [String: Any],
-                  let message = (error["message"] as? String)?.lowercased()
-            else { return .other }
+                  let original = error["message"] as? String
+            else { return .other(nil) }
+            let message = original.lowercased()
             if message.contains("not registered") { return .notRegistered }
             if message.contains("premium") { return .premiumRequired }
-            return .other
+            return .other(SignInFailure.oneLine(original))
         }
 
+        /// One line under the Spotify row. Short on purpose (owner rule:
+        /// cut helper text); the full story is in `docs/` and in the log.
         var explanation: String {
             switch self {
             case .notRegistered:
-                return localized("Spotify refused this account. Until Spotify reviews Isla, it admits only accounts added by hand, so Liked Songs cannot work here yet.")
+                return localized("Spotify hasn’t admitted this account to Isla yet.")
             case .premiumRequired:
-                return localized("Spotify refused Liked Songs and named Premium. Spotify asks this of Isla's own registration, so your plan may not be the cause.")
-            case .other:
-                return localized("Spotify refused this account's library request.")
+                return localized("Spotify asks for Premium on Isla’s registration.")
+            case .other(let message?):
+                return localized("Spotify said: %@", message)
+            case .other(nil):
+                return localized("Spotify refused this account.")
+            }
+        }
+
+        /// For the log: which case, never more than Spotify's own message.
+        var logName: String {
+            switch self {
+            case .notRegistered: return "notRegistered"
+            case .premiumRequired: return "premiumRequired"
+            case .other(let message): return "other(\(SignInFailure.loggable(message)))"
             }
         }
     }
 
     private func refuse(_ body: Data?) {
         refusal = Refusal.from(body)
+        Log.spotify.notice("Web API refused the account (403): \(self.refusal?.logName ?? "-", privacy: .public)")
         apiBlocked = true
         blockedUntil = now().addingTimeInterval(Self.refusalCooldown)
     }
@@ -147,6 +165,14 @@ final class SpotifyAccount: ObservableObject {
     /// is pending, after a success, and before anything was tried.
     @Published private(set) var signInOutcome: SignInOutcome?
 
+    /// Shows how a sign-in ended without running one, for the visual lab,
+    /// which draws Spotify's own reason under the Connections row with no
+    /// network. Does nothing outside a test process.
+    func presentSignInForTests(_ outcome: SignInOutcome?) {
+        guard PlayerBridge.isRunningTests else { return }
+        signInOutcome = outcome
+    }
+
     /// What went wrong on this Mac around a sign-in, as opposed to what Spotify
     /// answered (`signInOutcome`). One value, one inline note in Settings, no
     /// toast: the person acted on that row, so the row answers. Cleared on the
@@ -183,8 +209,98 @@ final class SpotifyAccount: ObservableObject {
         /// the flow is gone and the code cannot be exchanged.
         case expired
         /// Spotify answered the callback with another error, or would not
-        /// exchange the code it had just issued.
-        case failed
+        /// exchange the code it had just issued. It used to carry nothing, so
+        /// every one of these read "did not finish" whatever Spotify had said
+        /// (2026-10-25, the owner's own Connect).
+        case failed(SignInFailure)
+    }
+
+    /// What Spotify said when a sign-in failed: where, the HTTP status of the
+    /// token endpoint, and the OAuth `error` and `error_description` from the
+    /// callback or the token endpoint's body. Never a code or a token.
+    struct SignInFailure: Equatable {
+        enum Stage: String {
+            /// The consent page sent the browser back with an error.
+            case consent
+            /// The token endpoint would not exchange the code.
+            case exchange
+        }
+        var stage: Stage
+        /// The token endpoint's HTTP status; 0 when no HTTP answer came back,
+        /// nil at the consent stage, which has none.
+        var status: Int? = nil
+        var error: String? = nil
+        var detail: String? = nil
+
+        /// The one line under the Spotify row: Isla's words, translated, for
+        /// the cases it knows; Spotify's own words for the rest.
+        var explanation: String {
+            if stage == .exchange, status == 0 { return localized("Isla couldn’t reach Spotify.") }
+            // Isla's own marker for a 200 whose body it could not decode
+            // (`tokenRequest`), not anything Spotify said: it used to reach the
+            // row as "Spotify said: unreadable_response".
+            if error == "unreadable_response" {
+                return localized("Spotify sign-in did not finish. Try connecting again.")
+            }
+            // The RFC 6749 §4.1.2.1 / §5.2 codes, in Isla's words and the
+            // person's language. Spotify's description for them is for the
+            // developer, and was drawn verbatim ("Spotify said: invalid_grant")
+            // under the row. Only text Isla has no line for is Spotify's own.
+            switch error {
+            case "invalid_client": return localized("Spotify doesn’t recognise Isla’s registration.")
+            case "unauthorized_client": return localized("Spotify doesn’t allow Isla to sign in this way.")
+            case "invalid_grant": return localized("The sign-in expired before it finished. Try Connect again.")
+            case "invalid_scope": return localized("Spotify refused the permissions Isla asked for.")
+            case "server_error": return localized("Spotify had a problem. Try again later.")
+            case "temporarily_unavailable": return localized("Spotify is busy right now. Try again in a minute.")
+            default: break
+            }
+            if let status, status >= 500, detail == nil {
+                // `%ld`: `status` is a Swift Int, 64 bits wide.
+                return localized("Spotify isn’t answering (HTTP %ld). Try again later.", status)
+            }
+            guard let said = (detail ?? error).flatMap({ Self.oneLine($0) }) else {
+                return localized("Spotify sign-in did not finish. Try connecting again.")
+            }
+            if let status, stage == .exchange { return localized("Spotify said: %@ (HTTP %ld)", said, status) }
+            return localized("Spotify said: %@", said)
+        }
+
+        /// Spotify's text as one bounded line: it is drawn under a row, and it
+        /// is the one string here Isla did not write. Anything that could lay
+        /// the line out differently from what it says goes: control characters
+        /// and tabs become spaces, and the Unicode format characters (category
+        /// Cf) go entirely — the bidi overrides U+202A–202E and U+2066–2069,
+        /// which can make a line read backwards or hide what follows, and the
+        /// zero-width ones U+200B–200F and U+FEFF, which hide text from a
+        /// reader and from a log search alike. Whitespace is collapsed, then
+        /// the line is capped. It used to cut newlines only, so a description
+        /// could carry all of those into the row and the log.
+        static func oneLine(_ text: String, limit: Int = 160) -> String? {
+            var scalars = String.UnicodeScalarView()
+            for scalar in text.unicodeScalars {
+                switch scalar.properties.generalCategory {
+                case .format: continue
+                case .control, .lineSeparator, .paragraphSeparator: scalars.append(" ")
+                default: scalars.append(scalar)
+                }
+            }
+            let flat = String(scalars).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            guard !flat.isEmpty else { return nil }
+            return flat.count > limit ? String(flat.prefix(limit - 1)) + "…" : flat
+        }
+
+        /// What Spotify sent, made safe for the log: one line, at most 120
+        /// characters, "-" when there is nothing. The log marks these fields
+        /// `.public`, so nothing Spotify chose may reach it unsanitised or
+        /// unbounded.
+        static func loggable(_ text: String?) -> String {
+            text.flatMap { oneLine($0, limit: 120) } ?? "-"
+        }
+
+        var logLine: String {
+            "stage=\(stage.rawValue) status=\(status.map(String.init) ?? "-") error=\(Self.loggable(error)) description=\(Self.loggable(detail))"
+        }
     }
 
     /// Liked Songs writes, one runner per track. A tap records where the heart
@@ -350,7 +466,12 @@ final class SpotifyAccount: ObservableObject {
         // `NSWorkspace.open` says whether it found a browser. That answer used
         // to be dropped, so a Mac with none made Connect do nothing and say
         // nothing.
-        if !openURL(components.url!) { signInProblem = .browserDidNotOpen }
+        if openURL(components.url!) {
+            Log.spotify.notice("Connect: consent page opened (client \(clientID == Self.builtInClientID ? "built-in" : "custom", privacy: .public))")
+        } else {
+            Log.spotify.error("Connect: no browser took the consent page")
+            signInProblem = .browserDidNotOpen
+        }
     }
 
     /// The browser lands back here through the app's URL scheme.
@@ -372,14 +493,21 @@ final class SpotifyAccount: ObservableObject {
             // something and deserves to know it did not take. Not said over a
             // working account, where this is far more likely a callback opened
             // twice after it already succeeded than a sign-in that was lost.
-            if !isConnected { signInOutcome = .expired }
+            Log.spotify.notice("Callback with no sign-in pending (relaunched, or a second callback)")
+            // Only onto a blank row. A stray callback used to replace the
+            // reason the last attempt ended in (`.failed`, `.cancelled`) with
+            // "expired", hiding what the person had not yet read.
+            if !isConnected, signInOutcome == nil { signInOutcome = .expired }
             return
         }
         // The callback has to name the request it answers, and that request has
         // to be one this app made and has not already consumed. One that does
         // not is not ours to report on, so it is dropped without a word.
         guard let returned = items.first(where: { $0.name == "state" })?.value,
-              constantTimeEquals(returned, expected) else { return }
+              constantTimeEquals(returned, expected) else {
+            Log.spotify.notice("Callback dropped: its state is not the pending sign-in's")
+            return
+        }
         // Single-use, both of them: a verifier or state left lying around is a
         // second chance for a callback nobody asked for.
         authorizationState = nil
@@ -390,9 +518,20 @@ final class SpotifyAccount: ObservableObject {
             // the Cancel button on the consent page; anything else is a
             // failure the user did not choose.
             let error = items.first(where: { $0.name == "error" })?.value
-            signInOutcome = error == "access_denied" ? .cancelled : .failed
+            if error == "access_denied" {
+                Log.spotify.notice("Consent: cancelled on Spotify's page")
+                signInOutcome = .cancelled
+                return
+            }
+            let failure = SignInFailure(
+                stage: .consent, error: error,
+                detail: items.first(where: { $0.name == "error_description" })?.value
+            )
+            Log.spotify.error("Consent failed: \(failure.logLine, privacy: .public)")
+            signInOutcome = .failed(failure)
             return
         }
+        Log.spotify.notice("Consent approved; exchanging the code")
         Task {
             await exchange(code: code, verifier: verifier, clientID: clientID)
         }
@@ -419,13 +558,25 @@ final class SpotifyAccount: ObservableObject {
             "client_id=\(Self.formEncoded(clientID))",
             "code_verifier=\(Self.formEncoded(verifier))",
         ].joined(separator: "&")
-        guard case .tokens(let tokens) = await tokenRequest(body: body) else {
+        let result = await tokenRequest(body: body)
+        guard case .tokens(let tokens) = result else {
             // Even `invalid_grant` here is only a failed sign-in — a code that
             // expired or was already spent — never a reason to touch the
             // account that may already be connected.
-            signInOutcome = .failed
+            let failure: SignInFailure
+            switch result {
+            case .refused(let status, let error, let detail):
+                failure = SignInFailure(stage: .exchange, status: status, error: error, detail: detail)
+            case .invalidGrant(let detail):
+                failure = SignInFailure(stage: .exchange, status: 400, error: "invalid_grant", detail: detail)
+            case .tokens:
+                return
+            }
+            Log.spotify.error("Token exchange failed: \(failure.logLine, privacy: .public)")
+            signInOutcome = .failed(failure)
             return
         }
+        Log.spotify.notice("Token exchange succeeded")
         let generation = credentialGeneration
         await store(tokens)
         // A new grant is Spotify's fresh answer about this account. Whatever
@@ -435,6 +586,34 @@ final class SpotifyAccount: ObservableObject {
         if credentialGeneration == generation {
             forgetRefusal()
             signInOutcome = nil
+            if isConnected { await checkAccess() }
+        }
+    }
+
+    /// One Web-API call right after a grant, so a refusal is known while the
+    /// person is still looking at Connect. Development Mode admits only the
+    /// accounts the developer listed and answers every other one 403 "User
+    /// not registered in the Developer Dashboard" — but only on the first
+    /// Web-API call, which used to wait for a Spotify track to play: the
+    /// sign-in looked fine and the heart simply never came. `GET /v1/me` needs
+    /// no scope beyond the grant, and nothing it returns is kept.
+    private func checkAccess() async {
+        guard let url = URL(string: "https://api.spotify.com/v1/me") else { return }
+        switch await send({ Self.bearer(url, $0) }) {
+        case .answered(let status, let data):
+            if status == 403 { return refuse(data) }
+            if (200..<300).contains(status) {
+                apiBlocked = false
+                Log.spotify.notice("Access check: the Web API answers this account")
+            } else {
+                Log.spotify.notice("Access check: HTTP \(status, privacy: .public)")
+            }
+        case .noToken:
+            Log.spotify.error("Access check: no usable token")
+        case .unreachable:
+            Log.spotify.notice("Access check: Spotify unreachable")
+        case .overtaken:
+            return
         }
     }
 
@@ -458,11 +637,12 @@ final class SpotifyAccount: ObservableObject {
     private enum TokenResult {
         case tokens(Tokens)
         /// OAuth's `invalid_grant`: the refresh token (or code) is dead and
-        /// asking again cannot help.
-        case invalidGrant
-        /// Anything else — offline, a 5xx, a malformed body, any other 400.
-        /// Never disconnects: the next attempt may well work.
-        case failed
+        /// asking again cannot help. Spotify's description travels with it.
+        case invalidGrant(String?)
+        /// Anything else — offline (status 0), a 5xx, a malformed body, any
+        /// other 400 — with what Spotify said, for the sign-in's one line and
+        /// the log. Never disconnects: the next attempt may well work.
+        case refused(status: Int, error: String?, detail: String?)
     }
 
     private func tokenRequest(body: String) async -> TokenResult {
@@ -470,21 +650,24 @@ final class SpotifyAccount: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(body.utf8)
-        guard let (data, response) = try? await session.data(for: request) else { return .failed }
+        guard let (data, response) = try? await session.data(for: request) else {
+            return .refused(status: 0, error: nil, detail: nil)
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 200 {
-            guard let tokens = try? JSONDecoder().decode(Tokens.self, from: data) else { return .failed }
+            guard let tokens = try? JSONDecoder().decode(Tokens.self, from: data) else {
+                return .refused(status: status, error: "unreadable_response", detail: nil)
+            }
             return .tokens(tokens)
         }
         // RFC 6749 §5.2: an error response is a 400 whose JSON body names the
         // error. Only that exact code counts, so a Spotify outage that happens
         // to answer 400 with some other body never signs anyone out.
-        if status == 400,
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           object["error"] as? String == "invalid_grant" {
-            return .invalidGrant
-        }
-        return .failed
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let error = object?["error"] as? String
+        let detail = object?["error_description"] as? String
+        if status == 400, error == "invalid_grant" { return .invalidGrant(detail) }
+        return .refused(status: status, error: error, detail: detail)
     }
 
     private func store(_ tokens: Tokens) async {
@@ -509,9 +692,11 @@ final class SpotifyAccount: ObservableObject {
         // floor, and the account went on claiming to be connected over tokens
         // that would be gone at the next launch. Not claimed now, and said.
         guard Self.connectedAfterStore(refreshBacking: backing) else {
+            Log.spotify.error("Tokens could not be stored anywhere")
             signInProblem = .tokensNotSaved
             return
         }
+        Log.spotify.notice("Tokens stored (\(String(describing: backing), privacy: .public))")
         signInProblem = nil
         isConnected = true
         canImportLegacyAccount = false
@@ -526,6 +711,7 @@ final class SpotifyAccount: ObservableObject {
     }
 
     func disconnect() {
+        Log.spotify.notice("Disconnected by the person")
         refreshTask?.cancel()
         refreshTask = nil
         dropAccountState()
@@ -620,10 +806,12 @@ final class SpotifyAccount: ObservableObject {
             case .tokens(let tokens):
                 await self.store(tokens)
                 return tokens.access_token
-            case .invalidGrant:
+            case .invalidGrant(let detail):
+                Log.spotify.error("Refresh: invalid_grant (\(SignInFailure.loggable(detail), privacy: .public)); letting the account go")
                 await self.letGoOfRevokedGrant()
                 return nil
-            case .failed:
+            case .refused(let status, let error, _):
+                Log.spotify.notice("Refresh failed: HTTP \(status, privacy: .public) \(SignInFailure.loggable(error), privacy: .public); keeping the account")
                 // Offline, or Spotify having a bad minute. The account stays:
                 // clearing it on any failed refresh would sign out everybody
                 // whose laptop woke up before its Wi-Fi did.

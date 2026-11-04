@@ -77,7 +77,7 @@ enum IslandShapeRadii {
             return (ExpandedAlertShape.update.topRadius, ExpandedAlertShape.update.bottomRadius)
         case .peek:
             return (Theme.collapsedTopRadius, Theme.peekBottomRadius)
-        case .ambient(.charging), .music, .shelf, .none:
+        case .confirmation, .ambient(.charging), .music, .shelf, .none:
             return (Theme.collapsedTopRadius, Theme.collapsedBottomRadius)
         }
     }

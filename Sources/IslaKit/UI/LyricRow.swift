@@ -23,11 +23,12 @@ struct LyricRow: View {
     let at: TimeInterval
     /// When this line gives way to the next.
     let end: TimeInterval
-    /// The moment to sweep against, read afresh on every display frame, lead
-    /// already applied — `LyricSweep.frameClock`. `at` is the published
-    /// moment, as old as the last 0.1 s tick; this is where the clock is now.
-    /// Nil while the song is paused, and the sweep then stands at `at`.
-    var clock: (@MainActor () -> TimeInterval)? = nil
+    /// The song's clock, lead already applied — `LyricSweep.songClock` —
+    /// which a word-timed sung line hands Core Animation to move its edge
+    /// (`KaraokeTrack`). `at` is the published moment, as old as the last
+    /// 0.1 s tick; this is the clock itself. Nil while the song is paused,
+    /// and the sweep then stands at `at`.
+    var clock: SongClock? = nil
 
     /// A size rather than a `Font`, so the row can apply the tracking that size
     /// wants — SF ships a table for it and `.system(size:)` leaves it behind.
@@ -131,8 +132,15 @@ struct LyricRow: View {
         /// (2.89:1), by a recorded preference for depth over contrast; both
         /// were under WCAG's 3:1 even for the large type a lyric is set in
         /// (owner decision 9). They are 0.36 (3.13:1) and 0.42 (3.95:1) now,
-        /// and 0.42 (3.95:1) and 0.46 (4.58:1) under Increase Contrast. Depth
-        /// still reads as four steps — 0.36, 0.42, 0.50, full white — and the
+        /// and 0.42 (3.95:1) and 0.46 (4.58:1) under Increase Contrast.
+        ///
+        /// These steps now bind the stage **only under Increase Contrast**
+        /// (`PlayerLayout.lyricOpacity` raises the board to them there). By
+        /// default the stage draws the board's own 1.0 / 0.45 / 0.30 / 0.20
+        /// (owner's choice, 2026-10-25), under this floor on purpose; the
+        /// panel ramp still serves the stage's reading line, the credit row
+        /// and the contrast tests. Where it does bind, depth still reads as
+        /// four steps — 0.36, 0.42, 0.50, full white — and the
         /// floor and the neighbour stay apart at both settings: the neighbour
         /// once sat *below* the floor under Increase Contrast, the near line
         /// dimmer than the far ones (`testLyricNeighbourSitsAboveTheFalloffFloor`).
@@ -338,11 +346,11 @@ struct LyricRow: View {
                             line: line, isCurrent: true, at: at, end: end,
                             wordTiming: wordTimingEnabled
                         ),
-                        // The same function again, asked by the frame rather
-                        // than by the tick, and only for a line whose sweep
-                        // moves at all: a line-timed row is lit whole and
-                        // needs no frame callback to stay so.
-                        clock: LyricSweep.liveFraction(
+                        // The same function again, run ahead by Core
+                        // Animation rather than asked by the tick, and only
+                        // for a line whose sweep moves at all: a line-timed
+                        // row is lit whole and has nothing to animate.
+                        sweep: LyricSweep.liveSweep(
                             line: line, end: end, wordTiming: wordTimingEnabled, clock: clock
                         ),
                         reduceMotion: reduceMotion,
@@ -362,28 +370,44 @@ struct LyricRow: View {
                     // Depth through opacity alone. An early cut blurred and
                     // fractionally scaled these, which at reading size is not
                     // depth — it is smeared type, because subpixel scaling
-                    // rasterises every glyph soft. Clamped to the ramp's floor,
-                    // never the bare 0.18: without the clamp the far lines sat
-                    // at 1.54:1, unreadable as text.
+                    // rasterises every glyph soft. Under Increase Contrast the
+                    // opacity is clamped to the ramp's floor, never the bare
+                    // 0.18: without the clamp the far lines sat at 1.54:1,
+                    // unreadable as text. By default the stage takes the
+                    // board's own 1.0 / 0.45 / 0.30 / 0.20 steps
+                    // (`PlayerLayout.lyricOpacity`, owner's choice
+                    // 2026-10-25), deliberately under that floor, the way
+                    // Apple Music's lyrics fall off.
                     Text(displayText ?? line.text)
                         .islandFont(fontSize, weight: contextWeight ?? weight)
                         .foregroundStyle(.white.opacity(contextOpacity))
                         .lineLimit(lineLimit)
                         .truncationMode(.tail)
                         .transition(.opacity)
+                        // Context lines settle in 0.12 s (owner, 2026-10-25),
+                        // not on the 0.42 s spring below: that spring is
+                        // `Theme.lyricScroll`, shared with page travel and the
+                        // lead model's timing, so it stays and only this fade
+                        // is quicker. A fade is not motion, so Reduce Motion
+                        // keeps it (ReduceMotionContractTests).
+                        .animation(.easeOut(duration: 0.12), value: contextOpacity)
                 }
             }
             .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
         }
     }
 
-    /// The opacity of a line that is not being sung: the board's (raised to the
-    /// ramp's floor, `PlayerLayout.lyricOpacity`) where the row knows its signed
-    /// offset, the symmetric falloff where it does not.
+    /// The opacity of a line that is not being sung: the board's
+    /// (`PlayerLayout.lyricOpacity`, raised to the ramp's floor only under
+    /// Increase Contrast) where the row knows its signed offset, the symmetric
+    /// falloff where it does not.
     @MainActor
     private var contextOpacity: Double {
         if let board {
-            return PlayerLayout.lyricOpacity(offset: board.offset, ramp: ramp, reading: reading)
+            return PlayerLayout.lyricOpacity(
+                offset: board.offset, ramp: ramp, reading: reading,
+                increaseContrast: SystemAppearance.shared.increaseContrast
+            )
         }
         return ramp.context(distance: distance, reading: reading)
     }
@@ -439,15 +463,22 @@ struct InterludeMarker: View {
     /// The same surface as the lines around it, so on the lock card a marker
     /// is the card's grey and not the panel's dimmer one beside a card line.
     var surface: LyricRow.Surface = .panel
-    /// What the rest looks like. The lock card keeps the note and the filling
-    /// track; the panel's column and tall page draw three dots (spec §5.4,
-    /// `Lyrics-Instrumental`): 7 pt, at 0.9, 0.55 and 0.3, left-aligned where
-    /// the sung line goes.
-    var style: Style = .track
 
-    enum Style: Equatable {
-        case track
-        case dots
+    /// The fill a surface hands the marker for `slot`: read on every display
+    /// frame while this is the interlude playing and the song moves, nil
+    /// otherwise. One answer for the stage and the lock card, so the two
+    /// draw the same rest the same way.
+    ///
+    /// The stage drew three still dots here until 2026-10-31 (spec §5.4's
+    /// first `Lyrics-Instrumental`), while the lock card filled its track
+    /// toward the voice; the owner wanted the card's on both, since the fill
+    /// says when the singing starts and the dots said nothing.
+    static func liveFill(
+        for slot: LyricSlot, isCurrent: Bool, media: MediaController, lead: TimeInterval,
+        held: NowPlayingPresenter.HeldClock?
+    ) -> (@MainActor () -> Double)? {
+        guard isCurrent else { return nil }
+        return LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: lead, held: held))
     }
 
     /// How long the track is. Short on purpose: a progress bar the width of
@@ -468,37 +499,6 @@ struct InterludeMarker: View {
     }
 
     var body: some View {
-        if style == .dots {
-            dots
-        } else {
-            track
-        }
-    }
-
-    /// Three static dots. The current interlude shows them at the board's own
-    /// strengths; one the song has passed or has yet to reach is the same three
-    /// dimmed to its row's context step, so the page's depth reaches it. They do
-    /// not animate and carry no progress: a rest is not a loading state, and the
-    /// words coming back is the next row down.
-    @MainActor
-    private var dots: some View {
-        let scale = isCurrent ? 1 : opacity / max(surface.ramp(increaseContrast: SystemAppearance.shared.increaseContrast).unswept, 0.01)
-        return HStack(spacing: Theme.instrumentalDotSpacing) {
-            ForEach(Array(Theme.instrumentalDotOpacities.enumerated()), id: \.offset) { _, level in
-                Circle()
-                    .fill(Color.white.opacity(level * min(scale, 1)))
-                    .frame(width: Theme.instrumentalDotSize, height: Theme.instrumentalDotSize)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.accessibilityLabel)
-        .accessibilityAddTraits(isCurrent ? [.isStaticText, .isSelected] : [.isStaticText])
-    }
-
-    @MainActor
-    private var track: some View {
         let clockDriven = clock != nil && !reduceMotion
         let tone = Color.white.opacity(opacity)
         return HStack(spacing: 8) {

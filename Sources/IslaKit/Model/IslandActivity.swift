@@ -13,10 +13,17 @@ import Foundation
 /// are presentations of their own — the locked pill and the drop surface —
 /// and never reach this function; Battery Low, Translated and Full Battery
 /// (4, 5, 8) are R9's and join it there. The update choice (9) was built
-/// ahead of R9, with the local update feed (plan 2026-10-19).
+/// ahead of R9, with the local update feed (plan 2026-10-19). The island's
+/// confirmations (2026-10-25) share Translated's rank 5: Translated is itself
+/// the answer to an act ("translated and copied"), and both answer the person
+/// rather than the Mac, so they sit under the key pop-up and Battery Low and
+/// over headphones, the charger, the update and the song.
 enum IslandActivity: Equatable {
     /// Volume or brightness (§19.5 d), rank 3.
     case hud(HUDMoment)
+    /// "Lyrics imported", "Copied", "Added to Shelf" (`IslandConfirmation`),
+    /// rank 5, beside Translated.
+    case confirmation(IslandConfirmation)
     /// Headphones connected (§19.5 c, rank 6) or the charger (§19.4, rank 7).
     case ambient(AmbientActivity)
     /// An update Isla can install, with a choice of Later or Install
@@ -36,6 +43,7 @@ enum IslandActivity: Equatable {
     var rank: Int? {
         switch self {
         case .hud: return 3
+        case .confirmation: return 5
         case .ambient(.headphones): return 6
         case .ambient(.charging): return 7
         case .update: return 9
@@ -49,7 +57,7 @@ enum IslandActivity: Equatable {
     /// An alert comes, holds for its time, and folds.
     var isAlert: Bool {
         switch self {
-        case .hud, .ambient, .update, .peek: return true
+        case .hud, .confirmation, .ambient, .update, .peek: return true
         case .music, .shelf, .none: return false
         }
     }
@@ -58,7 +66,7 @@ enum IslandActivity: Equatable {
     var isLive: Bool {
         switch self {
         case .music, .shelf: return true
-        case .hud, .ambient, .update, .peek, .none: return false
+        case .hud, .confirmation, .ambient, .update, .peek, .none: return false
         }
     }
 
@@ -75,10 +83,11 @@ enum IslandActivity: Equatable {
     /// keep one at a time (`IslandAlertQueue`); if more than one is set, the
     /// highest still wins here, so the island never draws two.
     static func current(
-        hud: HUDMoment?, ambient: AmbientActivity?, update: UpdateOffer? = nil,
-        isPeeking: Bool, musicIsVisible: Bool, shelfCount: Int
+        hud: HUDMoment?, confirmation: IslandConfirmation? = nil, ambient: AmbientActivity?,
+        update: UpdateOffer? = nil, isPeeking: Bool, musicIsVisible: Bool, shelfCount: Int
     ) -> IslandActivity {
         if let hud { return .hud(hud) }
+        if let confirmation { return .confirmation(confirmation) }
         if let ambient { return .ambient(ambient) }
         if let update { return .update(update) }
         // A peek widens the music pill to show a new title; with no song to
@@ -116,6 +125,18 @@ enum IslandActivity: Equatable {
 struct IslandAlertQueue {
     /// How long an alert may wait for the island before it is dropped.
     static let patience: TimeInterval = 1
+
+    /// How long a confirmation may wait. It answers an act made inside an open
+    /// panel, so the second would lapse before the panel ever closes: it
+    /// waits for the close instead, and gives up only if the panel is still
+    /// open five seconds after the act — by then the person is working in it
+    /// and the news is old.
+    static let confirmationPatience: TimeInterval = 5
+
+    private static func patience(for alert: IslandActivity) -> TimeInterval {
+        if case .confirmation = alert { return confirmationPatience }
+        return patience
+    }
 
     /// The two exceptions to the rule. Battery Low and the update choice
     /// outlive the second and wait until the island is free; the update choice
@@ -193,9 +214,18 @@ struct IslandAlertQueue {
         waiting.removeAll()
     }
 
+    /// Forgets a confirmation that is waiting: a lock, a dark display or a
+    /// Space change ends the answer to an act, shown or not.
+    mutating func removeConfirmations() {
+        waiting.removeAll { entry in
+            if case .confirmation = entry.alert { return true }
+            return false
+        }
+    }
+
     private mutating func expire(at now: Date) {
         waiting.removeAll { entry in
-            !policy.outlivesPatience(entry.alert) && now.timeIntervalSince(entry.cause) > Self.patience
+            !policy.outlivesPatience(entry.alert) && now.timeIntervalSince(entry.cause) > Self.patience(for: entry.alert)
         }
     }
 }

@@ -3,8 +3,9 @@ import XCTest
 @testable import IslaKit
 
 /// The one colour a cover lends the island (redesign spec §3.4): the most
-/// saturated of its bright colours, lifted to 0.65 brightness, white 0.82 for a
-/// greyscale or missing cover.
+/// saturated of its bright colours, lifted to 0.85 brightness with its
+/// saturation held to 0.45–0.9, white for a greyscale or missing cover
+/// (owner, 2026-10-25).
 final class CoverTintTests: XCTestCase {
     // MARK: Fixtures
 
@@ -52,17 +53,31 @@ final class CoverTintTests: XCTestCase {
             (x < 3 && y < 3) ? (1.0, 0.45, 0.0) : (0.35, 0.6, 0.62)
         })
         XCTAssertEqual(hsb(tint).hue, CoverTint.hsb(red: 1, green: 0.45, blue: 0).hue, accuracy: 0.01)
-        XCTAssertEqual(hsb(tint).saturation, 1.0, accuracy: 0.02)
+        XCTAssertEqual(hsb(tint).saturation, 0.9, accuracy: 0.02, "a fully saturated pixel is held to the ceiling")
+    }
+
+    /// A pale colour that still counts as one is brought up to the saturation
+    /// floor so the bars read as a colour on black, not a washed-out pastel;
+    /// its hue is the cover's.
+    func testAPaleColourIsLiftedToTheSaturationFloor() {
+        let pale: (CGFloat, CGFloat, CGFloat) = (0.80, 0.60, 0.55)
+        let tint = CoverTint.tint(fromRGBA: pixels { _, _ in pale })
+        let original = CoverTint.hsb(red: 0.80, green: 0.60, blue: 0.55)
+        XCTAssertEqual(CoverTint.saturationRange, 0.45...0.9)
+        XCTAssertLessThan(original.saturation, 0.45)
+        XCTAssertEqual(hsb(tint).saturation, 0.45, accuracy: 0.01)
+        XCTAssertEqual(hsb(tint).brightness, 0.85, accuracy: 0.01)
+        XCTAssertEqual(hsb(tint).hue, original.hue, accuracy: 0.01)
     }
 
     /// A dark saturated colour keeps its hue and saturation and is lifted so it
     /// reads on black.
-    func testADarkSaturatedColourIsLiftedToSixtyFivePercentBrightness() {
+    func testADarkSaturatedColourIsLiftedToEightyFivePercentBrightness() {
         let navy: (CGFloat, CGFloat, CGFloat) = (0.05, 0.10, 0.40)
         let tint = CoverTint.tint(fromRGBA: pixels { _, _ in navy })
         let original = CoverTint.hsb(red: 0.05, green: 0.10, blue: 0.40)
-        XCTAssertEqual(CoverTint.liftedBrightness, 0.65)
-        XCTAssertEqual(hsb(tint).brightness, 0.65, accuracy: 0.01, "lifted to the floor")
+        XCTAssertEqual(CoverTint.liftedBrightness, 0.85)
+        XCTAssertEqual(hsb(tint).brightness, 0.85, accuracy: 0.01, "lifted to the floor")
         XCTAssertEqual(hsb(tint).hue, original.hue, accuracy: 0.01, "the hue is the cover's")
         XCTAssertEqual(hsb(tint).saturation, original.saturation, accuracy: 0.01, "so is the saturation")
     }
@@ -75,12 +90,12 @@ final class CoverTintTests: XCTestCase {
 
     // MARK: Greyscale and missing
 
-    func testAGreyscaleCoverFallsBackToWhiteZeroPointEightTwo() {
+    func testAGreyscaleCoverFallsBackToWhite() {
         for grey in [CGFloat(0.1), 0.5, 0.95] {
             let tint = CoverTint.tint(fromRGBA: pixels { _, _ in (grey, grey, grey) })
             XCTAssertEqual(tint, CoverTint.fallback, "grey \(grey)")
         }
-        XCTAssertEqual(CoverTint.fallback, CoverTint(red: 0.82, green: 0.82, blue: 0.82))
+        XCTAssertEqual(CoverTint.fallback, CoverTint(red: 1, green: 1, blue: 1))
         // Near-grey — a warm paper — is grey too.
         let paper = CoverTint.tint(fromRGBA: pixels { _, _ in (0.93, 0.91, 0.88) })
         XCTAssertEqual(paper, CoverTint.fallback)

@@ -47,8 +47,10 @@ final class LockScreenCardRenderTests: XCTestCase {
         // The window is cut to exactly this, so the number is a contract and
         // not a detail. It grew from 222 when the card took the system's
         // layout: a header, a changing middle, transport and a foot rail.
-        XCTAssertEqual(LockScreenCard.size, CGSize(width: 460, height: 300),
+        XCTAssertEqual(LockScreenCard.size(for: .standard), CGSize(width: 460, height: 300),
                        "the lock window's frame is cut from this size")
+        XCTAssertEqual(LockScreenCard.size(for: .compact), CGSize(width: 420, height: 236),
+                       "and from this one for Compact, the default since 2026-10-31")
 
         // Artifact for eyes, not assertions.
         if let tiff = image.tiffRepresentation,

@@ -285,6 +285,22 @@ transitions.
 > Binding detail: `docs/plans/2026-10-15-redesign-spec.md` §19 (releases
 > R7–R10).
 
+> **Amended 2026-10-25 — small refinements on the current island.** The
+> layout stays; details move closer to Apple's own. A ⋯ menu was tried at the
+> gear's place on every page and withdrawn the same day at the owner's request:
+> the gear stands, Settings keeps its X, and the Shelf's Remove All stays a
+> visible button beside the gear. The player, the lyric stage and the lock card draw one
+> set of transport glyphs, the stage's progress bar seeks as the player's
+> does, and the lock card's star favourites through the player's rule (Music,
+> or a connected Spotify; hidden where nothing can). The waveform takes a
+> bright cover tint, white without artwork; the header's app icon is a 16 pt
+> squircle; context lyric lines step 1.0/0.45/0.30/0.20 with a 0.12 s fade,
+> the contrast floor kept under Increase Contrast. A short confirmation shows
+> on the island after an LRC import, a copy from Clipboard with Return, and an
+> accepted drop (an activity of its own, spec §19.1). The Shelf, Clipboard and
+> no-lyrics states are a glyph and one sentence. Recorded in
+> `docs/development/checklist.md` §"Small refinements".
+
 ## Feature parity contract
 
 > **Amended 2026-08-20.** The Snippets and Calendar sections below are

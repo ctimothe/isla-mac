@@ -8,35 +8,39 @@ import XCTest
 /// moved to 16, and every width running from it to a `bw − n` edge grew by 42.
 @MainActor
 final class SettingsLayoutTests: XCTestCase {
-    func testTheSidebarIsOneTwentyTwoWideAtSixteenByFortySixWithRowsTwentySixApart() {
-        XCTAssertEqual(SettingsLayout.sidebarFrame(), CGRect(x: 16, y: 46, width: 122, height: 260))
+    /// Native pass (2026-10-25): the native sidebar list's 32 pt pitch, a 28 pt
+    /// row and a 20 pt visible tile. Ten rows end at 46 + 320 = 366, inside the
+    /// 386 the body allows.
+    func testTheSidebarIsOneTwentyTwoWideAtSixteenByFortySixWithRowsThirtyTwoApart() {
+        XCTAssertEqual(SettingsLayout.sidebarFrame(), CGRect(x: 16, y: 46, width: 122, height: 320))
         for index in 0..<10 {
             XCTAssertEqual(
                 SettingsLayout.sidebarRow(index),
-                CGRect(x: 16, y: 46 + CGFloat(index) * 26, width: 122, height: 24), "row \(index)"
+                CGRect(x: 16, y: 46 + CGFloat(index) * 32, width: 122, height: 28), "row \(index)"
             )
         }
+        XCTAssertLessThanOrEqual(SettingsLayout.sidebarFrame().maxY, 386)
         XCTAssertEqual(SettingsSection.allCases.count, 10)
-        XCTAssertEqual(SettingsLayout.sidebarIconSide, 18)
+        XCTAssertEqual(SettingsLayout.sidebarIconSide, 20)
         XCTAssertEqual(SettingsLayout.sidebarSelectionRadius, 6)
-        XCTAssertEqual(SettingsLayout.sidebarIconRadius, 5)
-        // 6 + 18 + 8: the icon's inset, the tile and the gap the label starts at.
-        XCTAssertEqual(SettingsLayout.sidebarLabelInset, 32)
-        XCTAssertEqual(SettingsLayout.sidebarLabelWidth, 86, "a long name is cut to this and truncates at its tail")
+        XCTAssertEqual(SettingsLayout.sidebarIconRadius, 4.5, "System Settings' tile corner at 20 pt")
+        // 6 + 20 + 8: the icon's inset, the tile and the gap the label starts at.
+        XCTAssertEqual(SettingsLayout.sidebarLabelInset, 34)
+        XCTAssertEqual(SettingsLayout.sidebarLabelWidth, 84, "a long name is cut to this and truncates at its tail")
         XCTAssertEqual(SettingsLayout.sidebarLabelInset + SettingsLayout.sidebarLabelWidth, 118, "4 pt short of the row's edge")
         XCTAssertEqual(SettingsLayout.dividerLeading, 143, "5 pt past the sidebar: 185 − 42")
     }
 
-    /// The form is 396 at the default 560 (`bw − 164`) and 316 below 540, where
-    /// the labels wrap before the controls give way (§19.8: 354 and 274 grown
-    /// by the rail's 42).
-    func testTheFormIsThreeNinetySixAtFiveSixtyAndThreeSixteenBelowFiveForty() {
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 396)
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 560 - 164)
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 620), 456)
-        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 540), 376, "540 is the first wide width")
+    /// The form is 390 at the default 560 (`bw − 170`) and 310 below 540: the
+    /// groups end 20 pt short of the body's edge, the grouped form's own
+    /// margin (native pass 2026-10-25; it was 14).
+    func testTheFormIsThreeNinetyAtFiveSixtyAndThreeTenBelowFiveForty() {
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 390)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 560), 560 - 170)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 620), 450)
+        XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: 540), 370, "540 is the first wide width")
         for width: CGFloat in [480, 500, 520, 539] {
-            XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: width), 316, "below 540 at \(width)")
+            XCTAssertEqual(SettingsLayout.formWidth(bodyWidth: width), 310, "below 540 at \(width)")
             XCTAssertTrue(SettingsLayout.isNarrow(bodyWidth: width))
         }
         XCTAssertFalse(SettingsLayout.isNarrow(bodyWidth: 540))
@@ -51,10 +55,10 @@ final class SettingsLayoutTests: XCTestCase {
             XCTAssertEqual(form.width, SettingsLayout.formWidth(bodyWidth: width))
             XCTAssertEqual(form.maxY, 386, "the body's 400 less its 14 pt of padding")
             XCTAssertGreaterThan(form.minX, SettingsLayout.sidebarFrame().maxX, "clear of the sidebar")
-            XCTAssertLessThanOrEqual(form.maxX, width - 14, "inside the body's padding at \(width)")
+            XCTAssertLessThanOrEqual(form.maxX, width - 20, "20 pt inside the body's edge at \(width)")
         }
         let wide = SettingsLayout.formFrame(bodyWidth: 560)
-        XCTAssertEqual(wide, CGRect(x: 150, y: 46, width: 396, height: 340))
+        XCTAssertEqual(wide, CGRect(x: 150, y: 46, width: 390, height: 340))
     }
 
     /// Body coordinates, as the spec writes them, and the content's own, through
@@ -62,17 +66,20 @@ final class SettingsLayoutTests: XCTestCase {
     /// own x, under the header row, so only y moves (46 − 38).
     func testTheContentCoordinatesAreTheBodysLessTheHeaderRow() {
         let form = SettingsLayout.formFrame(bodyWidth: 560)
-        XCTAssertEqual(SettingsLayout.inContent(form), CGRect(x: 150, y: 8, width: 396, height: 340))
+        XCTAssertEqual(SettingsLayout.inContent(form), CGRect(x: 150, y: 8, width: 390, height: 340))
         XCTAssertEqual(SettingsLayout.inContent(SettingsLayout.sidebarFrame()).origin, CGPoint(x: 16, y: 8))
-        // The form ends 14 short of the body's right edge at the widths it is
-        // designed for.
-        XCTAssertEqual(SettingsLayout.inContent(form).maxX, 560 - 14)
-        XCTAssertEqual(SettingsLayout.inContent(SettingsLayout.formFrame(bodyWidth: 620)).maxX, 620 - 14)
+        // The form ends 20 short of the body's right edge at every width.
+        XCTAssertEqual(SettingsLayout.inContent(form).maxX, 560 - 20)
+        XCTAssertEqual(SettingsLayout.inContent(SettingsLayout.formFrame(bodyWidth: 620)).maxX, 620 - 20)
+        XCTAssertEqual(SettingsLayout.inContent(SettingsLayout.formFrame(bodyWidth: 480)).maxX, 480 - 20)
     }
 
+    /// Native row heights on macOS 27 (probe): a switch row 37.5, a slider 37,
+    /// a pop-up 38.5 (38 here, the floor every row keeps), a segmented control 41.
     func testGroupsAndRowsAreTheSpecs() {
-        XCTAssertEqual(SettingsLayout.groupRadius, 9)
-        XCTAssertEqual(SettingsLayout.rowHeight, 28)
+        XCTAssertEqual(SettingsLayout.groupRadius, 10)
+        XCTAssertEqual(SettingsLayout.rowHeight, 38)
+        XCTAssertEqual(SettingsLayout.segmentedRowHeight, 41)
         XCTAssertEqual(SettingsLayout.rowInset, 10)
         XCTAssertEqual(SettingsLayout.hairlineInset, 10)
         XCTAssertEqual(SettingsLayout.hairlineHeight, 0.5)
@@ -80,39 +87,45 @@ final class SettingsLayoutTests: XCTestCase {
         XCTAssertEqual(ToolbarPushButtonStyle.height, 22, "a push button fits the 28 pt row with 3 pt either side")
     }
 
-    /// Four previews across the form, 80 × 52 at 396, shrinking with it so the
-    /// four never run past the edge. At the narrow 316 they are 72 × 46: the
-    /// room is 316 less 8 and three 6 pt gaps, a quarter of 290 rounded down.
+    /// Four previews across the form, 80 × 52 at 390, shrinking with it so the
+    /// four options never run past the edge. At the narrow 310 they are
+    /// 69 × 44: a quarter of the row (310 less 8) is 75.5, less the 6 pt gap.
+    /// An option is its preview and its label, which overhangs the preview 6 pt
+    /// either side where there is room; the four options fit the row, and the
+    /// previews keep 6 pt between them (Batch 10: the options were 332 pt in
+    /// the 310 pt form). `SettingsFormTests` holds the drawn picker.
     func testTheStylePreviewsFitTheFormAtEveryWidth() {
-        XCTAssertEqual(SettingsLayout.previewSize(formWidth: 396), CGSize(width: 80, height: 52))
-        XCTAssertEqual(SettingsLayout.previewSize(formWidth: 456), CGSize(width: 80, height: 52))
-        let narrow = SettingsLayout.previewSize(formWidth: 316)
-        XCTAssertEqual(narrow.width, 72)
-        XCTAssertEqual(narrow.height, 46)
-        for form: CGFloat in [316, 376, 396, 456] {
+        XCTAssertEqual(SettingsLayout.previewSize(formWidth: 390), CGSize(width: 80, height: 52))
+        XCTAssertEqual(SettingsLayout.previewSize(formWidth: 450), CGSize(width: 80, height: 52))
+        XCTAssertEqual(SettingsLayout.previewOptionWidth(formWidth: 390), 92, "the label overhangs 6 pt either side")
+        let narrow = SettingsLayout.previewSize(formWidth: 310)
+        XCTAssertEqual(narrow.width, 69)
+        XCTAssertEqual(narrow.height, 44)
+        XCTAssertEqual(SettingsLayout.previewOptionWidth(formWidth: 310), 75.5, "a quarter of the row")
+        for form: CGFloat in [310, 370, 390, 450] {
             let size = SettingsLayout.previewSize(formWidth: form)
-            let used = size.width * 4 + SettingsLayout.previewMinimumGap * 3 + 8
-            XCTAssertLessThanOrEqual(used, form, "four previews and their gaps fit \(form)")
+            let option = SettingsLayout.previewOptionWidth(formWidth: form)
+            let row = form - SettingsLayout.previewRowInset * 2
+            XCTAssertLessThanOrEqual(option * 4, row + 0.001, "four options fit \(form)")
+            XCTAssertGreaterThanOrEqual(option, size.width, "a label is never narrower than its preview at \(form)")
+            let previewGap = (row - option * 4) / 3 + (option - size.width)
+            XCTAssertGreaterThanOrEqual(previewGap, SettingsLayout.previewMinimumGap, "the previews keep their gap at \(form)")
             XCTAssertEqual(size.width / size.height, 80.0 / 52.0, accuracy: 0.05, "the card's own proportions")
         }
     }
 
-    /// The tokens: group fill white 0.055, the selected row 0.12, the header
-    /// 0.85, each stepped up by Increase Contrast, and Connected in the charging
-    /// green.
+    /// The tokens (native pass 2026-10-25): group fill white 0.065, labels at
+    /// `labelColor`'s 0.85, each stepped up by Increase Contrast; the switch
+    /// is the grouped form's own 36 × 16.
     func testTheTokensAreTheSpecs() {
-        XCTAssertEqual(Theme.settingsGroupOpacity(increaseContrast: false), 0.055)
-        XCTAssertEqual(Theme.settingsSidebarSelectionOpacity(increaseContrast: false), 0.12)
+        XCTAssertEqual(Theme.settingsGroupOpacity(increaseContrast: false), 0.065)
         XCTAssertEqual(Theme.settingsHeaderOpacity(increaseContrast: false), 0.85)
-        XCTAssertGreaterThan(Theme.settingsGroupOpacity(increaseContrast: true), 0.055)
-        XCTAssertGreaterThan(Theme.settingsSidebarSelectionOpacity(increaseContrast: true), 0.12)
+        XCTAssertGreaterThan(Theme.settingsGroupOpacity(increaseContrast: true), 0.065)
         XCTAssertGreaterThan(Theme.settingsHeaderOpacity(increaseContrast: true), 0.85)
-        XCTAssertEqual(Theme.settingsConnected, Theme.chargingGreen, "spec §2.1: green is charging and Connected")
         XCTAssertEqual(Theme.settingsPreviewRingWidth, 2, "the chosen preview is ringed at 2 pt")
-        for tint in Theme.SettingsTint.allCases {
-            let hex = tint.hex
-            XCTAssertLessThanOrEqual(hex, 0xFFFFFF)
-        }
+        XCTAssertEqual(Theme.switchTrackSize, CGSize(width: 36, height: 16))
         XCTAssertEqual(Theme.SettingsTint.allCases.count, 5)
+        XCTAssertEqual(SettingsLayout.labelRole.size, 13, "System Settings' 13 pt row label")
+        XCTAssertEqual(SettingsLayout.footnoteRole.size, 11, "the grouped form's 11 pt footer")
     }
 }

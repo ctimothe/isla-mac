@@ -15,7 +15,7 @@ final class AmbientMomentTests: XCTestCase {
         let charging = AmbientWatch.Power(onExternalPower: true, level: 40)
         let now = Date()
         func pluggedIn(_ previous: AmbientWatch.Power?, _ next: AmbientWatch.Power) -> Bool {
-            AmbientWatch.pluggedIn(previous: previous, now: next, lastAnnounced: nil, at: now)
+            AmbientWatch.pluggedIn(previous: previous, now: next, unpluggedAt: nil, at: now)
         }
         XCTAssertTrue(pluggedIn(battery, charging))
         XCTAssertFalse(pluggedIn(charging, charging), "a level change while charging")
@@ -23,25 +23,22 @@ final class AmbientMomentTests: XCTestCase {
         XCTAssertFalse(pluggedIn(nil, charging), "a launch while plugged in")
     }
 
-    /// A loose USB-C dock drops and restores power every few seconds (G-033).
-    /// Each restore is a real plug-in edge, and each one re-grew the pill. The
-    /// charger now keeps the quiet window headphones already had.
-    func testAFlappingChargerIsAnnouncedOnce() {
+    /// A loose USB-C dock's dropout is not news (G-033); a cable pulled and
+    /// put back is, however soon after the last one (owner, 2026-10-27: "when
+    /// I plug it out and then I plug it in, sometimes it didn't show").
+    func testEveryPlugInIsAnnouncedButADockBlip() {
         let battery = AmbientWatch.Power(onExternalPower: false, level: 40)
         let charging = AmbientWatch.Power(onExternalPower: true, level: 40)
         let t0 = Date()
         XCTAssertFalse(AmbientWatch.pluggedIn(
-            previous: battery, now: charging, lastAnnounced: t0, at: t0.addingTimeInterval(5), quiet: 30
-        ), "the same charger five seconds later is not news")
+            previous: battery, now: charging, unpluggedAt: t0, at: t0.addingTimeInterval(0.4)
+        ), "power back within the blip: a dock's dropout")
         XCTAssertTrue(AmbientWatch.pluggedIn(
-            previous: battery, now: charging, lastAnnounced: t0, at: t0.addingTimeInterval(31), quiet: 30
-        ), "past the quiet window it is a new plug-in")
+            previous: battery, now: charging, unpluggedAt: t0, at: t0.addingTimeInterval(2.3)
+        ), "the owner's own pull, 2.3 s (recorder, 2026-10-26 15:37)")
         XCTAssertFalse(AmbientWatch.pluggedIn(
-            previous: charging, now: charging, lastAnnounced: t0, at: t0.addingTimeInterval(31), quiet: 30
-        ), "the quiet window never turns a non-edge into an event")
-        XCTAssertFalse(AmbientWatch.pluggedIn(
-            previous: battery, now: charging, lastAnnounced: t0, at: t0.addingTimeInterval(5)
-        ), "the default window is the headphones' one")
+            previous: charging, now: charging, unpluggedAt: t0, at: t0.addingTimeInterval(31)
+        ), "never turns a non-edge into an event")
     }
 
     /// Open the panel during a moment and close it: the pill must not snap

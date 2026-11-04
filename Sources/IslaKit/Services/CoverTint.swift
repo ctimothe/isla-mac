@@ -6,8 +6,11 @@ import SwiftUI
 /// (spec §19.2): a music island is outlined in white like every other.
 ///
 /// Chosen as "the most saturated of the cover's bright colours, lifted to at
-/// least 0.65 HSB brightness so it reads on black, falling back to white 0.82
-/// when the cover is greyscale or missing". Three things that rule is written
+/// least 0.85 HSB brightness with its saturation clamped to 0.45–0.9 so it
+/// reads on black as a colour and not as a pastel or a neon, falling back to
+/// white when the cover is greyscale or missing" (owner, 2026-10-25: the
+/// waveform is one bright accent from the artwork, and white without it).
+/// Three things that rule is written
 /// to avoid, each one a way another app's equalizer goes wrong on a black
 /// island:
 ///
@@ -29,9 +32,11 @@ struct CoverTint: Equatable, Sendable {
     var green: Double
     var blue: Double
 
-    /// White 0.82: what a greyscale or missing cover gives, light enough to
-    /// read on black and quiet enough not to be mistaken for a colour.
-    static let fallback = CoverTint(red: 0.82, green: 0.82, blue: 0.82)
+    /// White: what a greyscale or missing cover gives. It was a 0.82 grey
+    /// until 2026-10-25, when the waveform was asked to be one accent at a
+    /// time: a colour from the artwork, or plain white, never a dim grey that
+    /// reads as a disabled bar.
+    static let fallback = CoverTint(red: 1, green: 1, blue: 1)
 
     /// The edge of the downsample (spec §3.4: 24 × 24). 576 pixels is far
     /// finer than a 24 pt cover on screen and cheap enough that a track change
@@ -45,8 +50,13 @@ struct CoverTint: Equatable, Sendable {
     /// Under this saturation a pixel is grey for our purposes: a warm-white
     /// paper or a cool-grey photograph is not a colour to draw the bars in.
     static let minimumSaturation = 0.20
-    /// The floor the chosen colour is lifted to (spec §3.4).
-    static let liftedBrightness = 0.65
+    /// The floor the chosen colour is lifted to (spec §3.4; 0.65 until
+    /// 2026-10-25, when the owner asked for a brighter waveform).
+    static let liftedBrightness = 0.85
+    /// The chosen colour's saturation is held in this range: under it a
+    /// lifted colour washes out to a pastel on black, over it a fully
+    /// saturated pixel buzzes.
+    static let saturationRange: ClosedRange<Double> = 0.45...0.9
 
     var color: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: 1) }
     var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: 1) }
@@ -83,7 +93,8 @@ struct CoverTint: Equatable, Sendable {
         }
         guard let chosen = best else { return .fallback }
         let rgb = rgb(
-            hue: chosen.hue, saturation: chosen.saturation,
+            hue: chosen.hue,
+            saturation: min(max(chosen.saturation, saturationRange.lowerBound), saturationRange.upperBound),
             brightness: max(chosen.brightness, liftedBrightness)
         )
         return CoverTint(red: rgb.red, green: rgb.green, blue: rgb.blue)

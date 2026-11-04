@@ -27,53 +27,84 @@ final class SettingsTableTests: XCTestCase {
     func testTheTenSectionsAreInTheSpecsOrder() {
         XCTAssertEqual(
             SettingsSection.allCases,
-            [.general, .privacy, .shortcuts, .music, .lyrics, .lockScreen, .translate, .spotify, .screenshots, .about]
+            [.general, .privacy, .shortcuts, .music, .lyrics, .lockScreen, .translate, .connections, .screenshots, .about]
         )
         XCTAssertEqual(SettingsTable.sections, SettingsSection.allCases)
         XCTAssertEqual(
             SettingsSection.allCases.map(\.title),
-            ["General", "Privacy", "Shortcuts", "Music", "Lyrics", "Lock Screen", "Translate", "Spotify", "Screenshots", "About"]
+            ["General", "Privacy", "Shortcuts", "Music", "Lyrics", "Lock Screen", "Translate", "Connections", "Screenshots", "About"]
         )
         XCTAssertEqual(Set(SettingsSection.allCases.map(\.rawValue)).count, 10, "ten distinct stored names")
     }
 
-    /// Spec §10's icon column: the symbols and the five colours, and Spotify and
-    /// About wearing an app's own mark.
-    func testEachSectionsIconAndColourAreTheSpecs() {
+    /// The icon column (native pass, 2026-10-25): System Settings' own pane
+    /// icons where the system has one, read at runtime, each with the drawn
+    /// tile it falls back to; drawn tiles where it has none; Isla's own icon
+    /// for About.
+    func testEachSectionsIconIsTheSystemsOrADrawnTile() {
         let expected: [SettingsSection: SettingsSection.Glyph] = [
-            .general: .symbol("gearshape", .grey),
-            .privacy: .symbol("hand.raised", .blue),
-            .shortcuts: .symbol("keyboard", .grey),
+            .general: .system(.graphicIcon("com.apple.graphic-icon.gear"), fallback: "gearshape.fill", .grey),
+            .privacy: .system(.graphicIcon("com.apple.graphic-icon.privacy"), fallback: "hand.raised.fill", .blue),
+            .shortcuts: .system(.graphicIcon("com.apple.graphic-icon.keyboard"), fallback: "keyboard.fill", .grey),
             .music: .symbol("music.note", .rose),
             .lyrics: .symbol("quote.bubble.fill", .orange),
-            .lockScreen: .symbol("lock.display", .indigo),
+            .lockScreen: .system(.settingsExtension(
+                path: "/System/Library/ExtensionKit/Extensions/LockScreen.appex",
+                bundleID: "com.apple.Lock-Screen-Settings.extension"
+            ), fallback: "lock.display", .indigo),
             .translate: .symbol("translate", .blue),
-            .spotify: .spotify,
-            .screenshots: .symbol("photo.on.rectangle", .grey),
+            .connections: .system(.settingsExtension(
+                path: "/System/Library/ExtensionKit/Extensions/InternetAccountsSettingsExtension.appex",
+                bundleID: "com.apple.Internet-Accounts-Settings.extension"
+            ), fallback: "at", .blue),
+            .screenshots: .system(.graphicIcon("com.apple.graphic-icon.screenshots"), fallback: "camera.viewfinder", .grey),
             .about: .isla,
         ]
         for section in SettingsSection.allCases {
             XCTAssertEqual(section.glyph, expected[section], "\(section)")
-            if case .symbol(let name, _) = section.glyph {
+            if let name = section.glyph.fallbackSymbol {
                 XCTAssertNotNil(NSImage(systemSymbolName: name, accessibilityDescription: nil),
                                 "\(name) does not resolve — the tile would draw no glyph")
             }
         }
-        XCTAssertEqual(Theme.SettingsTint.grey.hex, 0x8E8E93)
-        XCTAssertEqual(Theme.SettingsTint.blue.hex, 0x0A84FF)
-        XCTAssertEqual(Theme.SettingsTint.rose.hex, 0xFF375F)
-        XCTAssertEqual(Theme.SettingsTint.orange.hex, 0xFF9F0A)
-        XCTAssertEqual(Theme.SettingsTint.indigo.hex, 0x5E5CE6)
     }
 
-    /// Long names are the sidebar's problem, not the table's: Russian's Privacy
-    /// is the longest and the one the board truncates at 480.
+    /// The tiles' colours are the system's own, by name, never hex: they follow
+    /// a macOS that retunes its palette, and Increase Contrast.
+    func testTheTintsAreSystemColours() {
+        XCTAssertEqual(Theme.SettingsTint.grey.nsColor, NSColor.systemGray)
+        XCTAssertEqual(Theme.SettingsTint.blue.nsColor, NSColor.systemBlue)
+        XCTAssertEqual(Theme.SettingsTint.rose.nsColor, NSColor.systemPink)
+        XCTAssertEqual(Theme.SettingsTint.orange.nsColor, NSColor.systemOrange)
+        XCTAssertEqual(Theme.SettingsTint.indigo.nsColor, NSColor.systemIndigo)
+    }
+
+    /// A stored "spotify" from before Connections lands on Connections.
+    func testAStoredSpotifySectionOpensConnections() {
+        let name = "com.ctimothe.isla.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("spotify", forKey: SettingsSection.storageKey)
+        XCTAssertEqual(SettingsSection.stored(in: defaults), .connections)
+    }
+
+    /// The Russian titles, short enough for the sidebar (native pass 2026-10-25).
     func testTheRussianTitlesAreTheTablesTranslations() {
         LabLocalization.use("ru")
-        XCTAssertEqual(SettingsSection.privacy.title, "Конфиденциальность")
-        XCTAssertEqual(SettingsSection.shortcuts.title, "Сочетания клавиш")
-        XCTAssertEqual(SettingsSection.about.title, "О программе")
-        for section in SettingsSection.allCases where section != .spotify {
+        // Shortened on 2026-10-25 so the sidebar keeps its width at 13 pt.
+        XCTAssertEqual(SettingsSection.privacy.title, "Приватность")
+        XCTAssertEqual(SettingsSection.shortcuts.title, "Клавиши")
+        XCTAssertEqual(SettingsSection.lockScreen.title, "Блокировка")
+        XCTAssertEqual(SettingsSection.connections.title, "Сервисы")
+        XCTAssertEqual(SettingsSection.about.title, "Об Isla")
+        // Every Russian title fits the sidebar's label at 13 pt, untruncated:
+        // «Подключения» and «О программе» did not, and were cut in the lab.
+        let font = NSFont.systemFont(ofSize: SettingsLayout.labelRole.size)
+        for section in SettingsSection.allCases {
+            let width = (section.title as NSString).size(withAttributes: [.font: font]).width
+            XCTAssertLessThanOrEqual(width, SettingsLayout.sidebarLabelWidth, "«\(section.title)» is cut in the sidebar")
+        }
+        for section in SettingsSection.allCases {
             XCTAssertNotEqual(section.title, section.rawValue, "\(section) is translated, not an identifier")
         }
     }
@@ -85,7 +116,7 @@ final class SettingsTableTests: XCTestCase {
         // switch at its default. Conditional rows are tested below.
         let expected: [SettingsSection: [SettingsRowID]] = [
             // R5 (spec §12) turns Volume and Brightness on: last in "The island shows", off by default.
-            .general: [.launchAtLogin, .openOnHover, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness],
+            .general: [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness],
             .privacy: [.clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording],
             .shortcuts: [.shortcutOpenPanel, .shortcutClipboard, .shortcutLyrics, .shortcutTranslate],
             .music: [.musicOnly, .volumeAndOutput, .lyricBand],
@@ -96,7 +127,7 @@ final class SettingsTableTests: XCTestCase {
             ],
             .lockScreen: [.showOnLockScreen, .cardStyle, .restAsBanner, .cardSize],
             .translate: [.translateOnline, .keepHistory, .speakButton, .translationLanguages],
-            .spotify: [.spotifyHead, .spotifyAccount],
+            .connections: [.appleMusicConnection, .spotifyConnection],
             .screenshots: [.saveClipboardScreenshots, .showScreenCaptures, .showScreenshotsFolder, .clearScreenshotsFolder],
             .about: [
                 .aboutHead, .updatePanel, .updateStatus, .checkForUpdatesAutomatically, .copyDiagnostics, .reportProblem,
@@ -124,7 +155,7 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertEqual(headers(.lyrics), ["Lyrics", "Translation", "Online", "Local Lyrics Library"])
         XCTAssertEqual(headers(.lockScreen), ["Lock Screen", "Card Style"])
         XCTAssertEqual(headers(.translate), ["Translate"])
-        XCTAssertEqual(headers(.spotify), ["Spotify"])
+        XCTAssertEqual(headers(.connections), ["Connections"])
         XCTAssertEqual(headers(.screenshots), ["Screenshots"])
         XCTAssertEqual(headers(.about), [], "About opens on its head, not a header")
     }
@@ -140,8 +171,8 @@ final class SettingsTableTests: XCTestCase {
         var hover = SettingsContext()
         hover.opensOnHover = true
         XCTAssertEqual(
-            SettingsTable.rows(for: .general, context: hover).prefix(4),
-            [.launchAtLogin, .openOnHover, .hoverDelay, .panelWidth],
+            SettingsTable.rows(for: .general, context: hover).prefix(5),
+            [.launchAtLogin, .openOnHover, .hoverDelay, .swipeToOpen, .panelWidth],
             "the delay is only a row while a hover is what opens the panel"
         )
         XCTAssertFalse(SettingsTable.rows(for: .general).contains(.hoverDelay))
@@ -188,27 +219,38 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertFalse(SettingsTable.rows(for: .about).contains(.downloadUpdate))
     }
 
-    /// Spotify: not connected, Connect (and Import where there is something to
-    /// bring across); connected, the one Disconnect — each a row of the group, the notes its
-    /// footnotes. (There is no Liked Songs row: it could only show a guess, see
-    /// `SettingsReviewFixTests`.)
-    func testSpotifyShowsConnectOrDisconnect() {
+    /// Connections: Apple Music and Spotify always, Import only when there is
+    /// something to bring across, and the other players only when one is
+    /// installed. The Spotify row's one line is its own, never a footnote.
+    func testConnectionsListsTheTwoPlayersIslaDrivesAndAnyOtherInstalled() {
         var context = SettingsContext()
-        context.spotify = SettingsPane.spotifyRows(connected: false, needsReconnect: false, signIn: nil, apiBlocked: false)
-        XCTAssertEqual(SettingsTable.rows(for: .spotify, context: context), [.spotifyHead, .spotifyAccount])
+        context.spotify = SettingsPane.spotifyConnection(connected: false, needsReconnect: false, signIn: nil, apiBlocked: false)
+        XCTAssertEqual(SettingsTable.rows(for: .connections, context: context), [.appleMusicConnection, .spotifyConnection])
 
-        context.spotify = SettingsPane.spotifyRows(
+        context.spotify = SettingsPane.spotifyConnection(
             connected: false, needsReconnect: false, signIn: nil, apiBlocked: false, canImport: true
         )
-        XCTAssertEqual(SettingsTable.rows(for: .spotify, context: context), [.spotifyHead, .spotifyAccount, .spotifyImport])
+        XCTAssertEqual(
+            SettingsTable.rows(for: .connections, context: context),
+            [.appleMusicConnection, .spotifyConnection, .spotifyImport]
+        )
 
-        context.spotify = SettingsPane.spotifyRows(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
-        XCTAssertEqual(SettingsTable.rows(for: .spotify, context: context), [.spotifyHead, .spotifyAccount])
-        let notes = SettingsTable.blocks(for: .spotify, context: context).compactMap { block -> String? in
+        context.spotify = SettingsPane.spotifyConnection(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
+        context.otherConnections = [PlayerConnections.Row(
+            service: PlayerConnections.others[0],
+            installed: AppIcons.Installed(
+                bundleID: PlayerConnections.others[0].bundleID, url: URL(fileURLWithPath: "/Applications/X.app"),
+                name: "X", icon: NSImage(size: NSSize(width: 4, height: 4))
+            )
+        )]
+        XCTAssertEqual(
+            SettingsTable.rows(for: .connections, context: context),
+            [.appleMusicConnection, .spotifyConnection, .otherConnections]
+        )
+        let notes = SettingsTable.blocks(for: .connections, context: context).compactMap { block -> String? in
             if case .footnote(let text) = block { return text } else { return nil }
         }
-        XCTAssertTrue(notes.contains(localized("Isla forgets the account on this Mac. Your Spotify library stays as it is.")), "\(notes)")
-        XCTAssertTrue(notes.contains(localized("The heart on the lock screen adds the song to your Liked Songs.")), "\(notes)")
+        XCTAssertEqual(notes, [], "no helper text under the list (owner rule)")
     }
 
     // MARK: - The two failure groups: Music, and only while they hold
@@ -354,11 +396,13 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertNotEqual(note, "These players always show, except Telegram, which shows songs but not videos. Any other app shows when it says it is playing audio.")
     }
 
-    /// Spotify and About still wear an app's own icon; whether it is the real
-    /// one is `AppIcons`' to say at draw time.
-    func testSpotifyAndAboutKeepTheirAppIconGlyphs() {
-        XCTAssertEqual(SettingsSection.spotify.glyph, .spotify)
+    /// About wears Isla's own icon; Connections a system pane's (native pass
+    /// 2026-10-25: the Spotify disc left the sidebar with the section).
+    func testAboutKeepsIslasIconAndConnectionsASystemOne() {
         XCTAssertEqual(SettingsSection.about.glyph, .isla)
+        guard case .system = SettingsSection.connections.glyph else {
+            return XCTFail("Connections draws a system pane icon, \(SettingsSection.connections.glyph)")
+        }
     }
 
     // MARK: - Volume and Brightness (R5): the row is shown, off, with its Accessibility group
@@ -375,7 +419,7 @@ final class SettingsTableTests: XCTestCase {
         // Visible in General, last in "The island shows", and nowhere else.
         XCTAssertEqual(
             SettingsTable.rows(for: .general, context: SettingsContext()),
-            [.launchAtLogin, .openOnHover, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness]
+            [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness]
         )
         for section in SettingsSection.allCases where section != .general {
             XCTAssertFalse(SettingsTable.rows(for: section, context: Self.everything).contains(.volumeAndBrightness),
@@ -485,6 +529,8 @@ final class SettingsTableTests: XCTestCase {
     func testEveryDefaultIsTheSpecs() {
         let expected: [SettingsRowID: SettingsDefault] = [
             .openOnHover: .off,
+            // Local, and only over the island's own hit region (owner, 2026-10-25).
+            .swipeToOpen: .on,
             .charging: .on, .headphones: .on, .newTracks: .on,
             .volumeAndBrightness: .off,
             .clipboardHistory: .on, .includeImages: .on, .keepPinned: .off,
@@ -501,8 +547,8 @@ final class SettingsTableTests: XCTestCase {
             .lyricDelay: .number(0),
             .showNextLineEarly: .text("auto"),
             .translateTo: .text("automatic"),
-            .cardStyle: .text("automatic"),
-            .cardSize: .text("standard"),
+            .cardStyle: .text("clear"),
+            .cardSize: .text("compact"),
         ]
         for (row, value) in expected {
             XCTAssertEqual(row.defaultValue, value, "\(row)")
@@ -553,7 +599,8 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertEqual(NotchViewModel.newTracksEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.translateKeepHistoryEnabled(in: empty), false)
         XCTAssertEqual(NotchViewModel.translateSpeakButtonEnabled(in: empty), true)
-        XCTAssertEqual(NotchViewModel.lockCardStyle(in: empty), .automatic)
+        XCTAssertEqual(NotchViewModel.lockCardStyle(in: empty), .clear)
+        XCTAssertEqual(NotchViewModel.lockCardSize(in: empty), .compact)
 
         let flipped = suite()
         flipped.set(false, forKey: NotchViewModel.chargingKey)
@@ -758,9 +805,9 @@ final class SettingsTableTests: XCTestCase {
             ("Card Style", .cardStyle, .lockScreen),
             ("Card Size", .cardSize, .lockScreen),
             ("Translate Online", .translateOnline, .translate),
-            ("Connect Spotify Account…", .spotifyAccount, .spotify),
-            ("Disconnect Spotify Account", .spotifyAccount, .spotify),
-            ("Import Account from Keychain…", .spotifyImport, .spotify),
+            ("Connect Spotify Account…", .spotifyConnection, .connections),
+            ("Disconnect Spotify Account", .spotifyConnection, .connections),
+            ("Import Account from Keychain…", .spotifyImport, .connections),
             ("Save Clipboard Screenshots", .saveClipboardScreenshots, .screenshots),
             ("Show Screen Captures", .showScreenCaptures, .screenshots),
             ("Show Screenshots Folder", .showScreenshotsFolder, .screenshots),
@@ -840,9 +887,16 @@ final class SettingsTableTests: XCTestCase {
         context.lyricsNotice = "Couldn't read: a.lrc"
         context.showOnLockScreen = true
         context.needsAccessibility = true
-        context.spotify = SettingsPane.spotifyRows(
+        context.spotify = SettingsPane.spotifyConnection(
             connected: true, needsReconnect: false, signIn: nil, apiBlocked: false, canImport: true
         )
+        context.otherConnections = [PlayerConnections.Row(
+            service: PlayerConnections.others[0],
+            installed: AppIcons.Installed(
+                bundleID: PlayerConnections.others[0].bundleID, url: URL(fileURLWithPath: "/Applications/X.app"),
+                name: "X", icon: NSImage(size: NSSize(width: 4, height: 4))
+            )
+        )]
         context.update = stage(.available(UpdateCheck.Release(
             version: "0.3.1", page: URL(string: "https://github.com/ctimothe/isla-mac/releases/tag/v0.3.1")!
         )))

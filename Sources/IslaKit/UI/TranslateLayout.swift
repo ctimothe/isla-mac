@@ -49,8 +49,8 @@ enum TranslateLayout {
 
     /// The Clear ⓧ's hit frame, 24 square, at the card's top right.
     static let clearSide: CGFloat = 24
-    /// The Paste push button's height: `ToolbarPushButtonStyle`'s 22.
-    static let pasteHeight: CGFloat = 22
+    /// Paste's height: the header well's (`IconWordButton`), 22 until 2026-10-26.
+    static let pasteHeight: CGFloat = HeaderIcon.well
     /// "%d / 20,000", its foot 10 above the card's.
     static let counterBottomInset: CGFloat = 10
     static let counterHeight: CGFloat = 12
@@ -116,9 +116,16 @@ enum TranslateLayout {
     /// room, in which the button takes its own width from the left. It was a
     /// fixed 66, which cut "Paste" to "Pa…" beside its glyph (owner's review,
     /// 2026-10-18) and could never hold "Вставить".
+    ///
+    /// Since 2026-10-26 Paste is the header's 26 pt well (`IconWordButton`),
+    /// and it stands on the count's foot line — 10 from the card's bottom, as
+    /// it is 14 from its side — rather than centred on the 12 pt row, which
+    /// left the taller plate 3 pt off the card's edge. It shows only while the
+    /// field is empty, so the 4 pt it reaches into the text's foot room covers
+    /// nothing.
     static func paste(card: CGRect) -> CGRect {
         let row = counter(card: card)
-        return CGRect(x: row.minX, y: row.midY - pasteHeight / 2, width: row.width, height: pasteHeight)
+        return CGRect(x: row.minX, y: row.maxY - pasteHeight, width: row.width, height: pasteHeight)
     }
 
     /// The result's text, inset 12 and 4.
@@ -307,8 +314,8 @@ struct TranslateAlert: Equatable {
 
     enum Action: Equatable {
         case translationLanguages
-        /// "Use Online": this one text, to MyMemory, without turning
-        /// Translate Online on (`Translator.useOnline`).
+        /// "Use Online": this text and what is typed next for this pair, to
+        /// MyMemory, without turning Translate Online on (`Translator.useOnline`).
         case useOnline
         case turnOnOnline
         case tryAgain

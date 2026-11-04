@@ -230,11 +230,11 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
     /// 0.25)` ramp re-aimed by every 0.1 s publish (additive 0.25 s ramps, one
     /// per publish): lag p50 175 ms, p95 196 ms. The edge is now placed by the
     /// clock on every frame, and restating that rule here to measure it would
-    /// measure the restatement. So each frame calls the closure the surfaces
-    /// hand `KaraokeText` — `LyricSweep.liveFraction` over
-    /// `LyricSweep.frameClock`, which reads `MediaController.extrapolatedPosition`
-    /// — on a real `MediaController` whose monotonic clock is set to the
-    /// frame's instant. What that frame draws stays on screen until the next
+    /// measure the restatement. Since Batch 19 Core Animation draws it from
+    /// the line's keyframes, so each frame reads the plan the surfaces hand
+    /// it — `KaraokePlan` over the `LiveSweep` and `SongClock` a real
+    /// `MediaController` gives — at the frame's instant, with the linear
+    /// interpolation the render server runs between keyframes. What that frame draws stays on screen until the next
     /// one replaces it, so it is judged at four moments through the frame
     /// against the true edge at each: the lag is how long ago the truth stood
     /// where the drawn edge stands. The lead is 0 here because placing the
@@ -260,9 +260,12 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
         // Where the anchor landed, aged by the microseconds since `takenAt`:
         // track time t is monotonic time t - base.
         let base = media.extrapolatedPosition()
-        guard let frameClock = LyricSweep.frameClock(media: media, lead: 0) else {
+        guard let songClock = LyricSweep.songClock(media: media, lead: 0) else {
             return ["error": "the lab's MediaController is not playing, so no surface would hand a clock"]
         }
+        // One run as wide as the fraction's scale, so the drawn width is the
+        // fraction, a thousandth at a time.
+        let row: [CGRect] = [CGRect(x: 0, y: 0, width: 1_000, height: 20)]
         var byRate: [String: Any] = [:]
         var aheadOfTruth = 0
         for rate in [LyricLeadModel.referenceFrameRate, 60] {
@@ -271,17 +274,28 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
             for line in lines {
                 let words = line.words.map { LyricWord(at: $0.start, text: $0.text, end: $0.islaEnd) }
                 let start = line.words[0].start, end = line.lineEnd
-                let row = LyricsStore.Line(at: start, text: words.map(\.text).joined(separator: " "), words: words)
-                guard let sweep = LyricSweep.liveFraction(line: row, end: end, wordTiming: true, clock: frameClock) else { continue }
-                func target(_ t: Double) -> Double { LyricSweep.wordFraction(words: words, at: t, lineEnd: end) }
+                let sung = LyricsStore.Line(at: start, text: words.map(\.text).joined(separator: " "), words: words)
+                guard let live = LyricSweep.liveSweep(line: sung, end: end, wordTiming: true, clock: songClock) else { continue }
+                // Made as the line comes up, as the surface makes it.
+                let plan = KaraokePlan.make(runs: row, full: nil, sweep: live, fraction: 0, monoNow: start - base)[0]
+                // The truth in the plan's own unit, points along the run, by
+                // the plan's own multiplication. Taken back to a fraction,
+                // a width of 513.513… pt divided by 1 000 came out a step of
+                // the last binary digit under 19/37, and the search below
+                // then timed a frame drawn as the next word began from the
+                // start of the silence before it: 246 ms, on the screen
+                // 10⁻¹³ pt.
+                func target(_ t: Double) -> CGFloat {
+                    CGFloat(LyricSweep.wordFraction(words: words, at: t, lineEnd: end)) * 1_000
+                }
                 var frameTime = start
                 while frameTime <= end {
                     clock.now = frameTime - base
-                    let drawn = sweep()
+                    let drawn = plan.width(atMono: clock.now)
                     for hold in [0.25, 0.5, 0.75, 0.999] {
                         let seen = frameTime + hold * frame
                         let truth = target(seen)
-                        if drawn > truth + 1e-9 { aheadOfTruth += 1 }
+                        if drawn > truth + 1e-6 { aheadOfTruth += 1 }
                         // The drawn edge stands where the truth last stood
                         // `lag` ago. Last, not first: through the silence
                         // between two words the truth holds still, and timing
@@ -289,7 +303,7 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
                         // drawn just before the next word with the whole gap
                         // (the first run's 221 ms maximum, every one of them
                         // a gap).
-                        guard truth > 0.02, truth < 0.98, drawn < truth else { continue }
+                        guard truth > 20, truth < 980, drawn < truth else { continue }
                         var low = seen - 1.5, high = seen
                         for _ in 0..<30 {
                             let mid = (low + high) / 2
@@ -303,7 +317,7 @@ final class LyricAccuracyLabSweepTests: XCTestCase {
             byRate["\(Int(rate)) Hz"] = LabStats.summary(lags, scale: 1000)
         }
         return [
-            "label": "PRODUCTION (LyricSweep.liveFraction over LyricSweep.frameClock on a MediaController, sampled through each simulated frame)",
+            "label": "PRODUCTION (KaraokePlan over LyricSweep.liveSweep and songClock on a MediaController, sampled through each simulated frame)",
             "linesSampled": lines.count,
             "lagMs": byRate["\(Int(LyricLeadModel.referenceFrameRate)) Hz"] ?? [String: Any](),
             "lagMsByFrameRate": byRate,

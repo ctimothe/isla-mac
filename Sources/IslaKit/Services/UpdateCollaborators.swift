@@ -511,7 +511,9 @@ struct UpdateMount: Equatable, Sendable {
 /// an attach that exited 0 with no mount point, after one that timed out having
 /// mounted (found again by its image path in `hdiutil info`), and after the
 /// staging that followed. Detaching is tried three times with `-force`, and
-/// `false` means the volume is still there.
+/// `false` means the volume is still there — which `hdiutil info` decides, not
+/// the exit of the last try: a try stopped at its timeout or failed on a disk
+/// already ejected under it may well have detached it.
 struct HdiutilDiskImage: UpdateDiskImaging {
     typealias Runner = @Sendable (_ executable: String, _ arguments: [String], _ timeout: TimeInterval) async -> UpdateTool.Result?
 
@@ -570,6 +572,17 @@ struct HdiutilDiskImage: UpdateDiskImaging {
                         gone = true
                         break
                     }
+                    // A try that did not exit 0 may still have detached it. On
+                    // 2026-10-28 macOS took 12.6 s to eject the update's image:
+                    // the first try was stopped at its 10 s, the eject went on
+                    // without it and finished, the two tries after it failed on
+                    // a disk that was no longer there, and Isla said it
+                    // "couldn't open the downloaded update" on every Try Again.
+                    if !(await Self.stillListed(device, run: run)) {
+                        Log.updates.notice("update: a detach try did not exit cleanly, but the disk image is gone")
+                        gone = true
+                        break
+                    }
                     if attempt < Self.detachAttempts { try? await Task.sleep(for: .seconds(retryDelay)) }
                 }
                 if !gone { Log.updates.error("update: a disk image would not detach") }
@@ -577,6 +590,39 @@ struct HdiutilDiskImage: UpdateDiskImaging {
             }
             return allGone
         }
+    }
+
+    /// Whether `hdiutil info` still lists `device` as a device or a mount
+    /// point, of any image. Only an answer that reads as a list of images can
+    /// say it is gone: an info that fails, times out or prints something else
+    /// says nothing, and nothing is taken as still there — a folder under a
+    /// live volume must never be deleted into.
+    private static func stillListed(_ device: String, run: Runner) async -> Bool {
+        guard let info = await run(hdiutil, ["info", "-plist"], cleanupTimeout), info.succeeded,
+              let entries = entries(inInfo: info.output)
+        else { return true }
+        return entries.contains(canonical(device))
+    }
+
+    /// Every device and mount point `hdiutil info -plist` lists, of every
+    /// image, or nil when the output is not such a list.
+    static func entries(inInfo plist: Data) -> Set<String>? {
+        guard let object = try? PropertyListSerialization.propertyList(from: plist, options: [], format: nil),
+              let root = object as? [String: Any], let images = root["images"] as? [[String: Any]]
+        else { return nil }
+        var found: Set<String> = []
+        for entity in images.flatMap({ $0["system-entities"] as? [[String: Any]] ?? [] }) {
+            if let device = entity["dev-entry"] as? String { found.insert(canonical(device)) }
+            if let mountPoint = entity["mount-point"] as? String { found.insert(canonical(mountPoint)) }
+        }
+        return found
+    }
+
+    /// A mount point with its symlinks resolved and no trailing slash, so
+    /// `/var/…` and `/private/var/…` name the same volume while it is there;
+    /// a device as it is.
+    private static func canonical(_ entry: String) -> String {
+        entry.hasPrefix("/dev/") ? entry : URL(fileURLWithPath: entry).resolvingSymlinksInPath().path
     }
 
     /// The devices `hdiutil info` lists for this image file.

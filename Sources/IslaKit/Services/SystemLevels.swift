@@ -127,45 +127,89 @@ enum VolumeWriteResult: Equatable {
 /// The default output's volume and mute, read and written. A seam over
 /// `SystemVolume`, so a test never touches a real device.
 ///
-/// Not main-actor: since 2026-10-18 every call is made on the applier's own
-/// serial queue (`SystemLevelApplier.queue`), or on the main thread while the
-/// tap is being prepared, never on both at once. CoreAudio's property calls
-/// are thread-safe; the main thread is exactly where a key press must not
-/// wait for them.
+/// Not main-actor: every call is made off the main thread — reads on the
+/// applier's listener queue, writes on its one writer
+/// (`SystemLevelApplier.writeQueue`), or on the main thread while the tap is
+/// being prepared. CoreAudio's property calls are thread-safe; the main
+/// thread and the tap's thread are exactly where a key press must not wait
+/// for them.
 protocol VolumeOutput: Sendable {
     /// The level and mute of the default output, or nil when it has no volume
     /// Isla can set — an HDMI output, a fixed-level DAC — and the keys are
     /// left to the system, which has a way to move those that Isla does not.
     func read() -> VolumeState?
-    /// Writes only what changed, and only to `old.device`, and only while that
-    /// is still the default output: a level worked out from one device must
-    /// never land on another. This used to read the device, compute, and then
-    /// write to "whatever is default now", so a press that straddled AirPods
-    /// connecting could set the headphones to the speakers' level.
+    /// `read()`, and with `resolving` also works out again which control the
+    /// writes to that device go through (the tap starting, the default output
+    /// moving). A conformer with nothing to resolve just reads.
+    func read(resolving: Bool) -> VolumeState?
+    /// Writes only what changed, and only to `old.device`: a level worked out
+    /// from one device must never land on another. This used to read the
+    /// device, compute, and then write to "whatever is default now", so a
+    /// press that straddled AirPods connecting could set the headphones to the
+    /// speakers' level. `.deviceChanged` says `old.device` cannot take it any
+    /// more (it went away); the applier then re-aims the key at the device
+    /// that is current.
     func write(level: Float, muted: Bool, from old: VolumeState) -> VolumeWriteResult
+}
+
+extension VolumeOutput {
+    func read(resolving: Bool) -> VolumeState? { read() }
 }
 
 /// `VolumeOutput` over CoreAudio, through the same `SystemVolume` the lock
 /// card's slider uses.
-struct SystemVolumeOutput: VolumeOutput {
+///
+/// **The control is resolved once per device** (2026-10-25). Each write used
+/// to look up the default output, then ask `HasProperty` and
+/// `IsPropertySettable` of the virtual main volume before setting it — four
+/// HAL calls where one does, and slower still while the device is playing.
+/// `read(resolving:)` finds the control (and whether the mute is settable)
+/// when the tap starts and when the default output changes, and a write is
+/// then the set call alone. It no longer re-checks that `old.device` is still
+/// the default: the level was stepped from that device and is written to it by
+/// id, which is harmless, and the default-output listener re-aims the next
+/// press within milliseconds. A device that has gone answers the set with
+/// `kAudioHardwareBadObjectError`, which is `.deviceChanged`.
+final class SystemVolumeOutput: VolumeOutput, @unchecked Sendable {
+    private let lock = NSLock()
+    // Guarded by `lock`, held only to copy it, never across a CoreAudio call.
+    private var resolved: SystemVolume.Resolved?
+
     init() {}
 
-    func read() -> VolumeState? {
-        guard let device = AudioOutputs.current(), let level = SystemVolume.level(device: device) else {
-            return nil
+    func read() -> VolumeState? { read(resolving: false) }
+
+    func read(resolving: Bool) -> VolumeState? {
+        guard let device = AudioOutputs.current() else { return nil }
+        var control = lock.withLock { resolved }
+        if resolving || control?.device != device {
+            control = SystemVolume.resolve(device: device)
+            lock.withLock { resolved = control }
         }
-        return VolumeState(device: device, level: level, muted: SystemVolume.isMuted(device: device))
+        guard let control, let level = SystemVolume.level(control) else { return nil }
+        return VolumeState(device: device, level: level, muted: SystemVolume.isMuted(control))
     }
 
     func write(level: Float, muted: Bool, from old: VolumeState) -> VolumeWriteResult {
-        guard AudioOutputs.current() == old.device else { return .deviceChanged }
-        let device = old.device
+        let cached = lock.withLock { resolved?.device == old.device ? resolved : nil }
+        guard let control = cached ?? SystemVolume.resolve(device: old.device) else { return .failed }
         // Mute first, then the level: a level written under a mute is silent
         // until the mute lifts, and a mute with nowhere to land (a device with
         // no mute control) must refuse before the level has moved.
-        if muted != old.muted, !SystemVolume.setMuted(muted, device: device) { return .failed }
-        if level != old.level, !SystemVolume.set(level, device: device) { return .failed }
+        if muted != old.muted {
+            let status = SystemVolume.setMuted(muted, control)
+            if status != noErr { return Self.result(of: status) }
+        }
+        if level != old.level {
+            let status = SystemVolume.set(level, control)
+            if status != noErr { return Self.result(of: status) }
+        }
         return .written
+    }
+
+    /// A device that is gone, or a write that did not take.
+    static func result(of status: OSStatus) -> VolumeWriteResult {
+        status == kAudioHardwareBadObjectError || status == kAudioHardwareBadDeviceError ? .deviceChanged : .failed
     }
 }
 
@@ -415,22 +459,58 @@ protocol LevelWatching: AnyObject, Sendable {
 /// keeps the key* and shows its own pop-up (spec §12: a missing private symbol
 /// degrades, never breaks).
 ///
-/// **Threads.** `canApply` runs on the tap's thread, `prepare`/`stop` on the
-/// main actor, `apply` (through `submit`) and the listener events on `queue`.
-/// Everything they share lives behind `lock`, which is held only to copy a
-/// value in or out — never across a CoreAudio or DisplayServices call, so the
-/// tap's thread can never wait on hardware through it. Writes and listener
-/// refreshes are serialised by the queue itself, so a refresh cannot
-/// interleave with a write and leave a stale level behind. That discipline is
-/// why `@unchecked Sendable` is safe here.
+/// **The volume, since 2026-10-25: predicted, then written by one writer.**
+/// The owner: "only the volume pop-up lags and delays … with or without
+/// earphones, while music plays … this needs an architectural fix, like
+/// Apple's own sound control". Until then a press queued one write on a serial
+/// queue and the pop-up waited for it; each write was some ten CoreAudio calls
+/// (the default output, `HasProperty`, `IsPropertySettable`, the set), each
+/// one fired Isla's own listener two or three times on the same queue, and
+/// every one of those re-read the device — 26 to 37 HAL calls a press, in
+/// line. CoreAudio is slower while a device is running, so with music playing
+/// a held key outran the queue: the bar fell behind the finger, and after the
+/// key was let go it kept stepping for a second or two (the hitch lab's
+/// `hud-hold`, 50 ms writes: press-to-frame p50 1.1 s, 42 frames changed after
+/// release). Brightness never lagged: one call, a cached read, no listener.
+/// Now, as the system's own control does:
 ///
-/// **What is cached.** The default output's level, mute and device id, kept
-/// current by CoreAudio listeners (so a volume step needs no read before its
-/// write); the label of each device the pop-up has named; the built-in display
-/// the brightness keys may move, refreshed by the display-reconfiguration
-/// listener; and the last brightness and backlight level written or read,
-/// trusted for `levelTrustedFor` seconds (nothing announces a change to
-/// those, and auto-brightness moves them on its own).
+/// 1. **The press is drawn first.** The level it means is worked out from
+///    the *intended* state (`volumeState`: device, level, mute) under `lock`,
+///    on the tap's thread, and handed to `deliver` there and then — before
+///    any CoreAudio call. The next press steps from that intention, never
+///    from what the device has caught up to.
+/// 2. **One writer, newest wins.** The target goes into a single slot
+///    (`pendingVolume`) that a press overwrites; `writeQueue` drains it, so
+///    however long a write takes, the device gets at most the write in flight
+///    and then the newest level. The control a write goes through was resolved
+///    once, by `prepare()` or on a default-output change
+///    (`VolumeOutput.read(resolving:)`), so a write is one set call. A target
+///    stamped with an older `volumeGeneration` — the default output moved
+///    since — is dropped, never written to the device that replaced it.
+/// 3. **Only changes from outside are adopted.** The listeners run on
+///    `listenQueue`, never the writer's, and a burst of them is one read. A
+///    read is ignored while a write is pending or in flight, and within
+///    `echoWindow` of one when it matches a level Isla just wrote or left
+///    (its own echo, or the device lagging behind it); a check at the end of
+///    that window catches a real change that happened to look like one. Any
+///    other read — the menu bar slider, another app — becomes the intended
+///    state, and the next press steps from it.
+///
+/// **Threads.** `canApply` and the volume half of `submit` run on the tap's
+/// thread, `prepare`/`stop` on the main actor, volume writes on `writeQueue`,
+/// listener events on `listenQueue`, and the two brightnesses (through
+/// `submit`) on `queue`. Everything they share lives behind `lock`, which is
+/// held only to copy a value in or out — never across a CoreAudio or
+/// DisplayServices call, so the tap's thread can never wait on hardware
+/// through it. That discipline is why `@unchecked Sendable` is safe here.
+///
+/// **What is cached.** The intended volume, what the device was last known to
+/// hold, and the generation of the default output they belong to; the label
+/// of each device the pop-up has named; the built-in display the brightness
+/// keys may move, refreshed by the display-reconfiguration listener; and the
+/// last brightness and backlight level written or read, trusted for
+/// `levelTrustedFor` seconds (nothing announces a change to those, and
+/// auto-brightness moves them on its own).
 final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
     /// How long a brightness or backlight level Isla wrote or read is used for
     /// the next step without reading it again. A held key repeats far inside
@@ -440,19 +520,49 @@ final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
     /// one makes the screen jump.
     static let levelTrustedFor: TimeInterval = 1.5
 
-    /// The hardware writes and the listener refreshes, in order, at the
-    /// priority of the key press that caused them.
+    /// How long after one of Isla's own volume writes a read that matches a
+    /// level it wrote (or wrote over) is taken for that write's echo rather
+    /// than a change made elsewhere. A write fires the device's listeners two
+    /// or three times, and on a running device the last of them can arrive
+    /// well after the set returned; a person moving the menu-bar slider in
+    /// the same quarter second is caught by the check at the window's end.
+    static let echoWindow: TimeInterval = 0.25
+
+    /// Two levels closer than this are the same level: a device stores its
+    /// volume in its own steps (decibels), so the scalar read back is rarely
+    /// the float written. Half of the finest step a key takes.
+    static let levelTolerance: Float = HUDStep.fine / 2
+
+    /// The two brightnesses' writes, in order, at the priority of the key
+    /// press that caused them.
     let queue = DispatchQueue(label: "com.ctimothe.isla.levels", qos: .userInteractive)
+    /// The volume's one writer (see the type's note). Never runs a listener.
+    let writeQueue = DispatchQueue(label: "com.ctimothe.isla.levels.volume-writer", qos: .userInteractive)
+    /// Every listener event, and the reads they cause.
+    let listenQueue = DispatchQueue(label: "com.ctimothe.isla.levels.listen", qos: .userInitiated)
 
     private let volume: VolumeOutput
     private let displays: DisplayBrightnessResolver
     /// Called at `prepare()` (main actor) and on `.displays` events (the
-    /// queue). The real one is two CoreGraphics reads, which are thread-safe.
+    /// listen queue). The real one is two CoreGraphics reads, which are
+    /// thread-safe.
     private let topology: () -> DisplayTopology
     private let keyboards: KeyboardBrightnessResolver
     private let watch: LevelWatching
     private let describe: @Sendable (AudioDeviceID) -> DeviceLabel
     private let now: @Sendable () -> TimeInterval
+
+    /// A volume level waiting for the writer: the newest press's target, the
+    /// generation of the default output it was stepped on, and the key that
+    /// made it (a write the device refuses as `.deviceChanged` applies that
+    /// key once to the device that is current now).
+    private struct VolumeJob {
+        var target: VolumeState
+        var generation: Int
+        var key: MediaKey
+        var fine: Bool
+        var deliver: (@Sendable (HUDReading) -> Void)?
+    }
 
     private let lock = NSLock()
     // Everything below is read and written only while holding `lock`.
@@ -464,9 +574,28 @@ final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
     private var keyboardClient: KeyboardBrightnessClient?
     private var prepared = false
     private var watching = false
-    /// The default output as last read or written; nil when it has no volume
-    /// Isla can set.
+    /// The volume the presses mean: the last press's target, or the last
+    /// change adopted from outside. Nil when the default output has no volume
+    /// Isla can set. A press steps from this and nothing else.
     private var volumeState: VolumeState?
+    /// What the device was last known to hold — written by Isla or read from
+    /// it. The `from` of the next write, so only what changed is written.
+    private var deviceVolume: VolumeState?
+    /// Bumped whenever the default output is replaced (or the tap restarts):
+    /// a target from before is for a device that is no longer the one shown.
+    private var volumeGeneration = 0
+    private var pendingVolume: VolumeJob?
+    /// A drain of `pendingVolume` is queued or running on `writeQueue`.
+    private var writerScheduled = false
+    private var writeInFlight = false
+    /// Bumped by every press and every write that starts: a read that began
+    /// before either may have caught the device mid-change.
+    private var volumeEpoch = 0
+    private var lastWriteEnded: TimeInterval?
+    /// The levels Isla's last few writes left and wrote, for `echoWindow`.
+    private var recentVolumes: [VolumeState] = []
+    private var reconcileScheduled = false
+    private var settleCheckScheduled = false
     private var displayTarget: CGDirectDisplayID?
     private var displayLevel: (value: Float, at: TimeInterval)?
     private var keyboardLevel: (value: Float, at: TimeInterval)?
@@ -498,13 +627,19 @@ final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
         stop()
         let display = displays.resolve()
         let keyboard = keyboards.resolve()
-        let state = volume.read()
+        // Resolves the control the writes will go through, once per tap.
+        let state = volume.read(resolving: true)
         let label = state.map { describe($0.device) }
         let target = BuiltInDisplay.target(topology())
         lock.withLock {
             displayClient = display
             keyboardClient = keyboard
             volumeState = state
+            deviceVolume = state
+            volumeGeneration += 1
+            pendingVolume = nil
+            recentVolumes = []
+            lastWriteEnded = nil
             displayTarget = target
             displayLevel = nil
             keyboardLevel = nil
@@ -513,7 +648,7 @@ final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
             prepared = true
             watching = true
         }
-        watch.start(on: queue) { [weak self] event in self?.levelChanged(event) }
+        watch.start(on: listenQueue) { [weak self] event in self?.levelChanged(event) }
         watch.follow(state?.device)
     }
 
@@ -537,24 +672,39 @@ final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
     }
 
     func submit(_ key: MediaKey, fine: Bool, deliver: @escaping @Sendable (HUDReading) -> Void) {
-        queue.async { [self] in
-            let signpostID = HUDSignpost.signposter.makeSignpostID()
-            let interval = HUDSignpost.signposter.beginInterval("level write", id: signpostID)
-            let reading = apply(key, fine: fine)
-            HUDSignpost.signposter.endInterval("level write", interval)
-            if let reading { deliver(reading) }
+        guard key.kind == .volume else {
+            queue.async { [self] in
+                let signpostID = HUDSignpost.signposter.makeSignpostID()
+                let interval = HUDSignpost.signposter.beginInterval("level write", id: signpostID)
+                let reading = apply(key, fine: fine)
+                HUDSignpost.signposter.endInterval("level write", interval)
+                if let reading { deliver(reading) }
+            }
+            return
         }
+        // On the tap's thread: a lock, some arithmetic, the hand-off. No
+        // CoreAudio until the writer runs.
+        guard let (reading, kick) = enqueueVolume(key, fine: fine, deliver: deliver) else { return }
+        deliver(reading)
+        if kick { writeQueue.async { [self] in _ = drainVolumeWrites() } }
     }
 
     /// The level after the key, or nil when it could not be applied — in which
-    /// case nothing is shown. The body of `submit`, which runs it on `queue`;
-    /// internal so the tests can step it synchronously.
+    /// case nothing is shown. Synchronous: the brightnesses' body of `submit`,
+    /// and the tests' way to step a volume press through the writer and see
+    /// what it ended as (the reading a refused or re-aimed write corrected).
     func apply(_ key: MediaKey, fine: Bool) -> HUDReading? {
         // A caller that never prepared (a test, not the app) still resolves
         // once, and only once.
         if !lock.withLock({ prepared }) { prepare() }
         switch key.kind {
-        case .volume: return applyVolume(key, fine: fine)
+        case .volume:
+            let corrected = ReadingSlot()
+            guard let (predicted, _) = enqueueVolume(key, fine: fine, deliver: { corrected.value = $0 }) else {
+                return nil
+            }
+            let landed = writeQueue.sync { drainVolumeWrites() }
+            return landed ? (corrected.value ?? predicted) : nil
         case .display: return applyDisplay(key, fine: fine)
         case .keyboard: return applyKeyboard(key, fine: fine)
         }
@@ -562,48 +712,163 @@ final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
 
     // MARK: The volume
 
-    private func applyVolume(_ key: MediaKey, fine: Bool) -> HUDReading? {
-        guard var from = lock.withLock({ volumeState }) else { return nil }
-        var next = HUDStep.volume(after: key, level: from.level, muted: from.muted, fine: fine)
-        var result = volume.write(level: next.level, muted: next.muted, from: from)
-        if result == .deviceChanged {
-            // The default output moved and its listener has not run yet (AirPods
-            // connecting under the press). The key was already consumed, so it
-            // is applied to the device that is current now, stepped from *that*
-            // device's own level: a level worked out from one device must never
-            // land on another — the bug `write(level:muted:from:)` exists for.
-            // This is the one read a step can need, and it is on this queue.
-            guard let fresh = adoptVolume(volume.read(), describing: true) else { return nil }
-            from = fresh
-            next = HUDStep.volume(after: key, level: from.level, muted: from.muted, fine: fine)
-            result = volume.write(level: next.level, muted: next.muted, from: from)
+    /// The intended volume, for the tests.
+    var intendedVolume: VolumeState? { lock.withLock { volumeState } }
+
+    /// Waits for every listener read and every volume write queued so far.
+    /// For the tests; the app never waits on either.
+    func settle() {
+        listenQueue.sync {}
+        writeQueue.sync {}
+        queue.sync {}
+    }
+
+    /// Waits for the listener reads queued so far. For the tests.
+    func settleListeners() { listenQueue.sync {} }
+
+    /// Runs `body` with the listener queue held, so the events it fires queue
+    /// up as a real burst does. For the tests.
+    func holdListeners(_ body: () -> Void) {
+        listenQueue.suspend()
+        body()
+        listenQueue.resume()
+    }
+
+    /// Steps the intended volume and leaves the target in the writer's slot,
+    /// over any target still waiting there. Returns the reading to draw and
+    /// whether the writer must be started. Touches no hardware.
+    private func enqueueVolume(
+        _ key: MediaKey, fine: Bool, deliver: (@Sendable (HUDReading) -> Void)?
+    ) -> (HUDReading, Bool)? {
+        let result = lock.withLock { () -> (HUDReading, Bool)? in
+            guard prepared, let from = volumeState else { return nil }
+            let next = HUDStep.volume(after: key, level: from.level, muted: from.muted, fine: fine)
+            let target = VolumeState(device: from.device, level: next.level, muted: next.muted)
+            volumeState = target
+            volumeEpoch += 1
+            pendingVolume = VolumeJob(target: target, generation: volumeGeneration, key: key, fine: fine, deliver: deliver)
+            let kick = !writerScheduled
+            writerScheduled = true
+            let label = labels[target.device]
+            return (Self.reading(target, label), kick)
         }
-        guard result == .written else {
-            // A refused write leaves the cache unsure of what the device holds.
-            _ = adoptVolume(volume.read(), describing: false)
-            return nil
-        }
-        let written = VolumeState(device: from.device, level: next.level, muted: next.muted)
-        let known = lock.withLock { () -> DeviceLabel? in
-            volumeState = written
-            return labels[written.device]
-        }
-        let label = known ?? remember(describe(written.device), for: written.device)
-        return HUDReading(
-            kind: .volume, level: next.level, muted: next.muted, deviceSymbol: label.symbol,
-            outputDevice: written.device, deviceName: label.name
+        if result != nil { HUDSignpost.signposter.emitEvent("level queued") }
+        return result
+    }
+
+    private static func reading(_ state: VolumeState, _ label: DeviceLabel?) -> HUDReading {
+        HUDReading(
+            kind: .volume, level: state.level, muted: state.muted, deviceSymbol: label?.symbol,
+            outputDevice: state.device, deviceName: label?.name
         )
     }
 
-    /// Stores a fresh read of the default output and moves the per-device
-    /// listeners when the device changed. `describing` re-reads the label even
-    /// for a device already known (the default-output listener: a device that
-    /// came back may not be the one that left).
+    /// On `writeQueue`: writes the newest target until the slot stays empty.
+    /// False when the last write did not land.
+    private func drainVolumeWrites() -> Bool {
+        var landed = true
+        while true {
+            let next = lock.withLock { () -> (job: VolumeJob, from: VolumeState)?? in
+                guard let job = pendingVolume else {
+                    writerScheduled = false
+                    return .none
+                }
+                pendingVolume = nil
+                // Stepped on a default output that has since been replaced:
+                // dropped, never written to the device that replaced it.
+                guard job.generation == volumeGeneration else { return .some(nil) }
+                writeInFlight = true
+                volumeEpoch += 1
+                // A device whose holding is not known gets both the mute and
+                // the level written.
+                let known = deviceVolume.flatMap { $0.device == job.target.device ? $0 : nil }
+                let from = known ?? VolumeState(device: job.target.device, level: -1, muted: !job.target.muted)
+                return .some((job, from))
+            }
+            guard let next else { return landed }
+            guard let (job, from) = next else { continue }
+            landed = writeVolume(job, from: from)
+        }
+    }
+
+    /// One write, and what follows from how it ended.
+    private func writeVolume(_ job: VolumeJob, from: VolumeState) -> Bool {
+        let signpostID = HUDSignpost.signposter.makeSignpostID()
+        let interval = HUDSignpost.signposter.beginInterval("level write", id: signpostID)
+        let result = volume.write(level: job.target.level, muted: job.target.muted, from: from)
+        HUDSignpost.signposter.endInterval("level write", interval)
+        switch result {
+        case .written:
+            let named = lock.withLock { () -> Bool in
+                finishWrite(from: from, wrote: job.target, generation: job.generation)
+                return labels[job.target.device] != nil
+            }
+            if !named { remember(describe(job.target.device), for: job.target.device) }
+            return true
+        case .deviceChanged:
+            // The device the level was stepped on is gone (AirPods
+            // disconnected) and its listener has not run yet. The key was
+            // already consumed, so it is applied to the device that is current
+            // now, stepped from *that* device's own level: a level worked out
+            // from one device must never land on another.
+            lock.withLock { writeInFlight = false }
+            guard let fresh = adoptVolume(volume.read(resolving: true), describing: true) else { return false }
+            let next = HUDStep.volume(after: job.key, level: fresh.level, muted: fresh.muted, fine: job.fine)
+            let target = VolumeState(device: fresh.device, level: next.level, muted: next.muted)
+            let generation = lock.withLock { () -> Int in
+                volumeState = target
+                writeInFlight = true
+                volumeEpoch += 1
+                return volumeGeneration
+            }
+            guard volume.write(level: target.level, muted: target.muted, from: fresh) == .written else {
+                lock.withLock { writeInFlight = false }
+                _ = adoptVolume(volume.read(resolving: true), describing: false)
+                return false
+            }
+            let label = lock.withLock { () -> DeviceLabel? in
+                finishWrite(from: fresh, wrote: target, generation: generation)
+                return labels[target.device]
+            }
+            job.deliver?(Self.reading(target, label))
+            return true
+        case .failed:
+            // A refused write leaves Isla unsure of what the device holds: it
+            // reads it, and the bar drawn for the press goes back to it.
+            lock.withLock { writeInFlight = false }
+            if let fresh = adoptVolume(volume.read(resolving: true), describing: false) {
+                let label = lock.withLock { labels[fresh.device] }
+                job.deliver?(Self.reading(fresh, label))
+            }
+            return false
+        }
+    }
+
+    /// Under `lock`: a write landed.
+    private func finishWrite(from: VolumeState, wrote: VolumeState, generation: Int) {
+        writeInFlight = false
+        lastWriteEnded = now()
+        recentVolumes = Array((recentVolumes + [from, wrote]).suffix(8))
+        if generation == volumeGeneration { deviceVolume = wrote }
+    }
+
+    /// Stores a fresh read of the default output as both the intention and
+    /// what the device holds, drops any target still waiting (it was stepped
+    /// from something else), and moves the per-device listeners when the
+    /// device changed. `describing` re-reads the label even for a device
+    /// already known (the default-output listener: a device that came back may
+    /// not be the one that left).
     @discardableResult
     private func adoptVolume(_ fresh: VolumeState?, describing: Bool) -> VolumeState? {
         let (moved, known, isWatching) = lock.withLock {
             let moved = volumeState?.device != fresh?.device
+            if moved {
+                volumeGeneration += 1
+                recentVolumes = []
+            }
             volumeState = fresh
+            deviceVolume = fresh
+            pendingVolume = nil
             return (moved, fresh.flatMap { labels[$0.device] }, watching)
         }
         if let fresh, describing || moved || known == nil {
@@ -619,15 +884,27 @@ final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
         return label
     }
 
-    /// A listener fired. On `queue` in the app, so it is ordered with the
-    /// writes; one that was already queued when the tap stopped is ignored.
+    /// A listener fired. On `listenQueue` in the app (synchronously on the
+    /// test's thread with the fake watch); one that was already queued when the
+    /// tap stopped is ignored.
     private func levelChanged(_ event: LevelEvent) {
         guard lock.withLock({ watching }) else { return }
         switch event {
         case .defaultOutput:
-            adoptVolume(volume.read(), describing: true)
+            // A burst of these comes with one real change, and some come with
+            // none (a device's streams settling). Only a new device replaces
+            // the intention; the same one is a volume event like any other,
+            // which a press in progress must survive.
+            let fresh = volume.read(resolving: true)
+            let same = lock.withLock { fresh != nil && volumeState?.device == fresh?.device }
+            if same, let fresh {
+                remember(describe(fresh.device), for: fresh.device)
+                scheduleReconcile()
+            } else {
+                adoptVolume(fresh, describing: true)
+            }
         case .volume:
-            adoptVolume(volume.read(), describing: false)
+            scheduleReconcile()
         case .dataSource:
             guard let device = lock.withLock({ volumeState?.device }) else { return }
             remember(describe(device), for: device)
@@ -638,6 +915,78 @@ final class SystemLevelApplier: MediaKeyApplying, @unchecked Sendable {
                 displayLevel = nil
             }
         }
+    }
+
+    /// One read for a burst: the events already queued behind this one find
+    /// it scheduled and add nothing.
+    private func scheduleReconcile() {
+        let schedule = lock.withLock { () -> Bool in
+            guard !reconcileScheduled else { return false }
+            reconcileScheduled = true
+            return true
+        }
+        if schedule { listenQueue.async { [weak self] in self?.reconcileVolume(settling: false) } }
+    }
+
+    /// One more look once `echoWindow` has passed, for a change that a write
+    /// in flight, or one that looked like an echo, kept from being adopted.
+    private func scheduleSettleCheck() {
+        let schedule = lock.withLock { () -> Bool in
+            guard !settleCheckScheduled else { return false }
+            settleCheckScheduled = true
+            return true
+        }
+        guard schedule else { return }
+        listenQueue.asyncAfter(deadline: .now() + Self.echoWindow) { [weak self] in
+            guard let self else { return }
+            self.lock.withLock { self.settleCheckScheduled = false }
+            self.reconcileVolume(settling: true)
+        }
+    }
+
+    private enum Reconciled { case kept, adopted, later, moved }
+
+    /// Reads the device and adopts what it holds only when that is a change
+    /// made outside Isla (see the type's note, point 3). Never steps from a
+    /// value read back after Isla's own write.
+    private func reconcileVolume(settling: Bool) {
+        let ticket = lock.withLock { () -> Int? in
+            if !settling { reconcileScheduled = false }
+            return watching ? volumeEpoch : nil
+        }
+        guard let ticket else { return }
+        let fresh = volume.read()
+        let moment = now()
+        let outcome = lock.withLock { () -> Reconciled in
+            guard watching else { return .kept }
+            // A press or a write began while the device was being read: the
+            // value may be from either side of it.
+            if volumeEpoch != ticket || writeInFlight || pendingVolume != nil { return .later }
+            guard let fresh, let intended = volumeState else {
+                return fresh == nil && volumeState == nil ? .kept : .moved
+            }
+            guard fresh.device == intended.device else { return .moved }
+            if Self.same(fresh, intended) {
+                deviceVolume = fresh
+                return .kept
+            }
+            if !settling, let ended = lastWriteEnded, moment - ended < Self.echoWindow,
+               recentVolumes.contains(where: { Self.same($0, fresh) }) {
+                return .later
+            }
+            volumeState = fresh
+            deviceVolume = fresh
+            return .adopted
+        }
+        switch outcome {
+        case .kept, .adopted: break
+        case .later: scheduleSettleCheck()
+        case .moved: adoptVolume(fresh, describing: false)
+        }
+    }
+
+    private static func same(_ a: VolumeState, _ b: VolumeState) -> Bool {
+        a.device == b.device && a.muted == b.muted && abs(a.level - b.level) <= levelTolerance
     }
 
     // MARK: The two brightnesses
@@ -869,4 +1218,15 @@ private func levelWatchDisplaysChanged(
 ) {
     guard let userInfo, !flags.contains(.beginConfigurationFlag) else { return }
     Unmanaged<SystemLevelWatch>.fromOpaque(userInfo).takeUnretainedValue().displaysChanged()
+}
+
+/// One reading, set from the writer's queue and read after it, for
+/// `SystemLevelApplier.apply`.
+private final class ReadingSlot: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: HUDReading?
+    var value: HUDReading? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
 }

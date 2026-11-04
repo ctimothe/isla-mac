@@ -116,13 +116,21 @@ final class KaraokeTextTests: XCTestCase {
             LyricWord(at: base + 0.5, text: "cd", end: base + 1),
         ])
         let frameClock = try XCTUnwrap(LyricSweep.frameClock(media: media, lead: 0), "a playing song has a frame clock")
-        let sweep = try XCTUnwrap(
-            LyricSweep.liveFraction(line: line, end: base + 1, wordTiming: true, clock: frameClock),
-            "a word-timed line being sung is clock-driven"
+        let live = try XCTUnwrap(
+            LyricSweep.liveSweep(line: line, end: base + 1, wordTiming: true, clock: media.songClock),
+            "a word-timed line being sung sweeps"
         )
+        let songClock = try XCTUnwrap(live.clock, "on the song's clock")
+        // What Core Animation is handed draws, at each moment, the fraction
+        // of the clock at that moment.
+        func sweep() -> Double { live.fraction(atSong: songClock.position(at: clock.now)) }
 
+        // What was published, not 10: `apply` ages the reading by the wall
+        // clock since `takenAt`, and on a Mac at load 160 that was 18 ms —
+        // past a 0.01 tolerance on a test about the fake clock (2026-10-29).
+        let published = media.position
         clock.now += 0.25
-        XCTAssertEqual(media.position, 10, accuracy: 0.01, "no tick ran, so nothing was published")
+        XCTAssertEqual(media.position, published, "no tick ran, so nothing was published")
         XCTAssertEqual(sweep(), 0.25, accuracy: 0.001, "half through the first of two equal words")
         clock.now += 0.5
         XCTAssertEqual(sweep(), 0.75, accuracy: 0.001)
@@ -132,14 +140,17 @@ final class KaraokeTextTests: XCTestCase {
         let led = try XCTUnwrap(LyricSweep.frameClock(media: media, lead: 0.2))
         XCTAssertEqual(led(), base + 0.95, accuracy: 0.0001)
 
-        // Nothing moves a sweep that line timing draws whole, or a credit.
-        XCTAssertNil(LyricSweep.liveFraction(line: line, end: base + 1, wordTiming: false, clock: frameClock))
+        // Nothing sweeps a line that line timing draws whole, or a credit.
+        let songNow = media.songClock
+        XCTAssertNil(LyricSweep.liveSweep(line: line, end: base + 1, wordTiming: false, clock: songNow))
         let plain = LyricsStore.Line(at: base, text: "ab cd")
-        XCTAssertNil(LyricSweep.liveFraction(line: plain, end: base + 1, wordTiming: true, clock: frameClock))
+        XCTAssertNil(LyricSweep.liveSweep(line: plain, end: base + 1, wordTiming: true, clock: songNow))
         var credit = line
         credit.isCredit = true
-        XCTAssertNil(LyricSweep.liveFraction(line: credit, end: base + 1, wordTiming: true, clock: frameClock))
-        XCTAssertNil(LyricSweep.liveFraction(line: line, end: base + 1, wordTiming: true, clock: nil))
+        XCTAssertNil(LyricSweep.liveSweep(line: credit, end: base + 1, wordTiming: true, clock: songNow))
+        // A word-timed line keeps its sweep with no clock, and stands still.
+        XCTAssertNil(LyricSweep.liveSweep(line: line, end: base + 1, wordTiming: true, clock: nil)?.clock)
+        XCTAssertNotNil(LyricSweep.liveSweep(line: line, end: base + 1, wordTiming: true, clock: nil))
 
         // Paused, there is no clock to read: the sweep stands still and no
         // frame callback runs for it.
@@ -149,6 +160,7 @@ final class KaraokeTextTests: XCTestCase {
         snapshot.takenAt = Date()
         media.apply(snapshot)
         XCTAssertNil(LyricSweep.frameClock(media: media, lead: 0), "a paused song has no frame clock")
+        XCTAssertNil(LyricSweep.songClock(media: media, lead: 0), "nor a song clock to hand Core Animation")
     }
 
     /// A wrapped line fills in reading order: the top row completely, before the

@@ -105,7 +105,7 @@ final class SettingsPaneTests: XCTestCase {
         // report on (`AmbientWatch.hasBattery`), and a CI virtual machine has none:
         // the row is not there to count, which is correct and not a missing switch.
         let expected: [SettingsSection: [String]] = [
-            .general: ["Launch at Login", "Open on Hover"] + (AmbientWatch.hasBattery ? ["Charger Connected"] : [])
+            .general: ["Launch at Login", "Open on Hover", "Swipe to Open and Close"] + (AmbientWatch.hasBattery ? ["Charger Connected"] : [])
                 // Volume and Brightness joined in R5 (spec §12), off by default.
                 + ["Headphones Connecting", "New Tracks", "Volume and Brightness"],
             .privacy: ["Clipboard History", "Include Images", "Keep Pinned Items",
@@ -294,80 +294,68 @@ final class SettingsPaneTests: XCTestCase {
         XCTAssertTrue(root.all { name($0) == localized("0.25 s") || name($0) == localized("0.75 s") }.isEmpty, root.dump)
     }
 
-    // MARK: - Settings › Spotify
+    // MARK: - Settings › Connections › Spotify
 
     /// A grant Spotify revoked used to leave Settings offering a bare Connect
-    /// with no word about why the account had gone.
+    /// with no word about why the account had gone; the row's one line says so.
     func testARevokedAccountOffersReconnect() {
-        let rows = SettingsPane.spotifyRows(connected: false, needsReconnect: true, signIn: nil, apiBlocked: false)
-
-        XCTAssertEqual(rows.prefix(2), [
-            .note(localized("Spotify ended Isla's access. Connect again to use Liked Songs.")),
-            .connect,
-        ])
+        let state = SettingsPane.spotifyConnection(connected: false, needsReconnect: true, signIn: nil, apiBlocked: false)
+        XCTAssertEqual(state.problem, localized("Spotify ended Isla’s access. Connect again."))
+        XCTAssertFalse(state.connected)
     }
 
     /// Cancel on the consent page and a sign-in that did not finish each get
-    /// their own sentence; both used to return silently.
+    /// their own sentence; a failure carries Spotify's own reason.
     func testACancelledSignInSaysSo() {
-        let cancelled = SettingsPane.spotifyRows(connected: false, needsReconnect: false, signIn: .cancelled, apiBlocked: false)
-        XCTAssertEqual(cancelled.first, .note(localized("Spotify sign-in was cancelled.")))
-        XCTAssertTrue(cancelled.contains(.connect))
-
-        for outcome in [SpotifyAccount.SignInOutcome.expired, .failed] {
-            let rows = SettingsPane.spotifyRows(connected: false, needsReconnect: false, signIn: outcome, apiBlocked: false)
-            XCTAssertEqual(rows.first, .note(localized("Spotify sign-in did not finish. Try connecting again.")))
-        }
-    }
-
-    /// One event, one note: an outcome replaces the reconnect note rather than
-    /// stacking under it, and a local problem leads.
-    func testOneEventGetsOneNote() {
-        let rows = SettingsPane.spotifyRows(connected: false, needsReconnect: true, signIn: .cancelled, apiBlocked: false)
-        XCTAssertEqual(rows.filter { if case .note = $0 { return true } else { return false } }.count, 1)
-
-        let local = SettingsPane.spotifyRows(
-            connected: false, needsReconnect: false, signIn: nil, apiBlocked: false, problem: .browserDidNotOpen
+        XCTAssertEqual(
+            SettingsPane.spotifyConnection(connected: false, needsReconnect: false, signIn: .cancelled, apiBlocked: false).problem,
+            localized("Spotify sign-in was cancelled.")
         )
-        XCTAssertEqual(local.first, .note(SpotifyAccount.SignInProblem.browserDidNotOpen.explanation))
+        XCTAssertEqual(
+            SettingsPane.spotifyConnection(connected: false, needsReconnect: false, signIn: .expired, apiBlocked: false).problem,
+            localized("Spotify sign-in did not finish. Try connecting again.")
+        )
+        let failure = SpotifyAccount.SignInFailure(stage: .exchange, status: 400, error: "invalid_request", detail: "code_verifier was incorrect")
+        XCTAssertEqual(
+            SettingsPane.spotifyConnection(connected: false, needsReconnect: false, signIn: .failed(failure), apiBlocked: false).problem,
+            failure.explanation
+        )
     }
 
-    /// Disconnect was one unconfirmed click on the account's only action.
-    func testDisconnectNeedsASecondPress() {
-        let rows = SettingsPane.spotifyRows(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
-
-        XCTAssertTrue(rows.contains(.confirm(title: localized("Disconnect Spotify Account"), armedTitle: localized("Disconnect"))))
-        XCTAssertTrue(rows.contains(.note(localized("Isla forgets the account on this Mac. Your Spotify library stays as it is."))))
-        XCTAssertFalse(rows.contains(.connect))
+    /// One event, one line: an outcome replaces the reconnect line rather
+    /// than stacking under it, and a local problem leads.
+    func testOneEventGetsOneLine() {
+        XCTAssertEqual(
+            SettingsPane.spotifyConnection(connected: false, needsReconnect: true, signIn: .cancelled, apiBlocked: false).problem,
+            localized("Spotify sign-in was cancelled.")
+        )
+        XCTAssertEqual(
+            SettingsPane.spotifyConnection(
+                connected: false, needsReconnect: false, signIn: .cancelled, apiBlocked: false, problem: .browserDidNotOpen
+            ).problem,
+            SpotifyAccount.SignInProblem.browserDidNotOpen.explanation
+        )
     }
 
-    /// The lock-card heart writes to Liked Songs from a locked Mac; Settings
-    /// says so while an account is connected, and not otherwise.
-    func testTheHeartIsDisclosed() {
-        let heart = SettingsPane.SpotifyRow.note(localized("The heart on the lock screen adds the song to your Liked Songs."))
-        let connected = SettingsPane.spotifyRows(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
-        let disconnected = SettingsPane.spotifyRows(connected: false, needsReconnect: false, signIn: nil, apiBlocked: false)
-
-        XCTAssertTrue(connected.contains(heart))
-        XCTAssertFalse(disconnected.contains(heart))
+    /// A connected account at rest says nothing more than the row's detail.
+    func testAConnectedAccountAtRestHasNoLine() {
+        let state = SettingsPane.spotifyConnection(connected: true, needsReconnect: false, signIn: nil, apiBlocked: false)
+        XCTAssertNil(state.problem)
+        XCTAssertTrue(state.connected)
     }
 
     /// The Import row stays offered while there is something to import, and a
-    /// refusal explains the missing heart only while connected.
-    func testImportAndRefusalRows() {
-        let importing = SettingsPane.spotifyRows(
+    /// refusal explains the missing star only while connected and blocked.
+    func testImportAndRefusalLines() {
+        XCTAssertTrue(SettingsPane.spotifyConnection(
             connected: false, needsReconnect: false, signIn: nil, apiBlocked: false, canImport: true
-        )
-        XCTAssertEqual(importing.last, .importAccount)
-
-        let refused = SettingsPane.spotifyRows(
+        ).offersImport)
+        XCTAssertEqual(SettingsPane.spotifyConnection(
             connected: true, needsReconnect: false, signIn: nil, apiBlocked: true, refusal: .premiumRequired
-        )
-        XCTAssertTrue(refused.contains(.note(SpotifyAccount.Refusal.premiumRequired.explanation)))
-        let unrefused = SettingsPane.spotifyRows(
+        ).problem, SpotifyAccount.Refusal.premiumRequired.explanation)
+        XCTAssertNil(SettingsPane.spotifyConnection(
             connected: true, needsReconnect: false, signIn: nil, apiBlocked: false, refusal: .premiumRequired
-        )
-        XCTAssertFalse(unrefused.contains(.note(SpotifyAccount.Refusal.premiumRequired.explanation)))
+        ).problem)
     }
 }
 

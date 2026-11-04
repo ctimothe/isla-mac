@@ -29,7 +29,11 @@ went with them. The app now claims one entitlement of its own,
 keychain access group at bundle time, see `Scripts/bundle.sh`), which the hardened runtime
 requires before Isla can script Music or Spotify at all. That covers the
 fallback, and also shuffle, repeat, the Spotify track id behind the heart,
-and, while lyrics are on, the per-second position correction. So macOS asks
+and, while lyrics are on, the per-second position correction. Since
+2026-10-26 it also reads and sets Music's and Spotify's own `sound volume`
+from the lyric stage's Volume control, only once that control is pressed
+(spec §19.6); every other app's volume there is the Mac's output, so no audio
+capture or new permission is involved. So macOS asks
 the first time the panel opens on Music or Spotify, not only when the
 fallback is used; the consent is refusable, and refusing it costs those
 controls and nothing else. Corrected 2026-09-23: this note and the prompt's
@@ -193,6 +197,14 @@ are the exception the design did not anticipate:
   a scope would make every connected user consent again, so it is the
   owner's call. A refusal is asked about again after ten minutes, and a
   disconnect or a new grant clears it (`SpotifyAccountTests`).
+  Since 2026-10-25 (Settings › Connections) a completed grant is followed by
+  one `GET /v1/me`, which asks for nothing new under the same scopes and
+  only after the person pressed Connect: Development Mode refuses an unlisted
+  account on the first Web-API call, and this one call makes Connect say so
+  at once instead of at the first Spotify song. Nothing new is off by
+  default because nothing runs before Connect, which stays the consent. The
+  sign-in steps are logged under `com.ctimothe.isla` / `spotify` with no
+  token, code or verifier.
 - **Lock-screen card** (Settings › Lock Screen, default on) presents the
   player over the shield, in a window of its own, finished as Transparent,
   Tinted or Solid and sized Standard or Compact. The
@@ -442,6 +454,12 @@ check: session S2 (`docs/development/audits/2026-10-11-live-validation-script.md
   - [ ] Clipboard tab open, playing, 1 min (`tab-clipboard 12`): _
   - [ ] After MS-12 and MS-13: the four tab rows again, and `closed-idle`
     still inside the budget.
+  - 2026-10-29, after the redesign (B17): Isla 0.4.0.20 (26), MacBook Pro
+    M4 Pro, macOS 27.2 (26B123), Music playing, load about 6.
+    `closed-playing`, 60 × 5 s: CPU 0.1 % median, 6.0 % max (a track
+    change), 0.00 idle wake-ups/s, 37 switches/s, RSS 40 MB, footprint
+    74 MB; helper CPU 0.1 %, 0.00 idle wake-ups/s, 13 switches/s. Inside
+    the budget. `closed-idle` (music paused) and the surface rows are owed.
 - [ ] Developer ID signing, notarization, stapling, and Gatekeeper validation pass.
   Also what lets a privacy grant survive an update: until this lands, every
   ad-hoc release asks again for Desktop, Documents, Downloads and Automation
@@ -2066,7 +2084,10 @@ Owed on hardware (record the Mac model and macOS version when run):
 - [ ] **R8-H5** The sung line in the player on a synced song: it turns with
   the voice, and a long line wraps to two on the stage.
 - [ ] **R8-H6** Favourite in Music (the star follows Music's own heart both
-  ways) and in Spotify with the account connected.
+  ways) and in Spotify with the account connected. In Music, on a catalogue
+  song that is not in the library: one tap fills the star and it stays filled
+  (failed on 2026-10-28 before §19.6's amendment of that day: the star emptied
+  0.4 s after each tap until the third).
 - [ ] **R8-H7** A new track peeks: click its far end, cover side, a few
   points in from the edge — the player opens and stays while the pointer
   rests there, folds when the pointer walks away, and Escape in another app
@@ -2414,16 +2435,535 @@ Owed on hardware (record the Mac model and macOS version when run):
   sidebar changes the form as before (it is not staged).
 - [ ] **R8e-H6** Settings → player, X pressed, twenty times: unchanged from R8d.
 
+### B9 — glyph swaps without RenderBox (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+What R8e was chasing was mostly not the form. The gear turning into Settings'
+X was a symbol content transition (`.replace.downUp`), and SwiftUI draws one
+into an `RBDrawingLayer` whose display waits in `-[CAContext waitForCommitId:]`
+for the render server every frame: a sample of the hitch lab found the main
+thread blocked there about 230 ms per swap, off the CPU, which is why the CPU
+columns above moved and the missed frames did not. Hitch lab, same bundle,
+the transition the only difference, after the lyric scenario (lyrics live),
+two interleaved rounds: player → Settings 27.0 and 26.5 missed frames of 125
+with the replace, 4.0 and 3.5 with a plain scale and fade; Settings → player
+6.6 and 6.8 against 4.9 and 3.8. A hard cut is no cure: `.identity` is still a
+content transition and still RenderBox (7.1, 6.6). Without lyrics the replace
+cost about 4 frames (6.1 against 2.1), so live lyrics multiply it.
+`View.symbolSwap` now keys a bare image by its value and scales the old glyph
+out as the new one grows in (0.5, on `Theme.contentAnimation`), a cross-fade
+under Reduce Motion, for all twelve glyph swaps (play/pause, the heart, the
+gear, Copy, the repeat and shuffle toggles, the lock card's). Held by
+`SymbolSwapLayerTests` (no RenderBox layer in any frame of a swap; it fails on
+the replace) and the scan in `MotionValuesTests`. R8e-H2 is judged on this
+build. The text content transitions (the Shelf count's numeric text, the
+update alert's fade) were checked the same way the same day: they draw into a
+Core Graphics layer, and no RenderBox layer appears in any frame.
+
+- [ ] **B9-H1** Play/pause, the heart, the gear and its X, Copy, repeat and
+  shuffle: the old glyph shrinks away as the new one grows in its place, about
+  as quickly as before, with nothing jumping beside it; with Reduce Motion on,
+  they cross-fade.
+
+### B17 — the running Isla, measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+The installed 0.4.0.20 (26), sampled read-only with `top`, `log show` and
+`nettop`; nothing launched, clicked or driven. Shut with music playing it
+is inside the idle budget (§Manual parity gates holds the row): 0.1 % of
+a core median, RSS 40 MB, footprint 74–86 MB at rest with no climb across
+three track changes. A track change costs 10–12 % for 2–3 s. The helper's
+2 s poll re-fetches the cover from MediaRemote on every read, which logs a
+cache miss each time, at 0.13 % in the helper. While the owner used the
+panel, 15–27 % and up to 205 MB of footprint for 2½ minutes, against the
+idle-cost lab's 0.2 % at most; which surface was open is not known, so
+these runs come next:
+
+- [x] **B17-H1** Music playing, the panel open on the player, the pointer
+  off it: `measure-idle.sh open-player 12`. 2026-10-29, same Mac and
+  build: CPU 6.9 % median (7.3 % max), 244 switches/s, RSS 55 MB,
+  footprint 86 MB; helper 0.1 %. Seventy times the budget. A 3 s `sample`,
+  symbolicated against the gate's identical build (UUID 25AA2043), puts
+  the main thread's work in SwiftUI's graph update under
+  `MediaController.updateTicker()`: the 0.1 s position tick publishes
+  `position` on the shared `ObservableObject`, and every observer re-runs
+  its body, `MediaPane.body` whole, though only the scrubber, the time
+  labels and the lyric band read the position. The idle-cost lab never
+  calls `media.setActive(true)`, so its open player had no ticker: that is
+  why it read 0.01–0.2 %.
+- [ ] **B17-H2** The same with the lyric stage open (⌃⌥⌘L):
+  `measure-idle.sh open-stage 12`.
+- [ ] **B17-H3** Music paused, the panel shut, 5 minutes:
+  `measure-idle.sh closed-idle`.
+
+### B18 — the position tick redraws only what moves (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+The position moved off `MediaController`'s own `@Published` onto
+`PlaybackClock`, an `@Observable` the controller forwards to, so a 0.1 s
+tick reaches only the views whose bodies read it. The player's subtitle and
+time labels read it inside a `ClockReader` of their own; the player's body
+no longer does. The idle-cost lab now starts the ticker as `NotchController`
+does on opening (`mediaClockWanted`), so it reproduces B17-H1. Two rounds of
+the old and the new lab bundle, alternated at the same load: the open player
+2.07–4.62 % → 0.16–0.34 % of a core, with lyrics 1.63–1.81 → 0.27–0.38, the
+lyric stage 2.21–3.55 → 0.27, the lock card 1.70–4.19 → 0.28–0.31. The stage
+and the lock card were not changed: their saving is every view that watched
+the controller without reading the position. `PlayerTickTests` holds it — a
+tick announces nothing on the controller, still reaches `shownPosition` and
+`shownLabelPosition`, is not read by the player's own body (that test fails
+with the read put back), and the open player, the stage and the lock card
+still move with nothing but the tick. Gate 27 green, 0.4.0.22 (28) in the feed.
+*Amended 2026-10-30 (B20):* the lab's "after" figures here measured a
+stopped song on a player drawn without its title, times or bar; the
+"before" figures and B18-H1 stand.
+
+- [x] **B18-H1** Install 0.4.0.22, music playing, the panel open on the
+  player, the pointer off it: `measure-idle.sh open-player 12`, against
+  B17-H1's 6.9 %. 2026-10-30, same Mac, Isla 0.4.0.22 (28), a song with
+  word-timed lyrics and word karaoke on: CPU 6.2 % median (9.1 % max),
+  290 switches/s, RSS 97 MB; helper 0.1 %. Barely under 6.9 %, so the tick
+  was not most of it on this Mac. A 4 s `sample`, symbolicated against the
+  identical build (UUID 774C8DBE), puts the main thread's work in one display
+  frame after another: SwiftUI's graph update and layout from the root (98
+  samples), `NSHostingView.layout` re-rendering (113, 45 of them in
+  `FocusBridge.invalidateKeyViewLoop`, the key-view loop rebuilt every
+  frame), and under 40 in Isla's own bodies (`ClockReader`,
+  `MediaPane.subtitle`). The source is `KaraokeText`'s
+  `TimelineView(.animation)`: with word timing on (a `.word` timeline,
+  `lyrics.wordKaraokeEnabled`, a measured position) the sweep reads the
+  clock on every display frame, by design since F-011, and every frame lays
+  out and renders the whole panel again, as the marquee's SwiftUI offset did
+  before Batch 11. The lab's lyric states were all line-timed and never ran
+  that timeline. Two new states reproduce it, `open-player-words` and
+  `open-stage-words`: 7.14 % and 7.65 % of a core at 139 loop wake-ups a
+  second, against 0.45 % and 0.67 % line-timed (`measure-idle-lab.sh`,
+  load 3.3).
+- [ ] **B18-H2** Watch the open player for a minute: the elapsed time and
+  the bar move every second, the sung line turns with the voice, and a drag
+  on the bar carries the time with the finger.
+
+### B19 — the word sweep runs on Core Animation (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
+
+A word-timed line was swept by `KaraokeText`'s `TimelineView(.animation)`,
+which read the clock on every display frame and laid out and rendered the
+whole panel each time (B18-H1). SwiftUI now draws the line once: the dim
+copy through `KaraokeRenderer`, and the bright copy inside `KaraokeTrack`,
+an AppKit view whose layer is masked by one bar per laid-out row.
+`KaraokePlan` works out each bar's width from now to the end of the line —
+straight between word stamps, a jump at a word that takes no time, the top
+row full before the next is touched, stopped at the track's end — and Core
+Animation runs it, so the main thread wakes for the position tick only. The
+clock is `SongClock`, the arithmetic `extrapolatedPosition` runs, on the
+machine clock Core Animation keeps; a tick that reads the same clock again
+(within 2 ms) leaves the running animation alone, and a re-anchor, a seek, a
+rate change or a pause replaces it. Paused, held, under Reduce Motion and in
+the visual lab's stills the line is drawn by the renderer as before. The
+idle-cost lab, the old and the new bundle alternated three rounds at the
+same load: `open-player-words` 5.85–6.81 % → 0.21–0.28 % of a core,
+`open-stage-words` 6.07–8.20 → 0.21–0.29, loop wake-ups 123–159 → 10 a
+second.
+
+F-011 still holds, in three places. `KaraokeTrackTests` holds the keyframes
+against the renderer's own arithmetic every 2 ms — one row, two rows, a line
+cut short, a word that takes no time, rates 0.5 to 2, the track's end — and
+asks Core Animation itself for each bar's width at 4 ms steps. The Lyrics
+Accuracy Lab's L5 now samples the plan, on the 540-track corpus: edge lag
+p50 4.17 ms, p95 and max 8.33 ms at 120 Hz (16.65 at 60 Hz), none of
+7 296 736 samples ahead of the voice — the same figures, sample for sample,
+as before Batch 19. Its first run read a 246 ms maximum, and that was the
+lab: it took the plan's width back to a fraction, which lost the last
+binary digit on a held word (513.513… pt over 1 000 fell a step under
+19/37), and its search then timed a frame drawn as the next word began
+from the start of the silence before it. It now measures in points. And
+SwiftUI's opacity, blur, offset, mask and clip on an ancestor reach the
+track's layer (probed, the line turn and the stage's edge fade included); a
+pixel capture of a two-row line at 0.3 has the top row lit and dim pixels
+left only on the bottom row, under the stage's mask as without it. VoiceOver reads the line once: the track and its bright copy are hidden.
+Gate 29 green, 0.4.0.23 (29) in the feed.
+*Amended 2026-10-30 (B20):* the "after" figures measured a stopped song
+on a half-drawn player; that the sweep left the frame clock is held by the
+"before" figures, the loop wake-ups and B19-H1's sample.
+
+- [ ] **B19-H1** Install 0.4.0.23, a song with word-timed lyrics and word
+  karaoke on, the panel open on the player, the pointer off it:
+  `measure-idle.sh open-player 12`, against B18-H1's 6.2 %. Then the same
+  on the lyric stage. The player half, 2026-10-30, same Mac, Isla 0.4.0.23
+  (29), word karaoke on: two runs, 8.5 % median (13.8 % max, 340
+  switches/s) and then 4.5 % (4.8 % max, 129 switches/s); the kernel's CPU
+  time over the second agrees, 2.98 s in 65 s. The first run's peak and
+  switches say something else ran in it; the steady reading is the second,
+  against 6.2 %. A 4 s `sample` between the two, symbolicated against the
+  identical build (UUID 0EAB475D), has the per-frame signature gone:
+  display-cycle flushes 134 → 23 samples, `NSHostingView.layout` 113 → 12,
+  `FocusBridge` 45 → 0, and no karaoke code at all. What remains is the
+  position tick — a SwiftUI graph update and a layout of the panel ten
+  times a second (`ClockReader`, the player's subtitle and progress row,
+  the scrubber), 71 samples — and Spotify's precise-position AppleScript
+  on its own queue, 30. The lab reads 0.21–0.28 % for the same state, so
+  the tick costs the running panel about twenty times what it costs the
+  lab; that gap is the next thing to trace. The stage half is owed.
+- [ ] **B19-H2** Watch the sweep for a minute on the player, the stage and
+  the lock card: the edge stays with the voice word by word, a line that
+  turns carries its lit half with it as it fades, the stage's fade covers
+  the lines at its top and bottom edges, a line on two rows fills the top
+  row first, a pause stops the edge where it stands, and a seek moves it at
+  once.
+
+### The stage's rest fills like the lock card's (`feat/maturity-batch-0-on-mobbin`, 2026-10-31)
+
+Owner, 2026-10-31, from the lock card: its intro shows a note and a short
+track filling toward the first sung line, and the island's lyric stage
+showed three still dots in the same place. They should be one thing. The
+stage now draws the lock card's `InterludeMarker` track, at the stage's
+type size, for every rest long enough to be a row (an intro, a solo); the
+three dots and their `Theme` constants are gone, and spec §5.4 carries the
+amendment. Both surfaces ask `InterludeMarker.liveFill` for the fill, so the
+two cannot drift again: it reads the running clock, lead included, on each
+display frame for the rest that is playing and only while the song moves,
+and a rest nobody is waiting through costs no frames. A fill that moves
+during an intro is a display-link redraw of one 44 × 3 capsule on the stage
+while it lasts; Batch 22's stage measurement takes it into account.
+
+`LyricsColumnTests.testTheRestFillsTowardTheVoiceOnlyWhilePlayingAndCurrent`
+holds it: the playing intro's fill is the clock's, lead included, six
+seconds into a twenty-second intro reads 0.3, and a rest not playing, a
+line, or a paused song get no frame clock (fails with the fill withheld).
+
+- [ ] **REST-H1** A line-timed song from its start, the island open on the
+  lyric stage: the intro shows the note and the track filling, and the first
+  line lights as the track fills; a solo mid-song does the same. Lock the
+  Mac on the same song: the card's rest looks and moves the same way.
+
+### The lock card is Transparent and Compact by default (`feat/maturity-batch-0-on-mobbin`, 2026-10-31)
+
+Owner, 2026-10-31: the lock card should show the wallpaper by default, and
+the Compact card is the default size; a stored size is kept
+(`SettingsTableTests` holds it, spec §7.1 amended). With nothing stored the card is now Transparent, not
+Automatic (spec §7.2 amended); a stored style is kept. Transparent's black
+wash is a floor the contrast solver raises until the dimmest type clears
+4.5:1, so a bright wallpaper still gets a readable lyric.
+`LockCardMaterialTests.testTransparentIsTheDefaultOnlyWhenNothingIsStored`
+and `SettingsTableTests` hold the default.
+
+- [ ] **CARD-H1** With style and size never chosen, lock on a playing song
+  over a bright wallpaper and a dark one: the card is Compact, shows the
+  wallpaper through it, and every line stays readable; Standard, once
+  chosen, does the same.
+
+### B21 — the player's sung line turns on its lines, not on the tick (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
+
+The running Isla open on the player read 7.2 % of a core with a line-timed
+song's lyrics against 1.9 % without (B20-H1): the sung line read the
+position in a `ClockReader`, and the 10 Hz tick re-ran it to draw the line
+already drawn, re-creating its text, laying the panel out and rebuilding
+the key-view loop each time. What the line draws turns only where a line
+starts, where its voice ends and where the caption reads ahead, and the
+clock already wakes on exactly those moments (`setLyricBoundaries`, now
+built by `LyricsCoordinator.boundaries(of:readAhead:)`). `PlaybackClock`
+now also keeps `linePosition`, the position as it stood when it last
+crossed one of them, and the lead it was kept against (`lineLead`);
+`publishClockReadings` moves it when the position crosses a boundary under
+the lead asked now, when the clock stops (a paused word sweep is drawn at
+it), when new boundaries arrive, and on every tick when there are none.
+The player's line reads it through `shownLinePosition(_:lead:)`, which
+answers the position instead while the pane's lead is not the one the
+reading was kept against. The word sweep's song clock comes from `motion`
+rather than the controller, and `KaraokeTrackView` re-lays a sweep that
+lost its animation when it changes window or screen, since no tick hands
+it the line any more.
+
+The idle-cost lab had shown lyrics to the store without registering their
+boundaries, which the app's coordinator does, so its first A/B measured the
+fallback and found nothing; it now registers them as the coordinator does.
+Three rounds of the old and the new lab bundle, both with that lab fix,
+alternated at the same load: open on the player with lyrics 1.03–1.53 % →
+0.49–0.68 % of a core, with word-timed lyrics 1.41–2.22 → 0.42–0.84, both
+now level with the player without lyrics (0.34–0.59, unchanged). The stage
+was not changed (3.18–4.53 against 3.63–4.11).
+
+`SungLineTickTests` holds it: a tick inside a line leaves the reading
+alone and one across a stamp moves it; a lead raised mid-line turns the
+line on the next tick; a pause re-stamps the reading and a seek re-stamps
+it only onto another line; new boundaries, and none, move it; the player's
+`sungLine` is not re-run by a tick inside a line and is by one across a
+stamp (fails with the subtitle reading `shownPosition` again); the open
+player turns its line on screen through the boundaries; a sweep that lost
+its animation is laid again in its new window; and the caption drawn at the
+reading equals the caption at the clock at every 3.7 ms from −1 s to 45 s,
+across stamps, honoured ends and interludes, two lines on one stamp, a
+credit, read-ahead Off, Auto, 0.3 s and 0.5 s, and three leads (fails with
+the read-ahead or the end boundaries left out). Every rule was broken once
+and failed its test. An independent review (Sonnet) found one regression,
+fixed before commit: a reading kept at a line's turn, read with a Lyric
+Delay added since, named the line before until the next tick, so the line
+turned back and forth; `testADelayAddedMidLineNeverShowsTheLineBefore`
+holds it and fails with the lead check removed. The same review noted that
+re-stamping on every change of the clock's course would re-run the line at
+the player's report rate; a correction while playing no longer re-stamps.
+Gate 32 failed on `package` alone, and HEAD failed it the same way: Xcode
+had updated to 27.2 (27B52) between gates, and its App Intents processor
+keeps only the const values of the module it is named, so `bundle.sh`'s
+"Isla" left Shortcuts without Isla's actions. Naming IslaKit, the module
+the intents and their const values belong to, writes the same eight actions
+0.4.0.25 shipped with (`5b95797`). Gate 33 green, 12 steps, 3121 tests;
+0.4.0.26 (32) in the feed, its image verified and carrying the metadata.
+
+- [ ] **B21-H1** Install 0.4.0.26, music playing, the panel open on the
+  player with the Lyric Band on and a line-timed song, the pointer off it:
+  `measure-idle.sh open-player 12`, against B20-H1's 7.2 % (and 1.9 % with
+  the band off). Then watch a minute of it: every line turns on the voice
+  (with "Show next line early" a beat ahead, as before); a pause and a
+  resume, a seek into the middle of a line and across one, and a Lyric
+  Delay nudge while a line is sung each show the right line at once, with
+  no line turning back; a word-timed song's sweep still runs smoothly and
+  stops where the song stops.
+
+### B20 — the lab measures a playing player; the bar and the times leave the tick (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
+
+The twenty-fold gap B19-H1 left between the running panel and the lab was
+the lab. It never measured a playing, fully drawn player, for two reasons
+that compounded. `IdleCostLab.open()` set `isOpen` in the same pass that
+built the rig, or over a panel already open, so `NotchContentView` never
+saw the open change, `bodyStaged` stayed false, and `MediaPane.holdsBackRest`
+kept the title, the sung line, the times, the scrubber and the controls
+out: the open-player states drew the cover and the equalizer alone. And the
+stores start on the lab's frozen clock; switching to the host clock under
+the old anchor put the song past its end, so every tick wrote the same
+stopped position. The lab now opens from a drawn, shut island and plays
+each state's song on the host clock, after a different song so that it
+anchors anew, and its table has a "song s" column: the song moved
+7.0–7.3 s in every 7 s window. The B18 "after" figures (0.16–0.34 %, with
+lyrics 0.27–0.38, the stage 0.27, the lock card 0.28–0.31) and the B19
+figures for the same states (0.21–0.28, 0.21–0.29) measured a still song
+and are not the open player's cost; their "before" figures were real work
+(`@Published` on every tick, the per-frame sweep), and the live readings
+B17-H1, B18-H1 and B19-H1 stand.
+
+Measured properly, each tick is a pass of SwiftUI's graph, a layout of the
+panel and a commit, about 1.5 ms, for any view that reads the position. On
+the open player without lyrics the readers were the time labels and the
+bar. `PlaybackClock` now also publishes `seconds`, the two labels in whole
+seconds, which changes only when a label's text does, and `motion`, still
+at a position or moving along a `SongClock`, which changes on a seek, a
+pause, a new rate or a correction and never on a tick. The labels read
+`seconds`; the bar's fill is `PlaybackFill`, one Core Animation layer whose
+width runs from where the song is to where it stops, laid again only when
+the motion changes course. The visual lab's stills keep the SwiftUI shape.
+Three rounds of the old and the new lab bundle, alternated at the same
+load: open on the player, no lyrics, 0.93–1.76 % → 0.47–0.62 % of a core.
+Every state with lyrics is unchanged within the noise (with lyrics
+0.94–1.81 against 1.20–2.10, the stage 2.49–5.50 against 3.01–5.82, words
+on the player 1.06–2.90 against 1.33–2.35, on the stage 2.91–5.82 against
+3.92–6.80): the sung line still reads the position on every tick, and one
+reader is enough to pay for the whole pass. Moving it to the line-boundary
+wake the clock already has is Batch 21, with the lock card's bar, ring and
+labels and the stage's rows.
+
+`PlayerTickTests` holds it: a tick within a second leaves `seconds` and
+`motion` alone, a tick across one turns the labels, a pause stills the
+bar, the whole-second labels draw the same text as the exact time at every
+hundredth of a second for four durations (and "--:--" below zero and for
+NaN), and the scrubber's body no longer reads the position (fails with the
+HEAD scrubber). `PlaybackFillTests` holds the bar to the shape the scrubber
+drew, still and at every 50 ms of a moving course, stopped at the clock's
+end, and laid once per course: twenty agreeing ticks lay nothing, a seek
+and a pause each lay it once. An independent review (Sonnet) added four
+things: a seek, a new rate, a length that arrives late and a new song each
+reach the labels and the bar (the test fails with the publishing emptied;
+on the report path each observer's own call is redundant with the
+anchor's); the scrubber test has a control, a tick across a second does
+re-run the body; a bar that lost its animation is laid again when the view
+changes window or screen, since SwiftUI no longer calls on it every tick;
+and a length past a billion seconds, a stream's sentinel, draws "--:--"
+instead of trapping `Int(_:)` now that the labels are worked out with the
+panel shut. At exactly 0 s while playing the bar shows its 7 pt floor one
+tick earlier than the shape did; left as it is.
+
+0.4.0.24 never installed: the island refused it, "The downloaded app isn't
+a valid Isla update." `hdiutil create -srcfolder` had sized the volume
+itself and written an image it could not read back ("corrupt image"); the
+installed 0.4.0.23 plus 32 KB of filler broke the same way, so it was the
+size, not the build. The gate's `dmg` step had made the same broken image
+and passed, since nothing read it back. `Scripts/dmg.sh` now gives the
+volume its size (the content plus a quarter plus 8 MB) and fails unless
+`hdiutil verify` reads the image. The same build went out as 0.4.0.25.
+
+- [ ] **B20-H1** Install 0.4.0.25, music playing, the panel open on the
+  player with the sung line off, the pointer off it:
+  `measure-idle.sh open-player 12`, against B19-H1's 4.5 %. Then the same
+  with lyrics on, which this batch does not change. Watch the bar and the
+  times for a minute: the bar moves smoothly and the elapsed time turns
+  every second; a click or drag on the bar lands at once and the bar
+  carries on from there; a pause stops the bar where it stands; a new
+  song starts the bar from its own position.
+  *Measured 2026-10-30, same Mac, Isla 0.4.0.25 (31); the watch is still
+  owed, so the box stays open.* Lyric Band off: CPU 1.9 % median (1.9 %
+  max), 0.40 idle wake-ups/s, 123 switches/s, RSS 190 MB; helper 0.2 %. A
+  4 s `sample` finds the main thread waiting in 3049 of 3115 samples;
+  `NSHostingView.layout` 10, Core Animation's flush 18, no
+  `FocusBridge` at all. A 5 s SwiftUI trace holds 44 ms of updates:
+  `PlaybackScrubber`'s body 24 times, `ClockReader` 16, `PlaybackFill`'s
+  update 8, nothing on the display's frame. Lyric Band on, a line-timed
+  song: 7.2 % median, 1.63 idle wake-ups/s, 268 switches/s, RSS 152 MB.
+  There the 10 Hz tick re-creates the sung line's text on every pass
+  (`ClockReader` 116 times in 5 s, about 100 transition and view-creation
+  updates per tick), and each pass lays out the hosting view (100 samples)
+  and rebuilds the key-view loop (`FocusBridge` 41), the B18-H1 pattern at
+  10 Hz instead of 60. B19-H1's 4.5 % was a word-timed song, whose sung
+  line Core Animation draws once, so the cost with lyrics depends on the
+  song. A first run read 0.7 % with the main thread idle and the panel not
+  on the player, and is void. The sung line leaves the tick in Batch 21.
+
+### B16 — Translate at rest, re-measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+An open, empty Translate is 0.03–0.06 % of a core in quiet runs, under the
+0.1 % budget; B11's 0.2 % came from wake-up bursts outside the lab. A Paste
+button that redrew only on a change was tried, A/B'd against the old
+`TimelineView` from alternating bundles, and dropped: no difference outside
+the noise. No behaviour changed and no hardware check is added.
+
+### B15 — the media-key tap and the charger watch, costed (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+Two hand-run labs. `MediaKeyCostLab` (`ISLA_KEYS_OUT`) times
+`MediaKeyTapContext.receive` on synthesised events through the real route
+and applier: a volume key 0.46 µs median, 13 µs p99; anything passed on
+0.13–0.21 µs. `AmbientCostLab` (`ISLA_AMBIENT_OUT`, `ISLA_AMBIENT_LISTEN`)
+times the watch's reads — battery 39 µs on the main thread, outputs
+0.41 ms, port 0.17 ms off it — and counted 5 power notifications in 3
+minutes of charging. No behaviour changed and no hardware check is added;
+the window server's hand-off to the tap is only seen with a real one.
+
+### B14 — the welcome and the update alert, measured (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+`Scripts/measure-mounts.sh` builds the welcome (5.1 ms in release) and the
+update alert offered (5.9 ms) and mid-download (4.1 ms);
+`Scripts/measure-idle-lab.sh` holds them at rest as `open-welcome`,
+`update-offer` and `update-downloading` (0.02–0.07 % of a core, no frame
+clock). The lab's layer dump marks an animation whose time is over as
+"ended, not yet collected", so a finished spring on a panel where nothing
+commits no longer reads as motion. No behaviour changed and no hardware
+check is added.
+
+### B13 — the pages turned by their dots, timed (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+`Scripts/measure-hitches.sh` has a `page-turn` scenario: the dots turn
+Music to the Shelf, the Shelf to Clipboard, Clipboard to Translate and
+Translate back to Music, through `NotchViewModel.travel`, as a click does.
+At idle load on 120 Hz a page along misses 0.2–0.5 frames; the jump back to
+Music misses 1.9, all in its first 100 ms, where the player is built. No
+behaviour changed and no hardware check is added; R8b's runs still judge
+the travel by eye.
+
+### B12 — the lock card's build and resting cost (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+`Scripts/measure-mounts.sh` now builds the lock card on its player, lyrics
+and outputs panes, playing with lyrics: 7.5, 9.2 and 7.1 ms in release, at a
+load of about 13. `Scripts/measure-idle-lab.sh` now holds the Mac locked
+with music — the island's locked pill in the panel, the card in a window of
+its own at the same alpha — on the player, the lyrics, a long title and
+paused: 0.03–0.36 % of a core and 0.5–26 main-loop wake-ups a second, the
+rate moving with the order the states ran in, never near a frame clock. No
+behaviour changed and no hardware check is added; the shield and the lock's
+own space are not built by either lab, so R2's runs still cover them.
+
+### B11 — the marquee travels on Core Animation (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+`Scripts/measure-idle-lab.sh` (`IdleCostLab`) measures what each resting
+state of the island costs without the installed Isla: the hitch lab's panel
+at an alpha of 0.02, held shut (paused, playing, with the caption) and open
+on every page, reading CPU, the main thread's CPU, main run-loop wake-ups and
+the kernel's wake-up counters, and with `ISLA_IDLE_DUMP=1` the run loop's
+timers and every layer that moves. With lyrics on, the player's title line
+carries the artist and many lines overflow its 211 pt, so the marquee
+travelled about 8.5 s of every 11. It was a SwiftUI offset animation, and
+every frame of it re-rendered the panel on the main thread: 100–121 wake-ups
+a second and 3.5–5.7 % of a core while the player stayed open (three debug
+runs; 3.7 % in release), against 0.2 and 0.01 % for the same player on a
+line that fits. The layer diff named it: four text layers sliding left at
+35 pt a second, and no Isla code in a sample of the frames. `MarqueeLine`
+now draws the line once, in a hosting view of its own inside
+`MarqueeTrackView`, and one repeating keyframe animation on that view's
+`sublayerTransform` moves it while another on its gradient mask fades the
+near end, so the render server runs rest, pass and jump back: 0.7 wake-ups a
+second and 0.05 %. The loop is the SwiftUI one: 2.5 s rest, 30 pt a second,
+the 32 pt gap, 14 pt fades eased in and out over 0.2 s. Held by
+`MarqueeTrackTests` (the keyframes, a long line gets a track and a short or
+resting one none, a new line starts over from rest, the caller's font reaches
+the moving copies — a 9 pt font drew 449 pt of an 879 pt pair — and half a
+second into a pass the line has moved 15 pt). The visual lab cannot draw a
+layer, so it draws SwiftUI's picture of the rest
+(`MarqueeTiming.travelsOnCoreAnimation`); its 86 music renders match the old
+code's but one, which differs only in the cover tint's timing.
+
+- [ ] **B11-H1** With lyrics on, open the player on a song whose title and
+  artist do not fit (Jeff Buckley's "Lover, You Should've Come Over"): the
+  line rests about 2.5 s with its far end faded, slides left at an even pace
+  with both ends faded, lands on the identical picture with no jump, and
+  rests again; the artist line alone does the same; with Reduce Motion on, or
+  on another page, the line stands still with an ellipsis. In Activity
+  Monitor, Isla's CPU with the player open on that song stays near what it is
+  on a song that fits.
+  - 2026-10-29, owner on 0.4.0.20 (MacBook Pro M4 Pro, macOS 27.2), "why the
+    title is overlapping": **failed**. Mid-pass, "Harder, Better, Faster,
+    Stronger" was drawn over the cover and cut short inside its own room.
+    The fade mask sat on the layer whose `sublayerTransform` carried the
+    travel, and moved with it. Fixed: the travel is on an inner strip and the
+    mask on the outer layer, which nothing moves
+    (`MarqueeTrackTests.testTheClipStaysPutWhileTheLineTravels`, red on the
+    old code). Run B11-H1 again on the build after 0.4.0.20.
+  - 2026-10-29, owner on 0.4.0.21 (27), same Mac: the long title scrolls
+    inside its own room and no longer covers the cover. That clause
+    passes; the rest of B11-H1 (the rests, the jump back, Reduce Motion,
+    another page, Activity Monitor) was not reported, so the box stays open.
+
+### B10 — no cut text at the narrow width (`feat/maturity-batch-0-on-mobbin`, 2026-10-29)
+
+Every render of the visual lab was read with Vision (accurate, Russian and
+English) and every line holding an ellipsis listed. Two were faults, both in
+Russian at 480 and one at every width. Clipboard's notice under Paste from
+Other Apps set to Don't Allow ended «…поэтому новое н…» at 560 and needed four
+lines at 480: «Открыть настройки конфиденциальности» took half the row. The
+button is «Открыть настройки» (the pane it opens says the rest) and the
+sentence «macOS не разрешает Isla читать скопированное — новое не
+сохраняется.», keeping Translate's «не разрешает». Settings' Card Style picker
+was 332 pt in the 310 pt form of a panel under 540 and centred, so the row was
+cut 15 pt either side: each label was framed 12 pt wider than its preview and
+`previewSize` budgeted the previews alone. An option now takes a quarter of
+the row at the most (`SettingsLayout.previewOptionWidth`), and the preview
+leaves the 6 pt gap inside it: 69 × 44 at 310, 80 × 52 from a 352 pt form up,
+so 560 and 620 draw as before. Held by
+`ClipboardAccessNoticeTests.testTheSentenceIsNeverCut` (drawn height against
+needed height, both languages, 480, 560, 620),
+`SettingsFormTests.testTheCardStylesStayInsideTheFormAtEveryWidth` (the real
+picker rendered, its 4 pt insets empty; it failed on the old sizes in both
+languages at 480) and `SettingsLayoutTests`. The visual lab's Russian variant
+at 480 (`LabVariant.russianNarrow`) is now in every shoot that has Russian.
+Not changed: the peek's title at 480 stops at the notch's edge, which the
+island cannot draw past, and the update alert's notes preview is capped on
+purpose.
+
+- [ ] **B10-H1** In Russian at 480, Clipboard with Paste from Other Apps set
+  to Don't Allow: the whole sentence shows beside «Открыть настройки», and the
+  button opens Paste from Other Apps; Settings › Блокировка: the four card
+  styles sit inside the form with «Автоматически» whole, and at 560 and 620
+  they look as before.
+
 ### Dev update channel (`feat/dev-update-channel`, 2026-10-19)
 
 The local update feed and the island's update alert (spec §19.5 f, built ahead
 of R9; R9-H5 is this section's DU-H1 and DU-H3). Owed on hardware (record the
 Mac model and macOS version when run):
 
-- [ ] **DU-H1** A build published with `Scripts/publish-dev-update.sh` shows the
+- [x] **DU-H1** A build published with `Scripts/publish-dev-update.sh` shows the
   alert within about two seconds; Install downloads, verifies and restarts Isla
   as the new version (Settings › About says so); `hdiutil info` shows nothing
   mounted and there is no `.Isla-update-*` beside the app.
+  *2026-10-19, 14-inch MacBook Pro (Mac16,8), macOS 27.0.1:* the first dev
+  build, 0.3.0.1 (build 4, from main a092542), was offered on the island over
+  0.3.0 (build 3) and installed with Install; the new copy was running 40 s
+  after the publish finished, `/Applications/Isla.app` reads 0.3.0.1 build 4,
+  Spotlight knows one Isla, nothing of the update is mounted and nothing is
+  left beside the app. The bootstrap wrote `updates.localFeed` before
+  `install.sh` launched the app, so no extra relaunch was needed. The
+  two-second figure was not timed.
 - [ ] **DU-H2** Accessibility (the Volume and Brightness pop-up), Spotify and
   the Settings choices survive the update.
 - [ ] **DU-H3** Later folds the alert, the gear keeps its badge, and the same
@@ -2442,3 +2982,297 @@ Mac model and macOS version when run):
   password grace) and with another user switched in.
 - [ ] **DU-H7** `rm -rf .dev-updates`, then publish: the new folder is found and
   the build offered within a few seconds, without relaunching Isla.
+- [ ] **DU-H8** Install from a build that judges the detach by `hdiutil info`
+  (`fix/update-detach-judged-by-state`) installs even when macOS is slow to
+  eject the image; the log says "a detach try did not exit cleanly, but the
+  disk image is gone" when it was. Failed on 2026-10-28 before that fix:
+  0.4.0.8 refused 0.4.0.9 with "Isla couldn't open the downloaded update" on
+  every Try Again, because the eject took 12.6 s and each detach try 10 s.
+
+### Small refinements (`feat/mobbin-refinements`, 2026-10-25)
+
+Rebuilt from a Devin QA, design and Mobbin pass whose branch never left its
+VM; the current layout is the baseline (owner). Owed on hardware (record the
+Mac model and macOS version when run):
+
+- [ ] **MR-H1** Every page and the lyric stage show the gear, with the update
+  dot when one waits; it opens Settings, and Settings shows the X that goes
+  back (a ⋯ menu was tried and withdrawn the same day, 2026-10-25); on the
+  Shelf, Remove All sits beside the gear with no gap.
+- [ ] **MR-H2** The lyric stage's previous, play and next look like the
+  player's and the lock card's; dragging the stage's bar seeks.
+- [ ] **MR-H3** The star shows for Music and a connected Spotify, on the player
+  and the lock card, and the song really becomes a favourite; it is absent for
+  Yandex Music and a browser.
+- [ ] **MR-H4** The waveform takes the cover's colour; white with no artwork.
+  The header's app icon reads as small as an iPhone Live Activity's.
+- [ ] **MR-H5** "Lyrics imported", "Copied" (Return in Clipboard) and "Added to
+  Shelf" show on the island for about 1.5 s, and never over the open panel.
+- [ ] **MR-H6** Context lyric lines dim faster, and stay legible under
+  Increase Contrast.
+
+- [ ] **MR-H7** Pop-up while the panel is open (spec §19.5 d, amended
+  2026-10-25). With Volume and Brightness on, a volume, mute and brightness
+  press with the panel open on each surface (player, Shelf, Clipboard,
+  Translate, stage, Settings) draws a 32 pt black capsule 6 pt under the body,
+  centred on the notch, with the symbol, bar and percent and the island's line;
+  it covers no content, a click through it reaches the app below, it folds
+  1.5 s after the last press, and a repeated press only moves the bar. Check on
+  a notched and an unnotched display at panel widths 480 and 620, under
+  Increase Contrast and Reduce Motion (crossfade). Closing the panel while it
+  stands folds it with the panel and the next press is the pill on the shut
+  island, never both; opening over a standing pill drops the pill and the next
+  press is the capsule; nothing over the lock screen or while a file is dragged
+  over the panel. VoiceOver says the level once, 0.25 s after the last press.
+- [ ] **MR-H8** Holding volume-up (and brightness-up) the bar keeps pace: it is
+  on the level the number says on every frame, with no trail behind the key,
+  no hesitation on the first press and no replay after the main thread stalls
+  (for instance while Xcode builds). As light as the system's own pop-up.
+  Measured in `Scripts/measure-hitches.sh` (`hud-repeat`: a pop-up on the shut
+  island, a level every 35 ms for two seconds, then the fold; idle Mac, same
+  test bundle built before and after, six runs before and three after,
+  interleaved; this Mac's load average was 3 to 60 throughout, so only the CPU
+  figure is comparable): main-thread CPU over the two-second hold fell from 289
+  ms (243 to 387) to 169 ms (142 to 185); the costliest single frame (about
+  5 to 9 ms, the arrival) and missed frames (0 to 0.5 of 240, 5 in the one run at
+  load 57) did not move beyond that noise. The panel-open capsule
+  (`hud-strip-repeat`) costs the same as the pill, 123 to 186 ms. Hardware run
+  owed.
+- [ ] **MR-H9** A skip swaps once (spec §19.6, amended 2026-10-25). Skip ten
+  times in Spotify and ten in Music, from Isla and from the player itself,
+  fast (several skips a second) and slow, on a fast network and a throttled
+  one (Network Link Conditioner, 3G): one swap per song on the shut island,
+  the open player, the lyrics stage and the lock card — title, artist, cover
+  and the equalizer's colour together, nothing in between, never a new title
+  over the old cover; a song with no cover arrives as the placeholder and the
+  cover fades in; the lyrics are never of the wrong song, and with slow online
+  lyrics only the subtitle turns to the sung line. Under Reduce Motion the
+  swap is a fade. Previous a few seconds in restarts without a hold.
+- [ ] **MR-H10** The volume pop-up keeps pace with the key (spec §12, amended
+  2026-10-25: predicted level, one writer). With music playing, hold volume
+  up for 3 s and then down, on the built-in speakers, on EarPods and on
+  AirPods: the bar moves with every repeat, stops the instant the key is
+  released, and takes no catch-up steps afterwards; the sound follows within a
+  step. Move the menu-bar volume slider, then press volume up: it steps from
+  where the slider left it. Connect AirPods in the middle of a hold: the
+  AirPods are never set to the speakers' level. The mute key still toggles,
+  and with Volume and Brightness off (or Accessibility missing) the system's
+  own pop-up appears instead, unchanged. With the panel open on the player,
+  holding the key redraws nothing but the capsule (Instruments, "hud"
+  signposts: "level queued" to "hud presented" within one frame). Lab
+  numbers: spec §12's amendment.
+- [ ] **MR-H11** Swipe to Open and Close (spec §19.16, amended 2026-10-25).
+  Two fingers down over the shut island open the panel on what a click opens,
+  and over the Shelf's bubble the tray; two fingers up on the header row (and
+  anywhere on the player) close it to the shut island, pinned or not. Check
+  with natural scrolling on and off, on a trackpad and a Magic Mouse; a notched
+  wheel never opens it. A short or taken-back pull settles back; the outline
+  gives a few points as the fingers track and springs back (none under Reduce
+  Motion). Up-and-down scrolling in the Shelf's grid, Clipboard's list, the
+  lyric stage, Settings and Translate is untouched, and the glide of a flick
+  there that reaches the header never closes the panel; a sideways swipe still
+  turns pages. Notification Center's two-finger swipe from the right edge and
+  Mission Control still work. Over the lock screen a pull down shakes and opens
+  nothing. With the setting off, nothing happens.
+- [ ] **MR-H12** The level capsule sits under the panel that is on screen
+  (spec §19.5 d, amended 2026-10-26). Press volume, and brightness, with the
+  panel open on the player, the Shelf, Clipboard, Translate, the lyric stage and
+  Settings; then with the capsule up click a dot (and ⌃Tab) from Clipboard to
+  Music; press during a sideways swipe, released both to turn the page and to
+  spring back; and press right after a song skip on the player and on the
+  stage. Every time the capsule is 6 pt under the visible panel's bottom edge,
+  centred, and follows the outline as it springs to a new size, never left
+  under a taller page.
+- [ ] **MR-H13** The Shelf's tiles are Finder's icon view (spec §8, amended
+  2026-10-26, second amendment). Put the same files in a Finder window in
+  icon view with Show Item Info on and beside the tray and compare: no plate
+  behind any tile, under the pointer either; the name 12 regular under the
+  icon, two lines, the second cut in the middle; the date in grey under it.
+  Click a tile: a grey rounded square behind the icon only, the name on a
+  pill in the Highlight colour set in System Settings › Appearance (change
+  Highlight or the accent with the tray open and the next click shows it);
+  the date line is never filled. ⌘- and ⇧-clicks pick several the same way;
+  the remove badge shows on a hovered or picked tile; a file dropped that is
+  already on the Shelf still flashes its ring. In light mode, and with
+  Increase Contrast, the name and date still read on the black panel.
+- [ ] **MR-H14** The lyric stage's Volume (spec §19.6, amended 2026-10-26).
+  With Spotify playing, open the stage and press the speaker: macOS asks
+  once whether Isla may control Spotify (only if it has not been asked yet;
+  never at launch or on opening the stage). Drag the slider: Spotify's own
+  volume follows the finger, the menu bar's Sound level does not move, and
+  the speaker's glyph tracks the level; it folds 3 s after letting go or on a
+  click on the lyrics. The same with Music. With Safari (YouTube) playing,
+  the slider moves the Mac's volume and the menu bar's level follows. Deny
+  Isla under Privacy & Security › Automation for Spotify, reopen the slider:
+  it moves the Mac's volume and shows one line, "Allow Isla to control
+  Spotify…", which opens that Settings pane. With VoiceOver, the speaker is
+  heard as "Spotify volume, N percent" and VO-Up / VO-Down step it 5 %.
+- [ ] **MR-H15** MagSafe and USB-C each have their Charging activity (spec
+  §19.4, amended 2026-10-26). On a MacBook with MagSafe, pointer away from
+  the notch, panel shut: plug in **MagSafe** → about 0.6 s later the island
+  shows "MagSafe", the level and a green ring drawing round to it with a bolt
+  inside, a green stroke, for 3 s; VoiceOver says "Charging over MagSafe, N
+  percent" once. Unplug, plug a **USB-C charger** → "61 W" (the adapter's
+  rating), the level and the battery with the bolt; "Charging over USB-C".
+  With MagSafe charging and a USB-C display plugged in as well → MagSafe.
+  A **USB-C display or hub alone**, on battery → nothing. **Unplug** →
+  nothing. Below 20 percent → the level, ring or battery and the stroke are
+  red. With Optimized Battery Charging **holding at 80 %** → "Not Charging",
+  white, and VoiceOver says "not charging". Plug in with the pointer resting
+  on the island, move it away and wait for the adapter's renegotiation
+  (unplug and replug within 5 s): the second plug-in shows. Replugging within
+  30 s of a moment that showed does not show again. Record the Mac model,
+  macOS version and adapter.
+- [ ] **MR-H16** Settings looks native (spec §10, amended 2026-10-25). Open
+  Settings on every section, beside System Settings on the same Mac, in dark
+  and in Russian, at 480, 560 and 620: labels 13 pt, footers 11 pt grey, rows
+  as tall as System Settings', no edge round the groups. The sidebar's
+  General, Privacy, Shortcuts, Screenshots, Lock Screen and Connections show
+  System Settings' own icons; About shows Isla's. Change the accent colour in
+  System Settings › Appearance with Settings open: the sidebar selection, the
+  switches, the sliders, the segmented controls, the bordered buttons, Update
+  Now, the shortcut recorder's ring and the Lock Screen style ring all follow
+  it, and nothing in Settings is Isla's red or a fixed blue. Click every
+  segment of Show Next Line Early and of the Lock Screen style: the panel is
+  not key, and each still draws its selected segment active and takes one
+  click; with VoiceOver the row reads as a radio group named by its title.
+  Open every pop-up (Translate To, the language rows) from the panel while
+  another app is active: the menu opens on the first click and its choice
+  lands. Under Increase Contrast the groups and the switch's off track keep
+  their outline. Russian sidebar titles fit without truncating. Record the
+  Mac model and macOS version.
+- [ ] **MR-H17** Connections lists the players and Spotify says why (spec
+  §10, amended 2026-10-25). Settings › Connections lists Apple Music and
+  Spotify first, then each of YouTube Music, Amazon Music, Deezer, TIDAL,
+  Yandex Music, Pandora and Qobuz that is installed, each with its real icon
+  and the name the Finder shows; uninstall one and reopen the panel: its row
+  is gone. With Spotify not installed its row still offers Connect…. Press
+  Connect… with an account that is not listed in Isla's Spotify dashboard:
+  one line under the row says Spotify has not admitted the account (not a
+  generic failure), and the star never appears on the player or the lock
+  card. Cancel on the consent page: "Spotify sign-in was cancelled.". With the
+  network off: "Isla couldn't reach Spotify.". With a listed account: the
+  line clears, the row shows Disconnect, and the star works. Meanwhile
+  `log show --last 5m --predicate 'subsystem == "com.ctimothe.isla"'` shows
+  each step (browser opened, consent approved, exchange succeeded or its
+  status and Spotify's error, the access check), and no token or code.
+- [ ] **MR-H18** Opening, closing and the two-finger pull feel immediate (spec
+  §19.3, amended 2026-10-26). With music playing, click the shut island ten
+  times, then open on the Shelf's bubble, then the lyric stage (right-click ›
+  lyrics): the outline starts moving in the frame after the click — no beat of
+  stillness, no jump partway along — and the body fades in behind it with no
+  frame where it is cut by the edge. Close each the same ways. Pull two fingers
+  down over the island and up on the header, slowly and as a flick: the
+  outline gives under the fingers with no stepping, and on lifting the open or
+  the close carries on from where the fingers left it. Repeat with a build
+  running (one `yes` per core) and under Reduce Motion (fades only, no give).
+  The player's cover still flies from the pill into the player. For a record,
+  a QuickTime screen capture at 120 fps of five opens of the stage: count the
+  frames from the click's highlight to the first moved outline (lab, stage:
+  the outline's motion reaches the render server 10 ms after the click and is
+  on the glass at about 20 ms, against 30–36 ms and 45–52 ms before; the
+  player is unchanged at about 37 ms). Record the Mac and macOS.
+  *Extended 2026-10-26 (the player stages itself).* Ten clicks on the shut
+  island with a song playing: the cover still flies from the pill into its
+  place in every one, and the title, the times and the five controls are
+  there as the body fades in — never a frame of the cover alone, never a
+  control popping in after the fade. Right after launching Isla, the first
+  open is as quick as the tenth (it used to read every audio device on the
+  open's frame, 82 ms on the first read). The Output button shows the right
+  device at once; plug in or unplug headphones with the player open and it
+  follows. Close the panel during the open's first tenth of a second: nothing
+  is left behind and the next open is whole. Swipe from the Shelf to Music:
+  the player arrives whole, nothing staged. Capture as above; the lab puts the
+  player's outline in the render server at 26 ms, against 34 ms before.
+- [ ] **MR-H19** Use Online works on the press (spec §11, amended
+  2026-10-26). Translate English → Russian with Russian not downloaded and
+  Apple Intelligence off, type "salom": the card says Russian is not
+  downloaded. Press Use Online: the spinner replaces the card in the same
+  frame and the answer, with the globe, follows as soon as MyMemory replies.
+  Type " dunyo": it translates online after the usual pause with no second
+  press, and Settings › Translate Online is still off. Change the target, or
+  press Clear, or close the panel: the next text shows the card again and
+  sends nothing (watch with `nettop -p Isla`). With the network off, one
+  alert in the card with Try Again; back on, Try Again answers. Download
+  Russian in Translation Languages…: the next edit answers on the Mac (the
+  lock, not the globe). With the press standing, copy a line elsewhere and
+  press ⌃⌥⌘T, then use Services › Translate in Isla on another: each time
+  the card says "not downloaded" again with Use Online (once the covered
+  text is shown) and nothing is sent until it is pressed; typing after that
+  press rides it as before. Supersedes R4-H6's "sends once". Record the Mac
+  model and macOS version.
+- [ ] **MR-H20** One icon size on every page (spec §19.8, amended
+  2026-10-26). With Spotify playing, open Music, the lyric stage, the Shelf
+  with files, Clipboard, Translate and Settings at 560 and at 480: Spotify's
+  squircle stands the height of `music.note` and of the Shelf's, Clipboard's,
+  Translate's and Settings' glyphs; the gear, its X, History and Remove All's
+  trash are the same size in the same 26 pt wells; the stage's More, Output,
+  Volume and Hide Lyrics, and Translate's Swap, Speak, Copy and Paste, are
+  that size too, and Paste is Remove All's kind of button. No header is
+  taller than before and nothing in the page's content moved. Hover each
+  well: it lightens; click each: it answers on the first click. Record the
+  Mac model and macOS version.
+- [ ] **MR-H21** Charging On Hold is worded as Apple words it (spec §19.4,
+  amended 2026-10-26). With Optimized Battery Charging (or a charge limit)
+  holding at 80 %: plug Apple's **USB-C** charger → "61 W On Hold" (the
+  adapter's rating first, "On Hold" dimmer after it), "80%", the white
+  battery with no bolt, a white line; VoiceOver says "Power adapter connected,
+  charging on hold, 80 percent". Plug **MagSafe** in the same state →
+  "MagSafe On Hold" and the white ring. While it charges: "61 W" or "MagSafe"
+  alone, green. In Russian: "61 Вт Пауза", "MagSafe Пауза", nothing under the
+  notch. Then run `ioreg -rn AppleSmartBattery | grep -E
+  'NotChargingReason|IsCharging|FullyCharged'` and record the reason's value
+  beside what the pill said; a hold that reads "Not Charging" is a value to
+  add to `ChargeHoldReading`. Record the Mac model, macOS version and
+  adapters.
+- [ ] **MR-H22** Every alert shows under the open panel (spec §19.5 d,
+  amended 2026-10-26). Open the panel on Music and plug in a charger: about
+  0.6 s later the capsule 6 pt under the panel shows "61 W" (or "MagSafe"),
+  the level and the battery or ring, with a green line, for 3 s, and folds;
+  nothing waits for the close. Connect AirPods with the panel open: the
+  capsule shows them with "Connected" for 4 s. Copy a Clipboard row with its
+  button, and drop a file on the open Shelf: "Copied" and "Added to Shelf" in
+  the capsule. Press a volume key while one stands: the level takes the
+  capsule at once and the notice does not come back. Turn a page with a
+  notice up: it follows the outline. Press Return in the Clipboard browser
+  (copy and close in one press): "Copied" shows on the shut island instead.
+  Shut, each still shows on the island as before. Record the Mac model and
+  macOS version.
+- [ ] **MR-H23** The island on the lock screen (spec §3.7, amended
+  2026-10-26). Volume and Brightness on, Show on Lock Screen on, music
+  playing. Lock the Mac (⌃⌘Q) and press volume up, volume down, mute and
+  brightness: the island at the notch shows the compact pill — symbol, bar,
+  level — and **not** the system's OSD, the volume really changes, and the
+  lock card's volume bar moves with it; the card neither moves nor is
+  covered; the pill folds 1.5 s after the last press; a click on it shakes
+  and opens nothing. Plug a charger while locked: the charger's pill for 3 s,
+  card unaffected. Unlock, then read `log show --last 10m --predicate
+  'subsystem == "com.ctimothe.isla"' | grep "media keys while locked"`:
+  record "N heard, M taken". **If N is 0** the tap hears nothing while locked
+  on this macOS: the system's OSD showing over the lock screen is then the
+  correct result, and the charger still shows. Repeat with Show on Lock
+  Screen off: the system's OSD, nothing from Isla. Record the Mac model and
+  macOS version.
+- [ ] **MR-H24** The charger at the edge (spec §19.4, amended 2026-10-27).
+  With the island shut, plug Apple's 61 W USB-C in below 80 percent: the
+  island grows with the menu bar's bolt, not after it, reading "61 W" in
+  green with the bolt. Pull it, wait 2 s, plug it back: it shows again. Do
+  it with the pointer resting on the island and over a full-screen app: it
+  shows both times. Plug in at the 80 percent hold: "On Hold" from the first
+  frame. Repeat with MagSafe at home: the ring, "MagSafe". Record the Mac
+  model and macOS version.
+- [ ] **MR-H25** Volume crackle A/B (owner, 2026-10-27: "the sound comes a
+  little bit distorted for a millisecond" when changing volume quickly with
+  music playing and memory high). Each Isla key press is one CoreAudio write
+  to the virtual main volume, the same control the system's key uses, and
+  Isla plays no sound; the Mac had 7.8 of 9.2 GB swap in use. With the same
+  song, hold volume up and down for 10 s with Volume and Brightness on, then
+  off (the system's own HUD). Crackle in both: memory pressure, not Isla.
+  Crackle only with it on: report it, with the time, for a trace.
+
+### Apple's own island (`feat/native-island-guard`, 2026-10-29) — withdrawn
+
+Built on 2026-10-29 and withdrawn the same day (owner: "isla-mac is only for
+the notch style MacBooks. period."). `NativeIsland`, the step-aside geometry
+and Show on Built-in Display were removed (spec §3.8, withdrawn), so NI-H1,
+NI-H2 and NI-H3 are no longer owed.

@@ -40,10 +40,11 @@ final class LyricsStageLayoutTests: XCTestCase {
 
     /// Nothing in the foot touches anything else, and all of it is inside the
     /// body — the narrowest width is where the four tools come nearest the
-    /// transport.
+    /// transport. Every tool is in the row, Show Translation and (since
+    /// 2026-10-26) Volume included, so it is the five-tool row that closes up.
     func testNothingInTheFootOverlaps() {
         for bw in widths {
-            let layout = StageLayout(bodyWidth: bw)
+            let layout = StageLayout(bodyWidth: bw, translationShown: true)
             var frames: [(String, CGRect)] = [
                 ("cover", layout.cover), ("title", layout.title), ("artist", layout.artist),
                 ("progress", layout.progress),

@@ -100,10 +100,15 @@ struct LabVariant: Hashable {
     static let w480 = LabVariant(name: "w480", width: 480)
     static let w620 = LabVariant(name: "w620", width: 620)
     static let russian = LabVariant(name: "ru", language: "ru")
+    /// Russian in the narrowest panel: the longest words in the least room,
+    /// where text is cut first. Every panel and pill state is drawn in it
+    /// since Batch 10, when the Clipboard's refusal notice was found cut there
+    /// by a state that had never been rendered in it.
+    static let russianNarrow = LabVariant(name: "ru-w480", width: 480, language: "ru")
     static let baseIR = LabVariant(name: "dark-ir", backend: .imageRenderer)
 
-    static let panel: [LabVariant] = [base, light, contrast, transparency, w480, w620, russian, baseIR]
-    static let pill: [LabVariant] = [base, light, contrast, w480, russian, baseIR]
+    static let panel: [LabVariant] = [base, light, contrast, transparency, w480, w620, russian, russianNarrow, baseIR]
+    static let pill: [LabVariant] = [base, light, contrast, w480, russian, russianNarrow, baseIR]
     static let card: [LabVariant] = [
         base, light, contrast, transparency, russian,
         LabVariant(name: "dark-ir", backend: .imageRenderer),
@@ -332,12 +337,24 @@ final class LabSession {
         configuration.protocolClasses = [LabNetworkGuard.self]
         spotify = SpotifyAccount(credentials: credentials, session: URLSession(configuration: configuration))
         SpotifyAccount.sharedOverride = spotify
+        // The xctest host has no icon of its own and drew a tinted folder on
+        // About; the lab draws Isla's, from the repository's own icon file.
+        let icon = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/AppIcon.icns")
+        AppIcons.islaIconOverride = NSImage(contentsOf: icon)
 
         savedArgumentDomain = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         savedLinger = NotchMetrics.pausedLinger
         // A paused pill lingers for this long before folding. Long enough
         // here that the paused state is still on screen when it is drawn.
         NotchMetrics.pausedLinger = 600
+        // Both renderers here draw views into a bitmap and neither can draw
+        // a layer, so a line that would scroll is drawn as the SwiftUI
+        // picture of its rest (`MarqueeTiming`). The labs that put the panel
+        // on a real screen set it back (`HitchRig`).
+        MarqueeTiming.travelsOnCoreAnimation = false
+        KaraokeTrack.drawsLayers = false
         setDefaults([:])
     }
 
@@ -394,6 +411,8 @@ final class LabSession {
             UserDefaults.standard.removeVolatileDomain(forName: UserDefaults.argumentDomain)
         }
         NotchMetrics.pausedLinger = savedLinger
+        MarqueeTiming.travelsOnCoreAnimation = true
+        KaraokeTrack.drawsLayers = true
         SystemAppearance.shared.resetForTests()
         LabLocalization.uninstall()
         SpotifyAccount.sharedOverride = nil
@@ -431,6 +450,11 @@ final class LabSession {
 
     // MARK: Stores
 
+    /// The moment the lab's media clock stands at, so a drawn position never
+    /// depends on how long a render took. A lab that needs the song to move
+    /// puts the machine's clock back (`IdleCostLab`'s word-timed states).
+    static let frozenMono: TimeInterval = 50_000
+
     /// A fresh set of session stores, every one pointed at the lab's own
     /// suite, pasteboard and temporary folder.
     func makeStores(hud: MediaKeyHUD? = nil) -> NotchStores {
@@ -453,7 +477,7 @@ final class LabSession {
         )
         labTrace("isolate")
         stores.media.isolateFromPlayers()
-        stores.media.monotonicNow = { 50_000 }
+        stores.media.monotonicNow = { LabSession.frozenMono }
         stores.media.lyricsShown = { false }
         stores.media.precisionPositionFetcher = { reply in reply(nil) }
         stores.translator.capabilitiesOverride = { _ in Translator.Capabilities() }

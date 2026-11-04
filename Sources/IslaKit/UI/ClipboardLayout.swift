@@ -261,12 +261,20 @@ final class ClipboardClearConfirmation: ObservableObject {
     @Published private(set) var count = 0
     private var token: UUID?
 
+    /// The question, drawn and said: the one source for both, with one entry
+    /// its own sentence (`CountedSentenceTests`).
+    static func question(count: Int) -> String {
+        count == 1
+            ? localized("Clear 1 entry? Pinned items stay.")
+            : localized("Clear %d entries? Pinned items stay.", count)
+    }
+
     func ask(count: Int) {
         guard !isAsking, count > 0 else { return }
         self.count = count
         isAsking = true
         token = ArmedConfirmations.shared.register { [weak self] in self?.cancel() }
-        Announcer.shared.announce(localized("Clear %d entries? Pinned items stay.", count))
+        Announcer.shared.announce(Self.question(count: count))
     }
 
     func cancel() {

@@ -172,7 +172,7 @@ final class VisualLabAnimationTests: VisualLabCase {
             try curve(Theme.paneAnimation, "pane", "tab swap, lyrics stage in/out, welcome dismissal", "Theme.swift paneAnimation"),
             try curve(Theme.paneIn, "pane-in", "incoming pane and the open panel's body (opacity, scale 0.97)", "Theme.swift paneIn"),
             try curve(Theme.paneOut, "pane-out", "outgoing pane and the closing panel's body", "Theme.swift paneOut"),
-            try curve(Theme.artworkAnimation, "artwork", "cover crossfade on a skip, title column crossfade", "Theme.swift artworkAnimation"),
+            try curve(Theme.trackSwapSpring, "track-swap", "a skip's one swap on every surface: cover from 0.96, words crossfade", "Theme.swift trackSwapSpring"),
         ]
         // Literals that live inside views. Read from the source line so the
         // sample cannot drift from what ships.

@@ -336,6 +336,26 @@ final class UpdateOfferTests: XCTestCase {
         XCTAssertFalse(h.memory.isUnanswered("0.3.0.1"))
     }
 
+    /// Run-sheet DU-H3's last clause: an unanswered offer does not fold while
+    /// the pointer rests on it — someone is reading it — and folds, answered,
+    /// once the pointer goes. `scheduleUpdateFold` asks again a second later
+    /// for as long as the pointer stays (`ambientRecheck`).
+    func testItDoesNotFoldUnderAPointerRestingOnIt() throws {
+        let h = try harness(available: release())
+        h.controller.updateOfferHold = 0.1
+        h.controller.considerUpdateOffer()
+        XCTAssertNotNil(h.vm.updateOffer)
+        h.controller.pointer.setInside(true)
+        spin(until: { h.vm.updateOffer == nil }, within: 1.4)
+        XCTAssertNotNil(h.vm.updateOffer, "held past its hold and past one recheck while the pointer rests on it")
+        XCTAssertTrue(h.memory.isUnanswered("0.3.0.1"))
+
+        h.controller.pointer.setInside(false)
+        spin(until: { h.vm.updateOffer == nil }, within: 2.5)
+        XCTAssertNil(h.vm.updateOffer, "folds once the pointer goes")
+        XCTAssertFalse(h.memory.isUnanswered("0.3.0.1"), "and is remembered")
+    }
+
     /// Install is not an answer until it ends, and the alert stays, untimed,
     /// following the install.
     func testInstallRunsTheInstallerAndTheAlertStays() throws {
