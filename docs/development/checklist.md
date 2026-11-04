@@ -2952,10 +2952,18 @@ The local update feed and the island's update alert (spec §19.5 f, built ahead
 of R9; R9-H5 is this section's DU-H1 and DU-H3). Owed on hardware (record the
 Mac model and macOS version when run):
 
-- [ ] **DU-H1** A build published with `Scripts/publish-dev-update.sh` shows the
+- [x] **DU-H1** A build published with `Scripts/publish-dev-update.sh` shows the
   alert within about two seconds; Install downloads, verifies and restarts Isla
   as the new version (Settings › About says so); `hdiutil info` shows nothing
   mounted and there is no `.Isla-update-*` beside the app.
+  *2026-10-19, 14-inch MacBook Pro (Mac16,8), macOS 27.0.1:* the first dev
+  build, 0.3.0.1 (build 4, from main a092542), was offered on the island over
+  0.3.0 (build 3) and installed with Install; the new copy was running 40 s
+  after the publish finished, `/Applications/Isla.app` reads 0.3.0.1 build 4,
+  Spotlight knows one Isla, nothing of the update is mounted and nothing is
+  left beside the app. The bootstrap wrote `updates.localFeed` before
+  `install.sh` launched the app, so no extra relaunch was needed. The
+  two-second figure was not timed.
 - [ ] **DU-H2** Accessibility (the Volume and Brightness pop-up), Spotify and
   the Settings choices survive the update.
 - [ ] **DU-H3** Later folds the alert, the gear keeps its badge, and the same
