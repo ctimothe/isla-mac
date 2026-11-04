@@ -77,11 +77,18 @@ final class MarqueeTrackTests: XCTestCase {
         XCTAssertEqual(track.run?.contentWidth ?? 0, width, accuracy: 1)
         XCTAssertEqual(track.drawnWidth, 2 * (track.run?.contentWidth ?? 0) + MarqueeTiming.gap, accuracy: 1)
 
-        // And the animation moves the line: half a second into the first
-        // pass, the drawn copies stand 15 pt left of where they rested.
+        // And the animation moves the line at the reading pace: about half a
+        // second into the first pass, the drawn copies stand about 15 pt left
+        // of where they rested. Where they stand is held against the time it
+        // is read at, not the half second the wait asked for: on CI's runner on
+        // 2026-11-04 the wait overslept and the line stood 19.7 pt along,
+        // which is 0.66 s of travel at the right pace.
         await AXProbe.wait(travel.beginTime - layer.convertTime(CACurrentMediaTime(), from: nil) + 0.5)
         let shift = try XCTUnwrap(layer.presentation()?.sublayerTransform.m41)
-        XCTAssertEqual(shift, -MarqueeTiming.speed * 0.5, accuracy: 4, "the line is not travelling at the reading pace")
+        let elapsed = layer.convertTime(CACurrentMediaTime(), from: nil) - travel.beginTime
+        let pass = travel.duration * (travel.keyTimes?[1].doubleValue ?? 0)
+        XCTAssertLessThan(elapsed, pass, "the wait outlasted the first pass, so where the line stands says nothing")
+        XCTAssertEqual(shift, -MarqueeTiming.speed * CGFloat(elapsed), accuracy: 4, "the line is not travelling at the reading pace")
         XCTAssertEqual(layer.sublayerTransform.m41, 0, "the line's own place is its rest")
     }
 

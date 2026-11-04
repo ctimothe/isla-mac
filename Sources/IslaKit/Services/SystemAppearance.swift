@@ -55,23 +55,43 @@ final class SystemAppearance: ObservableObject {
     /// dependence `RecordingPickup.captureFolder(preferencesFile:)` was given a
     /// parameter to escape. A test that means "with the setting off" should say
     /// so, and then it also gets to say what happens with it on.
+    ///
+    /// A pin holds until `resetForTests()`, through the system's notification
+    /// too. That notification also fires for display options none of these
+    /// track, and its refresh used to read the Mac's own value back over the
+    /// pin: on CI's runner, which has Reduce Motion on, a test that had pinned
+    /// full motion saw the outline ask for the 0.24 ease halfway through
+    /// (2026-11-04, `SystemAppearanceTests`). The app never pins, so for it
+    /// every refresh still reads the Mac.
     func overrideForTests(
         reduceTransparency: Bool? = nil, increaseContrast: Bool? = nil, reduceMotion: Bool? = nil
     ) {
-        if let reduceTransparency { self.reduceTransparency = reduceTransparency }
-        if let increaseContrast { self.increaseContrast = increaseContrast }
-        if let reduceMotion { self.reduceMotion = reduceMotion }
+        if let reduceTransparency { pinned.reduceTransparency = reduceTransparency }
+        if let increaseContrast { pinned.increaseContrast = increaseContrast }
+        if let reduceMotion { pinned.reduceMotion = reduceMotion }
+        refresh()
     }
 
-    func resetForTests() { refresh() }
+    func resetForTests() {
+        pinned = Pins()
+        refresh()
+    }
+
+    private struct Pins {
+        var reduceTransparency: Bool?
+        var increaseContrast: Bool?
+        var reduceMotion: Bool?
+    }
+
+    private var pinned = Pins()
 
     private func refresh() {
         let workspace = NSWorkspace.shared
         // Assigned only when different: `@Published` never compares, and this
         // notification fires for changes to settings none of these track.
-        let transparency = workspace.accessibilityDisplayShouldReduceTransparency
-        let contrast = workspace.accessibilityDisplayShouldIncreaseContrast
-        let motion = workspace.accessibilityDisplayShouldReduceMotion
+        let transparency = pinned.reduceTransparency ?? workspace.accessibilityDisplayShouldReduceTransparency
+        let contrast = pinned.increaseContrast ?? workspace.accessibilityDisplayShouldIncreaseContrast
+        let motion = pinned.reduceMotion ?? workspace.accessibilityDisplayShouldReduceMotion
         if reduceTransparency != transparency { reduceTransparency = transparency }
         if increaseContrast != contrast { increaseContrast = contrast }
         if reduceMotion != motion { reduceMotion = motion }
