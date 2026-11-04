@@ -140,7 +140,12 @@ final class SettingsStagedMountTests: XCTestCase {
         return (vm, host)
     }
 
-    /// From the player in an open island: the swap.
+    /// From the player in an open island: the swap. That it waits is the
+    /// flag's to say, as for the other shell tests here: the one `mountsAfter:`
+    /// is pinned above, and the pane's own wait by the tests of the pane on
+    /// its own. This one still took an "early" reading at settle 0 and failed
+    /// on the CI runner on 2026-11-04 (Reduce Motion on, the form already
+    /// there), because one reading there outlasts the 80 ms it was racing.
     func testSettingsOpenedFromThePlayerArrivesAfterTheOldPaneHasGone() async throws {
         for reduceMotion in [false, true] {
             let isolated = ProbeFixtures.isolatedStores()
@@ -151,9 +156,9 @@ final class SettingsStagedMountTests: XCTestCase {
             _ = await AXProbe.read(host, settle: 0.1)
 
             withAnimation(Theme.island(reduceMotion: reduceMotion)) { vm.open(.settings) }
-            let early = await AXProbe.read(host, settle: 0)
-            XCTAssertFalse(hasForm(early), "reduceMotion \(reduceMotion): not in the swap's first frames\n\(early.dump)")
-            let late = await AXProbe.read(host, settle: Theme.swapOutDuration + 0.3)
+            XCTAssertTrue(vm.arrivedOverAnOpenSurface,
+                          "reduceMotion \(reduceMotion): a swap, so the pane waits Theme.swapOutDuration")
+            let late = await settledTree(host)
             XCTAssertTrue(hasForm(late), "reduceMotion \(reduceMotion): there once the old pane has gone\n\(late.dump)")
             XCTAssertTrue(hasSidebar(late), late.dump)
         }

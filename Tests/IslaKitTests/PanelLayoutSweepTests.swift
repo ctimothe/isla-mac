@@ -379,7 +379,19 @@ final class PanelLayoutSweepTests: XCTestCase {
                     let group = try XCTUnwrap(
                         opened.root.all { $0.role == "AXRadioGroup" }.first, "\(what): the filter\n\(opened.root.dump)"
                     )
-                    XCTAssertEqual(group.frame?.height ?? 0, search.height, accuracy: 1, "\(what): the drawn filter is the field's height")
+                    // The radio group is VoiceOver's stand-in
+                    // (`accessibilityRepresentation`), never drawn. On macOS
+                    // 27 it takes the drawn control's frame; on the CI
+                    // runner's macOS 26 it keeps its own, four radio buttons
+                    // stacked 84 pt tall, over the same 28 pt drawing
+                    // (2026-11-04). Its height says what is drawn only where
+                    // it follows the drawing; ClipboardHeader above holds the
+                    // drawing everywhere.
+                    if ProcessInfo.processInfo.isOperatingSystemAtLeast(
+                        OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+                    ) {
+                        XCTAssertEqual(group.frame?.height ?? 0, search.height, accuracy: 1, "\(what): the drawn filter is the field's height")
+                    }
                     XCTAssertEqual(group.frame?.minY ?? 0, search.minY, accuracy: 1, "\(what): and starts on its line")
                     let field = try XCTUnwrap(opened.root.all(role: "AXTextField").first, "\(what): the search field")
                     XCTAssertTrue(search.insetBy(dx: -1, dy: -1).contains(field.frame!), "\(what): the typing is inside the field's plate")

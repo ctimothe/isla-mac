@@ -38,6 +38,17 @@ Reduce Motion, Increase Contrast or Reduce Transparency).
 
 ## History
 
+- **Release 0.4.0, 2026-11-04.** The first CI run of the maturity batch
+  (Xcode 26.6, macOS 26, Reduce Motion on) found two tests leaning on this
+  Mac. Settings' swap test raced its 80 ms delay with a settle-0 reading
+  and now asserts the flag that decides the wait. Clipboard's filter is
+  drawn 28 pt tall on both systems, but on macOS 26 its VoiceOver stand-in
+  (`accessibilityRepresentation`, a radio-group `Picker`) reports its own
+  frame, 84 pt, so VoiceOver's outline there runs past the control. The test
+  holds that height on macOS 27 only. Open: give the stand-in the drawn
+  frame on macOS 15–26 and check it there by hand. Codex's review fixed two
+  volume-slider defects (`PlayerVolume`: Automation granted after a
+  refusal, a click before the first read).
 - **Batch 21, 2026-10-30.** The player's sung line turns on its lines,
   not on the tick: the clock keeps a line reading that moves only when the
   position crosses a lyric boundary under the current lead, or stops; the
