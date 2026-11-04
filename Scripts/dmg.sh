@@ -62,17 +62,41 @@ rm -f "$DMG"
 # installed 0.4.0.23 plus 32 KB of filler did the same, so it was the size,
 # not the content. The island refused it as "isn't a valid Isla update".
 # A quarter over the content plus 8 MB; UDZO compresses the free space, so
-# the room costs a few kilobytes of download.
+# the room costs a few kilobytes of download. Both paths below take it.
 CONTENT_KB="$(du -sk "$STAGE" | cut -f1)"
 SIZE_MB=$(( (CONTENT_KB * 5 / 4) / 1024 + 8 ))
-hdiutil create \
-    -volname "Isla $VERSION" \
-    -srcfolder "$STAGE" \
-    -fs HFS+ \
-    -format UDZO \
-    -size "${SIZE_MB}m" \
-    -quiet \
-    "$DMG"
+
+# The window the image opens into is laid out by dmgbuild (icon positions,
+# background, no sidebar or toolbar), which writes the .DS_Store itself and
+# needs no Finder. It lives in a virtualenv under build/, made on first use;
+# a machine that cannot reach PyPI still gets a plain image from hdiutil,
+# with a note, so the release gate never fails on cosmetics.
+VENV="$ROOT/build/dmgbuild-venv"
+if [ ! -x "$VENV/bin/dmgbuild" ]; then
+    python3 -m venv "$VENV" >/dev/null 2>&1 \
+        && "$VENV/bin/pip" install --quiet --disable-pip-version-check 'dmgbuild>=1.6,<2' >/dev/null 2>&1 \
+        || true
+fi
+if [ -x "$VENV/bin/dmgbuild" ]; then
+    "$VENV/bin/dmgbuild" \
+        -s "$ROOT/Scripts/dmg-settings.py" \
+        -D app="$STAGE/Isla.app" \
+        -D background="$ROOT/Resources/dmg/background.png" \
+        -D version="$VERSION" \
+        -D size="${SIZE_MB}M" \
+        "Isla $VERSION" "$DMG" >/dev/null
+    echo "==> окно образа оформлено (dmgbuild)"
+else
+    echo "    dmgbuild недоступен (нет PyPI?), образ без оформления окна" >&2
+    hdiutil create \
+        -volname "Isla $VERSION" \
+        -srcfolder "$STAGE" \
+        -fs HFS+ \
+        -format UDZO \
+        -size "${SIZE_MB}m" \
+        -quiet \
+        "$DMG"
+fi
 
 # Read back before it is called done: the image above passed every step of
 # the gate and was published, and only the island found it would not mount.
