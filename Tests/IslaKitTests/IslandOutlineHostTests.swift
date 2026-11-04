@@ -350,17 +350,30 @@ final class IslandOutlineHostTests: XCTestCase {
     /// in five with the code unchanged: what it measured was the scheduler
     /// handing the core to someone else mid-start, which is not a cost the
     /// start puts on the main thread.
+    ///
+    /// CPU time is not proof against a shared machine either: on CI's runner
+    /// on 2026-11-04 the slowest of forty starts took 10.04 ms of it, with the
+    /// code that had passed there that afternoon. The forty run three times
+    /// and the quietest round is judged. A start that really costs a frame
+    /// costs it in every round. Each round has a host of its own, so a host's
+    /// first animated start, the one a lazily built cache would make costly,
+    /// is in every round too (Codex review, 2026-11-04).
     func testStartingAMoveCostsTheMainThreadWellUnderAFrame() {
-        let (host, _) = rig()
-        host.apply(state(), curve: .instant)
-        var worst = 0.0
-        for index in 0..<40 {
-            let target = index.isMultiple(of: 2) ? player : state()
-            let before = Self.threadCPUMilliseconds()
-            host.apply(target, curve: .island)
-            worst = max(worst, Self.threadCPUMilliseconds() - before)
+        var rounds: [Double] = []
+        for _ in 0..<3 {
+            let (host, _) = rig()
+            host.apply(state(), curve: .instant)
+            var worst = 0.0
+            for index in 0..<40 {
+                let target = index.isMultiple(of: 2) ? player : state()
+                let before = Self.threadCPUMilliseconds()
+                host.apply(target, curve: .island)
+                worst = max(worst, Self.threadCPUMilliseconds() - before)
+            }
+            rounds.append(worst)
         }
-        XCTAssertLessThan(worst, 8, "the slowest of forty starts, in a debug build: \(worst) ms of CPU")
+        let quietest = rounds.min() ?? .infinity
+        XCTAssertLessThan(quietest, 8, "the slowest of forty starts, in a debug build, in the quietest of three rounds: \(rounds) ms of CPU")
     }
 
     private static func threadCPUMilliseconds() -> Double {
