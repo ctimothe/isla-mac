@@ -424,9 +424,12 @@ and uploads nothing. Run it once after setting the secrets, before relying on
 the job.
 
 **Once, before the first CI release:** the owner runs
-`bash Scripts/setup-release-secrets.sh`. It creates the environment and pipes
-the update key, the `.p12` and its passphrase into GitHub secrets without
-printing them. **With a Developer ID:** export the Developer ID Application
+`bash Scripts/setup-release-secrets.sh`. It creates the environment, exports
+"Isla Code Signing" from the login keychain under a random passphrase
+(`Scripts/export-signing-identity.swift`), and pipes the update key, that
+`.p12` and its passphrase into GitHub secrets without printing them. Nothing is
+typed but the Mac's password, if macOS asks to allow the keychain reads; run it
+again whenever a secret has to be replaced. **With a Developer ID:** export the Developer ID Application
 identity as a `.p12`, then run
 `DEVELOPER_ID_P12=<file> bash Scripts/setup-release-secrets.sh --developer-id`.
 From the next merge on, releases are notarized and the `xattr` step is gone.
