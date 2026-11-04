@@ -82,10 +82,13 @@ final class MarqueeTrackTests: XCTestCase {
         // of where they rested. Where they stand is held against the time it
         // is read at, not the half second the wait asked for: on CI's runner on
         // 2026-11-04 the wait overslept and the line stood 19.7 pt along,
-        // which is 0.66 s of travel at the right pace.
+        // which is 0.66 s of travel at the right pace. The time is the wall
+        // clock's, from when the pass began on it: read on the layer's own
+        // clock, a layer running at twice the speed would travel twice as far
+        // in twice the time and pass (Codex review, 2026-11-04).
         await AXProbe.wait(travel.beginTime - layer.convertTime(CACurrentMediaTime(), from: nil) + 0.5)
         let shift = try XCTUnwrap(layer.presentation()?.sublayerTransform.m41)
-        let elapsed = layer.convertTime(CACurrentMediaTime(), from: nil) - travel.beginTime
+        let elapsed = CACurrentMediaTime() - layer.convertTime(travel.beginTime, to: nil)
         let pass = travel.duration * (travel.keyTimes?[1].doubleValue ?? 0)
         XCTAssertLessThan(elapsed, pass, "the wait outlasted the first pass, so where the line stands says nothing")
         XCTAssertEqual(shift, -MarqueeTiming.speed * CGFloat(elapsed), accuracy: 4, "the line is not travelling at the reading pace")

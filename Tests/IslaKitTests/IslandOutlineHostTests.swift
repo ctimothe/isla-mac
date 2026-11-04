@@ -355,12 +355,14 @@ final class IslandOutlineHostTests: XCTestCase {
     /// on 2026-11-04 the slowest of forty starts took 10.04 ms of it, with the
     /// code that had passed there that afternoon. The forty run three times
     /// and the quietest round is judged. A start that really costs a frame
-    /// costs it in every round.
+    /// costs it in every round. Each round has a host of its own, so a host's
+    /// first animated start, the one a lazily built cache would make costly,
+    /// is in every round too (Codex review, 2026-11-04).
     func testStartingAMoveCostsTheMainThreadWellUnderAFrame() {
-        let (host, _) = rig()
-        host.apply(state(), curve: .instant)
         var rounds: [Double] = []
         for _ in 0..<3 {
+            let (host, _) = rig()
+            host.apply(state(), curve: .instant)
             var worst = 0.0
             for index in 0..<40 {
                 let target = index.isMultiple(of: 2) ? player : state()
