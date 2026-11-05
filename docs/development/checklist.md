@@ -2648,6 +2648,81 @@ and `SettingsTableTests` hold the default.
   wallpaper through it, and every line stays readable; Standard, once
   chosen, does the same.
 
+### B22 — the lyric stage and the lock card stand still between their lines (`feat/batch-22-stage-lock-card-off-tick`, 2026-11-05)
+
+Batch 21 left two surfaces on the 10 Hz tick: the lyric stage, which read
+the position in its own body, and the lock card, which read it for its
+lyric, its two times, its bar and the banner's ring. Each tick re-ran the
+whole surface to draw what was already drawn. Both now read the clock's
+line reading through `shownLinePosition(held:lead:)` and
+`shownLinePosition(_:lead:)`, which moves only at the boundaries the
+coordinator registers: line starts, honoured ends and read-ahead starts.
+An interlude runs from an honoured end (or 0:00) to a line start, so its
+row turns on those too. Between them, only the row that moves reads the
+clock, and it reads the clock's course (`PlaybackClock.motion`, changed by
+a seek, a pause, a new rate or a correction), each in a `ClockReader` of
+its own: the sung line's word sweep, and a playing rest's fill.
+
+The rest's fill was a `TimelineView` redrawn on every display frame on
+both surfaces. It is now a `PlaybackFill` over the rest's own span
+(`InterludeMarker.Fill`, the course shifted by the lead minus the rest's
+start), so Core Animation fills it and Reduce Motion fills it as it fills
+the bar. `PlaybackFill.plan` holds a span read before its start empty
+until the start comes round, which a large Lyric Delay on the song's first
+frame produces. The card's times read whole seconds
+(`PlaybackClock.seconds`), its bar is a `PlaybackFill`, and the banner's
+ring is `PlaybackRing`: one `CAShapeLayer` whose `strokeEnd` runs on the
+bar's plan in shares of the song. Its path is built for the way its layer
+is drawn (`contentsAreFlipped()`), since an arc built for the other starts
+at 6 o'clock and runs backwards, and it is built again when a move to
+another window flips it. A round cap draws a dot on an empty arc, so the
+arc is hidden until something is played, as the trimmed circle was.
+
+`StageAndCardTickTests` counts the hosting view's layout passes: five
+ticks inside a line on the stage, five through a rest, five inside a second
+on the card's player, five inside a line on its Lyrics pane and five under
+the banner cost none, and crossing a boundary or a whole second still
+costs some. It also holds the ring's plan against the trimmed circle at
+every 50 ms, its start and direction for both ways up, its pixels in a
+hosted window (a quarter of a song lights the top right), and its laying
+once per course and again after a lost animation. Each of the eleven was
+broken once (the stage or the card reading the position again, the bar or
+the ring drawn by SwiftUI, the path upside down or ignoring its layer, the
+dot at zero, the zero-hold, the dedupe, the repair) and failed.
+
+CPU: three rounds of the old and the new lab bundle, alternated at the same
+load, 15 s a state: the open stage 2.69–3.64 % → 1.56–1.99 % of a core,
+word-timed 3.82–4.41 → 1.48–2.04, through an instrumental 5.41–5.74 →
+1.44–2.15; locked on the player 1.87–2.47 → 0.52–0.89, on the Lyrics pane
+2.34–2.89 → 0.73–1.00, through an instrumental 4.23–4.65 → 0.90–1.36;
+paused 0.08–0.46 → 0.01–0.18 and the floor 0.01–0.03 both. The song moved
+15.0–15.3 s in every window. The load was 17.7–92 (other sessions on the
+Mac, and one build of this branch overlapped rounds 2 and 3), so the
+ranges are wide, but no "after" reached any "before". The stage still
+costs about 1 % more than the card with nothing turning (the instrumental
+state crosses no boundary): something on it still draws between the
+lines. Find it with a sample of the lab's `open-stage-interlude` before
+changing anything; the plan's "CPU-drawn layers that redisplay on every
+tick" (`CABackingStoreUpdate`) is the first suspect.
+
+- [ ] **B22-H1** Install the build, a line-timed song playing, open the
+  lyric stage (⌃⌥⌘L), the pointer off it: `measure-idle.sh open-stage 12`,
+  against B17-H2 (never run) and the lab's figures above. Then watch a
+  minute: each line lights with the voice; a word-timed song's sweep runs
+  word by word and stops where the line ends; in an instrumental the rest's
+  track fills smoothly toward the next line, empty when the rest begins and
+  full as the line lights; a pause stops the fill and the sweep where they
+  stand, and a seek inside a line, across one and into a rest lands at once.
+  A Lyric Delay nudge while a line is sung turns no line back.
+- [ ] **B22-H2** Lock the Mac on a playing song, the card on the player:
+  the bar moves smoothly, both times turn every second, a drag on the bar
+  carries the times with the finger, and pause and resume stop and restart
+  the bar at once. On the Lyrics pane, the same as B22-H1's watch, the rest
+  included. With Rest as Banner on, the banner's ring starts at 12 o'clock,
+  runs clockwise, stops on a pause, jumps on a seek, and shows nothing at a
+  song's 0:00. To measure it: `sleep 15; measure-idle.sh lock-lyrics 12`,
+  then lock within the 15 s.
+
 ### B21 — the player's sung line turns on its lines, not on the tick (`feat/maturity-batch-0-on-mobbin`, 2026-10-30)
 
 The running Isla open on the player read 7.2 % of a core with a line-timed

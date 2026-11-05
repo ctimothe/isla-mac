@@ -192,14 +192,21 @@ that meets its budget, so the next headless queue is the cells over it:
   0.49–0.68 %, word-timed 1.41–2.22 → 0.42–0.84, level with no lyrics;
   B21-H1 owed. The stage, the lock card and the stage's layers moved to
   Batch 22.
-- **Batch 22: the rest of the tick's readers.** The stage's rows (its
-  interlude marker fills continuously, so it needs more than the line
-  reading), then the lock card's bar, ring, labels and lyrics the way the
-  player's went, then the stage's CPU-drawn layers that redisplay on every
-  tick (`CABackingStoreUpdate` in its sample). The stage was 3.18–4.53 % in
-  Batch 21's lab, the largest open cost left.
-- The lock card's interlude marker still draws a `TimelineView` on every
-  frame while a gap is shown. Measure it in the lab before moving it.
+- ~~**Batch 22: the rest of the tick's readers.** The stage's rows, then
+  the lock card's bar, ring, labels and lyrics, then the stage's CPU-drawn
+  layers; the stage 3.18–4.53 % in Batch 21's lab. The lock card's
+  interlude marker drew a `TimelineView` on every frame while a gap was
+  shown.~~ Batch 22 (2026-11-05): the stage and the card read the line
+  reading, their moving rows the clock's course in readers of their own,
+  and the rest's fill, the card's bar and the banner's ring run on Core
+  Animation. In the lab the stage 2.69–3.64 % → 1.56–1.99, through an
+  instrumental 5.41–5.74 → 1.44–2.15, the card 1.87–2.89 → 0.52–1.00,
+  through an instrumental 4.23–4.65 → 0.90–1.36. B22-H1 and B22-H2 owed.
+- **The stage's last 1 %.** With nothing turning, the open stage still
+  costs about 1 % of a core more than the lock card (1.44–2.15 against
+  0.90–1.36 through an instrumental). Sample the lab's
+  `open-stage-interlude` first; the CPU-drawn layers seen in Batch 21's
+  sample (`CABackingStoreUpdate`) are the first suspect.
 - The opening's missed frames (0.6–2.9 at idle), against the bar of none.
   Any staged build there waits for the owner's R8e-H2 verdict on the
   Settings morph, which asked the same question.
