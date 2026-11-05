@@ -46,10 +46,13 @@ import SwiftUI
 
         /// The run's keyframes as one animation of its bar's width, beginning
         /// at `beginTime` in the layer's time, which is the plan's moment.
-        func animation(beginTime: CFTimeInterval) -> CAKeyframeAnimation? {
+        /// `keyPath` names another property the same numbers drive: the lock
+        /// card's ring runs its `strokeEnd` on a run of fractions
+        /// (`PlaybackRing`).
+        func animation(beginTime: CFTimeInterval, keyPath: String = "bounds.size.width") -> CAKeyframeAnimation? {
             guard let first = keys.first, let last = keys.last, last.mono > first.mono else { return nil }
             let duration = last.mono - first.mono
-            let animation = CAKeyframeAnimation(keyPath: "bounds.size.width")
+            let animation = CAKeyframeAnimation(keyPath: keyPath)
             animation.values = keys.map(\.width)
             animation.keyTimes = keys.map { NSNumber(value: ($0.mono - first.mono) / duration) }
             animation.calculationMode = .linear

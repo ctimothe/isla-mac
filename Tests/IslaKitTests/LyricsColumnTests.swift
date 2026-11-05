@@ -421,38 +421,77 @@ final class LyricsColumnTests: XCTestCase {
 
     /// The stage and the lock card ask one function for the rest's fill, so
     /// an intro fills toward the voice on both (the stage drew three still
-    /// dots until 2026-10-31). The fill is the clock's, read live, only for the
-    /// rest that is playing and only while the song moves.
+    /// dots until 2026-10-31). Since Batch 22 the fill is the song's own
+    /// course on the rest's time, which Core Animation runs: for the rest
+    /// that is playing only, from where the clock puts the song, lead
+    /// included; every other rest is still, empty ahead and full behind.
     func testTheRestFillsTowardTheVoiceOnlyWhilePlayingAndCurrent() async throws {
         let (isolated, _) = rig()
         defer { isolated.release() }
         let media = isolated.stores.media
-        let intro = LyricSlot.interlude(from: 0, to: 20, before: 0)
+        // A rest from 0:02 to 0:22, read five seconds into the song with a
+        // one-second lead: four seconds into twenty.
+        let rest = LyricSlot.interlude(from: 2, to: 22, before: 1)
         let track = LabFixtures.Track(elapsed: 5, cover: nil)
         await LabFixtures.play(track, on: media)
+        let at = media.position + 1
 
-        let clock = try XCTUnwrap(
-            InterludeMarker.liveFill(for: intro, isCurrent: true, media: media, lead: 1, held: nil),
-            "the intro playing fills frame by frame"
+        let playing = InterludeMarker.fill(
+            for: rest, isCurrent: true, at: at, motion: media.shownMotion(held: nil), lead: 1
         )
-        let drawn = clock()
-        let expected = LyricSweep.interludeProgress(intro, at: media.extrapolatedPosition() + 1)
-        XCTAssertEqual(drawn, expected, accuracy: 0.01, "the fill is the clock's, lead included")
-        XCTAssertEqual(drawn, 0.3, accuracy: 0.02, "six seconds into a twenty-second intro")
+        XCTAssertEqual(playing.length, 20)
+        XCTAssertEqual(playing.progress, 0.2, accuracy: 0.02, "four seconds into a twenty-second rest")
+        guard case .moving(let course) = playing.course else {
+            return XCTFail("the rest playing does not move: \(playing.course)")
+        }
+        // At every moment of the rest and past it, the width Core Animation
+        // is handed is the width the moment's own arithmetic gives.
+        let now = media.monotonicNow()
+        let plan = PlaybackFill.plan(
+            .init(
+                motion: playing.course, duration: playing.length,
+                width: InterludeMarker.trackWidth, height: InterludeMarker.trackHeight,
+                radius: InterludeMarker.trackHeight / 2
+            ),
+            monoNow: now
+        )
+        for step in 0...50 {
+            let mono = now + Double(step) * 0.5
+            let moment = try XCTUnwrap(media.songClock).position(at: mono) + 1
+            XCTAssertEqual(course.position(at: mono), moment - 2, accuracy: 1e-9, "the course is the rest's own time")
+            XCTAssertEqual(
+                plan.run.width(atMono: mono),
+                InterludeMarker.filledWidth(progress: LyricSweep.interludeProgress(rest, at: moment)),
+                accuracy: 1e-6, "+\(Double(step) * 0.5) s"
+            )
+        }
 
-        XCTAssertNil(
-            InterludeMarker.liveFill(for: intro, isCurrent: false, media: media, lead: 1, held: nil),
-            "a rest nobody is waiting through costs no frames"
+        let waiting = InterludeMarker.fill(
+            for: rest, isCurrent: false, at: 1, motion: media.shownMotion(held: nil), lead: 1
         )
-        XCTAssertNil(
-            InterludeMarker.liveFill(for: .line(0), isCurrent: true, media: media, lead: 1, held: nil),
-            "a line is not a rest"
+        XCTAssertEqual(waiting.course, .still(0), "a rest still to come moved")
+        let past = InterludeMarker.fill(
+            for: rest, isCurrent: false, at: 40, motion: media.shownMotion(held: nil), lead: 1
         )
+        XCTAssertEqual(past.course, .still(20), "a rest already played is not full")
+        XCTAssertEqual(
+            InterludeMarker.fill(for: .line(0), isCurrent: true, at: at, motion: media.shownMotion(held: nil), lead: 1).length,
+            0, "a line is not a rest"
+        )
+
         LabFixtures.pause(track, on: media)
-        XCTAssertNil(
-            InterludeMarker.liveFill(for: intro, isCurrent: true, media: media, lead: 1, held: nil),
-            "a paused song's fill stands at its published progress"
+        let paused = InterludeMarker.fill(
+            for: rest, isCurrent: true, at: media.position + 1, motion: media.shownMotion(held: nil), lead: 1
         )
+        guard case .still(let stood) = paused.course else {
+            return XCTFail("a paused song's rest still moves: \(paused.course)")
+        }
+        XCTAssertEqual(stood, media.position + 1 - 2, accuracy: 1e-9, "a paused rest stands where the song stopped")
+        let held = InterludeMarker.fill(
+            for: rest, isCurrent: true, at: 7, motion: media.shownMotion(held: .init(position: 6, isPlaying: true)), lead: 1
+        )
+        XCTAssertEqual(held.course, .still(5), "a held song's rest moves, or stands somewhere else")
+
         XCTAssertEqual(InterludeMarker.filledWidth(progress: 0.5), InterludeMarker.trackWidth / 2)
         XCTAssertEqual(InterludeMarker.filledWidth(progress: 1.4), InterludeMarker.trackWidth, "clamped")
         XCTAssertEqual(InterludeMarker.accessibilityLabel, "Instrumental", "named, as a rest is")

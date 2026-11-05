@@ -83,6 +83,16 @@ final class PlaybackClock {
     enum Motion: Equatable {
         case still(TimeInterval)
         case moving(SongClock)
+
+        /// The same course `by` seconds later on the song's own time: a
+        /// lyric surface's lead, or a span measured from its own start (an
+        /// interlude's fill, `InterludeMarker.Fill`).
+        func shifted(by offset: TimeInterval) -> Motion {
+            switch self {
+            case .still(let position): return .still(position + offset)
+            case .moving(let clock): return .moving(clock.leading(offset))
+            }
+        }
     }
 }
 

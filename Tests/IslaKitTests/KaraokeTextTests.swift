@@ -115,7 +115,6 @@ final class KaraokeTextTests: XCTestCase {
             LyricWord(at: base, text: "ab", end: base + 0.5),
             LyricWord(at: base + 0.5, text: "cd", end: base + 1),
         ])
-        let frameClock = try XCTUnwrap(LyricSweep.frameClock(media: media, lead: 0), "a playing song has a frame clock")
         let live = try XCTUnwrap(
             LyricSweep.liveSweep(line: line, end: base + 1, wordTiming: true, clock: media.songClock),
             "a word-timed line being sung sweeps"
@@ -134,11 +133,14 @@ final class KaraokeTextTests: XCTestCase {
         XCTAssertEqual(sweep(), 0.25, accuracy: 0.001, "half through the first of two equal words")
         clock.now += 0.5
         XCTAssertEqual(sweep(), 0.75, accuracy: 0.001)
-        XCTAssertEqual(frameClock(), base + 0.75, accuracy: 0.0001, "and the moment it read is the running clock")
+        XCTAssertEqual(
+            songClock.position(at: clock.now), base + 0.75, accuracy: 0.0001,
+            "and the moment it read is the running clock"
+        )
 
         // The lead is added to the moment, as every surface reads it.
-        let led = try XCTUnwrap(LyricSweep.frameClock(media: media, lead: 0.2))
-        XCTAssertEqual(led(), base + 0.95, accuracy: 0.0001)
+        let led = try XCTUnwrap(LyricSweep.songClock(media: media, lead: 0.2))
+        XCTAssertEqual(led.position(at: clock.now), base + 0.95, accuracy: 0.0001)
 
         // Nothing sweeps a line that line timing draws whole, or a credit.
         let songNow = media.songClock
@@ -159,8 +161,7 @@ final class KaraokeTextTests: XCTestCase {
         snapshot.elapsed = base + 0.75
         snapshot.takenAt = Date()
         media.apply(snapshot)
-        XCTAssertNil(LyricSweep.frameClock(media: media, lead: 0), "a paused song has no frame clock")
-        XCTAssertNil(LyricSweep.songClock(media: media, lead: 0), "nor a song clock to hand Core Animation")
+        XCTAssertNil(LyricSweep.songClock(media: media, lead: 0), "a paused song has no clock to hand Core Animation")
     }
 
     /// A wrapped line fills in reading order: the top row completely, before the

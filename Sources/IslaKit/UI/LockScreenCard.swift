@@ -710,11 +710,11 @@ struct LockScreenCard: View {
                 Circle()
                     .inset(by: 1.5)
                     .stroke(Theme.cardTrack, lineWidth: LockCardLayout.ringLineWidth)
-                Circle()
-                    .inset(by: 1.5)
-                    .trim(from: 0, to: fraction)
-                    .stroke(.white, style: StrokeStyle(lineWidth: LockCardLayout.ringLineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
+                // The progress, on Core Animation along the song's clock
+                // (`PlaybackRing`), in a reader of its own: the banner's only
+                // reader of the clock, re-run on a seek or a pause, never on
+                // a tick.
+                ClockReader { ringProgress(side: frame.width) }
                 Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
                     .islandFont(.subhead)
                     .foregroundStyle(.white)
@@ -727,6 +727,29 @@ struct LockScreenCard: View {
         .help(media.isPlaying ? localized("Pause") : localized("Play"))
         .accessibilityLabel(media.isPlaying ? localized("Pause") : localized("Play"))
         .offset(x: frame.minX, y: frame.minY)
+    }
+
+    /// The ring's progress: a track at the card's quiet white under it, the
+    /// share of the song played in white from 12 o'clock. Drawn by SwiftUI
+    /// only where layers are not drawn, the visual lab's bitmaps.
+    @ViewBuilder
+    private func ringProgress(side: CGFloat) -> some View {
+        if KaraokeTrack.drawsLayers {
+            PlaybackRing(
+                input: .init(
+                    motion: media.shownMotion(frame), duration: media.shownDuration(frame),
+                    side: side, inset: 1.5, lineWidth: LockCardLayout.ringLineWidth
+                ),
+                color: .white
+            )
+            .frame(width: side, height: side)
+        } else {
+            Circle()
+                .inset(by: 1.5)
+                .trim(from: 0, to: fraction)
+                .stroke(.white, style: StrokeStyle(lineWidth: LockCardLayout.ringLineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
     }
 
     // MARK: - The card
@@ -861,13 +884,28 @@ struct LockScreenCard: View {
             .transition(.opacity)
     }
 
+    /// The card reads the song where its lines can turn (Batch 22,
+    /// 2026-11-05): the clock's line reading (`PlaybackClock.linePosition`),
+    /// the held song's stop during a hold. It read the position, so the 0.1 s
+    /// tick re-ran the whole card — its cover light, its header, every row of
+    /// its lyrics — to draw what was already drawn: 1.9 % of a core on the
+    /// player pane in the idle-cost lab and 2.4 % on the Lyrics pane. Nothing
+    /// in the card's body reads the clock now; the rows, the bar, the ring
+    /// and the labels that move each read it in a `ClockReader` of their own.
     private var lyricInputs: LyricInputs {
         LyricInputs(
-            position: media.shownPosition(frame),
+            position: media.shownLinePosition(frame, lead: lyricLead),
             precisionSync: media.precisionSync,
             userOffset: lyrics.userOffset,
             trackOffset: lyrics.trackOffset,
             wordTiming: wordTimingEnabled
+        )
+    }
+
+    /// The one lead, shared with the stage and the caption.
+    private var lyricLead: TimeInterval {
+        LyricSweep.lead(
+            precisionSync: media.precisionSync, userOffset: lyrics.userOffset, trackOffset: lyrics.trackOffset
         )
     }
 
@@ -1102,47 +1140,44 @@ struct LockScreenCard: View {
         lines: [LyricsStore.Line], index: Int, resolution: LyricResolution, distance: Int, lineLimit: Int,
         displaysText: String? = nil
     ) -> some View {
-        LyricRow(
-            line: lines[index],
-            isCurrent: index == resolution.current,
-            // Measured from the lit row, in rows, as on the stage: from the
-            // centre, the waiting opening line sat at the far floor beside a
-            // brighter neighbour.
-            distance: distance,
-            at: resolution.at,
-            end: LyricSweep.end(of: index, in: lines),
-            // The sung row's edge moved by Core Animation from the song's
-            // clock, as on the stage and the caption.
-            clock: index == resolution.current
-                ? LyricSweep.songClock(media: media, lead: LyricSweep.lead(
-                    precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
-                    trackOffset: lyrics.trackOffset
-                ), held: frame?.held)
-                : nil,
-            fontSize: Theme.TypeRole.title.size,
-            weight: .bold,
-            // One row, except the centre line when `lyricLayout` gave it two.
-            lineLimit: lineLimit,
-            accent: accent,
-            reduceMotion: reduceMotion,
-            wordTimingEnabled: wordTimingEnabled,
-            // The card's own steps. The panel's were tuned against black, and
-            // over a pale cover its context lines dissolved (2.1:1 at the floor).
-            surface: .card,
-            seek: {
-                // The song landing on a line somebody pointed at.
-                Haptics.alignment()
-                media.seek(to: LyricsStage.clickTarget(
-                    lineAt: lines[index].at,
-                    lead: LyricSweep.lead(
-                        precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
-                        trackOffset: lyrics.trackOffset
-                    ),
-                    duration: media.duration
-                ))
-            },
-            displayText: displaysText
-        )
+        // In a reader of its own: the sung row reads the clock's course, so a
+        // seek or a correction re-runs this row and not the card.
+        ClockReader {
+            LyricRow(
+                line: lines[index],
+                isCurrent: index == resolution.current,
+                // Measured from the lit row, in rows, as on the stage: from the
+                // centre, the waiting opening line sat at the far floor beside a
+                // brighter neighbour.
+                distance: distance,
+                at: resolution.at,
+                end: LyricSweep.end(of: index, in: lines),
+                // The sung row's edge moved by Core Animation from the song's
+                // clock, as on the stage and the caption: its course, which a
+                // seek, a pause or a correction changes and a tick does not.
+                clock: index == resolution.current
+                    ? LyricSweep.songClock(motion: media.shownMotion(frame), lead: lyricLead)
+                    : nil,
+                fontSize: Theme.TypeRole.title.size,
+                weight: .bold,
+                // One row, except the centre line when `lyricLayout` gave it two.
+                lineLimit: lineLimit,
+                accent: accent,
+                reduceMotion: reduceMotion,
+                wordTimingEnabled: wordTimingEnabled,
+                // The card's own steps. The panel's were tuned against black, and
+                // over a pale cover its context lines dissolved (2.1:1 at the floor).
+                surface: .card,
+                seek: {
+                    // The song landing on a line somebody pointed at.
+                    Haptics.alignment()
+                    media.seek(to: LyricsStage.clickTarget(
+                        lineAt: lines[index].at, lead: lyricLead, duration: media.duration
+                    ))
+                },
+                displayText: displaysText
+            )
+        }
     }
 
     @ViewBuilder
@@ -1175,23 +1210,22 @@ struct LockScreenCard: View {
         _ slot: LyricSlot, resolution: LyricResolution, distance: Int
     ) -> some View {
         let isCurrent = slot == resolution.moment.interlude
-        return InterludeMarker(
-            progress: LyricSweep.interludeProgress(slot, at: resolution.at),
-            isCurrent: isCurrent,
-            distance: distance,
-            clock: InterludeMarker.liveFill(
-                for: slot, isCurrent: isCurrent, media: media,
-                lead: LyricSweep.lead(
-                    precisionSync: media.precisionSync, userOffset: lyrics.userOffset,
-                    trackOffset: lyrics.trackOffset
+        // The rest playing reads the clock's course, in a reader of its own;
+        // Core Animation fills it from there.
+        return ClockReader {
+            InterludeMarker(
+                fill: InterludeMarker.fill(
+                    for: slot, isCurrent: isCurrent, at: resolution.at,
+                    motion: isCurrent ? media.shownMotion(frame) : .still(0), lead: lyricLead
                 ),
-                held: frame?.held
-            ),
-            fontSize: Theme.TypeRole.title.size,
-            weight: .bold,
-            reduceMotion: reduceMotion,
-            surface: .card
-        )
+                isCurrent: isCurrent,
+                distance: distance,
+                fontSize: Theme.TypeRole.title.size,
+                weight: .bold,
+                reduceMotion: reduceMotion,
+                surface: .card
+            )
+        }
     }
 
 
@@ -1342,6 +1376,10 @@ struct LockScreenCard: View {
 
     // MARK: - Rails
 
+    /// Where the bar and the ring are drawn by SwiftUI, which only the visual
+    /// lab's bitmaps do (`KaraokeTrack.drawsLayers`): the finger while
+    /// dragging, otherwise the clock. Reads the position, so it is read only
+    /// there; the card's own bar and ring run on Core Animation.
     private var fraction: Double {
         if let scrubbing { return scrubbing }
         let duration = media.shownDuration(frame)
@@ -1349,60 +1387,80 @@ struct LockScreenCard: View {
         return min(max(media.shownPosition(frame) / duration, 0), 1)
     }
 
-    /// The elapsed time for the labels: the finger while dragging, otherwise
-    /// the clock's steady label position, which never steps back a second
-    /// for a small correction.
-    private var shownElapsed: TimeInterval {
-        let duration = media.shownDuration(frame)
-        if let scrubbing { return scrubbing * duration }
-        return min(media.shownLabelPosition(frame), duration)
+    /// The labels' whole seconds: the finger's while dragging, otherwise the
+    /// clock's (`PlaybackClock.seconds`), which never step back a second for
+    /// a small correction and change only when a label's text does. Read in
+    /// the labels' readers, not by the card.
+    private func shownSeconds(duration: TimeInterval) -> PlaybackClock.Seconds {
+        scrubbing.map { PlaybackClock.Seconds(shown: $0 * duration, duration: duration) }
+            ?? media.shownSeconds(frame)
+    }
+
+    /// How the bar moves: the finger's still place while dragging, otherwise
+    /// the clock's course as the card shows it.
+    private func barMotion(duration: TimeInterval) -> PlaybackClock.Motion {
+        scrubbing.map { .still($0 * duration) } ?? media.shownMotion(frame)
     }
 
     /// The seek row of the board: the elapsed time, the bar, what is left, on one
     /// line (12 pt tall) where it used to be a bar over its two labels.
     private var seekRow: some View {
-        HStack(spacing: 8) {
-            Text(formatTime(shownElapsed))
-                .frame(minWidth: 26, alignment: .leading)
-                .fixedSize()
-            GeometryReader { geo in
-                let width = geo.size.width
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.cardTrack).frame(height: 4)
-                    Capsule().fill(accent.opacity(0.9)).frame(width: width * fraction, height: 4)
+        let duration = media.shownDuration(frame)
+        return HStack(spacing: 8) {
+            ClockReader {
+                Text(formatTime(TimeInterval(shownSeconds(duration: duration).elapsed)))
+                    .frame(minWidth: 26, alignment: .leading)
+                    .fixedSize()
+            }
+            // The bar and the slider VoiceOver reads in one reader: the fill
+            // runs on the clock's course and the slider's value is the
+            // elapsed label's second, so a seek or a second turning re-runs
+            // this and not the card.
+            ClockReader {
+                GeometryReader { geo in
+                    let width = geo.size.width
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.cardTrack).frame(height: 4)
+                        seekFill(width: width, duration: duration)
+                    }
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                guard width > 0, media.duration > 0 else { return }
+                                scrubbing = min(max(value.location.x / width, 0), 1)
+                            }
+                            .onEnded { value in
+                                guard width > 0, media.duration > 0 else { return }
+                                media.seek(to: media.duration * min(max(value.location.x / width, 0), 1))
+                                scrubbing = nil
+                            }
+                    )
                 }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            guard width > 0, media.duration > 0 else { return }
-                            scrubbing = min(max(value.location.x / width, 0), 1)
-                        }
-                        .onEnded { value in
-                            guard width > 0, media.duration > 0 else { return }
-                            media.seek(to: media.duration * min(max(value.location.x / width, 0), 1))
-                            scrubbing = nil
-                        }
+                // 22 pt to grab inside the 12 pt the row lays out, as the panel's
+                // scrubber does (F-014): the bar is drawn the same, and a finger that
+                // lands a little high or low still seeks.
+                .frame(height: 22)
+                // The same slider the panel's scrubber is: over the lock screen
+                // this is the only way to move the song without a pointer.
+                .playbackPositionAccessibility(
+                    // The elapsed label's second, as on the panel's scrubber:
+                    // the slider says what the label says.
+                    shown: scrubbing.map { $0 * media.duration }
+                        ?? Double(max(0, shownSeconds(duration: duration).elapsed)),
+                    duration: media.duration,
+                    position: { media.position },
+                    seek: { media.seek(to: $0) }
                 )
             }
-            // 22 pt to grab inside the 12 pt the row lays out, as the panel's
-            // scrubber does (F-014): the bar is drawn the same, and a finger that
-            // lands a little high or low still seeks.
-            .frame(height: 22)
-            // The same slider the panel's scrubber is: over the lock screen
-            // this is the only way to move the song without a pointer.
-            .playbackPositionAccessibility(
-                shown: fraction * media.duration,
-                duration: media.duration,
-                position: { media.position },
-                seek: { media.seek(to: $0) }
-            )
             // What is left, which is the question a lock screen gets asked:
             // how long until this is over.
-            Text("-" + formatTime(max(0, media.shownDuration(frame) - shownElapsed)))
-                .frame(minWidth: 30, alignment: .trailing)
-                .fixedSize()
+            ClockReader {
+                Text("-" + formatTime(TimeInterval(shownSeconds(duration: duration).remaining)))
+                    .frame(minWidth: 30, alignment: .trailing)
+                    .fixedSize()
+            }
         }
         // Small and quiet, as the system sets a player's times: they are
         // read in passing, and bold numerals at the body size shouted over
@@ -1411,6 +1469,26 @@ struct LockScreenCard: View {
         .tracking(Theme.tracking(forSize: Theme.TypeRole.caption.size))
         .foregroundStyle(Theme.cardTertiary)
         .frame(height: 12)
+    }
+
+    /// The bar's fill, on Core Animation along the song's clock as the panel's
+    /// is (`PlaybackFill`), laid again only when the clock changes course.
+    /// Drawn by SwiftUI only where layers are not drawn, the visual lab's
+    /// bitmaps, on its frozen clock.
+    @ViewBuilder
+    private func seekFill(width: CGFloat, duration: TimeInterval) -> some View {
+        if KaraokeTrack.drawsLayers {
+            PlaybackFill(
+                input: .init(
+                    motion: barMotion(duration: duration), duration: duration,
+                    width: width, height: 4, radius: 2
+                ),
+                color: accent.opacity(0.9)
+            )
+            .frame(width: width, height: 4)
+        } else {
+            Capsule().fill(accent.opacity(0.9)).frame(width: width * fraction, height: 4)
+        }
     }
 
     /// Previous, play and next, centred — and nothing else.
