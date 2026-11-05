@@ -427,6 +427,9 @@ final class ProbeStores {
         pasteboard.releaseGlobally()
         suite.removePersistentDomain(forName: suiteName)
         UserDefaults.standard.removeSuite(named: suiteName)
+        // The emptied domain's file too: one was left in ~/Library/Preferences
+        // for every probe a test ever made, 77,775 of them by 2026-11-05.
+        UserDefaults.removeSuiteFile(named: suiteName)
         try? FileManager.default.removeItem(at: temp)
     }
 }

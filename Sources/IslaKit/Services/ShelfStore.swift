@@ -342,7 +342,7 @@ final class ShelfStore: ObservableObject {
     /// so a burst of sixty answers is one change to `items` rather than sixty.
     private var pendingIcons: [URL: NSImage] = [:]
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .stores) {
         self.defaults = defaults
     }
 
