@@ -3311,6 +3311,15 @@ Translate and Settings
   refusal, and report a refused read as one.
 - [x] The update note says once an hour; a section change gives a shortcut
   recording's keyboard back; Reset Lyric Delay shows from 0.005 s.
+- [x] Translate To (Settings › Lyrics) has a name for VoiceOver, and the
+  accessibility sweep opens every Settings section, not only the one shown
+  last (`testEverySettingsSection`).
+
+Reviewed twice before the gate (an Opus refuter on the play and pause change,
+a Sonnet reviewer on the rest); what they confirmed is fixed in the same
+branch: the clock goes back with the icon when a tap is given up, a file put
+where a kept one was leaves one card, Quick Look's hand-back keeps the
+selection.
 
 Found and left, each a decision rather than a defect: a full Shelf of kept
 files evicts a newly captured screenshot at once; ⌃⌥⌘V on a Clipboard open
@@ -3319,7 +3328,11 @@ Translate on a covered Clipboard row shows its text when Translate itself is
 not covered; the Translate To label can name the flipped language while the
 menu ticks the stored one; the vault's 200-file trim does not ask the Shelf
 which files its cards use; a card's thumbnail is read once per session; a
-failed promised-file drop is reported only in a tray that has folded.
+failed promised-file drop is reported only in a tray that has folded. And
+one that is older than this branch and now shows on every tap rather than
+the first: a song held under a film in a player nobody can script, after the
+helper has restarted, cannot be addressed by pid, and the helper hands its
+play or pause to the film.
 
 Owed on hardware (record the Mac model and macOS version):
 - [ ] **ES-H1** Spotify playing, start a video in a browser (Music Only on),
