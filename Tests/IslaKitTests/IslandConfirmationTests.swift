@@ -249,4 +249,34 @@ final class IslandConfirmationTests: XCTestCase {
         XCTAssertTrue(vm.acceptDrop(urls: [file]))
         XCTAssertEqual(posted, [added])
     }
+
+    /// The same file dropped again adds nothing, and the island says so
+    /// rather than "Added to Shelf" a second time.
+    func testADropOfWhatIsAlreadyKeptSaysSo() throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        var posted: [IslandConfirmation] = []
+        vm.onConfirmation = { posted.append($0) }
+        let file = isolated.temp.appendingPathComponent("note.txt")
+        let other = isolated.temp.appendingPathComponent("other.txt")
+        try Data("hi".utf8).write(to: file)
+        try Data("ho".utf8).write(to: other)
+        XCTAssertTrue(vm.acceptDrop(urls: [file]))
+
+        XCTAssertTrue(vm.acceptDrop(urls: [file]))
+        XCTAssertEqual(posted, [added, IslandConfirmation(.alreadyOnShelf)])
+        XCTAssertEqual(vm.shelf.items.count, 1)
+
+        // One new file among kept ones is still an addition.
+        XCTAssertTrue(vm.acceptDrop(urls: [file, other]))
+        XCTAssertEqual(posted.last, added)
+
+        let already = IslandConfirmation(.alreadyOnShelf)
+        XCTAssertEqual(already.title, "Already on the Shelf")
+        XCTAssertNotNil(NSImage(systemSymbolName: already.symbol, accessibilityDescription: nil), already.symbol)
+        LabLocalization.use("ru")
+        defer { LabLocalization.use("en") }
+        XCTAssertEqual(already.title, "Уже на полке")
+    }
 }

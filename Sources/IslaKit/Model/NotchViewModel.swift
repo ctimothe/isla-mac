@@ -11,6 +11,21 @@ final class NotchViewModel: ObservableObject {
     @Published var isOpen = false {
         didSet {
             if isOpen, !oldValue { arrivedOverAnOpenSurface = false }
+            // Opening onto the tray it was left on is an arrival there, and
+            // only `surface` used to say so: ⌃⌥⌘I opens without assigning
+            // one, so a tray reopened by the hot key kept a card whose file
+            // had been deleted, left an ejected disk's cards undimmed and
+            // missed new recordings until some other page was visited. Not
+            // twice, though: a click on the Shelf assigns the surface and
+            // then opens, and that is one arrival. And only when the tray is
+            // what the open shows: over the drop surface or the welcome the
+            // cards are not drawn, and a drag must never touch the files.
+            if isOpen, !oldValue, presented == .tray {
+                let now = uptime()
+                let justPassed = trayPassedWhileShutAt.map { now >= $0 && now - $0 < Self.trayArrivalWindow } ?? false
+                if !justPassed { shelf.refreshFromDisk() }
+            }
+            if isOpen != oldValue { trayPassedWhileShutAt = nil }
             // Opening ends a charger or headphones moment and a track peek
             // (F-033). They were cleared only on sleep and lock, so a panel
             // opened half a second into the 2.2 s moment and closed a second
@@ -395,7 +410,10 @@ final class NotchViewModel: ObservableObject {
             // explain it — once per arrival, not on every write: a tray already
             // on screen has its cards. A shut panel opening onto the tray it
             // was left on is an arrival.
-            if surface == .tray, oldValue != .tray || !isOpen { shelf.refreshFromDisk() }
+            if surface == .tray, oldValue != .tray || !isOpen {
+                shelf.refreshFromDisk()
+                trayPassedWhileShutAt = isOpen ? nil : uptime()
+            }
             // What was typed into Clipboard's field belongs to that visit:
             // a half-remembered query hiding most of the list the next time
             // it opens would read as a broken history.
@@ -515,6 +533,16 @@ final class NotchViewModel: ObservableObject {
         return SpotifyAccount.shared
     }
 
+    /// When `surface` passed over the tray with the panel still shut, in
+    /// awake time: the open that follows at once is the same arrival
+    /// (`isOpen`), and must not pass over it again.
+    private var trayPassedWhileShutAt: TimeInterval?
+    /// The awake clock. A seam so a test can let time pass without waiting.
+    var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// How soon after the surface the open must come to be the same arrival:
+    /// the two are assigned in one turn of the run loop.
+    static let trayArrivalWindow: TimeInterval = 0.5
+
     /// Remove All's question (spec §19.7): asked from the tray's header,
     /// said in the tray in place of the row.
     let shelfClear = ShelfClearConfirmation()
@@ -526,7 +554,13 @@ final class NotchViewModel: ObservableObject {
     /// The tray header's Remove All (spec §19.7): asks the question the tray
     /// draws in place of its row. Escape (`ArmedConfirmations`) and leaving
     /// the tray (`surface`) take it back.
+    ///
+    /// The selection goes first. The question is drawn in place of the grid,
+    /// so a tile selected before it can no longer be seen, yet it still held
+    /// the Delete key: ⌫ over the question removed that one hidden card and
+    /// left the question standing with its count changed under it.
     func askToRemoveAll() {
+        shelf.clearSelection()
         shelfClear.ask(count: shelf.items.count)
     }
 
@@ -2668,13 +2702,21 @@ final class NotchViewModel: ObservableObject {
     /// are never a Shelf card, and refusing them mid-drag would lose them.
     func acceptDrop(urls: [URL]) -> Bool {
         if ShelfDragSource.isDraggingOut { return false }
-        guard accept(urls: urls) else { return false }
+        let result = shelf.add(urls)
         // The panel is open or a drag is under way, so the confirmation waits
         // in the alert queue for the panel to close and shows on the island
         // then, up to five seconds later. Over a panel that was already open
         // the drop returns to the player or Clipboard, not the tray
         // (`endDropSurface`), so nothing else answers the drop.
-        confirm(.addedToShelf)
+        //
+        // It says what happened. A file dropped a second time added nothing,
+        // and the island said "Added to Shelf" all the same; the tray's own
+        // "Already on the Shelf" line was drawn in a tray already folded.
+        if result.added > 0 {
+            confirm(.addedToShelf)
+        } else if result.duplicates > 0 {
+            confirm(.alreadyOnShelf)
+        }
         return true
     }
 

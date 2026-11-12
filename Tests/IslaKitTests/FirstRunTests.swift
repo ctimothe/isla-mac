@@ -211,6 +211,41 @@ final class FirstRunTests: XCTestCase {
         }
     }
 
+    /// ⌃⌥⌘I opens the panel without assigning a surface. Reopened onto the
+    /// tray it was left on, the tray kept a deleted file's card and missed
+    /// new recordings until some other page had been visited. And a click on
+    /// the Shelf, which assigns the surface and then opens, is one arrival.
+    func testAPanelReopenedOnTheTrayItWasLeftOnPassesOverItOnce() {
+        final class Clock { var now: TimeInterval = 100 }
+        let clock = Clock()
+        withCleanFirstRun {
+            guard let vm = Self.viewModel() else {
+                return XCTFail("a test host always has a screen")
+            }
+            vm.uptime = { clock.now }
+            vm.isOpen = true
+            vm.open(.tray)
+            XCTAssertEqual(vm.shelf.refreshesForTests, 1)
+
+            vm.isOpen = false
+            clock.now += 60
+            vm.isOpen = true
+            XCTAssertEqual(vm.shelf.refreshesForTests, 2, "the hot key's open is an arrival on the tray")
+
+            vm.isOpen = false
+            clock.now += 60
+            vm.open(.tray)
+            vm.isOpen = true
+            XCTAssertEqual(vm.shelf.refreshesForTests, 3, "the surface, then the open: one arrival, one pass")
+
+            vm.isOpen = false
+            clock.now += 60
+            vm.open(.player)
+            vm.isOpen = true
+            XCTAssertEqual(vm.shelf.refreshesForTests, 3, "opening on another page looks at no file")
+        }
+    }
+
     /// A drop lands on a tray the drag never refreshed, and `add` loads the new
     /// cards' previews itself — so the drop must not pass over the whole shelf
     /// again: a reachability check and a fresh QuickLook request per card, each
@@ -292,8 +327,11 @@ final class FirstRunTests: XCTestCase {
             vm.isDropTargeted = false
             XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "a closed panel opens onto the drop surface")
 
-            vm.isOpen = true
+            // The welcome first, then the open, as the app presents it: an
+            // open that shows the remembered tray itself is an arrival there
+            // (`testAPanelReopenedOnTheTrayItWasLeftOnPassesOverItOnce`).
             vm.isShowingWelcome = true
+            vm.isOpen = true
             vm.isDropTargeted = true
             XCTAssertEqual(vm.shelf.refreshesForTests, refreshes, "the welcome is covered, nothing refreshed")
             XCTAssertEqual(vm.presented, .drop)

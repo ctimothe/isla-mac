@@ -406,6 +406,49 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertTrue(store.items.isEmpty)
     }
 
+    /// Rename a kept file in Finder, or move it one folder over: the old path
+    /// answers "no such file" like a deleted one, and the card used to leave
+    /// on the next tray open — for good, since the save after it wrote the
+    /// shorter list. Its bookmark knows where the file went.
+    func testRefreshFromDiskFollowsACardWhoseFileWasRenamedOrMoved() async throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let other = dir.appendingPathComponent("elsewhere")
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("report.txt")
+        try "x".write(to: file, atomically: true, encoding: .utf8)
+        let store = ShelfStore(defaults: defaults)
+        store.add([file])
+        let id = try XCTUnwrap(store.items.first?.id)
+
+        let renamed = dir.appendingPathComponent("report final.txt")
+        try FileManager.default.moveItem(at: file, to: renamed)
+        await store.refreshFromDisk().value
+        XCTAssertEqual(store.items.map(\.id), [id], "the same card, kept")
+        XCTAssertEqual(
+            store.items.first?.url.resolvingSymlinksInPath(), renamed.resolvingSymlinksInPath(),
+            "pointing at the file under its new name")
+
+        let moved = other.appendingPathComponent("report final.txt")
+        try FileManager.default.moveItem(at: renamed, to: moved)
+        await store.refreshFromDisk().value
+        XCTAssertEqual(store.items.map(\.id), [id])
+        XCTAssertEqual(store.items.first?.url.resolvingSymlinksInPath(), moved.resolvingSymlinksInPath())
+
+        // And what was saved follows it: a relaunch finds the card too.
+        let relaunched = ShelfStore(defaults: defaults)
+        relaunched.load()
+        XCTAssertEqual(relaunched.items.first?.url.resolvingSymlinksInPath(), moved.resolvingSymlinksInPath())
+
+        // A file that is really gone still takes its card.
+        try FileManager.default.removeItem(at: moved)
+        await store.refreshFromDisk().value
+        XCTAssertTrue(store.items.isEmpty)
+    }
+
     /// A card whose file exists but can no longer be read — its containing
     /// directory's traversal permission revoked, the way a "Don't Allow" on a
     /// protected folder leaves things — must not be evicted alongside a card

@@ -1366,10 +1366,20 @@ final class NotchController {
     /// does, and for the same reason: ⌘-Tab is that click, made from the
     /// keyboard. Before this a pinned panel outlived every switch of app that
     /// did not involve the mouse.
-    private func applicationActivated(_ pid: pid_t?) {
-        guard let vm = viewModel, let pid,
-              vm.appActivated(ownPID: ProcessInfo.processInfo.processIdentifier, activatedPID: pid)
-        else { return }
+    ///
+    /// It drops the Shelf selection for the same reason, pinned or not. A
+    /// panel opened by a click stays open while the pointer rests on it, and
+    /// with a tile selected it holds ⌫ and ⌘⌫ system-wide
+    /// (`ShelfDeleteKeyHolder`): ⌘-Tab to Mail, press Delete in a message,
+    /// and Isla took the key and removed the card while Mail got nothing.
+    /// Isla's own activation — Quick Look, AirDrop — is not another app.
+    ///
+    /// Internal so a test can stand in for the switch.
+    func applicationActivated(_ pid: pid_t?) {
+        guard let vm = viewModel, let pid else { return }
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        if pid != ownPID { vm.shelf.clearSelection() }
+        guard vm.appActivated(ownPID: ownPID, activatedPID: pid) else { return }
         vm.isPinnedOpen = false
         setOpen(false)
         // The pointer may be anywhere, including inside the rect an arrival is

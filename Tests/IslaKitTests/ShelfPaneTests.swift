@@ -436,6 +436,52 @@ final class ShelfPaneTests: XCTestCase {
         XCTAssertTrue(fake.live.isEmpty)
     }
 
+    /// ⌘-Tab to another app with the pointer still resting on the tray: the
+    /// panel is not pinned, so it stays open, and the selection kept ⌫ held
+    /// system-wide. Delete typed in the other app removed the card instead.
+    func testAnotherAppComingForwardGivesTheKeyBack() throws {
+        let (controller, vm, isolated, fake) = try rig()
+        defer { isolated.release(); controller.teardown() }
+        vm.shelf.add([URL(fileURLWithPath: "/tmp/isla-delete-switch.txt")])
+        vm.isOpen = true
+        vm.surface = .tray
+        vm.isPointerOnShelf = true
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
+        XCTAssertFalse(vm.isPinnedOpen, "the fixture: opened by a click, not pinned")
+        XCTAssertTrue(controller.holdsDeleteKey)
+
+        controller.applicationActivated(ProcessInfo.processInfo.processIdentifier)
+        XCTAssertTrue(controller.holdsDeleteKey, "Isla's own activation is not another app")
+
+        controller.applicationActivated(ProcessInfo.processInfo.processIdentifier + 1)
+        XCTAssertFalse(controller.holdsDeleteKey, "the key goes back with the switch")
+        XCTAssertTrue(fake.live.isEmpty)
+        XCTAssertTrue(vm.shelf.selection.isEmpty)
+        XCTAssertEqual(vm.shelf.items.count, 1, "and the card is still there")
+    }
+
+    /// Remove All's question is drawn in place of the grid. A tile selected
+    /// before it was hidden but still held Delete, and ⌫ removed it from
+    /// under the question.
+    func testAskingToRemoveAllDropsTheSelectionAndTheKey() throws {
+        let (controller, vm, isolated, fake) = try rig()
+        defer { isolated.release(); controller.teardown() }
+        vm.shelf.add(["a.txt", "b.txt"].map { URL(fileURLWithPath: "/tmp/isla-delete-ask-\($0)") })
+        vm.isOpen = true
+        vm.surface = .tray
+        vm.isPointerOnShelf = true
+        vm.shelf.select(vm.shelf.items[0], modifiers: [])
+        XCTAssertTrue(controller.holdsDeleteKey)
+
+        vm.askToRemoveAll()
+
+        XCTAssertTrue(vm.shelfClear.isAsking)
+        XCTAssertTrue(vm.shelf.selection.isEmpty, "nothing hidden stays selected")
+        XCTAssertFalse(controller.holdsDeleteKey)
+        XCTAssertTrue(fake.live.isEmpty)
+        vm.shelfClear.cancel()
+    }
+
     /// Codex P1, re-review 2026-10-15: the sink read the old value of a
     /// `@Published`, so the first selection did not install the watch.
     func testTheFirstSelectionInstallsTheOutsideClickWatchAndClearingRemovesIt() throws {

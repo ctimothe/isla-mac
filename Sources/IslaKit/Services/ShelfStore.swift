@@ -503,6 +503,7 @@ final class ShelfStore: ObservableObject {
         let pickup = pickupInputs(from: nil)
         let mountedVolumes = mountedVolumes
         let verdictFor = verdictFor
+        let bookmarks = bookmarks
         let pass = Task.detached(priority: .utility) { () -> DiskPass in
             var pass = DiskPass()
             if let pickup {
@@ -511,7 +512,18 @@ final class ShelfStore: ObservableObject {
             guard !urls.isEmpty else { return pass }
             let mounted = mountedVolumes()
             for url in urls {
-                let verdict = verdictFor(url, mounted)
+                var verdict = verdictFor(url, mounted)
+                // A path that is gone is not yet a file that is gone. Rename
+                // a kept file in Finder, or move it one folder over, and the
+                // old path answers "no such file" exactly as a deleted one
+                // does: the card left on the next open and the save after it
+                // made that permanent — while a relaunch, which follows the
+                // bookmark (`storedURLs`), would have kept it. The bookmark
+                // is asked here too, off the main thread like the rest.
+                if verdict == .gone, case .moved(let found, let fresh) = Self.whereIs(url, bookmark: bookmarks[url]) {
+                    pass.moved[url] = (found, fresh)
+                    verdict = .present
+                }
                 pass.verdicts[url] = verdict
                 // Cards from before dates were kept learn theirs from the
                 // file, now that the file may be asked — when there is a file
@@ -535,6 +547,9 @@ final class ShelfStore: ObservableObject {
     private struct DiskPass: Sendable {
         var verdicts: [URL: Verdict] = [:]
         var dates: [URL: Date] = [:]
+        /// Cards whose path answers "no such file" while their bookmark finds
+        /// the file somewhere else: renamed, or moved to another folder.
+        var moved: [URL: (url: URL, bookmark: Data?)] = [:]
         var recordings: (urls: [URL], dates: [URL: Date], seen: Set<String>, missing: [URL])?
     }
 
@@ -548,7 +563,15 @@ final class ShelfStore: ObservableObject {
         // disk is mounted is asked again on every open, never stored.
         var changed = false
         var redrawn = false
-        let gone = Set(cards.filter { pass.verdicts[$0.url] == .gone }.map(\.id))
+        var gone = Set(cards.filter { pass.verdicts[$0.url] == .gone }.map(\.id))
+        for (old, place) in pass.moved {
+            guard let index = cards.firstIndex(where: { $0.url == old }) else { continue }
+            if relocate(index, in: &cards, to: place.url, bookmark: place.bookmark) {
+                changed = true
+            } else {
+                gone.insert(cards[index].id)
+            }
+        }
         if !gone.isEmpty {
             cards.removeAll { gone.contains($0.id) }
             selection.subtract(gone)
@@ -1031,22 +1054,10 @@ final class ShelfStore: ObservableObject {
             case .gone:
                 gone.insert(cards[index].id)
             case .moved(let new, let fresh):
-                if cards.contains(where: { $0.url == new }) {
-                    // Moved onto a file the shelf already holds: one card is
-                    // enough for one file.
+                guard relocate(index, in: &cards, to: new, bookmark: fresh) else {
                     gone.insert(cards[index].id)
                     continue
                 }
-                cards[index].url = new
-                // The bookmark found the file, so it is kept — unless the
-                // system called it stale, and then the next save makes it
-                // again, as `storedURLs` does at launch.
-                bookmarks[url] = nil
-                bookmarks[new] = fresh
-                // The card's preview is of the same file, so it is not owed
-                // again; only its key changes.
-                if thumbnailed.remove(url) != nil { thumbnailed.insert(new) }
-                if let pending = pendingIcons.removeValue(forKey: url) { pendingIcons[new] = pending }
                 changed = true
             }
         }
@@ -1063,18 +1074,38 @@ final class ShelfStore: ObservableObject {
         return waiting
     }
 
+    /// Points the card at `index` at the place its file moved to — same id,
+    /// same selection. False, and nothing changed, when the shelf already
+    /// holds a card for that place: one card is enough for one file, and the
+    /// caller lets this one go.
+    private func relocate(_ index: Int, in cards: inout [ShelfItem], to new: URL, bookmark fresh: Data?) -> Bool {
+        let old = cards[index].url
+        guard !cards.contains(where: { $0.url == new }) else { return false }
+        cards[index].url = new
+        // The bookmark found the file, so it is kept — unless the system
+        // called it stale, and then the next save makes it again, as
+        // `storedURLs` does at launch.
+        bookmarks[old] = nil
+        bookmarks[new] = fresh
+        // The card's preview is of the same file, so it is not owed again;
+        // only its key changes.
+        if thumbnailed.remove(old) != nil { thumbnailed.insert(new) }
+        if let pending = pendingIcons.removeValue(forKey: old) { pendingIcons[new] = pending }
+        return true
+    }
+
     /// What a card's bookmark says about where its file is now.
-    private enum Place {
+    private enum Place: Sendable {
         case unmoved
         /// Found somewhere else; `bookmark` is the one to keep, nil if stale.
         case moved(URL, bookmark: Data?)
         case gone
     }
 
-    /// Resolves a card's bookmark after a drag. Unlike `load`, this may
-    /// look at the file: the person just dragged it, so the Shelf already
-    /// had its answer for that folder.
-    private static func whereIs(_ url: URL, bookmark: Data?) -> Place {
+    /// Resolves a card's bookmark after a drag, or on a tray open that found
+    /// its path empty. Unlike `load`, this may look at the file: the person
+    /// just dragged it, or the open's own pass is already looking.
+    nonisolated private static func whereIs(_ url: URL, bookmark: Data?) -> Place {
         var stale = false
         guard let bookmark, !bookmark.isEmpty, let found = try? URL(
             resolvingBookmarkData: bookmark,
