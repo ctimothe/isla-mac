@@ -3270,6 +3270,73 @@ Mac model and macOS version when run):
   off (the system's own HUD). Crackle in both: memory pressure, not Isla.
   Crackle only with it on: report it, with the time, for a trace.
 
+### Edge-case sweep (`fix/edge-case-sweep`, 2026-11-12)
+
+Owner, 2026-11-12: every button of every section should do what it says, with
+no state left lying — "show it's playing while it's paused" was the example.
+The music path was read by hand; the Shelf, Clipboard, and Translate with
+Settings were each read by an agent and every finding checked in the code
+before a fix. Each fix has a test that failed first.
+
+Music
+- [x] A play or pause command nobody confirmed no longer stays in flight on a
+  route without the helper's heartbeat (a song held under a film, the
+  scripting fallback): the player is asked 1.5 s on, and the command settled
+  against the last thing known if nobody answers. A held song in a player
+  that cannot be scripted takes every tap. (`PlaybackIntent.settleUnconfirmed`)
+- [x] A tap made in the 700 ms after a skip shows at once (the presenter's
+  held clock follows it).
+- [x] Quitting the player takes its song off the island at once, not on the
+  helper's next heartbeat (`MediaController.playerQuit`).
+- [x] A pause stops the clock where the song stands, not at its last tick.
+
+Shelf
+- [x] A file renamed or moved in Finder keeps its card (the tray's pass asks
+  the bookmark when the path is gone).
+- [x] Another app coming forward, and Remove All's question, drop the
+  selection and with it the system-wide Delete key.
+- [x] ⌃⌥⌘I reopening onto the tray refreshes it.
+- [x] A drop of files already kept says "Already on the Shelf".
+
+Clipboard
+- [x] Search matches the line a row draws (a line break shown as a space).
+- [x] "Clear N entries?" follows the history while it stands.
+- [x] The 256 KB text cap cuts at a character.
+
+Translate and Settings
+- [x] Reading aloud stops when History replaces the cards, and when the hot
+  key covers the pane without changing its text.
+- [x] Swap keeps the text when the answer covers only part of it.
+- [x] ⌃⌥⌘T and Translate Clipboard read the pasteboard after the lock's
+  refusal, and report a refused read as one.
+- [x] The update note says once an hour; a section change gives a shortcut
+  recording's keyboard back; Reset Lyric Delay shows from 0.005 s.
+
+Found and left, each a decision rather than a defect: a full Shelf of kept
+files evicts a newly captured screenshot at once; ⌃⌥⌘V on a Clipboard open
+without the keyboard closes it (spec §19.8 says a second press closes);
+Translate on a covered Clipboard row shows its text when Translate itself is
+not covered; the Translate To label can name the flipped language while the
+menu ticks the stored one; the vault's 200-file trim does not ask the Shelf
+which files its cards use; a card's thumbnail is read once per session; a
+failed promised-file drop is reported only in a tray that has folded.
+
+Owed on hardware (record the Mac model and macOS version):
+- [ ] **ES-H1** Spotify playing, start a video in a browser (Music Only on),
+  open the island: the song is held. Press pause, play, pause, a second
+  apart: each one lands in Spotify and the icon follows it. Repeat with a
+  player that cannot be scripted (Tidal or Deezer), if one is installed.
+- [ ] **ES-H2** Press Next, then Pause within half a second: the button turns
+  to Play at once, before the new title arrives.
+- [ ] **ES-H3** Quit Spotify mid-song with the panel open: the island says
+  nothing is playing within a second.
+- [ ] **ES-H4** With word-synced lyrics on the stage, pause mid-word: the
+  sweep stops where it is and does not step back.
+- [ ] **ES-H5** Keep a file on the Shelf, rename it in Finder, open the tray:
+  the card is there under the new name and opens the file.
+- [ ] **ES-H6** Select a tile, leave the pointer on the tray, ⌘-Tab to Mail
+  and press Delete in a draft: Mail deletes a character, the card stays.
+
 ### Apple's own island (`feat/native-island-guard`, 2026-10-29) — withdrawn
 
 Built on 2026-10-29 and withdrawn the same day (owner: "isla-mac is only for
