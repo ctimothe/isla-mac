@@ -243,6 +243,32 @@ final class NowPlayingPresenterTests: XCTestCase {
         XCTAssertEqual(rig.lyricHolds, [true, false])
     }
 
+    /// Next, then Pause inside the hold. The button read the held clock, taken
+    /// at the skip, so the pause was sent and the button went on saying
+    /// "playing" until the swap, up to 700 ms later.
+    func testATapDuringTheHoldShowsAtOnce() {
+        let rig = rig()
+        _ = playingA(rig)
+        rig.presenter.expectTrackChange()
+        XCTAssertEqual(rig.presenter.held?.isPlaying, true, "the fixture: held as it was, playing")
+
+        rig.presenter.playbackTapped(playing: false)
+        XCTAssertEqual(rig.presenter.held?.isPlaying, false, "the pause shows while the old song is still up")
+        XCTAssertEqual(rig.presenter.held?.position, 42, "and the held song stays where it stopped")
+
+        rig.presenter.playbackTapped(playing: true)
+        XCTAssertEqual(rig.presenter.held?.isPlaying, true)
+    }
+
+    /// With no hold there is no held clock to keep, and none is made.
+    func testATapOutsideAHoldHoldsNothing() {
+        let rig = rig()
+        _ = playingA(rig)
+        rig.presenter.playbackTapped(playing: false)
+        XCTAssertNil(rig.presenter.held)
+        XCTAssertTrue(rig.changes.isEmpty)
+    }
+
     // MARK: Lyrics
 
     /// Lyrics already settled — local, or cached — swap with the song: the

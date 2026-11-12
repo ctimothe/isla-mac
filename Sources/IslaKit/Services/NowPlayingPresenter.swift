@@ -176,6 +176,9 @@ final class NowPlayingPresenter: ObservableObject {
         media.trackChangeExpected
             .sink { [weak self] in self?.expectTrackChange() }
             .store(in: &cancellables)
+        media.playbackTapped
+            .sink { [weak self] playing in self?.playbackTapped(playing: playing) }
+            .store(in: &cancellables)
         media.$reading
             .sink { [weak self] reading in self?.receive(reading) }
             .store(in: &cancellables)
@@ -208,6 +211,18 @@ final class NowPlayingPresenter: ObservableObject {
     func receive(_ reading: MediaController.Reading) {
         live = reading
         evaluate()
+    }
+
+    /// The user pressed play or pause. During a hold the play button, the
+    /// cover's dimming and the equalizer all read the held clock, which was
+    /// taken when the hold began — so a pause pressed in the 700 ms after a
+    /// skip sent its command and changed nothing on screen until the swap,
+    /// and read as a button that had not heard the tap. The held song stays
+    /// where it stopped; only whether it plays follows the tap.
+    func playbackTapped(playing: Bool) {
+        guard var clock = held, clock.isPlaying != playing else { return }
+        clock.isPlaying = playing
+        held = clock
     }
 
     /// The store's words became ready, or stopped being.

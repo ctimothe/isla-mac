@@ -484,6 +484,134 @@ final class HeldSongTruthTests: XCTestCase {
         XCTAssertEqual(sent, ["spotify play"])
     }
 
+    // MARK: A player that quit
+
+    /// Quit Spotify mid-song: the session goes empty while the process is
+    /// still on its way out, which reads as a song held between sessions, and
+    /// a quitting player does not answer. The song stayed up, playing, until
+    /// the helper's next heartbeat. The quit itself now takes it.
+    func testAQuitPlayerTakesItsSongAtOnce() {
+        let (controller, _) = controller(held: .unknown)
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.receive(NowPlayingFeed.Snapshot())
+        XCTAssertEqual(controller.track?.title, "Song", "the fixture: kept, its process still running")
+        XCTAssertTrue(controller.isPlaying)
+
+        controller.playerQuit(1)
+
+        XCTAssertNil(controller.track)
+        XCTAssertFalse(controller.isPlaying)
+        XCTAssertFalse(controller.isHolding)
+    }
+
+    /// Any other app quitting is not about the song.
+    func testAnotherAppQuittingKeepsTheSong() {
+        let (controller, _) = controller(held: .unknown)
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.playerQuit(2)
+        XCTAssertEqual(controller.track?.title, "Song")
+        XCTAssertTrue(controller.isPlaying)
+    }
+
+    // MARK: A tap nobody confirmed
+
+    /// Collapses the waits so a test sees a chase in milliseconds.
+    private func withShortChase(_ body: () -> Void) {
+        let timeout = PlaybackIntent.confirmationTimeout
+        let grace = MediaController.playbackChaseGrace
+        PlaybackIntent.confirmationTimeout = 0.05
+        MediaController.playbackChaseGrace = 0.05
+        defer {
+            PlaybackIntent.confirmationTimeout = timeout
+            MediaController.playbackChaseGrace = grace
+        }
+        body()
+    }
+
+    private func spin(_ seconds: TimeInterval) {
+        let done = expectation(description: "waited")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { done.fulfill() }
+        wait(for: [done], timeout: seconds + 2)
+    }
+
+    /// A song held under a film is reported only when its player announces a
+    /// change. A pause the player never acted on was announced by nobody, so
+    /// the command stayed in flight: the icon said paused over music still
+    /// playing, and every later tap was coalesced behind it and never sent.
+    /// The player is asked outright instead, and its answer settles it.
+    func testAHeldSongsUnconfirmedPauseAsksItsPlayer() {
+        let playing = PlayerState(
+            app: .spotify, isPlaying: true, title: "Song", artist: "Artist",
+            album: "Album", duration: 248, position: 40
+        )
+        let (controller, asked) = controller(held: .loaded(playing))
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertTrue(controller.isHolding)
+        XCTAssertTrue(controller.isPlaying)
+        let askedBefore = asked()
+
+        withShortChase {
+            controller.togglePlayPause()
+            XCTAssertFalse(controller.isPlaying, "the tap owns the icon at once")
+            spin(0.3)
+        }
+
+        XCTAssertGreaterThan(asked(), askedBefore, "with no report, the player is asked what it did")
+        XCTAssertTrue(controller.isPlaying, "it is still playing, and the icon says so")
+        controller.togglePlayPause()
+        XCTAssertEqual(sent, ["spotify pause", "spotify pause"], "and the next tap is sent, not swallowed")
+    }
+
+    /// The same, with a player that cannot be asked either — consent refused.
+    /// Nothing confirmed the command, so the last thing known stands.
+    func testAHeldSongsUnconfirmedPauseWithNoAnswerGoesBackToTheLastReport() {
+        let (controller, _) = controller(held: .unknown)
+        var sent: [String] = []
+        controller.sendToPlayer = { action, app in sent.append("\(app.rawValue) \(action)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertTrue(controller.isHolding)
+
+        withShortChase {
+            controller.togglePlayPause()
+            XCTAssertFalse(controller.isPlaying)
+            spin(0.4)
+        }
+
+        XCTAssertTrue(controller.isPlaying, "an unanswered pause does not leave the icon paused for good")
+        controller.togglePlayPause()
+        XCTAssertEqual(sent.count, 2, "the next tap is sent")
+    }
+
+    /// A held song in a player nobody can script — Tidal — takes its command
+    /// through the helper, and nothing ever reports what it did. The second
+    /// tap used to wait behind the first for a confirmation that could not
+    /// come: pause worked once, and play never went out.
+    func testAHeldSongNobodyCanReportTakesEveryTap() {
+        let controller = MediaController()
+        controller.isolateFromPlayers()
+        controller.musicOnly = { true }
+        controller.bundleIdentifierForPID = { $0 == 1 ? "com.tidal.desktop" : "org.mozilla.firefox" }
+        controller.isProcessRunning = { _ in true }
+        var sent: [String] = []
+        controller.sendToFeed = { command, pid in sent.append("\(command) \(pid ?? 0)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: true))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertTrue(controller.isHolding)
+
+        controller.togglePlayPause()
+        XCTAssertFalse(controller.isPlaying)
+        controller.togglePlayPause()
+        XCTAssertTrue(controller.isPlaying)
+        controller.togglePlayPause()
+
+        XCTAssertEqual(sent, ["pause 1", "play 1", "pause 1"])
+        XCTAssertFalse(controller.isPlaying)
+    }
+
     /// With no film in the way, the helper carries the command as before.
     func testASongThatOwnsNowPlayingIsNotScripted() {
         let (controller, _) = controller(held: .unknown)

@@ -1180,6 +1180,29 @@ final class MediaControllerTests: XCTestCase {
         media.stop()
     }
 
+    /// A pause stops the song where it stands, not at the last tick. The bar
+    /// and the sung word stepped back a quarter-second on every pause, and a
+    /// Shortcut pausing with the panel shut left the song minutes behind.
+    func testAPauseStopsTheClockWhereItStands() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let controller = MediaController()
+        controller.isolateFromPlayers()
+        controller.lyricsShown = { false }
+        controller.sendToFeed = { _, _ in }
+        controller.monotonicNow = { clock.now }
+        controller.apply(clockSnapshot(elapsed: 10))
+        XCTAssertEqual(controller.position, 10, accuracy: 0.01, "the fixture: no tick has run")
+
+        clock.now += 5
+        XCTAssertTrue(controller.togglePlayPause())
+
+        XCTAssertFalse(controller.isPlaying)
+        XCTAssertEqual(controller.position, 15, accuracy: 0.01, "paused at 0:15, where the music was")
+        clock.now += 30
+        XCTAssertEqual(controller.extrapolatedPosition(), 15, accuracy: 0.01, "and it stays there")
+    }
+
     /// The panel closed, the ticker stopped: the published position is as old
     /// as the last tick, and the running clock is where the song is.
     func testTheCurrentPositionRunsOnWithThePanelClosed() {
