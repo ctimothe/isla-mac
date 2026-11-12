@@ -106,6 +106,11 @@ final class ClipboardBrowseTests: XCTestCase {
         XCTAssertFalse(
             ClipboardSearch.matches(item, query: "hello world", hidden: true),
             "a covered row's line is not compared either")
+        // A Windows line end, a blank line and a tab read as one space too.
+        XCTAssertTrue(ClipboardSearch.matches(text("hello\r\nworld"), query: "hello world"))
+        XCTAssertTrue(ClipboardSearch.matches(text("total\n\n42"), query: "total 42"))
+        XCTAssertTrue(ClipboardSearch.matches(text("name\tvalue"), query: "name value"))
+        XCTAssertFalse(ClipboardSearch.matches(text("helloworld"), query: "hello world"))
         // Past the 512 characters a row shows, the whole string still matches.
         let long = text(String(repeating: "a", count: 600) + " needle")
         XCTAssertTrue(ClipboardSearch.matches(long, query: "needle"))

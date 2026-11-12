@@ -393,6 +393,11 @@ final class Translator: ObservableObject {
             outputSource = nil
             answered = nil
             engine = nil
+        } else if answersInput {
+            // The partial answer goes, as an answer does when a language is
+            // chosen: left up, it sat in the old target's language under a
+            // heading naming the new one, with Copy and Speak still live.
+            clearAnswer()
         }
         remember()
     }

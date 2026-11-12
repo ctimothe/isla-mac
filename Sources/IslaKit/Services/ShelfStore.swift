@@ -520,9 +520,20 @@ final class ShelfStore: ObservableObject {
                 // made that permanent — while a relaunch, which follows the
                 // bookmark (`storedURLs`), would have kept it. The bookmark
                 // is asked here too, off the main thread like the rest.
+                //
+                // Unless another card already holds the place it moved to —
+                // Finder's Replace puts a renamed file where a kept one was —
+                // and then one card is enough for one file: this one leaves,
+                // as it did. Compared with links resolved, as `whereIs` does,
+                // and here rather than in `apply`, which must not touch the
+                // disk.
                 if verdict == .gone, case .moved(let found, let fresh) = Self.whereIs(url, bookmark: bookmarks[url]) {
-                    pass.moved[url] = (found, fresh)
-                    verdict = .present
+                    let place = found.resolvingSymlinksInPath()
+                    let taken = urls.contains { $0 != url && $0.resolvingSymlinksInPath() == place }
+                    if !taken {
+                        pass.moved[url] = (found, fresh)
+                        verdict = .present
+                    }
                 }
                 pass.verdicts[url] = verdict
                 // Cards from before dates were kept learn theirs from the
@@ -564,16 +575,22 @@ final class ShelfStore: ObservableObject {
         var changed = false
         var redrawn = false
         var gone = Set(cards.filter { pass.verdicts[$0.url] == .gone }.map(\.id))
+        // The gone leave before the moved are placed. Replace b.txt with a
+        // renamed a.txt in Finder and the card for the old b.txt is gone
+        // while a.txt's has moved to b.txt's path: placed first, it met the
+        // card about to leave, read as a second card for one file, and both
+        // went — with the file sitting there.
+        cards.removeAll { gone.contains($0.id) }
         for (old, place) in pass.moved {
             guard let index = cards.firstIndex(where: { $0.url == old }) else { continue }
             if relocate(index, in: &cards, to: place.url, bookmark: place.bookmark) {
                 changed = true
             } else {
                 gone.insert(cards[index].id)
+                cards.remove(at: index)
             }
         }
         if !gone.isEmpty {
-            cards.removeAll { gone.contains($0.id) }
             selection.subtract(gone)
             changed = true
         }

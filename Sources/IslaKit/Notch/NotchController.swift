@@ -1361,6 +1361,10 @@ final class NotchController {
     }
     var removeOutsideClickMonitor: (Any) -> Void = { NSEvent.removeMonitor($0) }
 
+    /// The app the last activation went to, so one that leaves Isla itself
+    /// can be told from a switch between two other apps.
+    private var lastActivatedPID: pid_t?
+
     /// A mouse-down in another application (this app never sees clicks on its
     /// own panel here). Drops the Shelf selection, which releases the Delete
     /// key, and ends a pin.
@@ -1390,13 +1394,18 @@ final class NotchController {
     /// with a tile selected it holds ⌫ and ⌘⌫ system-wide
     /// (`ShelfDeleteKeyHolder`): ⌘-Tab to Mail, press Delete in a message,
     /// and Isla took the key and removed the card while Mail got nothing.
-    /// Isla's own activation — Quick Look, AirDrop — is not another app.
+    /// Isla's own activation — Quick Look, AirDrop — is not another app, and
+    /// neither is the activation that follows it: Isla handing the keyboard
+    /// back when that window closes (`ActivationLease.end`). The tiles looked
+    /// at in Quick Look stay selected for the next thing done with them.
     ///
     /// Internal so a test can stand in for the switch.
     func applicationActivated(_ pid: pid_t?) {
         guard let vm = viewModel, let pid else { return }
         let ownPID = ProcessInfo.processInfo.processIdentifier
-        if pid != ownPID { vm.shelf.clearSelection() }
+        let leavingIsla = lastActivatedPID == ownPID
+        lastActivatedPID = pid
+        if pid != ownPID, !leavingIsla { vm.shelf.clearSelection() }
         guard vm.appActivated(ownPID: ownPID, activatedPID: pid) else { return }
         vm.isPinnedOpen = false
         setOpen(false)

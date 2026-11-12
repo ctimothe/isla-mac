@@ -450,10 +450,15 @@ final class ShelfPaneTests: XCTestCase {
         XCTAssertFalse(vm.isPinnedOpen, "the fixture: opened by a click, not pinned")
         XCTAssertTrue(controller.holdsDeleteKey)
 
-        controller.applicationActivated(ProcessInfo.processInfo.processIdentifier)
+        let own = ProcessInfo.processInfo.processIdentifier
+        controller.applicationActivated(own)
         XCTAssertTrue(controller.holdsDeleteKey, "Isla's own activation is not another app")
+        // Quick Look closes and Isla hands the keyboard back to the app that
+        // had it: the tiles just looked at stay selected.
+        controller.applicationActivated(own + 1)
+        XCTAssertFalse(vm.shelf.selection.isEmpty, "the hand-back from Isla's own window is not a switch")
 
-        controller.applicationActivated(ProcessInfo.processInfo.processIdentifier + 1)
+        controller.applicationActivated(own + 2)
         XCTAssertFalse(controller.holdsDeleteKey, "the key goes back with the switch")
         XCTAssertTrue(fake.live.isEmpty)
         XCTAssertTrue(vm.shelf.selection.isEmpty)

@@ -37,6 +37,15 @@ final class ClipboardStoreTests: XCTestCase {
         }
         let short = "short and Кириллица"
         XCTAssertEqual(ClipboardStore.capped(short), short)
+
+        // One character longer than the whole cap: a letter under combining
+        // marks without end. No boundary to walk back to, and the text is
+        // still kept, cut between two marks.
+        let endless = "a" + String(repeating: "\u{301}", count: limit)
+        let kept = ClipboardStore.capped(endless)
+        XCTAssertGreaterThan(kept.utf8.count, limit - 4)
+        XCTAssertLessThanOrEqual(kept.utf8.count, limit)
+        XCTAssertFalse(kept.unicodeScalars.contains("\u{FFFD}"))
     }
 
     func testConcealedPasteboardTypeIsIgnored() {

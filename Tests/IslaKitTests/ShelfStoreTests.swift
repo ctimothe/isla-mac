@@ -449,6 +449,33 @@ final class ShelfStoreTests: XCTestCase {
         XCTAssertTrue(store.items.isEmpty)
     }
 
+    /// Finder's Replace: b.txt is deleted and a.txt takes its name. Both
+    /// cards now mean the one file at b.txt's path, and one card is enough
+    /// for one file — one, not none, and not two under two spellings of the
+    /// same path (`/var/…` and `/private/var/…`).
+    func testARenameOntoAKeptFilesPathLeavesOneCardForIt() async throws {
+        let suite = "ShelfStoreTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("a.txt")
+        let b = dir.appendingPathComponent("b.txt")
+        try "kept".write(to: a, atomically: true, encoding: .utf8)
+        try "replaced".write(to: b, atomically: true, encoding: .utf8)
+        let store = ShelfStore(defaults: defaults)
+        store.add([a, b])
+        XCTAssertEqual(store.items.count, 2)
+
+        try FileManager.default.removeItem(at: b)
+        try FileManager.default.moveItem(at: a, to: b)
+        await store.refreshFromDisk().value
+
+        XCTAssertEqual(store.items.count, 1, "one card for the one file left")
+        XCTAssertEqual(store.items.first?.url.resolvingSymlinksInPath(), b.resolvingSymlinksInPath())
+    }
+
     /// A card whose file exists but can no longer be read — its containing
     /// directory's traversal permission revoked, the way a "Don't Allow" on a
     /// protected folder leaves things — must not be evicted alongside a card

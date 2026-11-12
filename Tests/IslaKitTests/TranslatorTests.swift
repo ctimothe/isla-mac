@@ -266,6 +266,8 @@ final class TranslatorTests: XCTestCase {
         XCTAssertEqual(translator.input, original, "the whole original is still in the field")
         XCTAssertEqual(translator.source, .uzbek, "the languages swap all the same")
         XCTAssertEqual(translator.target, .english)
+        XCTAssertEqual(translator.output, "", "and the old direction's answer does not sit under the new headings")
+        XCTAssertNil(translator.outputNote)
     }
 
     // MARK: - Asking once (G-026, K-004)

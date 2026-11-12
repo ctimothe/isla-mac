@@ -1543,6 +1543,9 @@ final class MediaController: ObservableObject {
         // again; and as old as the panel's last closing when a Shortcut
         // pauses, where the song then sat paused minutes behind itself.
         let standsAt = extrapolatedPosition()
+        // The clock as it was before a run of taps nobody has confirmed yet,
+        // in case nobody ever does (`settleUnconfirmedPlayback`).
+        if !playbackIntent.hasInFlightCommand { clockBeforeUnconfirmedTaps = (standsAt, monotonicNow()) }
         let target = playbackIntent.toggle(at: Date())
         // The latest tap owns the icon immediately. Reports from before the
         // command completed are reconciled without repainting it backwards.
@@ -1751,6 +1754,9 @@ final class MediaController: ObservableObject {
 
     /// The check a play or pause command is owed if no report settles it.
     private var playbackChase: DispatchWorkItem?
+    /// Where the song stood, and when, at the first tap of a run no report
+    /// has confirmed. If the run is given up, the clock goes back to this.
+    private var clockBeforeUnconfirmedTaps: (position: TimeInterval, atMono: TimeInterval)?
     /// How long the player has to answer once it is asked outright, before
     /// the command is settled without it.
     static var playbackChaseGrace: TimeInterval = 1.0
@@ -1779,6 +1785,16 @@ final class MediaController: ObservableObject {
     private func settleUnconfirmedPlayback(last: Bool) {
         playbackChase = nil
         guard playbackIntent.hasInFlightCommand, track != nil else { return }
+        // A hold that began after the command went out, in a player nobody
+        // can script: the helper's echo now describes the film, and there is
+        // nobody to ask. `dispatchPlayback` settles these at the send; one
+        // sent a moment before the film took over is settled here the same
+        // way, rather than against a report from before the tap, which put
+        // the icon back to paused over a Tidal that had started playing.
+        if isHolding, heldScriptablePlayer == nil {
+            if let queued = playbackIntent.settleUnconfirmed(at: Date(), took: true) { dispatchPlayback(queued) }
+            return
+        }
         guard last else {
             trace("tap unconfirmed; asking the player")
             // Armed before the question: an answer that resends a queued tap
@@ -1794,16 +1810,29 @@ final class MediaController: ObservableObject {
             return
         }
         trace("tap unconfirmed; nobody answered")
-        let wasPlaying = isPlaying
-        let queued = playbackIntent.settleUnconfirmed(at: Date(), took: false)
-        if isPlaying != playbackIntent.desired {
-            // Back to playing: the clock picks up from where it was stopped,
-            // as on any resume, and the next reading puts it right.
-            if !wasPlaying, anchor != nil { anchor = (position, monotonicNow()) }
-            isPlaying = playbackIntent.desired
-            updateTicker()
+        if let queued = playbackIntent.settleUnconfirmed(at: Date(), took: false) {
+            // A tap that had been waiting behind the command gets its one
+            // resend, and that command its own chase.
+            return dispatchPlayback(queued)
         }
-        if let queued { dispatchPlayback(queued) }
+        guard !playbackIntent.hasInFlightCommand else { return }
+        // Given up: the island shows the last thing the player said, and the
+        // clock goes with it, as if the taps had not been made. A play
+        // nobody confirmed had run the bar on for these two and a half
+        // seconds over a song that never left its place; a pause nobody
+        // confirmed had stopped it under music that played on.
+        let playing = playbackIntent.desired
+        if isPlaying != playing { isPlaying = playing }
+        if let before = clockBeforeUnconfirmedTaps {
+            if playing {
+                anchor = (before.position, before.atMono)
+                position = extrapolatedPosition()
+            } else {
+                setAnchor(before.position)
+            }
+        }
+        clockBeforeUnconfirmedTaps = nil
+        updateTicker()
     }
 
     // MARK: - Feed

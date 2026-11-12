@@ -528,10 +528,13 @@ final class HeldSongTruthTests: XCTestCase {
         body()
     }
 
-    private func spin(_ seconds: TimeInterval) {
-        let done = expectation(description: "waited")
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { done.fulfill() }
-        wait(for: [done], timeout: seconds + 2)
+    /// Turns the main run loop until `condition` holds, for a few seconds at
+    /// most: on a busy runner a fixed wait is either too short or too long.
+    private func turnUntil(_ condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(5)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 
     /// A song held under a film is reported only when its player announces a
@@ -556,7 +559,7 @@ final class HeldSongTruthTests: XCTestCase {
         withShortChase {
             controller.togglePlayPause()
             XCTAssertFalse(controller.isPlaying, "the tap owns the icon at once")
-            spin(0.3)
+            turnUntil { controller.isPlaying }
         }
 
         XCTAssertGreaterThan(asked(), askedBefore, "with no report, the player is asked what it did")
@@ -578,12 +581,69 @@ final class HeldSongTruthTests: XCTestCase {
         withShortChase {
             controller.togglePlayPause()
             XCTAssertFalse(controller.isPlaying)
-            spin(0.4)
+            turnUntil { controller.isPlaying }
         }
 
         XCTAssertTrue(controller.isPlaying, "an unanswered pause does not leave the icon paused for good")
         controller.togglePlayPause()
         XCTAssertEqual(sent.count, 2, "the next tap is sent")
+    }
+
+    /// The other direction, and the clock with it: a play nobody confirmed
+    /// ran the bar on for two and a half seconds over a song that never left
+    /// its place, and giving the icon back left the bar that far ahead.
+    func testAnUnansweredPlayGivesTheClockBackToo() {
+        final class Clock { var now: TimeInterval = 1_000 }
+        let clock = Clock()
+        let (controller, _) = controller(held: .unknown)
+        controller.monotonicNow = { clock.now }
+        controller.sendToPlayer = { _, _ in }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false, elapsed: 61))
+        controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+        XCTAssertTrue(controller.isHolding)
+        XCTAssertEqual(controller.position, 61, accuracy: 0.05)
+
+        withShortChase {
+            controller.togglePlayPause()
+            XCTAssertTrue(controller.isPlaying)
+            clock.now += 2.5
+            controller.tick()
+            XCTAssertEqual(controller.position, 63.5, accuracy: 0.05, "the fixture: the bar ran on")
+            turnUntil { !controller.isPlaying }
+        }
+
+        XCTAssertFalse(controller.isPlaying)
+        XCTAssertEqual(controller.position, 61, accuracy: 0.05, "back where the song has stood all along")
+    }
+
+    /// A film taking over a moment after the tap, over a player nobody can
+    /// script: the command went out by the helper before the hold, and after
+    /// it nothing can say what the player did. It counts as taken, as one
+    /// sent during the hold does, rather than being judged against a report
+    /// from before the tap.
+    func testATapJustBeforeAHoldNobodyCanReportCountsAsTaken() {
+        let controller = MediaController()
+        controller.isolateFromPlayers()
+        controller.musicOnly = { true }
+        controller.bundleIdentifierForPID = { $0 == 1 ? "com.tidal.desktop" : "org.mozilla.firefox" }
+        controller.isProcessRunning = { _ in true }
+        var sent: [String] = []
+        controller.sendToFeed = { command, pid in sent.append("\(command) \(pid ?? 0)") }
+        controller.receive(snapshot(pid: 1, title: "Song", playing: false))
+
+        withShortChase {
+            controller.togglePlayPause()
+            XCTAssertTrue(controller.isPlaying)
+            controller.receive(snapshot(pid: 2, title: "Film", playing: true))
+            XCTAssertTrue(controller.isHolding)
+            // Long enough for both stages, had the first not settled it.
+            let waited = Date().addingTimeInterval(0.4)
+            turnUntil { Date() >= waited }
+        }
+
+        XCTAssertTrue(controller.isPlaying, "the play stands: nobody said otherwise")
+        controller.togglePlayPause()
+        XCTAssertEqual(sent, ["play 1", "pause 1"], "and the next tap goes out")
     }
 
     /// A held song in a player nobody can script — Tidal — takes its command
