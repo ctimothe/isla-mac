@@ -12,6 +12,15 @@ import XCTest
 /// says the value as a direction rather than as a sign.
 @MainActor
 final class LyricDelayCopyTests: XCTestCase {
+    /// The row names a direction exactly when there is a Reset to undo it.
+    func testAResetIsOfferedWheneverTheRowNamesADelay() {
+        for offset in [0, 0.004, -0.004, 0.005, 0.007, -0.007, 0.01, 0.25, -3] as [TimeInterval] {
+            XCTAssertEqual(
+                LyricDelayCopy.isSet(offset), LyricDelayCopy.value(offset) != localized("On time"), "\(offset)")
+        }
+        XCTAssertTrue(LyricDelayCopy.isSet(0.007), "0.01 s later on the row, and now a button for it")
+    }
+
 
     // MARK: Copy and steps
 

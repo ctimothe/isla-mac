@@ -422,7 +422,7 @@ struct SettingsPane: View {
         // render: resolving ~25 known players on the main actor for About or
         // Privacy was work for a group that is not on screen.
         if selection.wrappedValue == .music { c.installedPlayers = icons.installedPlayers() }
-        c.delayIsSet = abs(lyrics.userOffset) > 0.01
+        c.delayIsSet = LyricDelayCopy.isSet(lyrics.userOffset)
         c.onlineLyrics = flag(.lookUpLyricsOnline)
         c.onlineTranslation = flag(.translateOnline)
         c.lyricsNotice = lyricsNotice
@@ -1883,11 +1883,17 @@ struct SettingsSliderRow: View {
 /// exists for followed it and doubled the error. A direction cannot be
 /// misread the same way. Positive is later (`LyricSweep.lead`).
 enum LyricDelayCopy {
+    /// Whether there is a delay to speak of, and so one to reset. The one
+    /// threshold for both: Reset Lyric Delay used to need more than 0.01 s
+    /// while the row named a direction from 0.005 s, so a slider left at
+    /// 0.007 read "0.01 s later" with no button to undo it.
+    static func isSet(_ offset: TimeInterval) -> Bool { abs(offset) >= 0.005 }
+
     static func value(_ offset: TimeInterval) -> String {
         // Below half a hundredth the figure prints as 0.00, and "0.00 s
         // later" names a direction nothing is moved in. A slider drag
         // leaves residues that small.
-        if abs(offset) < 0.005 { return localized("On time") }
+        if !isSet(offset) { return localized("On time") }
         return offset > 0
             ? localized("%.2f s later", offset)
             : localized("%.2f s earlier", -offset)

@@ -220,7 +220,7 @@
 "Quit Isla, then replace it in Applications with the new version." = "Quit Isla, then replace it in Applications with the new version.";
 "Could not reach GitHub. Try again later." = "Could not reach GitHub. Try again later.";
 "Check for Updates Automatically" = "Check for Updates Automatically";
-"Asks GitHub once a day for the latest version. It sends nothing about you." = "Asks GitHub once a day for the latest version. It sends nothing about you.";
+"Asks GitHub once an hour for the latest version. It sends nothing about you." = "Asks GitHub once an hour for the latest version. It sends nothing about you.";
 "Update available" = "Update available";
 "Rehearsal: update from a local folder" = "Rehearsal: update from a local folder";
 "Updates come from a folder on this Mac." = "Updates come from a folder on this Mac.";

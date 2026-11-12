@@ -947,7 +947,7 @@ final class NotchController {
         let pin = !(fromOpenPanel || viewModel?.isOpen == true)
         switch kind {
         case .clipboard: openCommanded(.clipboard, pin: pin)
-        case .translateClipboard: translateCommanded(PasteboardRead.general.string(forType: .string))
+        case .translateClipboard: translateClipboardCommanded()
         case .shelf: openCommanded(.tray, pin: pin)
         case .lyrics: showLyrics(pin: pin)
         case .settings: openCommanded(.settings, pin: pin)
@@ -993,6 +993,24 @@ final class NotchController {
     /// return without a trace on no text, which looked exactly like a shortcut
     /// that was not registered (F-040).
     func translateCommanded(_ text: String?) {
+        translateCommanded { _ in Translator.prepareCommandInput(text) }
+    }
+
+    /// ⌃⌥⌘T and the menu's Translate Clipboard: the clipboard's text, read
+    /// only once the open is admitted, and read the way the Paste button
+    /// reads it (`Translator.textFromPasteboard`).
+    ///
+    /// Both used to read the pasteboard themselves and hand the string over.
+    /// The read then came before the lock's refusal, so the hot key pressed
+    /// over the shield, or with the display dark, still read the clipboard —
+    /// and under Ask could raise macOS's paste alert there. And a read macOS
+    /// refused arrived as `nil`, which the pane reported as "The clipboard
+    /// has no text." to somebody whose clipboard was full of it.
+    func translateClipboardCommanded() {
+        translateCommanded { vm in vm.translator.textFromPasteboard() }
+    }
+
+    private func translateCommanded(_ input: (NotchViewModel) -> Translator.CommandInput) {
         guard let vm = viewModel else { return }
         // Refused over the shield, before the translator, the surface or
         // `setOpen` is touched: this route would open the panel over the
@@ -1011,7 +1029,7 @@ final class NotchController {
         // change: set directly, the surface changed without ever raising
         // `wantsKeyboard`, and the panel showed a text field whose keystrokes
         // went to the app underneath.
-        vm.receiveCommandedTranslation(Translator.prepareCommandInput(text))
+        vm.receiveCommandedTranslation(input(vm))
         setOpen(true)
         // The pointer is wherever the user left it, which is not on the notch,
         // so both halves of the close rule are held off for the same span: the

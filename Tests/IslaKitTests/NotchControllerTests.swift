@@ -86,6 +86,41 @@ final class NotchControllerRectTests: XCTestCase {
         XCTAssertEqual(vm.lockedHoverNudges, 1, "the refusal is the island's shake")
     }
 
+    /// ⌃⌥⌘T used to read the clipboard itself and hand the string over: read
+    /// before the lock's refusal, and a read macOS refused arrived as "no
+    /// text". The read now comes after the open is admitted, the Paste
+    /// button's way.
+    func testTheTranslateKeyReadsTheClipboardOnlyOnceAdmittedAndSaysWhenRefused() throws {
+        let (controller, vm, _) = try rig()
+        let board = NSPasteboard(name: NSPasteboard.Name("NotchControllerTests.\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        vm.translator.pasteboard = board
+        vm.translator.pasteboardAccessOverride = { .allowed }
+        board.clearContents()
+        board.setString("Good morning", forType: .string)
+
+        controller.translateClipboardCommanded()
+        XCTAssertEqual(vm.presented, .translate)
+        XCTAssertEqual(vm.translator.input, "Good morning")
+
+        // Refused by macOS: said as a refusal, and the field keeps its text.
+        vm.translator.pasteboardAccessOverride = { .denied }
+        board.clearContents()
+        controller.translateClipboardCommanded()
+        XCTAssertEqual(vm.translator.notice, Translator.pasteRefusedSentence)
+        XCTAssertEqual(vm.translator.input, "Good morning")
+
+        // Over the lock nothing is read at all.
+        vm.translator.pasteboardAccessOverride = { .allowed }
+        board.setString("a secret", forType: .string)
+        vm.isLockedPresentation = true
+        var reads = 0
+        vm.translator.pasteboardAccessOverride = { reads += 1; return .allowed }
+        controller.translateClipboardCommanded()
+        XCTAssertEqual(reads, 0, "refused before the clipboard is touched")
+        XCTAssertEqual(vm.translator.input, "Good morning")
+    }
+
     /// Lets the deferred half of a close land.
     private func drainMain() {
         let drained = expectation(description: "main queue drained")

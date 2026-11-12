@@ -89,9 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // on the clipboard the shortcut used to do nothing at all, which
             // looked like a shortcut that was never registered (F-040). The
             // pane says so now.
-            .translateClipboard: { [weak self] in
-                self?.controller?.translateCommanded(PasteboardRead.general.string(forType: .string))
-            },
+            .translateClipboard: { [weak self] in self?.controller?.translateClipboardCommanded() },
             .showLyrics: { [weak self] in self?.controller?.toggleLyrics() },
         ])
         NSApp.servicesProvider = self

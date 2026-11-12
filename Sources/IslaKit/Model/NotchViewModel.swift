@@ -324,7 +324,13 @@ final class NotchViewModel: ObservableObject {
     /// away by a tab change, the panel closing, text arriving by the hot key or
     /// the Service, and Keep History being turned off — each of which is a
     /// moment the person is not looking at a list they opened earlier.
-    @Published var translateShowsHistory = false
+    ///
+    /// The list coming up ends reading aloud: it is drawn in place of the
+    /// cards, Stop among them, and the voice used to read on to the end of
+    /// the answer with nothing on screen to stop it.
+    @Published var translateShowsHistory = false {
+        didSet { if translateShowsHistory, !oldValue { translator.speaker.stop() } }
+    }
 
     /// Keep History turned on or off in Settings (spec §11, §14). Off empties the
     /// list, now: a person who switches remembering off expects the record to go
@@ -505,6 +511,14 @@ final class NotchViewModel: ObservableObject {
         didSet {
             guard settingsSection != oldValue else { return }
             settingsSection.store(in: defaults)
+            // Settings holds the keyboard only while a shortcut records, and
+            // a recording does not outlive its section. The row gives the
+            // keyboard back when its recording ends with the row still on
+            // screen, and leaves it to the surface change when the row is
+            // going — but a section change is not a surface change, so
+            // nothing took it: the panel stayed key on General, swallowing
+            // every key meant for the app in front until it was closed.
+            if surface == .settings, wantsKeyboard { wantsKeyboard = false }
         }
     }
 
@@ -960,6 +974,10 @@ final class NotchViewModel: ObservableObject {
             // through the editor, so this text does not count as typed and
             // stays covered.
             privacy.conceal(TranslatePane.revealID)
+            // And quiet with it. Setting the text below stops the voice only
+            // when the text differs; the same text brought again left the
+            // answer being read aloud from under the cover just drawn.
+            translator.speaker.stop()
             // A standing Use Online press is for what is typed, never for
             // what the clipboard brings: a copied password or token would
             // otherwise go to MyMemory on a press made for other words, with
