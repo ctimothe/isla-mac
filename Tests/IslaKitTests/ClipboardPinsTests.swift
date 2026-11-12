@@ -124,6 +124,22 @@ final class ClipboardPinsTests: XCTestCase {
         XCTAssertEqual(cleared, 1, "a second yes is nothing")
     }
 
+    /// The count was taken at the ask, while Clear History removes whatever
+    /// is unpinned when it is pressed: three copies arriving under "Clear 5
+    /// entries?" and the button removed eight.
+    func testTheClearQuestionFollowsTheHistoryUnderIt() {
+        let ask = ClipboardClearConfirmation()
+        ask.update(count: 4)
+        XCTAssertFalse(ask.isAsking, "nothing was asked, so there is nothing to follow")
+        ask.ask(count: 5)
+        ask.update(count: 8)
+        XCTAssertTrue(ask.isAsking)
+        XCTAssertEqual(ask.count, 8, "three more arrived: the question names all eight")
+        ask.update(count: 0)
+        XCTAssertFalse(ask.isAsking, "everything left was pinned or removed: nothing to ask")
+        XCTAssertFalse(ArmedConfirmations.shared.disarmAll(), "and Escape is given back")
+    }
+
     // MARK: Keep Pinned Items
 
     func testNothingIsWrittenWhileTheSwitchIsOff() {

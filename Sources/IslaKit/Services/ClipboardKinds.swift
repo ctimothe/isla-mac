@@ -353,7 +353,12 @@ enum ClipboardSearch {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return true }
         if hidden { return item.kind.filter.title.range(of: needle, options: options) != nil }
-        return item.searchText.range(of: needle, options: options) != nil
+        if item.searchText.range(of: needle, options: options) != nil { return true }
+        // And the line the row draws. For text it is the string with its
+        // line breaks turned to spaces, so "hello world" is on screen for a
+        // copy of "hello\nworld" — and the whole string, which has no such
+        // space, did not match it: a phrase read off the row found nothing.
+        return item.preview.range(of: needle, options: options) != nil
     }
 }
 

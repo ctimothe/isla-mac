@@ -94,6 +94,23 @@ final class ClipboardBrowseTests: XCTestCase {
 
     /// Nothing typed is not a search: the filter's own list, whole. A stale
     /// query is the model's to clear (`clearQuery`), not the listing's to ignore.
+    /// The row draws a copy of "hello\nworld" as "hello world", and the search
+    /// compared the string with its line break in: the phrase read off the
+    /// row found nothing.
+    func testASearchFindsWhatTheRowShowsAcrossALineBreak() {
+        let item = text("hello\nworld, again")
+        XCTAssertEqual(item.preview, "hello world, again", "the fixture: the row's own line")
+        XCTAssertTrue(ClipboardSearch.matches(item, query: "hello world"))
+        XCTAssertTrue(ClipboardSearch.matches(item, query: "world, again"))
+        XCTAssertFalse(ClipboardSearch.matches(item, query: "hello again"))
+        XCTAssertFalse(
+            ClipboardSearch.matches(item, query: "hello world", hidden: true),
+            "a covered row's line is not compared either")
+        // Past the 512 characters a row shows, the whole string still matches.
+        let long = text(String(repeating: "a", count: 600) + " needle")
+        XCTAssertTrue(ClipboardSearch.matches(long, query: "needle"))
+    }
+
     func testNothingTypedShowsTheFiltersWholeList() throws {
         let items = try sample()
         let empty = ClipboardBrowser.listing(of: items, filter: .links, query: "")
