@@ -104,6 +104,11 @@ final class MediaController: ObservableObject {
     /// names it. `NowPlayingPresenter` starts its hold on this, so the song on
     /// screen stays drawn, still, rather than wearing the next one's 0:00.
     let trackChangeExpected = PassthroughSubject<Void, Never>()
+    /// A play or pause tap, carrying the state it asked for. The presenter
+    /// keeps the play button's state still while a skipped song is leaving
+    /// (`NowPlayingPresenter.HeldClock`), and without this a tap made in that
+    /// window changed nothing on screen until the next song was swapped in.
+    let playbackTapped = PassthroughSubject<Bool, Never>()
     /// Where the position lives: on `clock`, which only the views that read
     /// it observe, so a tick does not announce a change of the whole
     /// controller (`PlaybackClock`). An unchanged value is not set again, so a
@@ -629,6 +634,8 @@ final class MediaController: ObservableObject {
     private var spotifyStateObserver: (any NSObjectProtocol)?
     /// Music's own change announcement, for a Music song held under a film.
     private var musicStateObserver: (any NSObjectProtocol)?
+    /// Hears every app quit, for `playerQuit`.
+    private var quitObserver: (any NSObjectProtocol)?
 
     private var ticker: Timer?
     private var observers: [Any] = []
@@ -770,6 +777,36 @@ final class MediaController: ObservableObject {
                 self?.playerAnnouncedChange(.music)
             }
         }
+        quitObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let pid = app.processIdentifier
+            MainActor.assumeIsolated { self?.playerQuit(pid) }
+        }
+    }
+
+    /// The app behind `pid` has quit, and a song it was showing goes with it.
+    ///
+    /// Nothing said so before. Quit Spotify mid-song and the session goes
+    /// empty a moment before the process is gone; with the process still
+    /// there, that empty report is exactly what a song held between two
+    /// sessions looks like, so the song was kept — and a player on its way
+    /// out does not answer the question that would have let it go. The
+    /// island went on showing the song as playing, its clock running, until
+    /// the helper repeated the empty record on its five-second heartbeat.
+    ///
+    /// Internal so a test can stand in for the quit.
+    func playerQuit(_ pid: pid_t) {
+        guard track != nil, displayedPlayerPID == pid else { return }
+        trace("player \(pid) quit; its song goes with it")
+        isHolding = false
+        clear()
+        // Whatever is left to show: another session on the helper's route,
+        // the other player on the fallback's.
+        if feedAvailable { askForFreshReport() } else { refreshFromPlayers() }
     }
 
     private func applySpotifyBroadcast(_ note: Notification) {
@@ -867,6 +904,10 @@ final class MediaController: ObservableObject {
             DistributedNotificationCenter.default().removeObserver(musicStateObserver)
         }
         musicStateObserver = nil
+        if let quitObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(quitObserver)
+        }
+        quitObserver = nil
         isHolding = false
         announcements = [:]
         lastFullRecordAt = nil
@@ -876,6 +917,8 @@ final class MediaController: ObservableObject {
         ticker?.invalidate()
         ticker = nil
         cancelLyricWake()
+        playbackChase?.cancel()
+        playbackChase = nil
     }
 
     /// Panel visibility. The position ticker hangs off this: it exists to move
@@ -1493,12 +1536,23 @@ final class MediaController: ObservableObject {
     @discardableResult
     func togglePlayPause() -> Bool {
         guard transportReachesShownPlayer else { return false }
+        // Where the song stands at the tap, read while the clock still runs.
+        // `position` is the last tick: a quarter-second old with the panel
+        // open, so every pause stepped the bar and the sung word back by up
+        // to that much before the player's own report threw them forward
+        // again; and as old as the panel's last closing when a Shortcut
+        // pauses, where the song then sat paused minutes behind itself.
+        let standsAt = extrapolatedPosition()
+        // The clock as it was before a run of taps nobody has confirmed yet,
+        // in case nobody ever does (`settleUnconfirmedPlayback`).
+        if !playbackIntent.hasInFlightCommand { clockBeforeUnconfirmedTaps = (standsAt, monotonicNow()) }
         let target = playbackIntent.toggle(at: Date())
         // The latest tap owns the icon immediately. Reports from before the
         // command completed are reconciled without repainting it backwards.
         isPlaying = playbackIntent.desired
-        setAnchor(position)
+        setAnchor(standsAt)
         updateTicker()
+        playbackTapped.send(isPlaying)
         if let target { dispatchPlayback(target) }
         return true
     }
@@ -1520,8 +1574,10 @@ final class MediaController: ObservableObject {
         // A few seconds in, most players answer "previous" by restarting the
         // song, and the start of the same song is then the right thing to show
         // at once. Isla's own Spotify route seeks to 0 before stepping back, so
-        // there it always changes the song.
-        if position > 3, heldScriptablePlayer != .spotify {
+        // there it always changes the song. Read off the running clock:
+        // `position` is the last tick, and with the panel shut that can be
+        // the song's first second while the music is minutes in.
+        if extrapolatedPosition() > 3, heldScriptablePlayer != .spotify {
             restartExpectedUntil = Date().addingTimeInterval(1.5)
         } else {
             beginAwaitingTrackChange("cmd previous")
@@ -1682,6 +1738,101 @@ final class MediaController: ObservableObject {
         // The per-client command set has no toggle of its own (#23), so the
         // desired state travels explicitly.
         dispatch(feed: playing ? .play : .pause, transport: playing ? .play : .pause)
+        // A song held under a film in a player that cannot be scripted —
+        // Tidal, Deezer — went through the helper to its pid, and nothing
+        // will ever say what it did: MediaRemote describes the film, and the
+        // player has no announcement Isla hears. Waiting for a confirmation
+        // there meant the second tap, and every one after it, was never sent.
+        if isHolding, heldScriptablePlayer == nil {
+            _ = playbackIntent.settleUnconfirmed(at: Date(), took: true)
+            return
+        }
+        chasePlaybackConfirmation(after: PlaybackIntent.confirmationTimeout + 0.05, last: false)
+    }
+
+    // MARK: - A tap nobody confirmed
+
+    /// The check a play or pause command is owed if no report settles it.
+    private var playbackChase: DispatchWorkItem?
+    /// Where the song stood, and when, at the first tap of a run no report
+    /// has confirmed. If the run is given up, the clock goes back to this.
+    private var clockBeforeUnconfirmedTaps: (position: TimeInterval, atMono: TimeInterval)?
+    /// How long the player has to answer once it is asked outright, before
+    /// the command is settled without it.
+    static var playbackChaseGrace: TimeInterval = 1.0
+
+    private func chasePlaybackConfirmation(after delay: TimeInterval, last: Bool) {
+        playbackChase?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.settleUnconfirmedPlayback(last: last) }
+        }
+        playbackChase = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// A play or pause command went out and no report has confirmed or
+    /// contradicted it (`PlaybackIntent.settleUnconfirmed` says how that
+    /// happens). First the player is asked outright, by whichever route
+    /// shows the song, and its answer settles the command through `apply`
+    /// like any report. Only if that brings nothing either — consent
+    /// refused, a player not answering — is it settled against the last
+    /// thing the player said.
+    ///
+    /// On the helper's own route the question is worth asking too: the
+    /// helper repeats an unchanged record only every five seconds, so a
+    /// pause the player ignored kept the paused icon up, and later taps
+    /// waiting, for that long.
+    private func settleUnconfirmedPlayback(last: Bool) {
+        playbackChase = nil
+        guard playbackIntent.hasInFlightCommand, track != nil else { return }
+        // A hold that began after the command went out, in a player nobody
+        // can script: the helper's echo now describes the film, and there is
+        // nobody to ask. `dispatchPlayback` settles these at the send; one
+        // sent a moment before the film took over is settled here the same
+        // way, rather than against a report from before the tap, which put
+        // the icon back to paused over a Tidal that had started playing.
+        if isHolding, heldScriptablePlayer == nil {
+            if let queued = playbackIntent.settleUnconfirmed(at: Date(), took: true) { dispatchPlayback(queued) }
+            return
+        }
+        guard last else {
+            trace("tap unconfirmed; asking the player")
+            // Armed before the question: an answer that resends a queued tap
+            // arms that command's own chase, which must not be overwritten.
+            chasePlaybackConfirmation(after: Self.playbackChaseGrace, last: true)
+            if isHolding {
+                syncHeldPlayer()
+            } else if feedAvailable {
+                askForFreshReport()
+            } else {
+                refreshFromPlayers()
+            }
+            return
+        }
+        trace("tap unconfirmed; nobody answered")
+        if let queued = playbackIntent.settleUnconfirmed(at: Date(), took: false) {
+            // A tap that had been waiting behind the command gets its one
+            // resend, and that command its own chase.
+            return dispatchPlayback(queued)
+        }
+        guard !playbackIntent.hasInFlightCommand else { return }
+        // Given up: the island shows the last thing the player said, and the
+        // clock goes with it, as if the taps had not been made. A play
+        // nobody confirmed had run the bar on for these two and a half
+        // seconds over a song that never left its place; a pause nobody
+        // confirmed had stopped it under music that played on.
+        let playing = playbackIntent.desired
+        if isPlaying != playing { isPlaying = playing }
+        if let before = clockBeforeUnconfirmedTaps {
+            if playing {
+                anchor = (before.position, before.atMono)
+                position = extrapolatedPosition()
+            } else {
+                setAnchor(before.position)
+            }
+        }
+        clockBeforeUnconfirmedTaps = nil
+        updateTicker()
     }
 
     // MARK: - Feed
@@ -2476,6 +2627,8 @@ final class MediaController: ObservableObject {
         sourceIconPID = nil
         displayedPlayerPID = nil
         playbackIntent = PlaybackIntent(reported: false)
+        playbackChase?.cancel()
+        playbackChase = nil
         reportedPlayback = ReportedPlayback()
         lastReadingAt = nil
         foreignSince = nil

@@ -119,6 +119,27 @@ final class TranslateSpeechTests: XCTestCase {
         XCTAssertFalse(rig.translator.speaker.isSpeaking, "the surface changing")
     }
 
+    /// History is drawn in place of the cards, Stop among them: the voice read
+    /// on with nothing on screen to stop it. And the hot key bringing the same
+    /// text again covers the pane without changing the text, so nothing else
+    /// stopped a voice reading from under the cover.
+    func testTheHistoryListAndACoveredPaneStopIt() throws {
+        let rig = TranslateRig()
+        defer { rig.release() }
+        let vm = try model(rig)
+        vm.open(.translate)
+        rig.answer()
+        vm.isOpen = true
+        rig.translator.speaker.speak("Привет", languageCode: "ru")
+        vm.translateShowsHistory = true
+        XCTAssertFalse(rig.translator.speaker.isSpeaking, "the list replacing the cards")
+
+        vm.translateShowsHistory = false
+        rig.translator.speaker.speak("Привет", languageCode: "ru")
+        vm.receiveCommandedTranslation(Translator.prepareCommandInput(rig.translator.input))
+        XCTAssertFalse(rig.translator.speaker.isSpeaking, "the same text brought again, covered")
+    }
+
     func testTurningSpeakButtonOffStopsIt() throws {
         let rig = TranslateRig()
         defer { rig.release() }

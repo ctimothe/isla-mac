@@ -248,6 +248,28 @@ final class TranslatorTests: XCTestCase {
         XCTAssertEqual(translator.output, "")
     }
 
+    /// A partial answer — the first part of a long text, or what came back
+    /// before a failure — carries a note saying so. Swap moved it into the
+    /// field like a whole one, and the rest of the original was gone.
+    func testSwapKeepsTheTextWhenTheAnswerCoversOnlyPartOfIt() {
+        let translator = Translator(defaults: defaults, preferredLanguages: ["ru"])
+        translator.choose(source: .english)
+        translator.choose(target: .uzbek)
+        let original = "Good morning. And a second sentence that was never translated."
+        translator.input = original
+        translator.received(
+            "Xayrli tong.", for: original, by: .online,
+            note: Translator.onlineCapNote(sent: 4_700))
+
+        translator.swap()
+
+        XCTAssertEqual(translator.input, original, "the whole original is still in the field")
+        XCTAssertEqual(translator.source, .uzbek, "the languages swap all the same")
+        XCTAssertEqual(translator.target, .english)
+        XCTAssertEqual(translator.output, "", "and the old direction's answer does not sit under the new headings")
+        XCTAssertNil(translator.outputNote)
+    }
+
     // MARK: - Asking once (G-026, K-004)
 
     /// A translator whose engines are stated and whose every capability lookup

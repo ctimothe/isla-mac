@@ -800,9 +800,12 @@ enum SettingsTable {
         for note in c.update.footnotes { blocks.append(.footnote(note)) }
         blocks.append(.group([.checkForUpdatesAutomatically]))
         // Only while the switch is on: with it off nothing is asked of GitHub,
-        // and the line used to say it was asked once a day.
+        // and the line used to say it was asked all the same. It names the
+        // real interval (`UpdateCheck.automaticInterval`): the check went
+        // hourly on 2026-10-20 and this line, the one place the app says how
+        // often it contacts GitHub, went on saying once a day.
         if c.automaticUpdates {
-            blocks.append(.footnote(localized("Asks GitHub once a day for the latest version. It sends nothing about you.")))
+            blocks.append(.footnote(localized("Asks GitHub once an hour for the latest version. It sends nothing about you.")))
         }
         blocks.append(.group([.copyDiagnostics, .reportProblem, .acknowledgements]))
         if c.diagnosticsCopied {

@@ -226,7 +226,7 @@
 "Quit Isla, then replace it in Applications with the new version." = "Закройте Isla и замените её в Программах новой версией.";
 "Could not reach GitHub. Try again later." = "Не удалось связаться с GitHub. Попробуйте позже.";
 "Check for Updates Automatically" = "Проверять обновления автоматически";
-"Asks GitHub once a day for the latest version. It sends nothing about you." = "Раз в день спрашивает у GitHub последнюю версию. О вас ничего не отправляется.";
+"Asks GitHub once an hour for the latest version. It sends nothing about you." = "Раз в час спрашивает у GitHub последнюю версию. О вас ничего не отправляется.";
 "Update available" = "Доступно обновление";
 "Rehearsal: update from a local folder" = "Репетиция: обновление из локальной папки";
 "Updates come from a folder on this Mac." = "Обновления берутся из папки на этом Mac.";

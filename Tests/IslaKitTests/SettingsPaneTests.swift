@@ -13,6 +13,33 @@ final class SettingsPaneTests: XCTestCase {
         XCTAssertTrue(stores.localLyricsLibrary === stores.lyricsCoordinator.library)
     }
 
+    /// Click a shortcut well, then another section in the sidebar. The row
+    /// leaves the keyboard to "the tab change", and a section change is not
+    /// one: the panel stayed key on General, eating every key meant for the
+    /// app in front.
+    func testChangingSectionGivesBackAShortcutRecordingsKeyboard() throws {
+        let isolated = ProbeFixtures.isolatedStores()
+        defer { isolated.release() }
+        // Its own suite: the section is remembered through `defaults`, and
+        // left in the shared one it is where every later Settings test opens.
+        let suite = "SettingsPaneTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores, defaults: defaults)
+        vm.isOpen = true
+        vm.open(.settings)
+        vm.settingsSection = .shortcuts
+        vm.wantsKeyboard = true  // what a recording asks for
+        vm.settingsSection = .general
+        XCTAssertFalse(vm.wantsKeyboard, "the recording's keyboard does not outlive its section")
+
+        // Another surface's keyboard is not Settings' to take back.
+        vm.open(.translate)
+        vm.wantsKeyboard = true
+        vm.settingsSection = .lyrics
+        XCTAssertTrue(vm.wantsKeyboard)
+    }
+
     func testSettingsCopyPromisesLocalOnlyLyrics() {
         XCTAssertEqual(SettingsPane.localLyricsPrivacyCopyKey, "Lyrics stay on this Mac.")
     }

@@ -353,7 +353,21 @@ enum ClipboardSearch {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return true }
         if hidden { return item.kind.filter.title.range(of: needle, options: options) != nil }
-        return item.searchText.range(of: needle, options: options) != nil
+        if item.searchText.range(of: needle, options: options) != nil { return true }
+        // And the line the row draws, as it reads. A copy of two lines is
+        // drawn as one, the break a space, so "hello world" is on screen for
+        // "hello\nworld" — and the whole string, which has no such space,
+        // did not match it: a phrase read off the row found nothing. Every
+        // run of white space reads as one space there, a Windows line end,
+        // a tab and a blank line alike, so both sides are compared that way.
+        // Only for a phrase: one word has no white space to differ by.
+        guard needle.contains(where: \.isWhitespace) else { return false }
+        return collapsed(item.preview).range(of: collapsed(needle), options: options) != nil
+    }
+
+    /// `text` with every run of white space as one space.
+    private static func collapsed(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
 

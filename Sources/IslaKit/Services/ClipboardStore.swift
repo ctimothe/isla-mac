@@ -760,8 +760,29 @@ final class ClipboardStore: ObservableObject {
     nonisolated static let maximumTextBytes = 256 * 1024
 
     nonisolated static func capped(_ string: String) -> String {
-        guard string.utf8.count > maximumTextBytes else { return string }
-        return String(decoding: Array(string.utf8.prefix(maximumTextBytes)), as: UTF8.self)
+        let utf8 = string.utf8
+        guard utf8.count > maximumTextBytes else { return string }
+        // Cut at a character, not at a byte. The byte cut fell inside a
+        // character half the time in Cyrillic and most of the time in an
+        // emoji, and decoding the half left "�" at the end of the entry, of
+        // the text copied back and of a pinned entry's saved file.
+        //
+        // A character can be any length — a run of combining marks has no
+        // end — so the walk back is bounded, and past the bound the cut
+        // settles for the start of a code point: never a half one, and never
+        // the whole text thrown away for want of a boundary.
+        let limit = utf8.index(utf8.startIndex, offsetBy: maximumTextBytes)
+        var cut = limit
+        var steps = 0
+        while cut > utf8.startIndex, steps < 64, String.Index(cut, within: string) == nil {
+            cut = utf8.index(before: cut)
+            steps += 1
+        }
+        if String.Index(cut, within: string) == nil {
+            cut = limit
+            while cut > utf8.startIndex, utf8[cut] & 0xC0 == 0x80 { cut = utf8.index(before: cut) }
+        }
+        return String(string[..<cut])
     }
 
     /// Reads the picture and, if it needs transcoding, does that off the main

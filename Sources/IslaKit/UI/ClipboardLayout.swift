@@ -277,6 +277,17 @@ final class ClipboardClearConfirmation: ObservableObject {
         Announcer.shared.announce(Self.question(count: count))
     }
 
+    /// The history changed while the question stood, and the question
+    /// follows it. The count was taken once, at the ask, while Clear History
+    /// removes whatever is unpinned when it is pressed: copy three things in
+    /// another app with "Clear 5 entries?" up and the button removed eight.
+    /// With nothing left to clear there is nothing left to ask.
+    func update(count: Int) {
+        guard isAsking, count != self.count else { return }
+        guard count > 0 else { return cancel() }
+        self.count = count
+    }
+
     func cancel() {
         if let token { ArmedConfirmations.shared.withdraw(token) }
         token = nil

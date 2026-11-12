@@ -100,6 +100,7 @@ struct ClipboardPane: View {
             // one click from emptying the history.
             .onDisappear { clear.cancel() }
             .onChange(of: clipboard.items.isEmpty) { _, empty in if empty { clear.cancel() } }
+            .onChange(of: clearableCount) { _, count in clear.update(count: count) }
     }
 
     // MARK: - By state
@@ -225,8 +226,11 @@ struct ClipboardPane: View {
         return Self.spoilerClockActive(covers: covers, hiddenCount: hidden)
     }
 
+    /// What Clear History would remove now: every entry that is not pinned.
+    private var clearableCount: Int { clipboard.items.filter { !$0.isPinned }.count }
+
     private func askClear() {
-        clear.ask(count: clipboard.items.filter { !$0.isPinned }.count)
+        clear.ask(count: clearableCount)
     }
 
     // MARK: - Images (§9.2)

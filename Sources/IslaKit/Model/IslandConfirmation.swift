@@ -30,6 +30,10 @@ struct IslandConfirmation: Equatable {
         case lyricsImported
         case copied
         case addedToShelf
+        /// A drop of nothing but files the Shelf already holds. It used to
+        /// be answered "Added to Shelf" like any other, over a Shelf that
+        /// had not changed.
+        case alreadyOnShelf
     }
 
     var kind: Kind
@@ -43,6 +47,7 @@ struct IslandConfirmation: Equatable {
         case .lyricsImported: return "checkmark.circle.fill"
         case .copied: return "doc.on.doc.fill"
         case .addedToShelf: return "tray.and.arrow.down.fill"
+        case .alreadyOnShelf: return "tray.full.fill"
         }
     }
 
@@ -51,6 +56,7 @@ struct IslandConfirmation: Equatable {
         case .lyricsImported: return localized("Lyrics imported")
         case .copied: return localized("Copied")
         case .addedToShelf: return localized("Added to Shelf")
+        case .alreadyOnShelf: return localized("Already on the Shelf")
         }
     }
 

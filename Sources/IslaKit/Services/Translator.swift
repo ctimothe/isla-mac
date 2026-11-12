@@ -381,13 +381,23 @@ final class Translator: ObservableObject {
         source = target
         target = from
         if source == target { source = nil }
-        if answersInput {
+        // Only a whole answer takes the field's place. One with a note under
+        // it covers part of the text — the first 4,700 characters of 9,000
+        // sent online, or what came back before a failure — and moving it
+        // into the field threw the untranslated rest of the original away.
+        // The languages still swap; the text stays for the new direction.
+        if answersInput, outputNote == nil {
             input = output
             output = ""
             outputNote = nil
             outputSource = nil
             answered = nil
             engine = nil
+        } else if answersInput {
+            // The partial answer goes, as an answer does when a language is
+            // chosen: left up, it sat in the old target's language under a
+            // heading naming the new one, with Copy and Speak still live.
+            clearAnswer()
         }
         remember()
     }

@@ -19,6 +19,35 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(store.items.last?.preview, "entry-5")
     }
 
+    /// The cap cut at a byte and decoded the half character it left as "�":
+    /// at the end of a long Cyrillic copy, of the text copied back and of a
+    /// pinned entry's file.
+    func testTheTextCapCutsAtACharacter() {
+        let limit = ClipboardStore.maximumTextBytes
+        for unit in ["я", "ў", "👨‍👩‍👧", "e\u{301}"] {
+            // One ASCII byte first, so the two-, four- and multi-scalar
+            // characters all straddle the limit.
+            let long = "x" + String(repeating: unit, count: limit / unit.utf8.count + 8)
+            let capped = ClipboardStore.capped(long)
+            XCTAssertLessThanOrEqual(capped.utf8.count, limit, unit)
+            XCTAssertGreaterThan(capped.utf8.count, limit - 64, "\(unit): cut at the last character that fits")
+            XCTAssertFalse(capped.unicodeScalars.contains("\u{FFFD}"), "\(unit): no replacement character")
+            XCTAssertTrue(long.hasPrefix(capped), "\(unit): a prefix of what was copied")
+            XCTAssertEqual(capped.last.map(String.init), unit, "\(unit): whole to the last character")
+        }
+        let short = "short and Кириллица"
+        XCTAssertEqual(ClipboardStore.capped(short), short)
+
+        // One character longer than the whole cap: a letter under combining
+        // marks without end. No boundary to walk back to, and the text is
+        // still kept, cut between two marks.
+        let endless = "a" + String(repeating: "\u{301}", count: limit)
+        let kept = ClipboardStore.capped(endless)
+        XCTAssertGreaterThan(kept.utf8.count, limit - 4)
+        XCTAssertLessThanOrEqual(kept.utf8.count, limit)
+        XCTAssertFalse(kept.unicodeScalars.contains("\u{FFFD}"))
+    }
+
     func testConcealedPasteboardTypeIsIgnored() {
         let board = NSPasteboard(name: .init("ClipboardStoreTests.\(UUID())"))
         let store = ClipboardStore(pasteboard: board)

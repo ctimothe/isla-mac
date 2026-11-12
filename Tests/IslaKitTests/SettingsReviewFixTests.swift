@@ -133,7 +133,12 @@ final class SettingsReviewFixTests: XCTestCase {
     // MARK: - The update footnote follows its switch
 
     func testTheGitHubFootnoteShowsOnlyWhileAutomaticChecksAreOn() {
-        let asks = localized("Asks GitHub once a day for the latest version. It sends nothing about you.")
+        let asks = localized("Asks GitHub once an hour for the latest version. It sends nothing about you.")
+        XCTAssertEqual(UpdateCheck.automaticInterval, 3600, "the sentence says an hour because the check is hourly")
+        LabLocalization.use("ru")
+        XCTAssertTrue(
+            localized("Asks GitHub once an hour for the latest version. It sends nothing about you.").hasPrefix("Раз в час"), "and in Russian")
+        LabLocalization.use("en")
         func footnotes(_ automatic: Bool) -> [String] {
             var context = SettingsContext()
             context.automaticUpdates = automatic
