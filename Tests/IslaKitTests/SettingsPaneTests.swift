@@ -20,7 +20,12 @@ final class SettingsPaneTests: XCTestCase {
     func testChangingSectionGivesBackAShortcutRecordingsKeyboard() throws {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
-        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
+        // Its own suite: the section is remembered through `defaults`, and
+        // left in the shared one it is where every later Settings test opens.
+        let suite = "SettingsPaneTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores, defaults: defaults)
         vm.isOpen = true
         vm.open(.settings)
         vm.settingsSection = .shortcuts

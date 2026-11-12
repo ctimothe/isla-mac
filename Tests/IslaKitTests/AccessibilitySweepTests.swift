@@ -87,6 +87,38 @@ final class AccessibilitySweepTests: XCTestCase {
     func testSettings() async throws { try await sweep(.settings) }
     func testTheWelcome() async throws { try await sweep(.welcome) }
 
+    /// Settings is ten sections, and `testSettings` reads whichever one was
+    /// shown last — General, on a clean machine. So nine of them were never
+    /// read: Translate To, in Lyrics, shipped as "Automatic, pop-up button"
+    /// and the gate passed. Each section is opened here, once, as shipped.
+    /// Its own defaults suite, so the section it leaves selected is not the
+    /// one the next test — or the next run — opens on.
+    func testEverySettingsSection() async throws {
+        let suite = "AccessibilitySweepTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        Setting.standard.apply()
+        for section in SettingsSection.allCases {
+            let isolated = ProbeFixtures.isolatedStores()
+            defer { isolated.release() }
+            let vm = NotchViewModel(
+                geometry: try LabGeometry.make(physical: true), stores: isolated.stores, defaults: defaults)
+            vm.settingsSection = section
+            let size = CGSize(width: VisualLab.windowSize.width, height: vm.geometry.windowSize.height)
+            let host = AXProbe.present(NotchContentView(vm: vm), size: size)
+            vm.isOpen = true
+            vm.surface = .settings
+            let root = await AXProbe.read(host, settle: Theme.swapOutDuration + 0.5)
+            let unnamed = Self.unnamedControls(in: root)
+            XCTAssertTrue(
+                unnamed.isEmpty,
+                "settings, \(section.rawValue): \(unnamed.count) control(s) with no name\n"
+                    + unnamed.map { "  \($0.role)/\($0.subrole) value=\($0.value) help=\($0.help) frame=\(String(describing: $0.frame))" }
+                    .joined(separator: "\n")
+            )
+        }
+    }
+
     /// The sweep is only as good as its reading of a name: a control labelled
     /// by either field passes, and one with neither fails. A symbol-only
     /// button is not nameless — SwiftUI reads the symbol's own label, "star"

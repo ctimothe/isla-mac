@@ -2250,6 +2250,11 @@ struct SettingsPopUpRow<Option: Identifiable & Hashable>: View {
                 }
             }
             .pickerStyle(.menu)
+            // Said outright. A menu-style picker standing in for the row
+            // keeps its value and loses its title: Translate To was read as
+            // "Automatic, pop-up button", with nothing to say what it sets
+            // (found 2026-11-12, when the sweep first opened on Lyrics).
+            .accessibilityLabel(title)
         }
     }
 }
