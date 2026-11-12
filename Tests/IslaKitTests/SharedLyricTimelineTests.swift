@@ -269,13 +269,13 @@ final class SharedLyricTimelineTests: XCTestCase {
     }
 
     func testWordKaraokeDefaultsOffAndPersistsAnExplicitSelection() {
-        UserDefaults.standard.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey)
-        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey) }
+        UserDefaults.stores.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey)
+        defer { UserDefaults.stores.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey) }
 
         let lyrics = LyricsStore()
         XCTAssertFalse(lyrics.wordKaraokeEnabled)
         lyrics.wordKaraokeEnabled = true
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: LyricsStore.wordKaraokeEnabledKey))
+        XCTAssertTrue(UserDefaults.stores.bool(forKey: LyricsStore.wordKaraokeEnabledKey))
     }
 
     /// A word shorter than a frame fills as the clock crosses it (L-11).

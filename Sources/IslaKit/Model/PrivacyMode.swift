@@ -75,7 +75,7 @@ final class PrivacyMode: ObservableObject {
     /// had chosen to cover everything.
     private static let knownSectionsKey = "privacyKnownSections"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .stores) {
         self.defaults = defaults
         if let stored = defaults.array(forKey: Self.key) as? [String] {
             var restored = Set(stored.compactMap(Section.init(rawValue:)))

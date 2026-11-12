@@ -353,17 +353,6 @@ enum LyricSweep {
         return slots.firstIndex(of: lit)
     }
 
-    /// An interlude's fill read against `clock` on every display frame, or
-    /// nil when it has no reason to move between publishes — not an
-    /// interlude, or a song that is not playing. The same arithmetic as the
-    /// moment's `progress`, called rather than restated.
-    static func liveProgress(
-        _ slot: LyricSlot, clock: (@MainActor () -> TimeInterval)?
-    ) -> (@MainActor () -> Double)? {
-        guard let clock, case .interlude = slot else { return nil }
-        return { interludeProgress(slot, at: clock()) }
-    }
-
     /// How many rows a slot stands from the lit one, for the depth falloff.
     ///
     /// Counted in rows, not lines. Counted in lines, the line on the far side
@@ -395,33 +384,15 @@ enum LyricSweep {
         return wordFraction(words: line.words, at: at, lineEnd: end)
     }
 
-    /// The moment a fill drawn frame by frame reads on each display frame: the
-    /// running clock, lead added, or nil while the song is not moving. Only
-    /// the interlude track (`InterludeMarker`, on the stage and the lock card)
-    /// is drawn so since the word sweep moved to Core Animation (`songClock`,
-    /// Batch 19).
-    ///
-    /// The running clock, not `MediaController.position`. That one is
-    /// published on the 0.1 s tick, so an edge read from it steps ten times a
-    /// second — and the quarter-second ramp that used to smooth the steps
-    /// over left the edge 175 ms behind the voice at the median (F-011). Read
-    /// through `extrapolatedPosition`, the one copy of the clock's arithmetic,
-    /// so the edge and the bar can never be on two clocks. Nil when paused: a
-    /// still song has nothing to show between frames, and a frame callback
-    /// for it would be spent on nothing.
-    static func frameClock(
-        media: MediaController, lead: TimeInterval, held: NowPlayingPresenter.HeldClock? = nil
-    ) -> (@MainActor () -> TimeInterval)? {
-        // A song held on screen while the next one loads has a still clock
-        // (`NowPlayingPresenter`): the live one already belongs to the next.
-        guard held == nil, media.isPlaying else { return nil }
-        return { media.extrapolatedPosition() + lead }
-    }
-
     /// The song's clock for a sweep, lead added: what Core Animation is
     /// handed instead of a frame callback (`KaraokeTrack`). Nil while the
-    /// song is not moving or is held on screen while the next one loads, as
-    /// `frameClock` is.
+    /// song is not moving or is held on screen while the next one loads: a
+    /// held song's clock already belongs to the next one.
+    ///
+    /// Read straight off the controller, which no view observes, so a body
+    /// that reads it is not re-run when the clock changes course. The lyric
+    /// surfaces read `songClock(motion:lead:)` instead; this is for a reading
+    /// taken once (the Lyric Delay preview, the lyric lab).
     static func songClock(
         media: MediaController, lead: TimeInterval, held: NowPlayingPresenter.HeldClock? = nil
     ) -> SongClock? {

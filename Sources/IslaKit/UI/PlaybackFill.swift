@@ -66,6 +66,14 @@ struct PlaybackFill: NSViewRepresentable {
                 return (.init(rect: rect, start: start, keys: []), lit(now) > 0)
             }
             var keys = [KaraokePlan.Run.Key(mono: monoNow, width: start)]
+            // Held empty until the song reaches the span's start. A song never
+            // stands before its own 0:00, but an interlude's fill is a span of
+            // its own (`InterludeMarker.Fill`), and a listener's delay can put
+            // the lyric moment before the intro's start on the song's first
+            // frame: drawn straight from now, the fill would set off early.
+            if now < 0, stop > 0, let reached = clock.mono(atSong: 0), reached > monoNow {
+                keys.append(.init(mono: reached, width: drawn(0)))
+            }
             // Held at the floor until the lit width passes it.
             if lit(now) < input.floor, input.width > 0 {
                 let song = TimeInterval(input.floor / input.width) * input.duration

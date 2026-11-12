@@ -62,8 +62,8 @@ final class LyricRoutesTests: XCTestCase {
     /// source, or the delay a pair of AirPods adds — and it clamps where the
     /// store says it does, however far the slider is dragged.
     func testTheGlobalLyricDelayClampsAtThreeSecondsEitherWay() {
-        UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey)
-        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey) }
+        UserDefaults.stores.removeObject(forKey: LyricsStore.offsetKey)
+        defer { UserDefaults.stores.removeObject(forKey: LyricsStore.offsetKey) }
         let store = LyricsStore()
 
         store.userOffset = 12
@@ -73,7 +73,7 @@ final class LyricRoutesTests: XCTestCase {
 
         store.userOffset = 0.4
         XCTAssertEqual(
-            UserDefaults.standard.double(forKey: LyricsStore.offsetKey), 0.4, accuracy: 0.0001,
+            UserDefaults.stores.double(forKey: LyricsStore.offsetKey), 0.4, accuracy: 0.0001,
             "a correction the listener made has to survive the next launch"
         )
         // And it reaches the surfaces through the one clock every one of them
@@ -116,8 +116,8 @@ final class IntentSurfaceTests: XCTestCase {
     /// They are declared in two files, and a shortcut that could ask for four
     /// seconds would get three back with no explanation.
     func testTheDelayIntentOffersExactlyWhatTheStoreWillKeep() {
-        UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey)
-        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey) }
+        UserDefaults.stores.removeObject(forKey: LyricsStore.offsetKey)
+        defer { UserDefaults.stores.removeObject(forKey: LyricsStore.offsetKey) }
         let store = LyricsStore()
         store.userOffset = 3
         XCTAssertEqual(store.userOffset, 3, accuracy: 0.0001)

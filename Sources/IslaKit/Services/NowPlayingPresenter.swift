@@ -412,8 +412,22 @@ extension MediaController {
     /// change and the clock's next tick the position is the honest answer,
     /// and costs that one tick.
     func shownLinePosition(_ frame: NowPlayingPresenter.Frame?, lead: TimeInterval) -> TimeInterval {
-        if let held = frame?.held { return held.position }
+        shownLinePosition(held: frame?.held, lead: lead)
+    }
+
+    /// The same for a surface handed the hold itself rather than the frame:
+    /// the lyric stage (Batch 22, 2026-11-05), which read the position and so
+    /// re-ran every row it lays out on every tick.
+    func shownLinePosition(held: NowPlayingPresenter.HeldClock?, lead: TimeInterval) -> TimeInterval {
+        if let held { return held.position }
         return clock.lineLead == lead ? clock.linePosition : position
+    }
+
+    /// How the song moves for a surface handed the hold itself: still where
+    /// the held song stopped, the clock's motion otherwise.
+    func shownMotion(held: NowPlayingPresenter.HeldClock?) -> PlaybackClock.Motion {
+        if let held { return .still(held.position) }
+        return clock.motion
     }
 
     /// The labels' whole seconds: the clock's own while the panel shows the
@@ -430,8 +444,7 @@ extension MediaController {
     /// How the bar moves: still where the held song stopped during a hold,
     /// the clock's motion otherwise (`PlaybackClock.motion`).
     func shownMotion(_ frame: NowPlayingPresenter.Frame?) -> PlaybackClock.Motion {
-        if let held = frame?.held { return .still(held.position) }
-        return clock.motion
+        shownMotion(held: frame?.held)
     }
 
     func shownIsPlaying(_ frame: NowPlayingPresenter.Frame?) -> Bool {

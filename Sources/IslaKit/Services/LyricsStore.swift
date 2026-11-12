@@ -143,7 +143,7 @@ final class LyricsStore: ObservableObject {
         let offset: TimeInterval
     }
 
-    init(offsetsDirectory: URL? = nil, defaults: UserDefaults = .standard) {
+    init(offsetsDirectory: URL? = nil, defaults: UserDefaults = .stores) {
         self.defaults = defaults
         let directory = offsetsDirectory
             ?? AppPaths.live.supportFile("lyrics-local")
