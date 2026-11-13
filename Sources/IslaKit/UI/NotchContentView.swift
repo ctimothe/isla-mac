@@ -683,18 +683,23 @@ struct NotchContentView: View {
         // A press deepens nothing now — it is the same `#1C1C1E` as the hover —
         // but it still arrives on a quick ease rather than a cut.
         .animation(Theme.contentAnimation, value: isPressed)
-        // Out of the notch and back into it, on the outline's spring both ways
-        // (spec §19.3) — see `Theme.pill`. The peek and the charger are the same
-        // gesture made wider, so they ride it too.
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.isPeeking)
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.ambient)
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.confirmation)
-        // The update alert grows out of the notch and folds back on the same
-        // spring as the other expanded alerts. Keyed to its version, not to
-        // the offer: the installer's progress redraws inside it and moves no
-        // edge.
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.updateOffer?.version)
+        // Out of the notch and back into it, and from one activity to
+        // another, each on the spring the iPhone's island uses for that
+        // change (spec §19.3, amended 2026-11-14; `IslandMotion`): a compact
+        // activity arriving overshoots, an alert opening barely does, a fold
+        // back is nearly damped and going home is not sprung past at all. The
+        // keys are the ones these changes always rode: the song's pill, the
+        // peek, the charger and headphones, the confirmation, and the update
+        // alert — keyed to its version, not to the offer, since the
+        // installer's progress redraws inside it and moves no edge.
+        .modifier(IslandMorph(
+            presentation: IslandMotion.presentation(of: vm.activity, hasBubble: vm.bubbleCount != nil),
+            keys: MorphKeys(
+                compact: compactActivity, peeking: vm.isPeeking, ambient: vm.ambient,
+                confirmation: vm.confirmation, update: vm.updateOffer?.version
+            ),
+            reduceMotion: reduceMotion
+        ))
         // The pop-up widens and folds on its own quick, critically damped
         // spring (`Theme.hudSpring`, spec §19.3 amended 2026-10-18). Keyed to
         // whether it is up, not to its level: a press only moves the bar,
@@ -1664,4 +1669,14 @@ extension View {
     func pillPresence(_ shown: Bool, reduceMotion: Bool) -> some View {
         modifier(PillPresence(shown: shown, reduceMotion: reduceMotion))
     }
+}
+
+/// Everything whose change moves the shut island's outline between
+/// activities, as one value for `IslandMorph`.
+private struct MorphKeys: Equatable {
+    var compact: CompactMediaActivity
+    var peeking: Bool
+    var ambient: AmbientActivity?
+    var confirmation: IslandConfirmation?
+    var update: String?
 }

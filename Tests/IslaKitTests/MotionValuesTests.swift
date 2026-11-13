@@ -122,19 +122,23 @@ final class MotionValuesTests: XCTestCase {
 
     // MARK: Content arriving (spec §19.3)
 
-    func testExpandedContentArrivesFromBlurThirtyAndAPoint() {
+    /// islandcn's `appearExpand.enterBlur` (12): the phone's incoming alert is
+    /// far less blurred than the 30 Isla drew (spec §19.3, amended 2026-11-14).
+    func testExpandedContentArrivesFromBlurTwelveAndAPoint() {
         XCTAssertEqual(
             IslandArrival.expanded(reduceMotion: false),
-            IslandArrival(opacity: 0, blur: 30, scale: CGSize(width: 0.6, height: 0.2), anchor: UnitPoint(x: 0.5, y: 0.4))
+            IslandArrival(opacity: 0, blur: 12, scale: CGSize(width: 0.6, height: 0.2), anchor: UnitPoint(x: 0.5, y: 0.4))
         )
         XCTAssertEqual(IslandArrival.arrived(anchor: IslandArrival.expandedAnchor).anchor, UnitPoint(x: 0.5, y: 0.4),
                        "both ends scale about one point")
     }
 
-    func testCompactContentArrivesFromBlurFifteenAndFourFifthsOfItsWidth() {
+    /// islandcn's `appear` blur, 12; the width as before, and the height
+    /// whole, because the Mac's compact pill never grows downward.
+    func testCompactContentArrivesFromBlurTwelveAndFourFifthsOfItsWidth() {
         XCTAssertEqual(
             IslandArrival.compact(reduceMotion: false),
-            IslandArrival(opacity: 0, blur: 15, scale: CGSize(width: 0.8, height: 1), anchor: .center)
+            IslandArrival(opacity: 0, blur: 12, scale: CGSize(width: 0.8, height: 1), anchor: .center)
         )
         XCTAssertEqual(IslandArrival.arrived(), IslandArrival(opacity: 1, blur: 0, scale: CGSize(width: 1, height: 1), anchor: .center))
         XCTAssertEqual(PillPresence.appearance(shown: false, reduceMotion: false), .compact(reduceMotion: false),

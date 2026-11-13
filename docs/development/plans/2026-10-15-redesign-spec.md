@@ -2638,6 +2638,36 @@ later, behind the outline instead of in front of it. The close is unchanged
 (18–19 ms) and was not player work. The cover's flight is untouched: both of
 its ends are still in the open's one transaction.
 
+*Amended 2026-11-14 (owner, plan `2026-11-14-islandcn-activities.md`) — the
+iPhone's springs per change.* The shut island's changes between activities no
+longer share one spring. Each picks the one islandcn (MIT, fitted frame by
+frame to the iPhone simulator) measured for that kind of change, from the
+presentation it leaves and the one it reaches (`IslandMotion`, `IslandMorph`):
+
+| Change | Response / damping |
+|---|---|
+| bare notch → compact (`appear`) | 0.483 / 0.62 |
+| compact → its own expanded view (`expand`) | 0.517 / 0.824 |
+| bare notch → expanded alert (`appearExpand`) | 0.54 / 0.811 |
+| → another activity's expanded view (`swap`) | 0.498 / 0.829 |
+| expanded → compact by a click (`collapse`) | 0.479 / 0.894 |
+| expanded alert → compact when its hold ends (`alertCollapse`) | 0.535 / 0.84 |
+| compact → compact with the bubble (`split`) | 0.505 / 0.815 |
+| the bubble merging back (`unsplit`) | 0.487 / 0.794 |
+| anything → the bare notch (`dismiss`) | 0.432 / 1.019 |
+| the same presentation changing size (`resize`) | 0.5 / 0.82 |
+
+The outline still reads its curve from the transaction, so the fill, the
+mask and the line ride the same spring as the content. Opening into a
+surface, closing, the pop-up's own spring and Reduce Motion's 0.24 ease are
+unchanged. Content arriving comes into focus from **blur 12** on both kinds
+(was 30 and 15), the phone's measured value; the scales stand. Not carried
+over: the phone's retarget through the idle pill on a collapse, and its
+separate springs for height, top and corner, which one sampled curve per
+part cannot draw. `IslandMotionTests` holds the table, the rule and the
+read-back; `IslandOutlineIntegrationTests` holds an alert opening on
+`appearExpand`.
+
 ### 19.4 Compact activities
 
 `H` tall. Shoulders 8.67, bottom corners 12.67. Board `R2-Alerts` (top row)
