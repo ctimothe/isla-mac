@@ -116,7 +116,10 @@ final class SettingsTableTests: XCTestCase {
         // switch at its default. Conditional rows are tested below.
         let expected: [SettingsSection: [SettingsRowID]] = [
             // R5 (spec §12) turns Volume and Brightness on: last in "The island shows", off by default.
-            .general: [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness],
+            // 2026-11-14 (plan islandcn-activities): the battery alerts sit
+            // with the charger, Microphone and Camera and Downloads after New Tracks.
+            .general: [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .lowBattery, .fullBattery,
+                       .headphones, .newTracks, .recording, .downloads, .volumeAndBrightness],
             .privacy: [.clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording],
             .shortcuts: [.shortcutOpenPanel, .shortcutClipboard, .shortcutLyrics, .shortcutTranslate],
             .music: [.musicOnly, .volumeAndOutput, .lyricBand],
@@ -419,7 +422,8 @@ final class SettingsTableTests: XCTestCase {
         // Visible in General, last in "The island shows", and nowhere else.
         XCTAssertEqual(
             SettingsTable.rows(for: .general, context: SettingsContext()),
-            [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness]
+            [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .lowBattery, .fullBattery,
+             .headphones, .newTracks, .recording, .downloads, .volumeAndBrightness]
         )
         for section in SettingsSection.allCases where section != .general {
             XCTAssertFalse(SettingsTable.rows(for: section, context: Self.everything).contains(.volumeAndBrightness),
@@ -728,7 +732,9 @@ final class SettingsTableTests: XCTestCase {
         let blocks = SettingsTable.blocks(for: .general)
         XCTAssertTrue(blocks.contains(.header("The island shows")))
         // R5 added Volume and Brightness to the group (spec §12).
-        XCTAssertTrue(blocks.contains(.group([.charging, .headphones, .newTracks, .volumeAndBrightness])))
+        XCTAssertTrue(blocks.contains(.group([
+            .charging, .lowBattery, .fullBattery, .headphones, .newTracks, .recording, .downloads, .volumeAndBrightness,
+        ])))
         LabLocalization.use("ru")
         XCTAssertEqual(SettingsRowID.charging.title, "Подключение зарядки", "spec §19.14")
         XCTAssertEqual(SettingsRowID.headphones.title, "Подключение наушников")
@@ -846,7 +852,8 @@ final class SettingsTableTests: XCTestCase {
             guard let icon = row.icon else { continue }
             XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil), "\(row): \(icon)")
         }
-        XCTAssertEqual(SettingsRowID.allCases.filter { $0.icon != nil }.count, 7)
+        // Four more since 2026-11-14: the battery alerts, Microphone and Camera, Downloads.
+        XCTAssertEqual(SettingsRowID.allCases.filter { $0.icon != nil }.count, 11)
     }
 
     /// A row's kind decides what it draws; a switch has a default, a slider a

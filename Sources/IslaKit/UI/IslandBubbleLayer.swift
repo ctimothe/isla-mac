@@ -21,9 +21,9 @@ struct IslandBubbleLayer: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            if let count = vm.bubbleCount {
+            if let bubble = vm.bubble {
                 IslandBubble(
-                    count: count, height: size.height,
+                    count: vm.bubbleCount ?? 0, activity: bubble, reduceMotion: reduceMotion, height: size.height,
                     outlineHeight: NotchContentView.clearingCutout(
                         size, notchHeight: vm.geometry.notchSize.height, isPhysical: vm.geometry.isPhysical
                     ).height,
@@ -31,12 +31,22 @@ struct IslandBubbleLayer: View {
                 ) {
                     vm.onBubbleClick?()
                 }
-                .offset(x: IslandBubbleLayout.centreOffset(islandWidth: size.width, count: count))
-                .transition(Theme.compactArrival(reduceMotion: reduceMotion))
+                .offset(x: IslandBubbleLayout.centreOffset(
+                    islandWidth: size.width, bubbleWidth: IslandBubbleLayout.width(for: bubble)
+                ))
+                // It pinches off the island's end and merges back into it
+                // (islandcn's split): it grows out of the gap beside the
+                // shoulder on the split's spring, with the neck drawn
+                // between the two while they are close (`IslandNeck`).
+                .transition(IslandNeck.bubbleTransition(reduceMotion: reduceMotion, height: size.height))
+                .id(IslandMotion.presentation(of: bubble))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(Theme.island(reduceMotion: reduceMotion), value: vm.bubbleCount != nil)
+        .animation(
+            IslandMotion.animation(for: vm.bubble != nil ? .split : .unsplit, reduceMotion: reduceMotion),
+            value: vm.bubble.map { IslandMotion.presentation(of: $0) }
+        )
         .animation(Theme.island(reduceMotion: reduceMotion), value: size.width)
         // A tenth file widens it by a digit, on the same spring.
         .animation(Theme.island(reduceMotion: reduceMotion), value: IslandBubbleLayout.digits(vm.bubbleCount ?? 0))

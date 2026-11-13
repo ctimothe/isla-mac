@@ -99,6 +99,9 @@ extension NotchViewModel {
         case open(Surface)
         /// An alert folds, and the island returns to what is live.
         case foldAlert
+        /// A timer, a recording or a download answers in place (plan
+        /// 2026-11-14): the timer's controls, the app recording, the folder.
+        case live(LiveActivity)
         /// Nothing: the update alert is answered by its buttons alone
         /// (§19.1's table), and a click beside them is not an answer.
         case nothing
@@ -117,6 +120,7 @@ extension NotchViewModel {
         case .hud, .confirmation, .ambient: return .foldAlert
         case .update: return .nothing
         case .peek: return .open(.player)
+        case .live(let live): return .live(live)
         case .music, .shelf, .none: return .open(openTarget(live: live, hasTrack: hasTrack, lastPage: lastPage))
         }
     }
@@ -136,7 +140,7 @@ extension NotchViewModel {
         switch live {
         case .peek, .music: return .player
         case .shelf: return .tray
-        case .hud, .confirmation, .ambient, .update, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
+        case .hud, .confirmation, .ambient, .update, .live, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
         }
     }
 }

@@ -18,8 +18,15 @@ final class IslandActivityTests: XCTestCase {
         XCTAssertEqual(headphones.rank, 6)
         XCTAssertEqual(charging.rank, 7)
         XCTAssertEqual(IslandActivity.peek.rank, 10, "the new-track peek")
-        XCTAssertEqual(IslandActivity.music.rank, 11)
-        XCTAssertEqual(IslandActivity.shelf(count: 3).rank, 12)
+        // Amended 2026-11-14 (plan islandcn-activities): the live ranks
+        // spread out so a recording, a timer and a stopwatch stand over the
+        // song and a download between the song and the Shelf.
+        XCTAssertEqual(IslandActivity.live(.recording(CaptureState(microphone: ["a"], camera: false))).rank, 11)
+        XCTAssertEqual(IslandActivity.live(.timer(IslandTimerState(kind: .countdown(duration: 60), runningSince: Date(), banked: 0))).rank, 12)
+        XCTAssertEqual(IslandActivity.live(.stopwatch(IslandTimerState(kind: .stopwatch, runningSince: Date(), banked: 0))).rank, 13)
+        XCTAssertEqual(IslandActivity.music.rank, 14)
+        XCTAssertEqual(IslandActivity.live(.downloads([DownloadProgress(name: "a.zip", bytesSoFar: 1, totalBytes: 2)])).rank, 15)
+        XCTAssertEqual(IslandActivity.shelf(count: 3).rank, 16)
         XCTAssertNil(IslandActivity.none.rank, "the bare notch is not an activity")
 
         for alert in [hud, headphones, charging, .peek] {

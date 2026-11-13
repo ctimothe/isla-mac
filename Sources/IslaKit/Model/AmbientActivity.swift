@@ -28,6 +28,19 @@ enum AmbientActivity: Equatable {
     )
     /// A Bluetooth audio output appeared.
     case headphones(name: String, symbol: String)
+    /// The battery crossed 20 or 10 percent on battery power (spec §19.5 a,
+    /// built 2026-11-14). `lowPowerMode` picks the line under the title:
+    /// there is no point suggesting Low Power Mode to a Mac already in it.
+    case batteryLow(level: Int, lowPowerMode: Bool)
+    /// A charge on power reached 100 percent (spec §19.5 b).
+    case batteryFull(level: Int)
+    /// A countdown the person set reached zero (plan 2026-11-14 S3), with
+    /// the duration it was set for. Not the Mac's doing like the others, but
+    /// it is an alert of the same shape, and their queue, hold and lock rules
+    /// are the ones it needs: it waits for a surface to close, as Battery
+    /// Low does, because a timer that ended is still news when the panel
+    /// shuts.
+    case timerDone(duration: TimeInterval)
 
     /// Whether the island can show it at all. A Mac with no battery shows no
     /// Charging activity (spec §19.4): it reports no level, and the level and
@@ -44,11 +57,32 @@ enum AmbientActivity: Equatable {
         switch self {
         case .charging: return Self.chargingHold
         case .headphones: return 4
+        // §19.1's table: both battery alerts hold 5 s.
+        case .batteryLow, .batteryFull: return Self.batteryHold
+        // Long enough to look up from what you were doing; a click folds it.
+        case .timerDone: return Self.timerDoneHold
         }
     }
 
     /// The charger's hold, both variants: the ambient alert's 3 s.
     static let chargingHold: TimeInterval = 3
+    /// Battery Low's and Full Battery's hold (§19.1).
+    static let batteryHold: TimeInterval = 5
+    static let timerDoneHold: TimeInterval = 10
+
+    /// One of the two battery alerts.
+    var isBatteryAlert: Bool {
+        switch self {
+        case .batteryLow, .batteryFull: return true
+        case .charging, .headphones, .timerDone: return false
+        }
+    }
+
+    /// A countdown's end (plan 2026-11-14 S3).
+    var isTimerDone: Bool {
+        if case .timerDone = self { return true }
+        return false
+    }
 
     /// The glyph for a charge: the bolt while charging, the plug while it only
     /// holds, as the battery menu draws them. On the island the bolt's place is
@@ -86,6 +120,9 @@ enum AmbientActivity: Equatable {
     /// only holds or is full — a white charge says nothing it would have to
     /// take back.
     var chargeTint: ChargeTint? {
+        // The battery alerts wear their own colours, line and all (§19.5 a, b).
+        if case .batteryLow = self { return .red }
+        if case .batteryFull = self { return .green }
         guard case .charging(let level?, _, _, _, _) = self else { return nil }
         if level <= ChargeState.lowLevel { return .red }
         // From the state, not the raw flag: a plug-in still settling is
@@ -148,6 +185,12 @@ enum AmbientActivity: Equatable {
             }
         case .headphones(let name, _):
             return localized("%@ connected", name)
+        case .batteryLow(let level, _):
+            return localized("Battery Low, %d percent", level)
+        case .batteryFull:
+            return localized("Full Battery. You can unplug the charger.")
+        case .timerDone:
+            return localized("Timer done")
         }
     }
 }

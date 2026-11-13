@@ -34,6 +34,10 @@ struct IslandConfirmation: Equatable {
         /// be answered "Added to Shelf" like any other, over a Shelf that
         /// had not changed.
         case alreadyOnShelf
+        /// A download finished in ~/Downloads (plan 2026-11-14 S5).
+        case downloaded(name: String)
+        /// A file arrived by AirDrop (plan 2026-11-14 S5).
+        case airDropped(name: String)
     }
 
     var kind: Kind
@@ -48,6 +52,8 @@ struct IslandConfirmation: Equatable {
         case .copied: return "doc.on.doc.fill"
         case .addedToShelf: return "tray.and.arrow.down.fill"
         case .alreadyOnShelf: return "tray.full.fill"
+        case .downloaded: return "arrow.down.circle.fill"
+        case .airDropped: return "dot.radiowaves.up.forward"
         }
     }
 
@@ -57,12 +63,30 @@ struct IslandConfirmation: Equatable {
         case .copied: return localized("Copied")
         case .addedToShelf: return localized("Added to Shelf")
         case .alreadyOnShelf: return localized("Already on the Shelf")
+        case .downloaded: return localized("Downloaded")
+        case .airDropped: return localized("AirDrop")
         }
     }
 
     /// What the island's value says while it shows. The words on it, and the
     /// words the act announced.
-    var accessibilityLabel: String { title }
+    /// A file the island did not see made adds its name: the pill has room
+    /// for "Downloaded", VoiceOver for the whole sentence.
+    var accessibilityLabel: String {
+        switch kind {
+        case .downloaded(let name): return localized("Downloaded %@", name)
+        case .airDropped(let name): return localized("Received %@ by AirDrop", name)
+        default: return title
+        }
+    }
+
+    /// The file a click reveals in Finder, for the two the Mac made.
+    var revealsFile: String? {
+        switch kind {
+        case .downloaded(let name), .airDropped(let name): return name
+        default: return nil
+        }
+    }
 
     /// How long it holds the island once it shows. Long enough to read three
     /// words, short enough that a second copy finds the first already gone —

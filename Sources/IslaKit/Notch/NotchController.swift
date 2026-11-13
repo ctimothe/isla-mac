@@ -37,6 +37,11 @@ final class NotchController {
     private var collapseCheckWork: DispatchWorkItem?
     private var peekWork: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
+    /// The live-activity hub's sink, which lives as long as the controller,
+    /// not as long as one panel (`cancellables` is dropped on every rebuild).
+    private var liveCancellables = Set<AnyCancellable>()
+    /// Folds a timer's controls a few seconds after the last touch.
+    private var timerControlsFold: DispatchWorkItem?
     /// Held so `teardown` can actually undo `install`. Discarding the tokens
     /// left the registrations permanent by construction, which was harmless
     /// only for as long as `install` was called exactly once.
@@ -122,6 +127,13 @@ final class NotchController {
         stores.hud.onReading = { [weak self] reading in
             self?.presentHUD(reading)
         }
+        // The timer, the microphone and camera, and Downloads (plan
+        // 2026-11-14): what stands goes to the island, what ends is an alert.
+        stores.live.$live
+            .sink { [weak self] live in self?.liveActivitiesChanged(live) }
+            .store(in: &liveCancellables)
+        stores.live.onTimerFinished = { [weak self] duration in self?.timerFinished(duration) }
+        stores.live.onDownloadEvent = { [weak self] event in self?.downloadEvent(event) }
         stores.promises.onBatch = { [weak self] urls in
             self?.promisedFilesArrived(urls)
         }
@@ -918,7 +930,8 @@ final class NotchController {
             // A paused song still has words to show, so Lyrics follows the
             // song, not the play state.
             let items = IslandMenu.items(
-                bindings: HotKeyCenter.shared.bindings, hasSong: vm.media.track != nil
+                bindings: HotKeyCenter.shared.bindings, hasSong: vm.media.track != nil,
+                countdown: stores.live.timers.countdown, stopwatch: stores.live.timers.stopwatch
             )
             // Read before the menu tracks: a row's open is pinned only from
             // the closed island (see `performMenu`).
@@ -952,7 +965,15 @@ final class NotchController {
         case .lyrics: showLyrics(pin: pin)
         case .settings: openCommanded(.settings, pin: pin)
         case .quit: NSApp.terminate(nil)
-        case .separator: break
+        case .separator, .timerGroup: break
+        case .startTimer(let minutes): stores.live.timers.startCountdown(seconds: TimeInterval(minutes * 60))
+        case .startStopwatch: stores.live.timers.startStopwatch()
+        case .pauseTimer: stores.live.timers.pauseCountdown()
+        case .resumeTimer: stores.live.timers.resumeCountdown()
+        case .cancelTimer: stores.live.timers.cancelCountdown()
+        case .pauseStopwatch: stores.live.timers.pauseStopwatch()
+        case .resumeStopwatch: stores.live.timers.resumeStopwatch()
+        case .resetStopwatch: stores.live.timers.resetStopwatch()
         }
     }
 
@@ -1097,13 +1118,136 @@ final class NotchController {
         // An alert folds rather than opening anything (spec §19.1): the island
         // returns to what is live, and the next click opens that.
         if surface == nil, vm.islandClick == .foldAlert {
+            // "Downloaded" and "AirDrop" also show the file they name (plan
+            // 2026-11-14 S5): the click is the obvious next step, and the
+            // island folds either way.
+            let reveal = vm.confirmation?.revealsFile
             foldAlert()
+            if let reveal { Self.revealDownload(named: reveal) }
             return
         }
         // The update alert is answered by its buttons alone; a click beside
         // them is not an answer, and opening the panel would take it down.
         if surface == nil, vm.islandClick == .nothing { return }
+        // A timer, a recording or a download answers in place (plan
+        // 2026-11-14): there is no surface for any of them to open.
+        if surface == nil, case .live(let live) = vm.islandClick {
+            liveClicked(live)
+            return
+        }
         openFromIsland(opening: surface)
+    }
+
+    // MARK: - Live activities (plan 2026-11-14)
+
+    private func liveActivitiesChanged(_ live: [LiveActivity]) {
+        guard let vm = viewModel else { return }
+        let before = (vm.activity, vm.bubble, vm.bodySize)
+        vm.liveActivities = live
+        // A live activity arriving or leaving moves the island and the
+        // bubble: cut the clickable regions again, as the Shelf's first and
+        // last file do. A timer ticking changes neither.
+        if before != (vm.activity, vm.bubble, vm.bodySize) { refreshCollapsedRects() }
+        // Controls whose timer has gone (cancelled, finished, reset) go too.
+        if let kind = vm.expandedLive, !live.contains(where: { $0.kind == kind }) { foldTimerControls() }
+    }
+
+    /// The bubble does what a click on its activity would: the Shelf's opens
+    /// the tray, the song's the player, a timer's its controls.
+    private func bubbleClicked() {
+        guard let vm = viewModel, let bubble = vm.bubble else { return }
+        switch bubble {
+        case .shelf: islandClicked(opening: .tray)
+        case .music, .peek: islandClicked(opening: .player)
+        case .live(let live): liveClicked(live)
+        default: islandClicked()
+        }
+    }
+
+    func liveClicked(_ live: LiveActivity) {
+        switch live {
+        case .timer, .stopwatch:
+            guard let vm = viewModel else { return }
+            if vm.expandedLive == live.kind {
+                foldTimerControls()
+            } else {
+                withAnimation(Theme.island(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+                    vm.expandedLive = live.kind
+                }
+                refreshCollapsedRects()
+                scheduleTimerControlsFold()
+            }
+        case .recording(let state):
+            // The app that has the microphone, brought forward: the one place
+            // the person can stop it.
+            guard let app = state.microphoneApps.first.map(LiveActivityHub.owningApp(of:)) else { return }
+            NSRunningApplication.runningApplications(withBundleIdentifier: app).first?.activate()
+        case .downloads:
+            if let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                NSWorkspace.shared.open(folder)
+            }
+        }
+    }
+
+    /// The controls fold on their own 6 s after they opened or were last
+    /// pressed, as an alert's hold does; a press restarts the wait.
+    private func scheduleTimerControlsFold() {
+        timerControlsFold?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.foldTimerControls() }
+        timerControlsFold = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.timerControlsHold, execute: work)
+    }
+
+    static let timerControlsHold: TimeInterval = 6
+
+    private func foldTimerControls() {
+        timerControlsFold?.cancel()
+        timerControlsFold = nil
+        guard let vm = viewModel, vm.expandedLive != nil else { return }
+        withAnimation(Theme.island(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.expandedLive = nil }
+        refreshCollapsedRects()
+    }
+
+    private func timerControl(_ control: TimerControl) {
+        guard let vm = viewModel, let kind = vm.expandedLive else { return }
+        let timers = stores.live.timers
+        switch (kind, control) {
+        case ("timer", .pause): timers.pauseCountdown()
+        case ("timer", .resume): timers.resumeCountdown()
+        case ("timer", .cancel), ("timer", .reset): timers.cancelCountdown()
+        case ("stopwatch", .pause): timers.pauseStopwatch()
+        case ("stopwatch", .resume): timers.resumeStopwatch()
+        case ("stopwatch", .reset), ("stopwatch", .cancel): timers.resetStopwatch()
+        default: break
+        }
+        scheduleTimerControlsFold()
+    }
+
+    private func timerFinished(_ duration: TimeInterval) {
+        foldTimerControls()
+        // Heard whether or not the island can draw the alert: a timer that
+        // ends behind a full-screen film still rang.
+        NSSound(named: "Glass")?.play()
+        presentAmbient(.timerDone(duration: duration))
+    }
+
+    /// Selects a file in ~/Downloads in Finder. A file already moved or
+    /// deleted opens the folder instead, rather than nothing.
+    static func revealDownload(named name: String) {
+        guard let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
+        let file = folder.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: file.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([file])
+        } else {
+            NSWorkspace.shared.open(folder)
+        }
+    }
+
+    private func downloadEvent(_ event: DownloadEvent) {
+        switch event {
+        case .finished(let url): viewModel?.confirm(.downloaded(name: url.lastPathComponent))
+        case .airDropReceived(let url): viewModel?.confirm(.airDropped(name: url.lastPathComponent))
+        }
     }
 
     /// A click's open, after the click has decided to open: the surface, the
@@ -1190,7 +1334,7 @@ final class NotchController {
             switch vm.islandClick {
             case .nothing: return
             case .foldAlert: foldAlert()
-            case .open: break
+            case .open, .live: break
             }
         }
         openFromIsland(opening: surface)
@@ -1606,7 +1750,9 @@ final class NotchController {
         // launch rather than being silently spent.
         vm.isShowingWelcome = showingWelcome
         vm.onIslandClick = { [weak self] in self?.islandClicked() }
-        vm.onBubbleClick = { [weak self] in self?.islandClicked(opening: .tray) }
+        vm.onBubbleClick = { [weak self] in self?.bubbleClicked() }
+        vm.liveActivities = stores.live.live
+        vm.onTimerControl = { [weak self] in self?.timerControl($0) }
         vm.onUpdateAction = { [weak self] in self?.updateAlertAction($0) }
         vm.onConfirmation = { [weak self] in self?.presentConfirmation($0) }
         vm.onStripClosed = { [weak self] in self?.stripClosed($0) }
@@ -2500,8 +2646,8 @@ final class NotchController {
     func collapsedIslandScreenRect() -> CGRect {
         guard let vm = viewModel else { return .zero }
         let width = vm.bodySize.width, height = vm.bodySize.height
-        let bubble = vm.bubbleCount.map {
-            vm.geometry.bubbleScreenRect(islandWidth: width, height: height, count: $0)
+        let bubble = vm.bubble.map {
+            vm.geometry.bubbleScreenRect(islandWidth: width, height: height, bubbleWidth: IslandBubbleLayout.width(for: $0))
         } ?? .zero
         return Self.collapsedIslandRect(
             geometry: vm.geometry,
@@ -2773,7 +2919,7 @@ final class NotchController {
             case .update(let offer): presentUpdate(offer)
             case .peek: sneakPeek()
             // The pop-up never waits, and live activities are never posted.
-            case .hud, .music, .shelf, .none: break
+            case .hud, .music, .shelf, .live, .none: break
             }
         }
         // The update alert is not only what waited: an offer taken down by an
@@ -3157,6 +3303,10 @@ final class NotchController {
         switch activity {
         case .charging: switchOn = NotchViewModel.chargingEnabled
         case .headphones: switchOn = NotchViewModel.headphonesEnabled
+        case .batteryLow: switchOn = NotchViewModel.lowBatteryEnabled
+        case .batteryFull: switchOn = NotchViewModel.fullBatteryEnabled
+        // The person set it; there is no switch to refuse it.
+        case .timerDone: switchOn = true
         }
         return activity.showsOnIsland && Self.ambientAllowed(
             switchOn: switchOn, pointerInside: false, pointerUnderGrownPill: false,
@@ -3228,6 +3378,10 @@ final class NotchController {
         switch activity {
         case .charging: switchOn = NotchViewModel.chargingEnabled
         case .headphones: switchOn = NotchViewModel.headphonesEnabled
+        case .batteryLow: switchOn = NotchViewModel.lowBatteryEnabled
+        case .batteryFull: switchOn = NotchViewModel.fullBatteryEnabled
+        // The person set the timer; its end has no switch of its own.
+        case .timerDone: switchOn = true
         }
         let grown = NotchViewModel.ambientBodySize(
             activity, notchSize: vm.geometry.notchSize, bodyWidth: vm.geometry.expandedSize.width
@@ -3259,7 +3413,9 @@ final class NotchController {
         // The charger shows under the pointer and over a full-screen app
         // (owner, 2026-10-27: every plug-in, as the menu bar's bolt); the
         // headphones keep the pointer's and the film's restraint.
-        let charger = activity.isChargerMoment
+        // Battery Low and a timer's end are news the person needs wherever
+        // the pointer is, as the charger is (plan 2026-11-14 S2, S3).
+        let charger = activity.isChargerMoment || activity.isBatteryAlert || activity.isTimerDone
         guard Self.ambientAllowed(
             switchOn: switchOn,
             pointerInside: !charger && !blocked && pointer.isInside,
@@ -3865,13 +4021,14 @@ final class NotchController {
         // with the island: everything that brings it or takes it away — a
         // track, a pause settling, an alert, the Shelf's first and last file,
         // opening, the lock — already re-cuts these rects.
-        if !open, let count = vm.bubbleCount {
+        if !open, let bubble = vm.bubble {
             let width = vm.bodySize.width, height = vm.bodySize.height
+            let bubbleWidth = IslandBubbleLayout.width(for: bubble)
             rootView.bubbleRect = NotchRootView.reachingTopEdge(
-                vm.geometry.bubbleRect(islandWidth: width, height: height, count: count),
+                vm.geometry.bubbleRect(islandWidth: width, height: height, bubbleWidth: bubbleWidth),
                 windowHeight: vm.geometry.windowSize.height
             )
-            pointer.bubbleRect = vm.geometry.bubbleScreenRect(islandWidth: width, height: height, count: count)
+            pointer.bubbleRect = vm.geometry.bubbleScreenRect(islandWidth: width, height: height, bubbleWidth: bubbleWidth)
         } else {
             rootView.bubbleRect = .zero
             pointer.bubbleRect = .zero

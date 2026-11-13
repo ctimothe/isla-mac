@@ -34,6 +34,8 @@ final class NotchStores {
     let privacy: PrivacyMode
     /// The charger and headphones, for the island's moments without music.
     let ambient = AmbientWatch()
+    /// The timer, the microphone and camera, and Downloads (plan 2026-11-14).
+    let live = LiveActivityHub()
     /// The volume and brightness pop-up's keys (spec §12). Session-owned: a
     /// panel rebuilt for a new display must not end the tap and begin it again
     /// — a person pressing volume while a monitor is plugged in would hear the
@@ -195,6 +197,7 @@ final class NotchStores {
         }
         refreshClipboardPolling()
         ambient.start()
+        live.start()
     }
 
     /// The song's lines go to the translation whenever the lyrics change state,
@@ -263,6 +266,7 @@ final class NotchStores {
         media.stop()
         clipboard.stop()
         ambient.stop()
+        live.stop()
         hud.stop()
     }
 

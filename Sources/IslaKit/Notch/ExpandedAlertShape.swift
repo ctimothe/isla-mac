@@ -67,17 +67,24 @@ struct ExpandedAlertShape: Equatable {
 /// reference's 8.67 / 12.67. One function, read by the shape and by both hit
 /// rects, so the black and the clickable cannot disagree about the shoulders.
 enum IslandShapeRadii {
-    static func closed(for activity: IslandActivity) -> (top: CGFloat, bottom: CGFloat) {
+    static func closed(for activity: IslandActivity, timerControls: Bool = false) -> (top: CGFloat, bottom: CGFloat) {
+        if timerControls {
+            return (LiveActivityLayout.controlsShape.topRadius, LiveActivityLayout.controlsShape.bottomRadius)
+        }
         switch activity {
         case .hud:
             return (ExpandedAlertShape.volume.topRadius, ExpandedAlertShape.volume.bottomRadius)
         case .ambient(.headphones):
             return (ExpandedAlertShape.headphones.topRadius, ExpandedAlertShape.headphones.bottomRadius)
+        case .ambient(.batteryLow):
+            return (ExpandedAlertShape.batteryLow.topRadius, ExpandedAlertShape.batteryLow.bottomRadius)
+        case .ambient(.batteryFull), .ambient(.timerDone):
+            return (ExpandedAlertShape.batteryFull.topRadius, ExpandedAlertShape.batteryFull.bottomRadius)
         case .update:
             return (ExpandedAlertShape.update.topRadius, ExpandedAlertShape.update.bottomRadius)
         case .peek:
             return (Theme.collapsedTopRadius, Theme.peekBottomRadius)
-        case .confirmation, .ambient(.charging), .music, .shelf, .none:
+        case .confirmation, .ambient(.charging), .music, .shelf, .live, .none:
             return (Theme.collapsedTopRadius, Theme.collapsedBottomRadius)
         }
     }

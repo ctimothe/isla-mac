@@ -2453,6 +2453,33 @@ Translate are pages, turned by a swipe or their dots (§19.16). The bare notch
 with no song, and ⌃⌥⌘I with nothing live, open the page last shown instead of
 Tools, which is withdrawn; §19.16 restates this table.
 
+
+*Amended 2026-11-14 (owner, plan `2026-11-14-islandcn-activities.md`) — more
+live activities, any of them the bubble.* Four live activities join Music and
+the Shelf, and the live ranks spread out to hold them:
+
+| Rank | Activity | Kind | Holds | A click |
+|---|---|---|---|---|
+| 4 | Timer Done | alert | 10 s, with the Glass sound | folds it |
+| 11 | Recording: another app has the microphone or a camera (off by default) | live | while it does | brings the app with the microphone forward (a camera alone names no app) |
+| 12 | Timer, running or paused | live | until it ends or is cancelled | opens its controls in place (pause or resume, cancel), folding after 6 s |
+| 13 | Stopwatch, running or paused | live | until reset | its controls (pause or resume, reset) |
+| 14 | Music (was 11) | live | as before | opens the player |
+| 15 | Downloads in ~/Downloads (off by default) | live | while one is in progress | opens the Downloads folder |
+| 16 | Shelf (was 12) | live | as before | opens the tray |
+
+A recording outranks everything live, because it is the one that says
+something is listening; a timer is a deadline the person set and outranks the
+song; a download is the Mac's and waits under it. Timer Done shares rank 4
+with Battery Low and, like it, outlives the one-second patience
+(`IslandAlertQueue`). Timers start from the island's right-click menu (Timer ›
+1–60 min, Stopwatch) and survive Isla replacing itself for an update
+(`island.timers`). **The bubble is any second live activity**, not only the
+Shelf: beside a timer the song waits as the bubble, beside the song a
+download does. The rules for when it shows are unchanged (§19.7). Held by
+`LiveActivityTests`, `IslandActivityTests`, `LiveActivityHubTests`,
+`IslandTimerTests`.
+
 ### 19.2 The outline
 
 Every activity and surface is one black shape hung from the top of the screen.
@@ -2964,6 +2991,20 @@ R9, with the local update feed.** What this section left open is decided:
   For everyone else nothing changes: Check for Updates or the opt-in daily
   check.
 
+
+*Amended 2026-11-14 (plan `2026-11-14-islandcn-activities.md` S2, S3) — Battery
+Low, Full Battery and Timer Done are built.* Battery Low fires once as the
+charge falls through 20 % and once through 10 %, on battery only; unplugging
+below a threshold starts a new discharge without warning for the level it is
+already under. Full Battery fires once when the charge reaches 100 % on power,
+and not again until it has fallen below 95 % (`BatteryAlerts`). Their shapes
+are §19.5 a and b (`ExpandedAlertShape.batteryLow`, `.batteryFull`), the
+advice mentions Low Power Mode only while it is off, and the level pulses
+except under Reduce Motion. Timer Done takes Full Battery's shape: the timer
+glyph and the set duration in orange, "Timer" and "Done". Under an open panel
+all three ride the strip as the charger does (`StripNoticeContent`). Held by
+`BatteryAlertsTests`.
+
 ### 19.6 The player and the lyrics stage
 
 **The player** — 425.4 × 198, radii 34 / 44, stroke white 0.14, shadow. Board
@@ -3367,6 +3408,17 @@ tile says when it was added**, not its file name: the day — "Today",
 year) — over the time in the system's short style, both secondary and in
 tabular figures; the name stays as the tile's help and accessibility label.
 An item with no date keeps its name.
+
+
+*Amended 2026-11-14 (plan `2026-11-14-islandcn-activities.md` S6) — the bubble
+pinches off.* The bubble holds any live activity in its minimal form
+(`LiveBubbleContent`: a ring, a glyph or the remaining time), 62 pt wide
+except the Shelf's, which keeps its count-driven width. It no longer fades in
+beside the island: it grows out of the island's end on islandcn's split
+spring (0.505 / 0.815) and merges back on the unsplit one (0.487 / 0.794),
+with islandcn's metaball neck between the two while the gap is under 5 pt
+(`IslandNeck`, spread 0.3, handle 2.4). Under Reduce Motion it fades. Held by
+`LiveActivityTests`.
 
 ### 19.8 Tools and the summoned surfaces
 
@@ -3871,6 +3923,20 @@ done, and what was not shown:
 `player.lyricBand` are reused with their defaults. `lock.restAsBanner` applies
 to the Card layout only. Spotify's library scope is no key: it is granted, or
 not, on reconnecting the account.
+
+
+*Amended 2026-11-14 (plan `2026-11-14-islandcn-activities.md`).* Four rows join
+"The island shows", in this order after Charger Connected and New Tracks:
+
+| Key | Default | Section | Leaves the Mac / system-wide? |
+|---|---|---|---|
+| `island.lowBattery` (Low Battery Warning) | true | General | no |
+| `island.fullBattery` (Fully Charged) | true | General | no |
+| `island.recording` (Microphone and Camera) | **false** | General | no, but it watches other apps |
+| `island.downloads` (Downloads) | **false** | General | no, but it reads ~/Downloads |
+| `island.timers` (no row: the running timers) | — | — | no |
+
+The two battery rows show only on a Mac with a battery.
 
 ### 19.14 Strings
 

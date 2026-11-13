@@ -81,7 +81,7 @@ enum IslandMotion {
     /// What the shut island is drawn as. The identity is the activity's kind,
     /// so a song turning into the Shelf is a swap of content and a song's
     /// peek is the same pill made wider.
-    enum Presentation: Equatable {
+    enum Presentation: Hashable {
         case idle
         case compact(String)
         case expanded(String)
@@ -97,12 +97,21 @@ enum IslandMotion {
     /// The presentation an activity is drawn in (spec §19.4, §19.5): the
     /// charger, the confirmation, the peek and the live activities are
     /// compact; the pop-up, headphones and the update are expanded alerts.
-    static func presentation(of activity: IslandActivity, hasBubble: Bool = false) -> Presentation {
+    static func presentation(
+        of activity: IslandActivity, hasBubble: Bool = false, timerControls: Bool = false
+    ) -> Presentation {
         let compact: String
         switch activity {
         case .none: return .idle
         case .hud: return .expanded("hud")
         case .ambient(.headphones): return .expanded("headphones")
+        case .ambient(.batteryLow): return .expanded("batteryLow")
+        case .ambient(.batteryFull): return .expanded("batteryFull")
+        case .ambient(.timerDone): return .expanded("timerDone")
+        // A timer's controls are its own expanded view, which a click on the
+        // compact timer opens with islandcn's `expand`.
+        case .live(let live) where timerControls && live.isTimer: return .expanded(live.kind)
+        case .live(let live): compact = live.kind
         case .update: return .expanded("update")
         case .ambient(.charging): compact = "charging"
         case .confirmation: compact = "confirmation"

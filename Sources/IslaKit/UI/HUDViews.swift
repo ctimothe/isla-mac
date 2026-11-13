@@ -251,6 +251,35 @@ struct StripNoticeContent: View {
                 // longer word, those 10 pt cut the name to "AirPods…" in a
                 // capsule it fitted (`AlertCapsuleTests`, 2026-10-29).
                 .frame(maxWidth: .infinity, alignment: .leading)
+            case .batteryLow(let level, _), .batteryFull(let level):
+                // Under the open panel the battery alerts keep their words
+                // and their level in their colour (plan 2026-11-14 S2).
+                let tone = ambient.chargeTint == .red
+                    ? (increaseContrast ? Theme.lowBatteryRedContrast : Theme.lowBatteryRed)
+                    : (increaseContrast ? Theme.chargingGreenContrast : Theme.chargingGreen)
+                HStack(spacing: HUDStripLayout.spacing) {
+                    Text(BatteryAlertView.title(for: ambient))
+                        .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingTextOpacity))
+                    Spacer(minLength: 0)
+                    Text(localized("%d%%", level))
+                        .monospacedDigit()
+                        .foregroundStyle(tone)
+                        .fixedSize()
+                }
+            case .timerDone(let duration):
+                HStack(spacing: HUDStripLayout.spacing) {
+                    Image(systemName: "timer")
+                        .font(.system(size: StripNoticeLayout.textSize, weight: .semibold))
+                        .foregroundStyle(LiveActivityLayout.timerOrange)
+                        .frame(width: StripNoticeLayout.symbolSize.width)
+                    Text(localized("Timer done"))
+                        .foregroundStyle(Color.white.opacity(CompactIslandLayout.chargingTextOpacity))
+                    Spacer(minLength: 0)
+                    Text(IslandTimerCenter.format(duration, roundingUp: true))
+                        .monospacedDigit()
+                        .foregroundStyle(LiveActivityLayout.timerOrange)
+                        .fixedSize()
+                }
             }
         case .confirmation(let confirmation):
             HStack(spacing: HUDStripLayout.spacing) {

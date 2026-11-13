@@ -610,3 +610,41 @@
 "Spotify asks for Premium on Isla’s registration." = "Spotify требует Premium для регистрации Isla.";
 "Spotify refused this account." = "Spotify отказал этому аккаунту.";
 "Spotify ended Isla’s access. Connect again." = "Spotify отозвал доступ Isla. Подключитесь снова.";
+
+/* Battery alerts and new island rows, 2026-11-14 */
+"Battery Low" = "Низкий заряд";
+"Battery Low, %d percent" = "Низкий заряд, процентов: %d";
+"Full Battery" = "Аккумулятор заряжен";
+"Full Battery. You can unplug the charger." = "Аккумулятор заряжен. Зарядное устройство можно отключить.";
+"Connect a charger soon." = "Подключите зарядное устройство.";
+"Connect a charger soon, or turn on Low Power Mode." = "Подключите зарядное устройство или включите режим энергосбережения.";
+"You can unplug the charger." = "Зарядное устройство можно отключить.";
+"Low Battery Warning" = "Предупреждение о низком заряде";
+"Fully Charged" = "Полная зарядка";
+"Microphone and Camera" = "Микрофон и камера";
+"Downloads" = "Загрузки";
+
+/* Live activities: timer, stopwatch, recording, downloads (plan 2026-11-14) */
+"Camera in use" = "Камера используется";
+"Cancel Timer" = "Отменить таймер";
+"Done" = "Готово";
+"Downloaded %@" = "Загружено: %@";
+"Downloaded" = "Загружено";
+"Downloading %@, %d percent" = "Загрузка %@, %d процентов";
+"Downloading %@" = "Загрузка %@";
+"Microphone and camera in use" = "Микрофон и камера используются";
+"Microphone in use" = "Микрофон используется";
+"Pause Stopwatch" = "Приостановить секундомер";
+"Pause Timer" = "Приостановить таймер";
+"Received %@ by AirDrop" = "Получено по AirDrop: %@";
+"Reset Stopwatch" = "Сбросить секундомер";
+"Resume Stopwatch" = "Продолжить секундомер";
+"Resume Timer" = "Продолжить таймер";
+"Resume" = "Продолжить";
+"Stopwatch paused, %@" = "Секундомер на паузе, %@";
+"Stopwatch, %@" = "Секундомер, %@";
+"Stopwatch" = "Секундомер";
+"Timer done" = "Таймер завершён";
+"Timer paused, %@ left" = "Таймер на паузе, осталось %@";
+"Timer, %@ left" = "Таймер, осталось %@";
+"Timer" = "Таймер";
