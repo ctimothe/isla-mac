@@ -34,8 +34,12 @@ enum IslandActivity: Equatable {
     /// Something playing (§19.4), rank 11: live while `CompactMediaActivity`
     /// is not hidden.
     case music
-    /// The Shelf holding files (§19.4, §19.7), rank 12: live while it has any.
+    /// The Shelf holding files (§19.4, §19.7), rank 16 (12 before
+    /// 2026-11-14): live while it has any.
     case shelf(count: Int)
+    /// A timer, a stopwatch, a recording or a download (amended 2026-11-14,
+    /// ranks 11, 12, 13 and 15): live while it stands (`LiveActivity`).
+    case live(LiveActivity)
     /// The bare notch.
     case none
 
@@ -43,13 +47,19 @@ enum IslandActivity: Equatable {
     var rank: Int? {
         switch self {
         case .hud: return 3
+        case .ambient(.batteryLow), .ambient(.timerDone): return 4
         case .confirmation: return 5
         case .ambient(.headphones): return 6
         case .ambient(.charging): return 7
+        case .ambient(.batteryFull): return 8
         case .update: return 9
         case .peek: return 10
-        case .music: return 11
-        case .shelf: return 12
+        // Amended 2026-11-14: the song and the Shelf moved down to make room
+        // for the new live activities (`LiveActivity.rank`) — recording,
+        // the timer and the stopwatch over the song, downloads under it.
+        case .music: return 14
+        case .shelf: return 16
+        case .live(let live): return live.rank
         case .none: return nil
         }
     }
@@ -58,14 +68,14 @@ enum IslandActivity: Equatable {
     var isAlert: Bool {
         switch self {
         case .hud, .confirmation, .ambient, .update, .peek: return true
-        case .music, .shelf, .none: return false
+        case .music, .shelf, .live, .none: return false
         }
     }
 
     /// A live activity stands for as long as what it shows is true.
     var isLive: Bool {
         switch self {
-        case .music, .shelf: return true
+        case .music, .shelf, .live: return true
         case .hud, .confirmation, .ambient, .update, .peek, .none: return false
         }
     }
@@ -84,18 +94,41 @@ enum IslandActivity: Equatable {
     /// highest still wins here, so the island never draws two.
     static func current(
         hud: HUDMoment?, confirmation: IslandConfirmation? = nil, ambient: AmbientActivity?,
-        update: UpdateOffer? = nil, isPeeking: Bool, musicIsVisible: Bool, shelfCount: Int
+        update: UpdateOffer? = nil, isPeeking: Bool, musicIsVisible: Bool, shelfCount: Int,
+        live: [LiveActivity] = []
     ) -> IslandActivity {
         if let hud { return .hud(hud) }
         if let confirmation { return .confirmation(confirmation) }
         if let ambient { return .ambient(ambient) }
         if let update { return .update(update) }
+        let standing = Self.standing(musicIsVisible: musicIsVisible, shelfCount: shelfCount, live: live)
         // A peek widens the music pill to show a new title; with no song to
-        // widen there is nothing for it to draw.
-        if isPeeking && musicIsVisible { return .peek }
-        if musicIsVisible { return .music }
-        if shelfCount > 0 { return .shelf(count: shelfCount) }
-        return .none
+        // widen there is nothing for it to draw, and over a recording or a
+        // timer the song is not what the island shows.
+        if isPeeking && standing.first == .music { return .peek }
+        return standing.first ?? .none
+    }
+
+    /// Every live activity standing, highest first.
+    static func standing(musicIsVisible: Bool, shelfCount: Int, live: [LiveActivity]) -> [IslandActivity] {
+        var all = live.map(IslandActivity.live)
+        if musicIsVisible { all.append(.music) }
+        if shelfCount > 0 { all.append(.shelf(count: shelfCount)) }
+        return all.sorted { ($0.rank ?? .max) < ($1.rank ?? .max) }
+    }
+
+    /// The second live activity, waiting as the bubble beside the first
+    /// (§19.1, §19.7, amended 2026-11-14: any live activity, not only the
+    /// Shelf). Only beside a compact live activity — never during an alert
+    /// or a peek, while a surface is open, or while locked.
+    static func bubbleActivity(
+        beside activity: IslandActivity, musicIsVisible: Bool, shelfCount: Int, live: [LiveActivity],
+        isOpen: Bool, isLocked: Bool
+    ) -> IslandActivity? {
+        guard activity.isLive, !isOpen, !isLocked else { return nil }
+        let standing = standing(musicIsVisible: musicIsVisible, shelfCount: shelfCount, live: live)
+        guard standing.count > 1, standing.first == activity else { return nil }
+        return standing[1]
     }
 
     /// The second live activity, waiting as a bubble beside the island
@@ -148,7 +181,20 @@ struct IslandAlertQueue {
         var outlivesPatience: (IslandActivity) -> Bool
         var returnsWhenReplaced: (IslandActivity) -> Bool
 
-        static let standard = Policy(outlivesPatience: isUpdate, returnsWhenReplaced: isUpdate)
+        /// The update choice waits for any idle moment and comes back when
+        /// replaced; Battery Low waits for the surface to close (§19.1's two
+        /// exceptions, the second built 2026-11-14) — a warning that the
+        /// battery is low is still true when the panel shuts.
+        static let standard = Policy(
+            outlivesPatience: { isUpdate($0) || isBatteryLow($0) }, returnsWhenReplaced: isUpdate
+        )
+
+        private static func isBatteryLow(_ alert: IslandActivity) -> Bool {
+            switch alert {
+            case .ambient(.batteryLow), .ambient(.timerDone): return true
+            default: return false
+            }
+        }
 
         private static func isUpdate(_ alert: IslandActivity) -> Bool {
             if case .update = alert { return true }

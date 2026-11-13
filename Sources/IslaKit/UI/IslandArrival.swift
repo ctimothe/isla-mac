@@ -3,12 +3,12 @@ import SwiftUI
 /// How content arrives on the island and leaves it (redesign spec §19.3).
 ///
 /// Content does not fade onto the black shape: it comes into focus with it.
-/// An expanded activity's or a surface's content starts at opacity 0, blur 30
+/// An expanded activity's or a surface's content starts at opacity 0, blur 12
 /// and scale (0.6, 0.2) anchored at (0.5, 0.4) of its frame — squashed toward a
 /// point a little above its middle, the way the reference's alerts unfold out
-/// of the notch's line; a compact activity's starts at opacity 0, blur 15 and
+/// of the notch's line; a compact activity's starts at opacity 0, blur 12 and
 /// 0.8 of its width, since a compact activity only ever grows sideways. Both
-/// ride the outline's spring (`Theme.islandSpring`) and leave by the same path
+/// ride the change's spring (`IslandMotion`) and leave by the same path
 /// reversed. When one activity turns into another the old content leaves while
 /// the outline moves and the new arrives on the same curve, so the two are
 /// never both at full opacity.
@@ -36,18 +36,28 @@ struct IslandArrival: Equatable {
     /// above centre.
     static let expandedAnchor = UnitPoint(x: 0.5, y: 0.4)
 
+    /// The blur content comes into focus from (amended 2026-11-14). It was 30
+    /// for an expanded arrival and 15 for a compact one; islandcn measured
+    /// the phone's incoming content at 12 on both (`appearExpand.enterBlur`,
+    /// `appear.enterBlur`), and at 30 an alert's title read as a smear for
+    /// the first third of its arrival. islandcn's compact circle also grows
+    /// from 0.95 of its height; not here, where the compact pill is the
+    /// notch's own height and never grows downward (`PillFoldTests`).
+    static let expandedBlur: CGFloat = 12
+    static let compactBlur: CGFloat = 12
+
     /// An expanded activity's or a surface's content before it arrives.
     static func expanded(reduceMotion: Bool) -> IslandArrival {
         reduceMotion
             ? IslandArrival(opacity: 0, blur: 0, scale: CGSize(width: 1, height: 1), anchor: expandedAnchor)
-            : IslandArrival(opacity: 0, blur: 30, scale: CGSize(width: 0.6, height: 0.2), anchor: expandedAnchor)
+            : IslandArrival(opacity: 0, blur: expandedBlur, scale: CGSize(width: 0.6, height: 0.2), anchor: expandedAnchor)
     }
 
     /// A compact activity's content before it arrives.
     static func compact(reduceMotion: Bool) -> IslandArrival {
         reduceMotion
             ? IslandArrival(opacity: 0, blur: 0, scale: CGSize(width: 1, height: 1), anchor: .center)
-            : IslandArrival(opacity: 0, blur: 15, scale: CGSize(width: 0.8, height: 1), anchor: .center)
+            : IslandArrival(opacity: 0, blur: compactBlur, scale: CGSize(width: 0.8, height: 1), anchor: .center)
     }
 }
 

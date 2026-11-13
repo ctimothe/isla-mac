@@ -221,7 +221,7 @@ final class NotchViewModel: ObservableObject {
     /// is spoken over an open panel that draws nothing.
     func confirm(_ kind: IslandConfirmation.Kind) {
         let confirmation = IslandConfirmation(kind)
-        if confirmation.announcesAtTheAct { Announcer.shared.announce(confirmation.title) }
+        if confirmation.announcesAtTheAct { Announcer.shared.announce(confirmation.accessibilityLabel) }
         onConfirmation?(confirmation)
     }
 
@@ -247,16 +247,36 @@ final class NotchViewModel: ObservableObject {
     var activity: IslandActivity {
         IslandActivity.current(
             hud: hud, confirmation: confirmation, ambient: ambient, update: updateOffer, isPeeking: isPeeking,
-            musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount
+            musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount, live: liveActivities
         )
     }
-    /// The Shelf's count waiting as a bubble beside the island, or nil
-    /// (spec §19.7).
-    var bubbleCount: Int? {
-        IslandActivity.bubble(
-            beside: activity, shelfCount: liveShelfCount, isOpen: isOpen || isDropTargeted,
-            isLocked: isLockedPresentation
+    /// The timer, stopwatch, recording and downloads standing, highest first
+    /// (`LiveActivityHub`, plan 2026-11-14). The controller's to set.
+    @Published var liveActivities: [LiveActivity] = []
+    /// The kind of the timer or stopwatch whose controls are showing: a click
+    /// on it opens them in place, as the iPhone's long-press does, and they
+    /// fold on their own (`NotchController.toggleTimerControls`).
+    @Published var expandedLive: String?
+    /// A timer control was pressed. The controller's.
+    var onTimerControl: ((TimerControl) -> Void)?
+    /// Whether the island shows a timer's controls right now.
+    var showsTimerControls: Bool {
+        guard let kind = expandedLive, case .live(let live) = activity else { return false }
+        return live.kind == kind && live.isTimer
+    }
+    /// The second live activity waiting as the bubble beside the island
+    /// (spec §19.7, amended 2026-11-14: any live activity), or nil.
+    var bubble: IslandActivity? {
+        guard !showsTimerControls else { return nil }
+        return IslandActivity.bubbleActivity(
+            beside: activity, musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount,
+            live: liveActivities, isOpen: isOpen || isDropTargeted, isLocked: isLockedPresentation
         )
+    }
+    /// The Shelf's count when the Shelf is the bubble (spec §19.7).
+    var bubbleCount: Int? {
+        if case .shelf(let count)? = bubble { return count }
+        return nil
     }
     /// The Shelf's count while it is live, else 0. Live while it holds a file
     /// a person put there, or for a collected file's moment; the count is
@@ -1026,7 +1046,7 @@ final class NotchViewModel: ObservableObject {
     var liveActivity: IslandActivity {
         IslandActivity.current(
             hud: nil, ambient: nil, isPeeking: isPeeking,
-            musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount
+            musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount, live: liveActivities
         )
     }
 
@@ -1657,6 +1677,11 @@ final class NotchViewModel: ObservableObject {
             return Self.updateBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .shelf:
             return Self.shelfBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+        case .live(let live):
+            return LiveActivityLayout.bodySize(
+                live, expanded: showsTimerControls, notchSize: geometry.notchSize,
+                bodyWidth: geometry.expandedSize.width
+            )
         case .peek, .music, .none:
             return media
         }
@@ -1696,12 +1721,18 @@ final class NotchViewModel: ObservableObject {
             )
         case .headphones:
             return ExpandedAlertShape.headphones.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
+        case .batteryLow:
+            return ExpandedAlertShape.batteryLow.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
+        case .batteryFull:
+            return ExpandedAlertShape.batteryFull.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
+        case .timerDone:
+            return LiveActivityLayout.doneShape.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
         }
     }
 
     /// The shut island's shoulder: the radius its shape and hit rects take
     /// for what it shows (`IslandShapeRadii`).
-    var closedTopRadius: CGFloat { IslandShapeRadii.closed(for: activity).top }
+    var closedTopRadius: CGFloat { IslandShapeRadii.closed(for: activity, timerControls: showsTimerControls).top }
 
     static let hasCompletedFirstRunKey = "hasCompletedFirstRun"
 
@@ -1942,6 +1973,18 @@ final class NotchViewModel: ObservableObject {
     static func chargingEnabled(in defaults: UserDefaults) -> Bool {
         SettingsRowID.charging.isOn(in: defaults)
     }
+
+    /// Low Battery Warning and Fully Charged (spec §19.5 a, b), both on:
+    /// IOKit's battery readings, no permission, nothing leaves the Mac.
+    static let lowBatteryKey = "island.lowBattery"
+    static let fullBatteryKey = "island.fullBattery"
+    /// Microphone and Camera, and Downloads (plan 2026-11-14 S4, S5): off.
+    static let recordingKey = "island.recording"
+    static let downloadsKey = "island.downloads"
+    static var recordingEnabled: Bool { SettingsRowID.recording.isOn(in: .standard) }
+    static var downloadsEnabled: Bool { SettingsRowID.downloads.isOn(in: .standard) }
+    static var lowBatteryEnabled: Bool { SettingsRowID.lowBattery.isOn(in: .standard) }
+    static var fullBatteryEnabled: Bool { SettingsRowID.fullBattery.isOn(in: .standard) }
 
     static var headphonesEnabled: Bool { headphonesEnabled(in: .standard) }
     static func headphonesEnabled(in defaults: UserDefaults) -> Bool {

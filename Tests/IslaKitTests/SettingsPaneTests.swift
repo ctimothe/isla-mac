@@ -132,9 +132,11 @@ final class SettingsPaneTests: XCTestCase {
         // report on (`AmbientWatch.hasBattery`), and a CI virtual machine has none:
         // the row is not there to count, which is correct and not a missing switch.
         let expected: [SettingsSection: [String]] = [
-            .general: ["Launch at Login", "Open on Hover", "Swipe to Open and Close"] + (AmbientWatch.hasBattery ? ["Charger Connected"] : [])
-                // Volume and Brightness joined in R5 (spec §12), off by default.
-                + ["Headphones Connecting", "New Tracks", "Volume and Brightness"],
+            .general: ["Launch at Login", "Open on Hover", "Swipe to Open and Close"]
+                + (AmbientWatch.hasBattery ? ["Charger Connected", "Low Battery Warning", "Fully Charged"] : [])
+                // Volume and Brightness joined in R5 (spec §12), off by default;
+                // Microphone and Camera and Downloads on 2026-11-14, off by default.
+                + ["Headphones Connecting", "New Tracks", "Microphone and Camera", "Downloads", "Volume and Brightness"],
             .privacy: ["Clipboard History", "Include Images", "Keep Pinned Items",
                        PrivacyMode.Section.clipboard.settingsTitle, PrivacyMode.Section.translate.settingsTitle,
                        "Hide from Screen Recording"],

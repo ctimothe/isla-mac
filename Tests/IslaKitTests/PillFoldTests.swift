@@ -66,7 +66,7 @@ final class PillFoldTests: XCTestCase {
     func testFoldedContentDrawsNothingAndReduceMotionOnlyFades() {
         let folded = PillPresence.appearance(shown: false, reduceMotion: false)
         XCTAssertEqual(folded.opacity, 0)
-        XCTAssertEqual(folded.blur, 15)
+        XCTAssertEqual(folded.blur, IslandArrival.compactBlur)
         XCTAssertEqual(folded.scale, CGSize(width: 0.8, height: 1), "narrower, never shorter: a compact activity grows sideways")
 
         let reduced = PillPresence.appearance(shown: false, reduceMotion: true)

@@ -136,8 +136,16 @@ final class MarqueeTrackTests: XCTestCase {
 
         let travel = try XCTUnwrap(moving.animation(forKey: MarqueeTrackView.travelKey))
         await AXProbe.wait(travel.beginTime - moving.convertTime(CACurrentMediaTime(), from: nil) + 0.5)
-        XCTAssertEqual(try XCTUnwrap(moving.presentation()?.sublayerTransform.m41), -MarqueeTiming.speed * 0.5,
-                       accuracy: 4, "the line is not travelling")
+        // Where the line should be is a matter of how long the pass has run,
+        // and that is read off the layer's own clock, not taken from the wait
+        // asked for. A wait comes back late on a busy machine: the release
+        // runner's came back 0.18 s late on 2026-11-12, the line stood at
+        // 20.3 pt where half a second makes 15, exactly right for the time
+        // that had passed, and the gate failed a release on it.
+        let shown = try XCTUnwrap(moving.presentation()?.sublayerTransform.m41)
+        let run = moving.convertTime(CACurrentMediaTime(), from: nil) - travel.beginTime
+        XCTAssertGreaterThanOrEqual(run, 0.5, "the pass was read before it had half a second to run")
+        XCTAssertEqual(shown, -MarqueeTiming.speed * run, accuracy: 4, "the line is not travelling")
         let still = try XCTUnwrap(clipped.presentation())
         XCTAssertTrue(CATransform3DIsIdentity(still.sublayerTransform), "the clipped layer moves what it holds, the clip with it")
         XCTAssertTrue(CATransform3DIsIdentity(still.transform), "the clipped layer itself moves")

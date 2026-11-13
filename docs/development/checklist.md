@@ -311,6 +311,27 @@ are the exception the design did not anticipate:
   `~/Library/Application Support/Isla/`, mode 0600, so pins survive a quit.
   Turning it off deletes the file. Nothing leaves the Mac; recorded because
   the clipboard was otherwise memory-only.
+- **Microphone and Camera** (Settings › General, default off, added
+  2026-11-14; plan `2026-11-14-islandcn-activities.md` S4) shows a recording
+  activity while another app has the microphone or a camera, with that app's
+  icon; a click brings the app forward. It reads CoreAudio's
+  `kAudioProcessPropertyIsRunningInput` per process and CoreMediaIO's
+  `kCMIODevicePropertyDeviceIsRunningSomewhere`, so macOS asks for nothing and
+  nothing leaves the Mac — but it watches other apps, which is why it is off
+  until chosen. Turned off, its listeners stop at once
+  (`LiveActivityHubTests`, `CaptureWatchTests`).
+- **Downloads** (Settings › General, default off, added 2026-11-14; S5) shows a
+  download in progress in ~/Downloads as a ring, then "Downloaded" or "AirDrop"
+  on the island when a file finishes or arrives; a click reveals it. It lists
+  that one folder and reads the quarantine mark's agent name, so the first scan
+  asks once for the Downloads folder (an ad-hoc build asks again after an
+  update, as the screen-capture pickup does). Nothing leaves the Mac. Off
+  until chosen, for the same reason (`DownloadWatchTests`).
+- **Timer and Stopwatch** (the island's right-click menu, added 2026-11-14; S3)
+  and **Low Battery Warning** / **Fully Charged** (Settings › General, default
+  on; S2) read nothing beyond the Mac's own clock and battery and are listed
+  only so the record of what the island can show is whole. A running timer is
+  kept in `island.timers` so it survives Isla replacing itself for an update.
 
 The status-item menu, and then the whole status item, were removed on
 2026-08-25 by owner decision. A window was built first and withdrawn the
@@ -3431,3 +3452,30 @@ Built on 2026-10-29 and withdrawn the same day (owner: "isla-mac is only for
 the notch style MacBooks. period."). `NativeIsland`, the step-aside geometry
 and Show on Built-in Display were removed (spec §3.8, withdrawn), so NI-H1,
 NI-H2 and NI-H3 are no longer owed.
+
+## islandcn activities — 2026-11-14
+
+Plan `docs/development/plans/2026-11-14-islandcn-activities.md`; spec §19.1,
+§19.3, §19.5, §19.7 and §19.13 amended 2026-11-14. islandcn (MIT, Leo, commit
+`0011a41`) is a React library and none of its code runs here; its measured
+springs, blur, neck and progress spring were ported, and it is credited in
+`THIRD_PARTY_NOTICES.md`. Not ported: its retarget through the idle pill and
+its per-property springs.
+
+Owed on hardware (record the Mac model and macOS version):
+- [ ] **IC-H1** The new springs on the owner's notch: appear, expand, fold,
+  dismiss. Nothing overshoots past the bezel.
+- [ ] **IC-H2** Battery Low at 20 % and at 10 % on battery; Full Battery once
+  at 100 % on power, and not again until the charge has fallen below 95 %.
+- [ ] **IC-H3** A 1-minute timer from the right-click menu: the wings count
+  down, a click opens pause and cancel and they fold after 6 s, the Done alert
+  shows with the Glass sound. Install an update mid-timer: it is still there.
+- [ ] **IC-H4** Microphone and Camera on, a FaceTime call: the activity shows
+  with FaceTime's icon, a click brings FaceTime forward, it goes within a
+  second of hanging up.
+- [ ] **IC-H5** Downloads on: a Safari and a Chrome download show the ring,
+  then Downloaded; a click reveals the file. An AirDrop from a phone says
+  AirDrop.
+- [ ] **IC-H6** A timer while music plays: the song waits as the bubble, it
+  pinches off the island's end with the neck and merges back when the timer
+  is cancelled.

@@ -634,7 +634,7 @@ struct SettingsPane: View {
                 drawnValueWidth: 52,
                 commit: commitBodyWidth
             )
-        case .charging, .headphones, .newTracks:
+        case .charging, .headphones, .newTracks, .lowBattery, .fullBattery, .recording, .downloads:
             switchRow(row, isOn: flagBinding(row))
         case .volumeAndBrightness:
             // Off until chosen. Turning it on asks macOS for Accessibility —

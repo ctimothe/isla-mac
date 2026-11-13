@@ -267,9 +267,14 @@ struct NotchGeometry {
     /// §19.7), its whole shape, in AppKit window coordinates — the space
     /// `NotchRootView.bubbleRect` is in.
     func bubbleRect(islandWidth: CGFloat, height: CGFloat, count: Int) -> CGRect {
-        let width = IslandBubbleLayout.width(count: count)
-        return CGRect(
-            x: windowSize.width / 2 + IslandBubbleLayout.centreOffset(islandWidth: islandWidth, count: count)
+        bubbleRect(islandWidth: islandWidth, height: height, bubbleWidth: IslandBubbleLayout.width(count: count))
+    }
+
+    /// Any bubble, by its width (amended 2026-11-14: any live activity can be
+    /// the bubble, and only the Shelf's widens with its count).
+    func bubbleRect(islandWidth: CGFloat, height: CGFloat, bubbleWidth width: CGFloat) -> CGRect {
+        CGRect(
+            x: windowSize.width / 2 + IslandBubbleLayout.centreOffset(islandWidth: islandWidth, bubbleWidth: width)
                 - width / 2,
             y: windowSize.height - height,
             width: width,
@@ -286,8 +291,12 @@ struct NotchGeometry {
 
     /// The same on screen, for the pointer sampler.
     func bubbleScreenRect(islandWidth: CGFloat, height: CGFloat, count: Int) -> CGRect {
+        bubbleScreenRect(islandWidth: islandWidth, height: height, bubbleWidth: IslandBubbleLayout.width(count: count))
+    }
+
+    func bubbleScreenRect(islandWidth: CGFloat, height: CGFloat, bubbleWidth: CGFloat) -> CGRect {
         includingTopEdge(
-            bubbleRect(islandWidth: islandWidth, height: height, count: count)
+            bubbleRect(islandWidth: islandWidth, height: height, bubbleWidth: bubbleWidth)
                 .offsetBy(dx: windowFrame.minX, dy: windowFrame.minY)
         )
     }

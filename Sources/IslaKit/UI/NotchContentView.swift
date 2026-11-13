@@ -180,7 +180,7 @@ struct NotchContentView: View {
         // The peek's taller island takes 16, each expanded alert its own
         // (§19.5), every compact activity 12.67 — whichever is drawn, since
         // an alert replaces what it outranks.
-        return IslandShapeRadii.closed(for: vm.activity).bottom
+        return IslandShapeRadii.closed(for: vm.activity, timerControls: vm.showsTimerControls).bottom
     }
 
     /// The island's surface: black, or `#1C1C1E` while the pointer is on it
@@ -683,18 +683,27 @@ struct NotchContentView: View {
         // A press deepens nothing now — it is the same `#1C1C1E` as the hover —
         // but it still arrives on a quick ease rather than a cut.
         .animation(Theme.contentAnimation, value: isPressed)
-        // Out of the notch and back into it, on the outline's spring both ways
-        // (spec §19.3) — see `Theme.pill`. The peek and the charger are the same
-        // gesture made wider, so they ride it too.
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: compactActivity)
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.isPeeking)
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.ambient)
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.confirmation)
-        // The update alert grows out of the notch and folds back on the same
-        // spring as the other expanded alerts. Keyed to its version, not to
-        // the offer: the installer's progress redraws inside it and moves no
-        // edge.
-        .animation(Theme.pill(reduceMotion: reduceMotion), value: vm.updateOffer?.version)
+        // Out of the notch and back into it, and from one activity to
+        // another, each on the spring the iPhone's island uses for that
+        // change (spec §19.3, amended 2026-11-14; `IslandMotion`): a compact
+        // activity arriving overshoots, an alert opening barely does, a fold
+        // back is nearly damped and going home is not sprung past at all. The
+        // keys are the ones these changes always rode: the song's pill, the
+        // peek, the charger and headphones, the confirmation, and the update
+        // alert — keyed to its version, not to the offer, since the
+        // installer's progress redraws inside it and moves no edge.
+        .modifier(IslandMorph(
+            presentation: IslandMotion.presentation(
+                of: vm.activity, hasBubble: vm.bubble != nil, timerControls: vm.showsTimerControls
+            ),
+            keys: MorphKeys(
+                compact: compactActivity, peeking: vm.isPeeking, ambient: vm.ambient,
+                confirmation: vm.confirmation, update: vm.updateOffer?.version,
+                live: vm.liveActivities.map(\.kind), timerControls: vm.showsTimerControls,
+                bubble: vm.bubble.map { IslandMotion.presentation(of: $0) }
+            ),
+            reduceMotion: reduceMotion
+        ))
         // The pop-up widens and folds on its own quick, critically damped
         // spring (`Theme.hudSpring`, spec §19.3 amended 2026-10-18). Keyed to
         // whether it is up, not to its level: a press only moves the bar,
@@ -767,7 +776,12 @@ struct NotchContentView: View {
                 // removed, so the cover's morph and the fold described above
                 // are exactly as they were when the moment ends.
                 compactMediaHeader(morph: travellingMorph)
-                    .opacity(vm.ambient == nil && vm.hud == nil && vm.confirmation == nil && vm.updateOffer == nil ? 1 : 0)
+                    // A live activity that outranks the song (a timer, a
+                    // recording) replaces it as an alert does.
+                    .opacity(
+                        vm.ambient == nil && vm.hud == nil && vm.confirmation == nil && vm.updateOffer == nil
+                            && !holdsLive ? 1 : 0
+                    )
                     // Faded under the update alert, and out of VoiceOver's
                     // way with it: the alert's container lets its own
                     // children through, and a song nobody can see is not one.
@@ -798,6 +812,23 @@ struct NotchContentView: View {
                 case .shelf(let count):
                     shelfHeader(count: count)
                         .transition(Theme.compactArrival(reduceMotion: reduceMotion))
+                case .live(let live):
+                    // One view per kind, so a timer turning into a download
+                    // is content leaving and arriving, not one view morphing.
+                    Group {
+                        if vm.showsTimerControls {
+                            TimerControlsView(
+                                live: live, size: size, notchHeight: vm.geometry.notchSize.height,
+                                increaseContrast: appearance.increaseContrast,
+                                onAction: { vm.onTimerControl?($0) }
+                            )
+                            .transition(Theme.expandedArrival(reduceMotion: reduceMotion))
+                        } else {
+                            LiveCompactHeader(live: live, size: size, reduceMotion: reduceMotion)
+                                .transition(Theme.compactArrival(reduceMotion: reduceMotion))
+                        }
+                    }
+                    .id(live.kind)
                 case .peek, .music, .none:
                     EmptyView()
                 }
@@ -811,12 +842,17 @@ struct NotchContentView: View {
         }
     }
 
+    private var holdsLive: Bool {
+        if case .live = vm.activity { return true }
+        return false
+    }
+
     /// The charger is a compact activity and arrives as one; headphones are
     /// an expanded alert and arrive as one (spec §19.3).
     private func ambientArrival(_ ambient: AmbientActivity) -> AnyTransition {
         switch ambient {
         case .charging: return Theme.compactArrival(reduceMotion: reduceMotion)
-        case .headphones: return Theme.expandedArrival(reduceMotion: reduceMotion)
+        case .headphones, .batteryLow, .batteryFull, .timerDone: return Theme.expandedArrival(reduceMotion: reduceMotion)
         }
     }
 
@@ -881,6 +917,7 @@ struct NotchContentView: View {
         if !vm.isLockedPresentation, let ambient = vm.ambient { return ambient.accessibilityLabel }
         if !vm.isLockedPresentation, let offer = vm.updateOffer { return localized("Isla %@ is ready", offer.version) }
         if !vm.isLockedPresentation, case .shelf(let count) = vm.activity { return IslandBubble.label(count: count) }
+        if !vm.isLockedPresentation, case .live(let live) = vm.activity { return live.accessibilityLabel(at: Date()) }
         return vm.media.track == nil ? localized("Nothing is playing.") : compactAccessibilityLabel
     }
 
@@ -934,6 +971,13 @@ struct NotchContentView: View {
             if let level { chargingHeader(ambient, level: level) }
         case .headphones(let name, let symbol):
             headphonesHeader(name: name, symbol: symbol)
+        case .timerDone(let duration):
+            TimerDoneView(duration: duration, size: size, notchHeight: vm.geometry.notchSize.height)
+        case .batteryLow, .batteryFull:
+            BatteryAlertView(
+                activity: ambient, size: size, notchHeight: vm.geometry.notchSize.height,
+                reduceMotion: reduceMotion, increaseContrast: appearance.increaseContrast
+            )
         }
     }
 
@@ -1664,4 +1708,19 @@ extension View {
     func pillPresence(_ shown: Bool, reduceMotion: Bool) -> some View {
         modifier(PillPresence(shown: shown, reduceMotion: reduceMotion))
     }
+}
+
+/// Everything whose change moves the shut island's outline between
+/// activities, as one value for `IslandMorph`.
+private struct MorphKeys: Equatable {
+    var compact: CompactMediaActivity
+    var peeking: Bool
+    var ambient: AmbientActivity?
+    var confirmation: IslandConfirmation?
+    var update: String?
+    /// Which live activities stand, by kind: a timer ticking or a download
+    /// growing redraws inside the island and moves no edge.
+    var live: [String]
+    var timerControls: Bool
+    var bubble: IslandMotion.Presentation?
 }
