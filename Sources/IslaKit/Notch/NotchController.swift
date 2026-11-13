@@ -1180,7 +1180,12 @@ final class NotchController {
         case .recording(let state):
             // The app that has the microphone, brought forward: the one place
             // the person can stop it.
-            guard let app = state.microphoneApps.first.map(LiveActivityHub.owningApp(of:)) else { return }
+            // A camera alone names no app; the bubble's click then opens the
+            // panel, as the island's does (`NotchViewModel.click`).
+            guard let app = state.microphoneApps.first.map(LiveActivityHub.owningApp(of:)) else {
+                islandClicked(opening: viewModel?.openTarget)
+                return
+            }
             NSRunningApplication.runningApplications(withBundleIdentifier: app).first?.activate()
         case .downloads:
             if let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {

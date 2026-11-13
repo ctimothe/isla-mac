@@ -120,6 +120,12 @@ extension NotchViewModel {
         case .hud, .confirmation, .ambient: return .foldAlert
         case .update: return .nothing
         case .peek: return .open(.player)
+        // A camera alone names no app (CoreMediaIO says only that a camera
+        // runs), so there is nothing to bring forward: the click opens the
+        // panel as the bare notch's would, rather than doing nothing (Codex
+        // review 2026-11-14).
+        case .live(.recording(let state)) where state.microphoneApps.isEmpty:
+            return .open(openTarget(live: live, hasTrack: hasTrack, lastPage: lastPage))
         case .live(let live): return .live(live)
         case .music, .shelf, .none: return .open(openTarget(live: live, hasTrack: hasTrack, lastPage: lastPage))
         }

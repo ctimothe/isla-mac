@@ -221,6 +221,11 @@ final class IslandTimerCenter: ObservableObject {
         }
         if let state = restored, state.isFinished(at: environment.now()) { restored = nil }
         countdown = restored
+        // A running stopwatch keeps its `runningSince`, so the time Isla was
+        // away counts: a stopwatch measures the time since it was started,
+        // as the iPhone's does when its app is quit, and an update that
+        // paused it for the seconds Isla took to restart would make it read
+        // short (Codex review 2026-11-14 asked for the opposite; declined).
         var watch = snapshot.stopwatch
         if let state = watch {
             if case .stopwatch = state.kind {

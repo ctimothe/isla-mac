@@ -2461,7 +2461,7 @@ the Shelf, and the live ranks spread out to hold them:
 | Rank | Activity | Kind | Holds | A click |
 |---|---|---|---|---|
 | 4 | Timer Done | alert | 10 s, with the Glass sound | folds it |
-| 11 | Recording: another app has the microphone or a camera (off by default) | live | while it does | brings the app with the microphone forward (a camera alone names no app) |
+| 11 | Recording: another app has the microphone or a camera (off by default) | live | while it does | brings the app with the microphone forward; a camera alone names no app, so it opens the panel as the bare notch does |
 | 12 | Timer, running or paused | live | until it ends or is cancelled | opens its controls in place (pause or resume, cancel), folding after 6 s |
 | 13 | Stopwatch, running or paused | live | until reset | its controls (pause or resume, reset) |
 | 14 | Music (was 11) | live | as before | opens the player |

@@ -81,6 +81,14 @@ final class LiveActivityTests: XCTestCase {
         )
     }
 
+    /// A camera alone names no app to bring forward, so its click opens the
+    /// panel instead of doing nothing.
+    func testACameraOnlyRecordingOpensThePanel() {
+        let camera = IslandActivity.live(.recording(CaptureState(microphone: [], camera: true)))
+        XCTAssertEqual(NotchViewModel.click(on: camera, live: camera, hasTrack: true), .open(.player))
+        XCTAssertEqual(NotchViewModel.click(on: .live(recording), live: .live(recording)), .live(recording))
+    }
+
     func testVoiceOverHearsWhatTheIslandShows() {
         XCTAssertEqual(recording.accessibilityLabel(at: now), localized("Microphone in use"))
         XCTAssertEqual(
