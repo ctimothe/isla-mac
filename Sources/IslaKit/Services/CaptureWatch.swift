@@ -1,6 +1,6 @@
+import AppKit
 import CoreAudio
 import CoreMediaIO
-import Foundation
 
 /// What is using the microphone and the cameras right now, as the island's
 /// Recording activity needs it (islandcn plan §S4).
@@ -8,7 +8,7 @@ struct CaptureState: Equatable {
     /// Bundle ids of other apps with microphone input running, sorted so the
     /// same set is always the same array (a `Set`'s order would make two equal
     /// readings compare unequal and be reported twice). Isla's own ids and
-    /// processes that have no bundle id are never in it.
+    /// processes that belong to no app are never in it.
     var microphoneApps: [String]
     var cameraInUse: Bool
 
@@ -46,8 +46,9 @@ final class CaptureWatch {
     /// — a read that failed, a stop that lasted half a second, a stop while a
     /// read was in flight — is what the tests hold.
     struct Environment {
-        /// Bundle ids of every process with microphone input running,
-        /// unfiltered, or nil when CoreAudio could not say. Not an empty list:
+        /// Bundle ids of every app with microphone input running (each
+        /// process named by its responsible app), unfiltered, or nil when
+        /// CoreAudio could not say. Not an empty list:
         /// a failed read taken at its word would clear a recording that is
         /// still going and flash the island out and back in.
         var readMicrophoneApps: @Sendable () -> [String]?
@@ -193,21 +194,63 @@ final class CaptureWatch {
 
     // MARK: - Live readers
 
-    /// Bundle ids of the processes with microphone input running, or nil when
-    /// the process list could not be read. A process that vanished between
-    /// the list and its own read is skipped, not an error.
+    /// Bundle ids of the apps with microphone input running, or nil when the
+    /// process list could not be read. A process that vanished between the
+    /// list and its own read is skipped, not an error.
+    ///
+    /// CoreAudio's own bundle id is the wrong name to show: on 2026-11-14 the
+    /// list held Siri's listener (`com.apple.CoreSpeech`, a daemon with no
+    /// app, which macOS's indicator never shows), Granola's helper, and
+    /// WebKit's GPU process recording for cmux — and none of the three has
+    /// an icon. Each process is named by the app responsible for it instead,
+    /// which is how the menu bar's indicator names Granola and cmux.
     nonisolated static func readMicrophoneApps() -> [String]? {
         guard let processes = CaptureObserver.audioObjectIDs(
             of: AudioObjectID(kAudioObjectSystemObject), selector: kAudioHardwarePropertyProcessObjectList
         ) else { return nil }
-        var apps: [String] = []
-        for process in processes {
+        let recording = processes.compactMap { process -> pid_t? in
             guard CaptureObserver.audioUInt32(of: process, selector: kAudioProcessPropertyIsRunningInput) == 1,
-                  let bundleID = CaptureObserver.audioBundleID(of: process)
-            else { continue }
-            apps.append(bundleID)
+                  let pid = CaptureObserver.audioUInt32(of: process, selector: kAudioProcessPropertyPID)
+            else { return nil }
+            return pid_t(bitPattern: pid)
         }
-        return apps
+        return appsRecording(recording, responsible: responsibleProcess, app: appBundleID)
+    }
+
+    /// The apps behind `processes`, in their order: each one counts as the
+    /// app responsible for it, or as itself when nothing is said about that,
+    /// and as nothing when neither is an app. Pure, so the rule is a test.
+    nonisolated static func appsRecording(
+        _ processes: [pid_t], responsible: (pid_t) -> pid_t?, app: (pid_t) -> String?
+    ) -> [String] {
+        processes.compactMap { pid in responsible(pid).flatMap(app) ?? app(pid) }
+    }
+
+    /// The process macOS holds responsible for `pid` (a helper's app, the app
+    /// a WebKit process works for), from libsystem's
+    /// `responsibility_get_pid_responsible_for_pid`. Private, so resolved with
+    /// `dlsym`: a macOS without it falls back to the process itself.
+    nonisolated private static let responsibleFor: (@convention(c) (pid_t) -> pid_t)? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid")
+        else { return nil }
+        return unsafeBitCast(symbol, to: (@convention(c) (pid_t) -> pid_t).self)
+    }()
+
+    nonisolated private static func responsibleProcess(_ pid: pid_t) -> pid_t? {
+        guard let responsibleFor else { return nil }
+        let owner = responsibleFor(pid)
+        return owner > 0 ? owner : nil
+    }
+
+    /// The bundle id of the app running as `pid`, or nil when it is not an
+    /// app (a daemon, a command-line tool). `NSRunningApplication` is safe to
+    /// read off the main thread.
+    nonisolated private static func appBundleID(_ pid: pid_t) -> String? {
+        guard let app = NSRunningApplication(processIdentifier: pid),
+              app.bundleURL?.pathExtension == "app",
+              let bundleID = app.bundleIdentifier, !bundleID.isEmpty
+        else { return nil }
+        return bundleID
     }
 
     /// Whether any camera is running somewhere, or nil when the device list
