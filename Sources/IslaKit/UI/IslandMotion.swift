@@ -98,7 +98,7 @@ enum IslandMotion {
     /// charger, the confirmation, the peek and the live activities are
     /// compact; the pop-up, headphones and the update are expanded alerts.
     static func presentation(
-        of activity: IslandActivity, hasBubble: Bool = false, timerControls: Bool = false
+        of activity: IslandActivity, hasBubble: Bool = false, liveControls: Bool = false
     ) -> Presentation {
         let compact: String
         switch activity {
@@ -110,7 +110,7 @@ enum IslandMotion {
         case .ambient(.timerDone): return .expanded("timerDone")
         // A timer's controls are its own expanded view, which a click on the
         // compact timer opens with islandcn's `expand`.
-        case .live(let live) where timerControls && live.isTimer: return .expanded(live.kind)
+        case .live(let live) where liveControls && live.hasControls: return .expanded(live.kind)
         case .live(let live): compact = live.kind
         case .update: return .expanded("update")
         case .ambient(.charging): compact = "charging"

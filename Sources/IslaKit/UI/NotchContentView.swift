@@ -180,7 +180,7 @@ struct NotchContentView: View {
         // The peek's taller island takes 16, each expanded alert its own
         // (§19.5), every compact activity 12.67 — whichever is drawn, since
         // an alert replaces what it outranks.
-        return IslandShapeRadii.closed(for: vm.activity, timerControls: vm.showsTimerControls).bottom
+        return IslandShapeRadii.closed(for: vm.activity, liveControls: vm.showsLiveControls).bottom
     }
 
     /// The island's surface: black, or `#1C1C1E` while the pointer is on it
@@ -694,12 +694,12 @@ struct NotchContentView: View {
         // installer's progress redraws inside it and moves no edge.
         .modifier(IslandMorph(
             presentation: IslandMotion.presentation(
-                of: vm.activity, hasBubble: vm.bubble != nil, timerControls: vm.showsTimerControls
+                of: vm.activity, hasBubble: vm.bubble != nil, liveControls: vm.showsLiveControls
             ),
             keys: MorphKeys(
                 compact: compactActivity, peeking: vm.isPeeking, ambient: vm.ambient,
                 confirmation: vm.confirmation, update: vm.updateOffer?.version,
-                live: vm.liveActivities.map(\.kind), timerControls: vm.showsTimerControls,
+                live: vm.liveActivities.map(\.kind), liveControls: vm.showsLiveControls,
                 bubble: vm.bubble.map { IslandMotion.presentation(of: $0) }
             ),
             reduceMotion: reduceMotion
@@ -816,7 +816,14 @@ struct NotchContentView: View {
                     // One view per kind, so a timer turning into a download
                     // is content leaving and arriving, not one view morphing.
                     Group {
-                        if vm.showsTimerControls {
+                        if vm.showsLiveControls, case .recording(let state) = live {
+                            MicrophoneControlsView(
+                                state: state, size: size, notchHeight: vm.geometry.notchSize.height,
+                                increaseContrast: appearance.increaseContrast,
+                                onAction: { vm.onMicrophoneControl?($0) }
+                            )
+                            .transition(Theme.expandedArrival(reduceMotion: reduceMotion))
+                        } else if vm.showsLiveControls {
                             TimerControlsView(
                                 live: live, size: size, notchHeight: vm.geometry.notchSize.height,
                                 increaseContrast: appearance.increaseContrast,
@@ -1721,6 +1728,6 @@ private struct MorphKeys: Equatable {
     /// Which live activities stand, by kind: a timer ticking or a download
     /// growing redraws inside the island and moves no edge.
     var live: [String]
-    var timerControls: Bool
+    var liveControls: Bool
     var bubble: IslandMotion.Presentation?
 }

@@ -634,6 +634,16 @@
 "Downloading %@" = "Загрузка %@";
 "Microphone and camera in use" = "Микрофон и камера используются";
 "Microphone in use" = "Микрофон используется";
+"Show %@" = "Показать %@";
+"Microphone Muted" = "Микрофон выключен";
+"Microphone" = "Микрофон";
+"In use" = "Используется";
+"Unmute Microphone" = "Включить микрофон";
+"Mute Microphone" = "Выключить микрофон";
+"Quit %@…" = "Завершить %@…";
+"Quit App…" = "Завершить приложение…";
+"Quit %@" = "Завершить %@";
+"Microphone in use, muted" = "Микрофон используется, выключен";
 "Pause Stopwatch" = "Приостановить секундомер";
 "Pause Timer" = "Приостановить таймер";
 "Received %@ by AirDrop" = "Получено по AirDrop: %@";

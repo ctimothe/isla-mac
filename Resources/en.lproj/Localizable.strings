@@ -628,6 +628,16 @@
 "Downloading %@" = "Downloading %@";
 "Microphone and camera in use" = "Microphone and camera in use";
 "Microphone in use" = "Microphone in use";
+"Show %@" = "Show %@";
+"Microphone Muted" = "Microphone Muted";
+"Microphone" = "Microphone";
+"In use" = "In use";
+"Unmute Microphone" = "Unmute Microphone";
+"Mute Microphone" = "Mute Microphone";
+"Quit %@…" = "Quit %@…";
+"Quit App…" = "Quit App…";
+"Quit %@" = "Quit %@";
+"Microphone in use, muted" = "Microphone in use, muted";
 "Pause Stopwatch" = "Pause Stopwatch";
 "Pause Timer" = "Pause Timer";
 "Received %@ by AirDrop" = "Received %@ by AirDrop";

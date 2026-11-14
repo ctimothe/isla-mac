@@ -11,6 +11,8 @@ final class LiveActivityHubTests: XCTestCase {
         var captureObserving = 0
         var captureRemoved = 0
         var microphone: [String] = []
+        var muted = false
+        var muteCalls: [Bool] = []
     }
 
     private func makeHub(_ defaults: UserDefaults, _ fakes: Fakes, center: NotificationCenter) -> LiveActivityHub {
@@ -20,6 +22,7 @@ final class LiveActivityHubTests: XCTestCase {
                 CaptureWatch(environment: CaptureWatch.Environment(
                     readMicrophoneApps: { MainActor.assumeIsolated { fakes.microphone } },
                     readCameraInUse: { false },
+                    readMicrophoneMuted: { MainActor.assumeIsolated { fakes.muted } },
                     observe: { _ in
                         fakes.captureObserving += 1
                         return { fakes.captureRemoved += 1 }
@@ -41,7 +44,12 @@ final class LiveActivityHubTests: XCTestCase {
                 ))
             },
             timers: IslandTimerCenter(),
-            notificationCenter: center
+            notificationCenter: center,
+            setMicrophoneMuted: { muted, done in
+                fakes.muteCalls.append(muted)
+                fakes.muted = muted
+                done()
+            }
         ))
     }
 
@@ -70,6 +78,27 @@ final class LiveActivityHubTests: XCTestCase {
         hub.followSwitches()
         XCTAssertEqual(fakes.captureRemoved, 1, "turned off, the listener goes at once")
         XCTAssertEqual(hub.live, [], "and the activity with it")
+    }
+
+    /// The island's Mute reaches the device and comes back as a muted
+    /// recording at once; Unmute undoes it.
+    func testMuteAndUnmuteReachTheDeviceAndTheIsland() throws {
+        let name = "com.ctimothe.isla.livehub.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        SettingsRowID.recording.write(true, in: defaults)
+        let fakes = Fakes()
+        fakes.microphone = ["us.zoom.xos"]
+        let hub = makeHub(defaults, fakes, center: NotificationCenter())
+        defer { hub.stop() }
+        hub.start()
+
+        hub.setMicrophoneMuted(true)
+        XCTAssertEqual(fakes.muteCalls, [true])
+        XCTAssertEqual(hub.live, [.recording(CaptureState(microphone: ["us.zoom.xos"], camera: false, muted: true))])
+        hub.setMicrophoneMuted(false)
+        XCTAssertEqual(fakes.muteCalls, [true, false])
+        XCTAssertEqual(hub.live, [.recording(CaptureState(microphone: ["us.zoom.xos"], camera: false))])
     }
 
     /// A running timer survives Isla replacing itself for an update.

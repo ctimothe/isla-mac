@@ -24,7 +24,7 @@ final class LiveActivityTests: XCTestCase {
             stopwatch: IslandTimerState(kind: .stopwatch, runningSince: now, banked: 0),
             downloads: [DownloadProgress(name: "a.zip", bytesSoFar: 50, totalBytes: 100)]
         )
-        XCTAssertEqual(all.map(\.kind), ["recording", "timer", "stopwatch", "downloads"])
+        XCTAssertEqual(all.map(\.kind), ["timer", "stopwatch", "recording", "downloads"])
         XCTAssertEqual(
             LiveActivity.standing(capture: CaptureState.none, countdown: nil, stopwatch: nil, downloads: []), [],
             "an empty capture, no timers and no downloads stand nothing"
@@ -52,6 +52,73 @@ final class LiveActivityTests: XCTestCase {
                 beside: underSong, musicIsVisible: true, shelfCount: 0, live: [downloads], isOpen: false, isLocked: false
             ),
             .live(downloads)
+        )
+    }
+
+    /// The owner's screenshot, 2026-11-14: a song playing while cmux held the
+    /// microphone, and the island showed the microphone. The song now holds
+    /// the island and the microphone waits as the bubble; muted, it waits
+    /// under the Shelf too.
+    func testAPlayingSongHoldsTheIslandOverTheMicrophone() {
+        let island = IslandActivity.current(
+            hud: nil, ambient: nil, isPeeking: false, musicIsVisible: true, shelfCount: 0, live: [recording]
+        )
+        XCTAssertEqual(island, .music)
+        XCTAssertEqual(
+            IslandActivity.bubbleActivity(
+                beside: island, musicIsVisible: true, shelfCount: 0, live: [recording], isOpen: false, isLocked: false
+            ),
+            .live(recording)
+        )
+        let muted = LiveActivity.recording(CaptureState(microphone: ["com.zoom.us"], camera: false, muted: true))
+        XCTAssertEqual(
+            IslandActivity.bubbleActivity(
+                beside: .music, musicIsVisible: true, shelfCount: 3, live: [muted], isOpen: false, isLocked: false
+            ),
+            .shelf(count: 3)
+        )
+        XCTAssertEqual(
+            IslandActivity.current(hud: nil, ambient: nil, isPeeking: false, musicIsVisible: false, shelfCount: 0, live: [muted]),
+            .live(muted), "alone, a muted microphone still shows, so the mute is not forgotten"
+        )
+    }
+
+    /// A bubble's card opens on the island: the activity whose controls are
+    /// showing holds it until they fold, under any alert.
+    func testTheActivityWhoseCardIsOpenHoldsTheIsland() {
+        XCTAssertEqual(
+            IslandActivity.current(
+                hud: nil, ambient: nil, isPeeking: false, musicIsVisible: true, shelfCount: 0, live: [recording],
+                expanded: "recording"
+            ),
+            .live(recording)
+        )
+        XCTAssertEqual(
+            IslandActivity.current(
+                hud: nil, ambient: .timerDone(duration: 60), isPeeking: false, musicIsVisible: true, shelfCount: 0,
+                live: [recording], expanded: "recording"
+            ),
+            .ambient(.timerDone(duration: 60))
+        )
+        XCTAssertEqual(
+            IslandActivity.current(
+                hud: nil, ambient: nil, isPeeking: false, musicIsVisible: true, shelfCount: 0, live: [],
+                expanded: "recording"
+            ),
+            .music, "a card whose activity has gone holds nothing"
+        )
+    }
+
+    /// The microphone's card has Mute and Quit; a camera alone has nothing to
+    /// mute or name, so it has no card.
+    func testTheMicrophoneHasControlsAndACameraAloneHasNone() {
+        XCTAssertTrue(recording.hasControls)
+        XCTAssertTrue(timer.hasControls)
+        XCTAssertFalse(LiveActivity.recording(CaptureState(microphone: [], camera: true)).hasControls)
+        XCTAssertFalse(downloads.hasControls)
+        XCTAssertEqual(
+            LiveActivityLayout.bodySize(recording, expanded: true, notchSize: CGSize(width: 200, height: 32), bodyWidth: 560),
+            LiveActivityLayout.controlsShape.bodySize(notchSize: CGSize(width: 200, height: 32), bodyWidth: 560)
         )
     }
 

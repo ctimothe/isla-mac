@@ -247,27 +247,31 @@ final class NotchViewModel: ObservableObject {
     var activity: IslandActivity {
         IslandActivity.current(
             hud: hud, confirmation: confirmation, ambient: ambient, update: updateOffer, isPeeking: isPeeking,
-            musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount, live: liveActivities
+            musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount, live: liveActivities,
+            expanded: expandedLive
         )
     }
     /// The timer, stopwatch, recording and downloads standing, highest first
     /// (`LiveActivityHub`, plan 2026-11-14). The controller's to set.
     @Published var liveActivities: [LiveActivity] = []
-    /// The kind of the timer or stopwatch whose controls are showing: a click
-    /// on it opens them in place, as the iPhone's long-press does, and they
-    /// fold on their own (`NotchController.toggleTimerControls`).
+    /// The kind of the live activity whose card of controls is showing — a
+    /// timer's, a stopwatch's, the microphone's: a click on it opens them in
+    /// place, as the iPhone's long-press does, and they fold on their own
+    /// (`NotchController.liveClicked`).
     @Published var expandedLive: String?
     /// A timer control was pressed. The controller's.
     var onTimerControl: ((TimerControl) -> Void)?
-    /// Whether the island shows a timer's controls right now.
-    var showsTimerControls: Bool {
+    /// A microphone control was pressed. The controller's.
+    var onMicrophoneControl: ((MicrophoneControl) -> Void)?
+    /// Whether the island shows a live activity's card of controls right now.
+    var showsLiveControls: Bool {
         guard let kind = expandedLive, case .live(let live) = activity else { return false }
-        return live.kind == kind && live.isTimer
+        return live.kind == kind && live.hasControls
     }
     /// The second live activity waiting as the bubble beside the island
     /// (spec §19.7, amended 2026-11-14: any live activity), or nil.
     var bubble: IslandActivity? {
-        guard !showsTimerControls else { return nil }
+        guard !showsLiveControls else { return nil }
         return IslandActivity.bubbleActivity(
             beside: activity, musicIsVisible: compactMediaActivity.isVisible, shelfCount: liveShelfCount,
             live: liveActivities, isOpen: isOpen || isDropTargeted, isLocked: isLockedPresentation
@@ -1679,7 +1683,7 @@ final class NotchViewModel: ObservableObject {
             return Self.shelfBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .live(let live):
             return LiveActivityLayout.bodySize(
-                live, expanded: showsTimerControls, notchSize: geometry.notchSize,
+                live, expanded: showsLiveControls, notchSize: geometry.notchSize,
                 bodyWidth: geometry.expandedSize.width
             )
         case .peek, .music, .none:
@@ -1732,7 +1736,7 @@ final class NotchViewModel: ObservableObject {
 
     /// The shut island's shoulder: the radius its shape and hit rects take
     /// for what it shows (`IslandShapeRadii`).
-    var closedTopRadius: CGFloat { IslandShapeRadii.closed(for: activity, timerControls: showsTimerControls).top }
+    var closedTopRadius: CGFloat { IslandShapeRadii.closed(for: activity, liveControls: showsLiveControls).top }
 
     static let hasCompletedFirstRunKey = "hasCompletedFirstRun"
 

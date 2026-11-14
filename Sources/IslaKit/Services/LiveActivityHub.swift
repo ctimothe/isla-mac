@@ -20,6 +20,16 @@ final class LiveActivityHub: ObservableObject {
         var makeDownloads: @MainActor () -> DownloadWatch
         var timers: IslandTimerCenter
         var notificationCenter: NotificationCenter
+        /// Mutes or unmutes the Mac's microphone input off the main thread
+        /// (`MicrophoneMute`), then calls `done` on the main actor. A test's
+        /// never touches a real device.
+        var setMicrophoneMuted: @MainActor (_ muted: Bool, _ done: @escaping @MainActor @Sendable () -> Void) -> Void = {
+            muted, done in
+            DispatchQueue.global(qos: .userInitiated).async {
+                MicrophoneMute.setMuted(muted)
+                DispatchQueue.main.async { MainActor.assumeIsolated { done() } }
+            }
+        }
 
         @MainActor static var live: Environment {
             Environment(
@@ -97,6 +107,13 @@ final class LiveActivityHub: ObservableObject {
         capture = nil
         downloads?.stop()
         downloads = nil
+    }
+
+    /// The island's Mute and Unmute. The watch hears the device change by
+    /// itself; it is asked again once the change is made, so the island
+    /// answers the press without waiting on the system's notice.
+    func setMicrophoneMuted(_ muted: Bool) {
+        environment.setMicrophoneMuted(muted) { [weak self] in self?.capture?.reread() }
     }
 
     /// Starts or stops each watch to match its switch. Called on every

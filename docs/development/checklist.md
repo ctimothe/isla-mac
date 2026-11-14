@@ -319,7 +319,13 @@ are the exception the design did not anticipate:
   `kCMIODevicePropertyDeviceIsRunningSomewhere`, so macOS asks for nothing and
   nothing leaves the Mac — but it watches other apps, which is why it is off
   until chosen. Turned off, its listeners stop at once
-  (`LiveActivityHubTests`, `CaptureWatchTests`).
+  (`LiveActivityHubTests`, `CaptureWatchTests`). Since the second 2026-11-14
+  amendment a click opens a card instead, with two actions that reach past
+  Isla, each only on the person's press: **Mute** sets the Mac's input mute
+  on every input device (a system-wide setting, which outlives Isla and is
+  undone by Unmute or Sound settings), and **Quit** sends the chosen app its
+  own Quit (`NSRunningApplication.terminate`, no permission asked). Nothing
+  is done to another app or a device without that press.
 - **Downloads** (Settings › General, default off, added 2026-11-14; S5) shows a
   download in progress in ~/Downloads as a ring, then "Downloaded" or "AirDrop"
   on the island when a file finishes or arrives; a click reveals it. It lists
@@ -3471,8 +3477,17 @@ Owed on hardware (record the Mac model and macOS version):
   down, a click opens pause and cancel and they fold after 6 s, the Done alert
   shows with the Glass sound. Install an update mid-timer: it is still there.
 - [ ] **IC-H4** Microphone and Camera on, a FaceTime call: the activity shows
-  with FaceTime's icon, a click brings FaceTime forward, it goes within a
-  second of hanging up.
+  with FaceTime's icon, a click opens its card (a click on the icon brings
+  FaceTime forward), it goes within a second of hanging up.
+- [ ] **IC-H7** A song playing while an app holds the microphone (Granola,
+  cmux): the song holds the island and the microphone waits as the bubble,
+  with that app's icon, never Siri's dot. A click on the bubble opens the card
+  on the island.
+- [ ] **IC-H8** The card's Mute: the other side of a call hears nothing, the
+  island shows a crossed-out microphone under everything, Sound settings show
+  the input muted; Unmute restores it. Quit names each app in a menu; the
+  chosen one quits (asking about unsaved work as ⌘Q would) and the orange dot
+  goes.
 - [ ] **IC-H5** Downloads on: a Safari and a Chrome download show the ring,
   then Downloaded; a click reveals the file. An AirDrop from a phone says
   AirDrop.
