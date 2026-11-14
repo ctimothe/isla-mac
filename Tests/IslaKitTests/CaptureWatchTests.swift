@@ -123,6 +123,32 @@ final class CaptureWatchTests: XCTestCase {
         XCTAssertEqual(rig.reports.last?.microphoneApps, ["us.zoom.xos"])
     }
 
+    /// The three processes CoreAudio named on the owner's Mac on 2026-11-14,
+    /// while Granola and cmux used the microphone: Siri's listener (no app, and
+    /// first in the list), Granola's helper, and WebKit's GPU process recording
+    /// for cmux. The island drew an orange dot where an app icon belongs, because
+    /// it took the first id, Siri's, and found no app for it. Each process now
+    /// counts as the app responsible for it, as macOS's own indicator does, and
+    /// one that belongs to no app counts as nothing.
+    func testEachProcessCountsAsTheAppResponsibleForIt() {
+        let siri: Int32 = 1123, granolaHelper: Int32 = 1554, granola: Int32 = 1505
+        let webKitGPU: Int32 = 29739, cmux: Int32 = 5368
+        let responsible: [Int32: Int32] = [siri: siri, granolaHelper: granola, webKitGPU: cmux]
+        let apps: [Int32: String] = [granola: "com.granola.app", cmux: "com.cmuxterm.app"]
+        XCTAssertEqual(
+            CaptureWatch.appsRecording(
+                [siri, granolaHelper, webKitGPU],
+                responsible: { responsible[$0] }, app: { apps[$0] }
+            ),
+            ["com.granola.app", "com.cmuxterm.app"]
+        )
+        // No answer about who is responsible: the process itself, if it is an app.
+        XCTAssertEqual(
+            CaptureWatch.appsRecording([granola, siri], responsible: { _ in nil }, app: { apps[$0] }),
+            ["com.granola.app"]
+        )
+    }
+
     func testTheListIsSortedAndHasNoDuplicates() {
         let state = CaptureState(microphone: ["com.b", "com.a", "com.b", "com.c"], camera: false, excluding: ["com.c"])
         XCTAssertEqual(state.microphoneApps, ["com.a", "com.b"])
