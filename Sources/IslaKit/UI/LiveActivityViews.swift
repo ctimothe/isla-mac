@@ -299,9 +299,26 @@ struct MicrophoneControlsView: View {
             .compactMap(icons.app)
     }
 
+    /// Each app holding the microphone by its name: the Finder's, else the
+    /// running app's own, else its bundle id.
+    private var names: [String] {
+        var seen = Set<String>()
+        return state.microphoneApps
+            .map(LiveActivityHub.owningApp(of:))
+            .filter { seen.insert($0).inserted }
+            .map(MicrophoneControlsView.name(of:))
+    }
+
+    static func name(of bundleID: String) -> String {
+        AppIcons.shared.app(bundleID)?.name
+            ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.localizedName
+            ?? bundleID
+    }
+
     var body: some View {
         let shape = LiveActivityLayout.controlsShape
         let apps = self.apps
+        let names = self.names
         HStack(alignment: .center, spacing: 12) {
             if let first = apps.first {
                 // The app itself, brought forward on a click: where its own
@@ -323,7 +340,7 @@ struct MicrophoneControlsView: View {
                     .foregroundStyle(
                         state.microphoneMuted ? LiveActivityLayout.microphoneOrange : Color.white.opacity(0.55)
                     )
-                Text(apps.isEmpty ? localized("In use") : apps.map(\.name).joined(separator: ", "))
+                Text(names.isEmpty ? localized("In use") : names.joined(separator: ", "))
                     .islandFont(15, weight: .semibold)
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
@@ -335,10 +352,12 @@ struct MicrophoneControlsView: View {
                 label: state.microphoneMuted ? localized("Unmute Microphone") : localized("Mute Microphone"),
                 fill: LiveActivityLayout.microphoneOrange
             ) { onAction(state.microphoneMuted ? .unmute : .mute) }
-            if !apps.isEmpty {
+            // Every app holding the microphone can be quit, found on disk or
+            // not: Quit is the one way to free it.
+            if !names.isEmpty {
                 roundButton(
                     symbol: "power",
-                    label: apps.count == 1 ? localized("Quit %@…", apps[0].name) : localized("Quit App…"),
+                    label: names.count == 1 ? localized("Quit %@…", names[0]) : localized("Quit App…"),
                     fill: Color.white
                 ) { onAction(.quit) }
             }

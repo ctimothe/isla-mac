@@ -22,31 +22,54 @@ enum MicrophoneMute {
     /// when CoreAudio could not say or there is no input at all.
     nonisolated static func isMuted() -> Bool? {
         guard let device = defaultInput() else { return nil }
-        if let mute = uint32(device, kAudioDevicePropertyMute) { return mute != 0 }
-        if let volume = volume(device) { return volume <= 0 }
+        for element in elements {
+            if let mute = uint32(device, kAudioDevicePropertyMute, element) { return mute != 0 }
+        }
+        for element in elements {
+            if let volume = volume(device, element) { return volume <= 0 }
+        }
         return false
     }
+
+    /// Where a device keeps its input controls: the whole device, or — on
+    /// many USB microphones, which have no master control — each of its
+    /// first channels. Tried in that order; the first that answers is used.
+    nonisolated static let elements: [AudioObjectPropertyElement] = [kAudioObjectPropertyElementMain, 1, 2]
 
     /// Mutes or unmutes every input device. Can block on coreaudiod: call it
     /// off the main thread.
     nonisolated static func setMuted(_ muted: Bool, defaults: UserDefaults = .standard) {
         for device in inputDevices() {
-            var mute = address(kAudioDevicePropertyMute)
-            if settable(device, &mute) {
-                var value: UInt32 = muted ? 1 : 0
-                AudioObjectSetPropertyData(device, &mute, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
+            // A mute switch wherever the device has one: on the whole device,
+            // or on each channel when it has only those.
+            let mutes = elements.filter { element in
+                var mute = address(kAudioDevicePropertyMute, element: element)
+                return settable(device, &mute)
+            }
+            if !mutes.isEmpty {
+                for element in mutes {
+                    var mute = address(kAudioDevicePropertyMute, element: element)
+                    var value: UInt32 = muted ? 1 : 0
+                    AudioObjectSetPropertyData(device, &mute, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
+                }
                 continue
             }
-            var level = address(kAudioDevicePropertyVolumeScalar)
-            guard settable(device, &level), let key = uid(device).map({ savedLevelKey + $0 }) else { continue }
-            if muted {
-                if let current = volume(device), current > 0 { defaults.set(Double(current), forKey: key) }
-                var zero: Float32 = 0
-                AudioObjectSetPropertyData(device, &level, 0, nil, UInt32(MemoryLayout<Float32>.size), &zero)
-            } else if defaults.object(forKey: key) != nil {
-                var restored = Float32(defaults.double(forKey: key))
-                AudioObjectSetPropertyData(device, &level, 0, nil, UInt32(MemoryLayout<Float32>.size), &restored)
-                defaults.removeObject(forKey: key)
+            // No mute anywhere: each level that can be set goes to zero, and
+            // comes back to what it was, keyed to the device and channel.
+            guard let deviceUID = uid(device) else { continue }
+            for element in elements {
+                var level = address(kAudioDevicePropertyVolumeScalar, element: element)
+                guard settable(device, &level) else { continue }
+                let key = savedLevelKey + deviceUID + ".\(element)"
+                if muted {
+                    if let current = volume(device, element), current > 0 { defaults.set(Double(current), forKey: key) }
+                    var zero: Float32 = 0
+                    AudioObjectSetPropertyData(device, &level, 0, nil, UInt32(MemoryLayout<Float32>.size), &zero)
+                } else if defaults.object(forKey: key) != nil {
+                    var restored = Float32(defaults.double(forKey: key))
+                    AudioObjectSetPropertyData(device, &level, 0, nil, UInt32(MemoryLayout<Float32>.size), &restored)
+                    defaults.removeObject(forKey: key)
+                }
             }
         }
     }
@@ -57,9 +80,10 @@ enum MicrophoneMute {
     // MARK: - CoreAudio
 
     nonisolated static func address(
-        _ selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope = kAudioDevicePropertyScopeInput
+        _ selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope = kAudioDevicePropertyScopeInput,
+        element: AudioObjectPropertyElement = kAudioObjectPropertyElementMain
     ) -> AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+        AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: element)
     }
 
     nonisolated static func defaultInput() -> AudioObjectID? {
@@ -90,8 +114,10 @@ enum MicrophoneMute {
         return AudioObjectIsPropertySettable(device, &where_, &settable) == noErr && settable.boolValue
     }
 
-    nonisolated private static func uint32(_ device: AudioObjectID, _ selector: AudioObjectPropertySelector) -> UInt32? {
-        var where_ = address(selector)
+    nonisolated private static func uint32(
+        _ device: AudioObjectID, _ selector: AudioObjectPropertySelector, _ element: AudioObjectPropertyElement
+    ) -> UInt32? {
+        var where_ = address(selector, element: element)
         guard AudioObjectHasProperty(device, &where_) else { return nil }
         var value: UInt32 = 0
         var size = UInt32(MemoryLayout<UInt32>.size)
@@ -99,8 +125,8 @@ enum MicrophoneMute {
         return value
     }
 
-    nonisolated private static func volume(_ device: AudioObjectID) -> Float32? {
-        var where_ = address(kAudioDevicePropertyVolumeScalar)
+    nonisolated private static func volume(_ device: AudioObjectID, _ element: AudioObjectPropertyElement) -> Float32? {
+        var where_ = address(kAudioDevicePropertyVolumeScalar, element: element)
         guard AudioObjectHasProperty(device, &where_) else { return nil }
         var value: Float32 = 0
         var size = UInt32(MemoryLayout<Float32>.size)

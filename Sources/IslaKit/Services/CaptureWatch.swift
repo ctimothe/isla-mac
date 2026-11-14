@@ -435,8 +435,11 @@ final class CaptureObserver: @unchecked Sendable {
         if let mutedDevice { Self.removeMuteListeners(mutedDevice, queue, listener) }
         if let now {
             for selector in Self.muteSelectors {
-                var address = MicrophoneMute.address(selector)
-                AudioObjectAddPropertyListenerBlock(now, &address, queue, listener)
+                for element in MicrophoneMute.elements {
+                    var address = MicrophoneMute.address(selector, element: element)
+                    guard AudioObjectHasProperty(now, &address) else { continue }
+                    AudioObjectAddPropertyListenerBlock(now, &address, queue, listener)
+                }
             }
         }
         mutedDevice = now
@@ -446,8 +449,11 @@ final class CaptureObserver: @unchecked Sendable {
         _ device: AudioObjectID, _ queue: DispatchQueue, _ listener: @escaping AudioObjectPropertyListenerBlock
     ) {
         for selector in muteSelectors {
-            var address = MicrophoneMute.address(selector)
-            AudioObjectRemovePropertyListenerBlock(device, &address, queue, listener)
+            for element in MicrophoneMute.elements {
+                var address = MicrophoneMute.address(selector, element: element)
+                guard AudioObjectHasProperty(device, &address) else { continue }
+                AudioObjectRemovePropertyListenerBlock(device, &address, queue, listener)
+            }
         }
     }
 

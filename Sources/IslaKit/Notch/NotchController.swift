@@ -1245,7 +1245,7 @@ final class NotchController {
             var seen = Set<String>()
             let apps = state.microphoneApps.map(LiveActivityHub.owningApp(of:)).filter { seen.insert($0).inserted }
             let rows: [(title: String, run: () -> Void)] = apps.map { app in
-                let name = AppIcons.shared.app(app)?.name ?? app
+                let name = MicrophoneControlsView.name(of: app)
                 return (localized("Quit %@", name), { [weak self] in
                     NSRunningApplication.runningApplications(withBundleIdentifier: app).forEach { $0.terminate() }
                     self?.foldTimerControls()
