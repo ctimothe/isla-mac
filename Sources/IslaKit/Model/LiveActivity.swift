@@ -25,10 +25,27 @@ enum LiveActivity: Equatable {
     /// the Mac's, under the song and over the Shelf. Music is 14, the Shelf 16.
     var rank: Int {
         switch self {
-        case .recording: return 11
-        case .timer: return 12
-        case .stopwatch: return 13
+        // What the person started and is watching stands over the song
+        // (13); what an app does on its own waits under it. A microphone in
+        // use is the second: on 2026-11-14 a song was playing while cmux held
+        // the microphone, and the island showed the microphone. Muted, it is
+        // last of all, under the Shelf, and shows only when nothing else does.
+        case .timer: return 11
+        case .stopwatch: return 12
+        case .recording(let state):
+            return state.microphoneMuted && !state.cameraInUse ? 17 : 14
         case .downloads: return 15
+        }
+    }
+
+    /// Whether a click opens a card of controls in place: a timer's Pause
+    /// and Cancel, the microphone's Mute and Quit. A camera alone has
+    /// nothing to mute and names no app, and a download has nothing to do.
+    var hasControls: Bool {
+        switch self {
+        case .timer, .stopwatch: return true
+        case .recording(let state): return !state.microphoneApps.isEmpty
+        case .downloads: return false
         }
     }
 
@@ -73,7 +90,8 @@ enum LiveActivity: Equatable {
             switch (state.microphoneApps.isEmpty, state.cameraInUse) {
             case (false, true): return localized("Microphone and camera in use")
             case (true, true): return localized("Camera in use")
-            default: return localized("Microphone in use")
+            default:
+                return state.microphoneMuted ? localized("Microphone in use, muted") : localized("Microphone in use")
             }
         case .timer(let state):
             let text = IslandTimerCenter.format(state.remaining(at: now) ?? 0, roundingUp: true)

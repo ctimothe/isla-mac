@@ -36,7 +36,7 @@ enum LiveActivityLayout {
     static let doneShape = ExpandedAlertShape.batteryFull
 
     static func bodySize(_ live: LiveActivity, expanded: Bool, notchSize: CGSize, bodyWidth: CGFloat) -> CGSize {
-        if expanded, live.isTimer { return controlsShape.bodySize(notchSize: notchSize, bodyWidth: bodyWidth) }
+        if expanded, live.hasControls { return controlsShape.bodySize(notchSize: notchSize, bodyWidth: bodyWidth) }
         return CGSize(width: min(notchSize.width + extensionWidth(live), bodyWidth), height: notchSize.height)
     }
 
@@ -86,7 +86,9 @@ struct LiveGlyph: View {
         switch live {
         case .timer: return "timer"
         case .stopwatch: return "stopwatch.fill"
-        case .recording(let state): return state.microphoneApps.isEmpty ? "video.fill" : "mic.fill"
+        case .recording(let state):
+            if state.microphoneApps.isEmpty { return "video.fill" }
+            return state.microphoneMuted ? "mic.slash.fill" : "mic.fill"
         case .downloads: return "arrow.down.circle.fill"
         }
     }
@@ -274,6 +276,95 @@ struct TimerControlsView: View {
         .buttonStyle(RoundControlStyle(fill: fill, increaseContrast: increaseContrast))
         .accessibilityLabel(label)
     }
+}
+
+/// The microphone's card: whose it is, Mute or Unmute, and Quit. Mute is
+/// the Mac's input mute (`MicrophoneMute`), since no app can take another's
+/// microphone; Quit is the one thing that frees it and puts out the menu
+/// bar's orange dot, and asks which app first (`IslandMenu.choices`).
+struct MicrophoneControlsView: View {
+    let state: CaptureState
+    let size: CGSize
+    let notchHeight: CGFloat
+    let increaseContrast: Bool
+    let onAction: (MicrophoneControl) -> Void
+
+    @ObservedObject private var icons = AppIcons.shared
+
+    private var apps: [AppIcons.Installed] {
+        var seen = Set<String>()
+        return state.microphoneApps
+            .map(LiveActivityHub.owningApp(of:))
+            .filter { seen.insert($0).inserted }
+            .compactMap(icons.app)
+    }
+
+    var body: some View {
+        let shape = LiveActivityLayout.controlsShape
+        let apps = self.apps
+        HStack(alignment: .center, spacing: 12) {
+            if let first = apps.first {
+                // The app itself, brought forward on a click: where its own
+                // mute and its own stop live.
+                Button { onAction(.show(first.bundleID)) } label: {
+                    Image(nsImage: first.icon)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(localized("Show %@", first.name))
+            } else {
+                LiveGlyph(live: .recording(state), size: 22)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.microphoneMuted ? localized("Microphone Muted") : localized("Microphone"))
+                    .islandFont(13, weight: .medium)
+                    .foregroundStyle(
+                        state.microphoneMuted ? LiveActivityLayout.microphoneOrange : Color.white.opacity(0.55)
+                    )
+                Text(apps.isEmpty ? localized("In use") : apps.map(\.name).joined(separator: ", "))
+                    .islandFont(15, weight: .semibold)
+                    .foregroundStyle(Color.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 8)
+            roundButton(
+                symbol: state.microphoneMuted ? "mic.fill" : "mic.slash.fill",
+                label: state.microphoneMuted ? localized("Unmute Microphone") : localized("Mute Microphone"),
+                fill: LiveActivityLayout.microphoneOrange
+            ) { onAction(state.microphoneMuted ? .unmute : .mute) }
+            if !apps.isEmpty {
+                roundButton(
+                    symbol: "power",
+                    label: apps.count == 1 ? localized("Quit %@…", apps[0].name) : localized("Quit App…"),
+                    fill: Color.white
+                ) { onAction(.quit) }
+            }
+        }
+        .padding(.horizontal, shape.x(40))
+        .padding(.top, notchHeight + 6)
+        .padding(.bottom, 14)
+        .frame(width: size.width, height: size.height, alignment: .top)
+    }
+
+    private func roundButton(symbol: String, label: String, fill: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .bold))
+        }
+        .buttonStyle(RoundControlStyle(fill: fill, increaseContrast: increaseContrast))
+        .accessibilityLabel(label)
+        .help(label)
+    }
+}
+
+/// What the microphone's card asks for.
+enum MicrophoneControl: Equatable {
+    case mute, unmute, quit
+    /// Bring this app forward.
+    case show(String)
 }
 
 /// What a timer's control asks for.

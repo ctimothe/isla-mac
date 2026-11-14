@@ -1165,8 +1165,10 @@ final class NotchController {
     }
 
     func liveClicked(_ live: LiveActivity) {
-        switch live {
-        case .timer, .stopwatch:
+        if live.hasControls {
+            // A timer's Pause and Cancel, the microphone's Mute and Quit: a
+            // card in place, as the iPhone's long-press opens one. From the
+            // bubble it takes the island until it folds (`IslandActivity.current`).
             guard let vm = viewModel else { return }
             if vm.expandedLive == live.kind {
                 foldTimerControls()
@@ -1177,16 +1179,15 @@ final class NotchController {
                 refreshCollapsedRects()
                 scheduleTimerControlsFold()
             }
-        case .recording(let state):
-            // The app that has the microphone, brought forward: the one place
-            // the person can stop it.
-            // A camera alone names no app; the bubble's click then opens the
-            // panel, as the island's does (`NotchViewModel.click`).
-            guard let app = state.microphoneApps.first.map(LiveActivityHub.owningApp(of:)) else {
-                islandClicked(opening: viewModel?.openTarget)
-                return
-            }
-            NSRunningApplication.runningApplications(withBundleIdentifier: app).first?.activate()
+            return
+        }
+        switch live {
+        case .timer, .stopwatch:
+            break
+        case .recording:
+            // A camera alone names no app and has nothing to mute; its click
+            // opens the panel, as the island's does (`NotchViewModel.click`).
+            islandClicked(opening: viewModel?.openTarget)
         case .downloads:
             if let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
                 NSWorkspace.shared.open(folder)
@@ -1224,6 +1225,38 @@ final class NotchController {
         case ("stopwatch", .resume): timers.resumeStopwatch()
         case ("stopwatch", .reset), ("stopwatch", .cancel): timers.resetStopwatch()
         default: break
+        }
+        scheduleTimerControlsFold()
+    }
+
+    private func microphoneControl(_ control: MicrophoneControl) {
+        guard let vm = viewModel, case .live(.recording(let state)) = vm.activity else { return }
+        switch control {
+        case .mute: stores.live.setMicrophoneMuted(true)
+        case .unmute: stores.live.setMicrophoneMuted(false)
+        case .show(let app):
+            NSRunningApplication.runningApplications(withBundleIdentifier: app).first?.activate()
+            foldTimerControls()
+            return
+        case .quit:
+            // Which app, chosen from a menu naming each: the row is the
+            // confirmation. `terminate` is the app's own Quit, so one with
+            // unsaved work asks about it as ⌘Q would.
+            var seen = Set<String>()
+            let apps = state.microphoneApps.map(LiveActivityHub.owningApp(of:)).filter { seen.insert($0).inserted }
+            let rows: [(title: String, run: () -> Void)] = apps.map { app in
+                let name = AppIcons.shared.app(app)?.name ?? app
+                return (localized("Quit %@", name), { [weak self] in
+                    NSRunningApplication.runningApplications(withBundleIdentifier: app).forEach { $0.terminate() }
+                    self?.foldTimerControls()
+                })
+            }
+            guard !rows.isEmpty, let rootView, let window = rootView.window else { return }
+            // The card stays while the menu tracks, so the choice has a card
+            // to come back to; the hold starts again below once it closes.
+            timerControlsFold?.cancel()
+            let point = rootView.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+            IslandMenu.choices(rows).popUp(positioning: nil, at: point, in: rootView)
         }
         scheduleTimerControlsFold()
     }
@@ -1758,6 +1791,7 @@ final class NotchController {
         vm.onBubbleClick = { [weak self] in self?.bubbleClicked() }
         vm.liveActivities = stores.live.live
         vm.onTimerControl = { [weak self] in self?.timerControl($0) }
+        vm.onMicrophoneControl = { [weak self] in self?.microphoneControl($0) }
         vm.onUpdateAction = { [weak self] in self?.updateAlertAction($0) }
         vm.onConfirmation = { [weak self] in self?.presentConfirmation($0) }
         vm.onStripClosed = { [weak self] in self?.stripClosed($0) }

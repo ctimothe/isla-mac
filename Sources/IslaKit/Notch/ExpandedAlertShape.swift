@@ -67,8 +67,8 @@ struct ExpandedAlertShape: Equatable {
 /// reference's 8.67 / 12.67. One function, read by the shape and by both hit
 /// rects, so the black and the clickable cannot disagree about the shoulders.
 enum IslandShapeRadii {
-    static func closed(for activity: IslandActivity, timerControls: Bool = false) -> (top: CGFloat, bottom: CGFloat) {
-        if timerControls {
+    static func closed(for activity: IslandActivity, liveControls: Bool = false) -> (top: CGFloat, bottom: CGFloat) {
+        if liveControls {
             return (LiveActivityLayout.controlsShape.topRadius, LiveActivityLayout.controlsShape.bottomRadius)
         }
         switch activity {

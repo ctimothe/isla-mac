@@ -11,7 +11,12 @@ struct CaptureState: Equatable {
     /// processes that belong to no app are never in it.
     var microphoneApps: [String]
     var cameraInUse: Bool
+    /// The Mac's microphone input is muted (the island's Mute, or Sound
+    /// settings): the apps above still hold it and hear silence.
+    var microphoneMuted: Bool
 
+    /// Nothing recording. A mute alone is not a recording: it shows once an
+    /// app takes the microphone, and the island then says it is muted.
     var isEmpty: Bool { microphoneApps.isEmpty && !cameraInUse }
 
     static let none = CaptureState(microphoneApps: [], cameraInUse: false)
@@ -19,14 +24,16 @@ struct CaptureState: Equatable {
     /// A raw reading made into a state: duplicates folded (an app with two
     /// helper processes on the microphone is one app), blanks and `excluding`
     /// dropped, the rest sorted. Pure, so the rules are a test.
-    init(microphone: [String], camera: Bool, excluding: Set<String> = []) {
+    init(microphone: [String], camera: Bool, muted: Bool = false, excluding: Set<String> = []) {
         microphoneApps = Array(Set(microphone.filter { !$0.isEmpty && !excluding.contains($0) })).sorted()
         cameraInUse = camera
+        microphoneMuted = muted
     }
 
-    init(microphoneApps: [String], cameraInUse: Bool) {
+    init(microphoneApps: [String], cameraInUse: Bool, microphoneMuted: Bool = false) {
         self.microphoneApps = microphoneApps
         self.cameraInUse = cameraInUse
+        self.microphoneMuted = microphoneMuted
     }
 }
 
@@ -55,6 +62,9 @@ final class CaptureWatch {
         /// Whether any camera runs in any process, or nil when CoreMediaIO
         /// could not say.
         var readCameraInUse: @Sendable () -> Bool?
+        /// Whether the Mac's default microphone input is muted, or nil when
+        /// CoreAudio could not say.
+        var readMicrophoneMuted: @Sendable () -> Bool? = { false }
         /// Installs the system's listeners, which call `changed` — from any
         /// thread — when either answer may have changed, and returns the
         /// function that removes every one of them.
@@ -71,6 +81,7 @@ final class CaptureWatch {
         static let live = Environment(
             readMicrophoneApps: { CaptureWatch.readMicrophoneApps() },
             readCameraInUse: { CaptureWatch.readCameraInUse() },
+            readMicrophoneMuted: { MicrophoneMute.isMuted() },
             observe: { changed in
                 let observer = CaptureObserver(changed: changed)
                 observer.start()
@@ -114,6 +125,7 @@ final class CaptureWatch {
     /// The last answer each source gave, which a failed read falls back on.
     private var lastMicrophone: [String] = []
     private var lastCamera = false
+    private var lastMuted = false
     /// The stop that is waiting out `stopDebounce`, if any.
     private var pendingStop: Int?
     private var stopSequence = 0
@@ -137,6 +149,7 @@ final class CaptureWatch {
         pendingStop = nil
         lastMicrophone = []
         lastCamera = false
+        lastMuted = false
         // Not debounced: the watch is off, so nothing is left to flicker back.
         if state != .none {
             state = .none
@@ -153,17 +166,25 @@ final class CaptureWatch {
             guard let self else { return }
             let microphone = environment.readMicrophoneApps()
             let camera = environment.readCameraInUse()
-            environment.onMain { self.land(sequence, microphone, camera) }
+            let muted = environment.readMicrophoneMuted()
+            environment.onMain { self.land(sequence, microphone, camera, muted) }
         }
     }
 
-    private func land(_ sequence: Int, _ microphone: [String]?, _ camera: Bool?) {
+    /// Reads again now: the island muted or unmuted the microphone and wants
+    /// the answer without waiting for the system's notice.
+    func reread() { refresh() }
+
+    private func land(_ sequence: Int, _ microphone: [String]?, _ camera: Bool?, _ muted: Bool?) {
         guard started, sequence == readSequence else { return }
         // A source that failed keeps its last good answer. Read as "nothing is
         // recording" it would end a call's activity on one CoreAudio hiccup.
         if let microphone { lastMicrophone = microphone }
         if let camera { lastCamera = camera }
-        propose(CaptureState(microphone: lastMicrophone, camera: lastCamera, excluding: environment.ownBundleIDs))
+        if let muted { lastMuted = muted }
+        propose(CaptureState(
+            microphone: lastMicrophone, camera: lastCamera, muted: lastMuted, excluding: environment.ownBundleIDs
+        ))
     }
 
     private func propose(_ candidate: CaptureState) {
@@ -283,6 +304,13 @@ final class CaptureObserver: @unchecked Sendable {
     private var cameraListListener: CMIOObjectPropertyListenerBlock?
     private var cameraListener: CMIOObjectPropertyListenerBlock?
     private var cameraObjects: Set<CMIOObjectID> = []
+    /// The default input's mute and level, watched so a mute made in Sound
+    /// settings reaches the island as one made on it does; re-aimed when the
+    /// default input changes.
+    private var inputListListener: AudioObjectPropertyListenerBlock?
+    private var muteListener: AudioObjectPropertyListenerBlock?
+    private var mutedDevice: AudioObjectID?
+    private static let muteSelectors = [kAudioDevicePropertyMute, kAudioDevicePropertyVolumeScalar]
 
     init(changed: @escaping @Sendable () -> Void) {
         self.changed = changed
@@ -309,6 +337,20 @@ final class CaptureObserver: @unchecked Sendable {
                 guard let self, !self.stopped else { return }
                 self.changed()
             }
+            let inputList: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                guard let self, !self.stopped else { return }
+                self.syncMutedDevice()
+                self.changed()
+            }
+            let mute: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                guard let self, !self.stopped else { return }
+                self.changed()
+            }
+            inputListListener = inputList
+            muteListener = mute
+            var inputAddress = Self.audioAddress(kAudioHardwarePropertyDefaultInputDevice)
+            AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &inputAddress, queue, inputList)
+            syncMutedDevice()
             microphoneListListener = microphoneList
             microphoneListener = microphone
             cameraListListener = cameraList
@@ -349,6 +391,16 @@ final class CaptureObserver: @unchecked Sendable {
                     CMIOObjectRemovePropertyListenerBlock(object, &deviceAddress, queue, cameraListener)
                 }
             }
+            var inputAddress = Self.audioAddress(kAudioHardwarePropertyDefaultInputDevice)
+            if let inputListListener {
+                AudioObjectRemovePropertyListenerBlock(
+                    AudioObjectID(kAudioObjectSystemObject), &inputAddress, queue, inputListListener
+                )
+            }
+            if let muteListener, let mutedDevice { Self.removeMuteListeners(mutedDevice, queue, muteListener) }
+            inputListListener = nil
+            muteListener = nil
+            mutedDevice = nil
             microphoneObjects = []
             cameraObjects = []
             microphoneListListener = nil
@@ -374,6 +426,29 @@ final class CaptureObserver: @unchecked Sendable {
             AudioObjectRemovePropertyListenerBlock(object, &address, queue, listener)
         }
         microphoneObjects = now
+    }
+
+    private func syncMutedDevice() {
+        guard let listener = muteListener else { return }
+        let now = MicrophoneMute.defaultInput()
+        guard now != mutedDevice else { return }
+        if let mutedDevice { Self.removeMuteListeners(mutedDevice, queue, listener) }
+        if let now {
+            for selector in Self.muteSelectors {
+                var address = MicrophoneMute.address(selector)
+                AudioObjectAddPropertyListenerBlock(now, &address, queue, listener)
+            }
+        }
+        mutedDevice = now
+    }
+
+    private static func removeMuteListeners(
+        _ device: AudioObjectID, _ queue: DispatchQueue, _ listener: @escaping AudioObjectPropertyListenerBlock
+    ) {
+        for selector in muteSelectors {
+            var address = MicrophoneMute.address(selector)
+            AudioObjectRemovePropertyListenerBlock(device, &address, queue, listener)
+        }
     }
 
     private func syncCameras() {

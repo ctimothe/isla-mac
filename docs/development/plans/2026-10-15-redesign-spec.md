@@ -2480,6 +2480,41 @@ download does. The rules for when it shows are unchanged (§19.7). Held by
 `LiveActivityTests`, `IslandActivityTests`, `LiveActivityHubTests`,
 `IslandTimerTests`.
 
+*Amended again 2026-11-14 (owner, from a screenshot of 0.4.1.1) — the song
+over the microphone, and the microphone's own card.* A song was playing while
+cmux held the microphone, and the island showed the microphone. The live
+ranks are now one rule: what the person started and is attending to stands
+highest, what an app does on its own waits under it.
+
+| Rank | Activity |
+|---|---|
+| 11 | Timer (was 12) |
+| 12 | Stopwatch (was 13) |
+| 13 | Music (was 14) |
+| 14 | Recording (was 11) |
+| 15 | Downloads |
+| 16 | Shelf |
+| 17 | Recording with the microphone muted and no camera |
+
+A call that needs the island still gets it: the call's app pauses the song,
+and a paused song folds into the notch after its linger, leaving the
+microphone. A click on a microphone recording, on the island or as the
+bubble, now opens **its card** in place (the timer's 335.4 × 120 shape,
+folding after 6 s): the app's icon and name (a click brings it forward),
+**Mute** or **Unmute**, and **Quit**. macOS gives no app a way to take the
+microphone from another, so Mute is the Mac's own input mute on every input
+device (`MicrophoneMute`; a device with no mute is turned down to zero and its
+level kept for Unmute), and the apps hear silence while the menu bar's orange
+dot stays; Quit, chosen from a menu naming each app, is the app's own Quit and
+the one thing that puts the dot out. Muted, the recording drops to rank 17: it
+waits under everything as the bubble, and shows alone only when nothing else
+does, so a mute is never forgotten. A card opened from the bubble holds the
+island until it folds (`IslandActivity.current(expanded:)`). A camera alone
+has no card: nothing to mute, no app to name. Each process on the microphone
+counts as the app macOS holds responsible for it, and one that belongs to no
+app (Siri's listener) counts as nothing. Held by `IslandActivityTests`,
+`LiveActivityTests`, `LiveActivityHubTests`, `CaptureWatchTests`.
+
 ### 19.2 The outline
 
 Every activity and surface is one black shape hung from the top of the screen.

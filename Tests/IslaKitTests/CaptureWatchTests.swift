@@ -18,6 +18,7 @@ final class CaptureWatchTests: XCTestCase {
     @MainActor final class Rig {
         var microphone: [String]? = []
         var camera: Bool? = false
+        var muted: Bool? = false
         var now: TimeInterval = 0
         var observed = 0
         var removed = 0
@@ -38,6 +39,7 @@ final class CaptureWatchTests: XCTestCase {
             let watch = CaptureWatch(environment: CaptureWatch.Environment(
                 readMicrophoneApps: { [unowned self] in MainActor.assumeIsolated { self.microphone } },
                 readCameraInUse: { [unowned self] in MainActor.assumeIsolated { self.camera } },
+                readMicrophoneMuted: { [unowned self] in MainActor.assumeIsolated { self.muted } },
                 observe: { [unowned self] changed in
                     self.observed += 1
                     self.changed = changed
@@ -75,6 +77,11 @@ final class CaptureWatchTests: XCTestCase {
         func set(microphone: [String]?? = nil, camera: Bool?? = nil) {
             if let microphone { self.microphone = microphone }
             if let camera { self.camera = camera }
+            changed?()
+        }
+
+        func setMuted(_ muted: Bool) {
+            self.muted = muted
             changed?()
         }
 
@@ -155,6 +162,15 @@ final class CaptureWatchTests: XCTestCase {
         XCTAssertFalse(state.isEmpty)
         XCTAssertTrue(CaptureState.none.isEmpty)
         XCTAssertFalse(CaptureState(microphoneApps: [], cameraInUse: true).isEmpty)
+    }
+
+    /// Muting the microphone changes the state, so the island hears it; a
+    /// muted microphone with nothing recording is still nothing.
+    func testAMuteIsAChangeAndAloneIsNothing() {
+        let rig = started { $0.microphone = ["us.zoom.xos"] }
+        rig.setMuted(true)
+        XCTAssertEqual(rig.reports.last, CaptureState(microphone: ["us.zoom.xos"], camera: false, muted: true))
+        XCTAssertTrue(CaptureState(microphone: [], camera: false, muted: true).isEmpty)
     }
 
     func testTheSameAppsInAnotherOrderAreNotAChange() {

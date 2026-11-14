@@ -193,6 +193,23 @@ enum IslandMenu {
         return menu
     }
 
+    /// A plain menu of rows that each run their closure: the microphone
+    /// card's Quit, one row per app holding the microphone. The row is the
+    /// confirmation — a second, deliberate choice naming the app — so a stray
+    /// press on Quit quits nothing.
+    static func choices(_ rows: [(title: String, run: () -> Void)]) -> NSMenu {
+        let menu = ActionMenu(title: "Isla")
+        menu.autoenablesItems = false
+        for row in rows {
+            let action = MenuAction(row.run)
+            let item = NSMenuItem(title: row.title, action: #selector(MenuAction.run(_:)), keyEquivalent: "")
+            item.target = action
+            menu.actions.append(action)
+            menu.addItem(item)
+        }
+        return menu
+    }
+
     /// `NSMenuItem.target` is weak: the menu holds what its rows call.
     private final class ActionMenu: NSMenu {
         var actions: [MenuAction] = []
