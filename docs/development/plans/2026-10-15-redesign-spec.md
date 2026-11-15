@@ -2515,6 +2515,34 @@ counts as the app macOS holds responsible for it, and one that belongs to no
 app (Siri's listener) counts as nothing. Held by `IslandActivityTests`,
 `LiveActivityTests`, `LiveActivityHubTests`, `CaptureWatchTests`.
 
+*Amended 2026-11-15 (owner, after using 0.4.1.3 with Granola) — a mute lasts
+only as long as its recording.* Mute pressed during a Granola dictation; the
+dictation ended, the activity and its Unmute went with it, and the Mac stayed
+muted. coreaudiod saves a device's mute and restores it at start, so it came
+back after a restart, and Siri's listener (`corespeechd`) then took the muted
+microphone for the normal one and put the mute back each time it changed mode
+— the microphone went silent every half a minute or so, and the island, which
+read the device's mute, showed each flip as a mute and dropped the activity to
+rank 17 under the Shelf. Measured in the unified log: no `corespeechd` input
+mute in the four days before Isla's, a run of them after. Now:
+
+- **Mute is held, not set** (`MicrophoneMute.hold`/`release`). It writes down
+  each device and channel it changed and gives back exactly those: a channel
+  the person had muted stays muted. Only real microphones are touched, not
+  virtual or aggregate devices (Microsoft Teams' loopback).
+- **It ends with the recording.** The hub gives it back when the last app lets
+  go of the microphone, when the Recording switch goes off, when Isla quits
+  (waiting for it), and at launch for a run that ended while muted. There is
+  never a mute with no island to undo it.
+- **"Muted" is the island's own Mute**, never read from the device, so a mute
+  another process flips for its own reasons moves nothing on the island.
+- **A muted microphone keeps rank 14.** Row 17 above is withdrawn: muted, the
+  recording waits beside the song as the bubble like any other, its Unmute one
+  click away.
+
+Held by `MicrophoneMuteTests`, `LiveActivityHubTests`, `LiveActivityTests`,
+`IslandActivityTests`.
+
 ### 19.2 The outline
 
 Every activity and surface is one black shape hung from the top of the screen.

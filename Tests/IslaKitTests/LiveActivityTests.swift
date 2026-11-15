@@ -57,8 +57,8 @@ final class LiveActivityTests: XCTestCase {
 
     /// The owner's screenshot, 2026-11-14: a song playing while cmux held the
     /// microphone, and the island showed the microphone. The song now holds
-    /// the island and the microphone waits as the bubble; muted, it waits
-    /// under the Shelf too.
+    /// the island and the microphone waits as the bubble — muted too, over
+    /// the Shelf (owner, 2026-11-15: a muted call went out of sight under it).
     func testAPlayingSongHoldsTheIslandOverTheMicrophone() {
         let island = IslandActivity.current(
             hud: nil, ambient: nil, isPeeking: false, musicIsVisible: true, shelfCount: 0, live: [recording]
@@ -75,7 +75,7 @@ final class LiveActivityTests: XCTestCase {
             IslandActivity.bubbleActivity(
                 beside: .music, musicIsVisible: true, shelfCount: 3, live: [muted], isOpen: false, isLocked: false
             ),
-            .shelf(count: 3)
+            .live(muted)
         )
         XCTAssertEqual(
             IslandActivity.current(hud: nil, ambient: nil, isPeeking: false, musicIsVisible: false, shelfCount: 0, live: [muted]),
