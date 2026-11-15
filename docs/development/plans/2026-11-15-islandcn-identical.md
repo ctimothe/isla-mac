@@ -36,7 +36,14 @@ number quoted with file:line). This plan only orders that work.
 Everything else — bottom corners, wings, the bubble gap, every spring — is
 islandcn's number.
 
-## Still to decide (owner), recommendation first
+## Answered 2026-11-15
+
+a: **islandcn's 0.2 s ease-out exactly** (owner accepted the first-frame
+jump F-055 avoided). b: islandcn's look, the current no-delay speed.
+c: islandcn's keyline on every wallpaper (no luma fade). d: fixed as a bug.
+e: the pulsing dot, no microphone prompt; Mute and Quit stay expanded.
+
+## The questions as asked, recommendation first
 
 a. **Reduce Motion.** islandcn tweens 0.2 s ease-out; on Isla that gives a
    38.6 pt first-frame jump (F-055). Recommend: keep Isla's 0.24 s ease-in-out.
