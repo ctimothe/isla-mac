@@ -81,7 +81,7 @@ final class StageAndCardTickTests: XCTestCase {
         let hosted = host(stage(rig), size: Self.stageSize)
         defer { hosted.window.orderOut(nil) }
         let inside = await layouts(hosted, rig, ticks: 5, step: 0.1)
-        XCTAssertEqual(inside, 0, "a tick inside a line re-ran the stage")
+        XCTAssertEqual(inside, 0, "a tick inside a line re-ran the stage" + hosted.hosting.report)
         // And the stage still turns: the voice reaching the honoured end
         // (5 s) changes what is lit.
         let across = await layouts(hosted, rig, ticks: 1, step: 2.5)
@@ -94,7 +94,7 @@ final class StageAndCardTickTests: XCTestCase {
         let hosted = host(stage(rig), size: Self.stageSize)
         defer { hosted.window.orderOut(nil) }
         let inside = await layouts(hosted, rig, ticks: 5, step: 0.1)
-        XCTAssertEqual(inside, 0, "a tick through an instrumental re-ran the stage")
+        XCTAssertEqual(inside, 0, "a tick through an instrumental re-ran the stage" + hosted.hosting.report)
         // Standing still is only right while the rest still fills: Core
         // Animation carries the playing interlude's bar, laid once for the
         // whole rest, and every other interlude stays put.
@@ -131,7 +131,7 @@ final class StageAndCardTickTests: XCTestCase {
         let hosted = host(card(rig, pane: .player), size: LockScreenCard.size(for: .standard))
         defer { hosted.window.orderOut(nil) }
         let inside = await layouts(hosted, rig, ticks: 5, step: 0.05)
-        XCTAssertEqual(inside, 0, "a tick inside a second re-ran the lock card")
+        XCTAssertEqual(inside, 0, "a tick inside a second re-ran the lock card" + hosted.hosting.report)
         // The seek bar moves on Core Animation instead, laid once for the
         // whole course.
         let bar = hosted.hosting.descendants(of: PlaybackFillView.self).filter { $0.runningAnimation != nil }
@@ -147,7 +147,7 @@ final class StageAndCardTickTests: XCTestCase {
         let hosted = host(card(rig, pane: .lyrics), size: LockScreenCard.size(for: .standard))
         defer { hosted.window.orderOut(nil) }
         let inside = await layouts(hosted, rig, ticks: 5, step: 0.1)
-        XCTAssertEqual(inside, 0, "a tick inside a line re-ran the card's lyrics")
+        XCTAssertEqual(inside, 0, "a tick inside a line re-ran the card's lyrics" + hosted.hosting.report)
         let across = await layouts(hosted, rig, ticks: 1, step: 2.5)
         XCTAssertGreaterThan(across, 0, "the voice left the line and the card's lyrics did not turn")
     }
@@ -165,7 +165,7 @@ final class StageAndCardTickTests: XCTestCase {
         )
         defer { hosted.window.orderOut(nil) }
         let inside = await layouts(hosted, rig, ticks: 5, step: 0.1)
-        XCTAssertEqual(inside, 0, "a tick re-ran the banner to turn its ring")
+        XCTAssertEqual(inside, 0, "a tick re-ran the banner to turn its ring" + hosted.hosting.report)
         let ring = hosted.hosting.descendants(of: PlaybackRingView.self).first
         XCTAssertNotNil(ring?.runningAnimation, "the playing banner's ring is not turning")
         XCTAssertEqual(ring?.installs, 1, "a tick laid the banner's ring again")
@@ -346,16 +346,34 @@ final class StageAndCardTickTests: XCTestCase {
             .defaultAppStorage(rig.isolated.suite)
     }
 
-    /// A hosting view that counts its layout passes.
+    /// A hosting view that counts its layout passes, and keeps what asked for
+    /// each one: these tests failed on CI's macOS 26 runner with one pass that
+    /// no Mac here reproduces, so a failure has to say where it came from.
     private final class CountingHost: NSHostingView<AnyView> {
         private(set) var layouts = 0
+        /// Which tick the counting is at: 0 before the first, `n` after the
+        /// n-th.
+        var tick = 0
+        private var passes: [(tick: Int, stack: [String])] = []
 
         override func layout() {
             layouts += 1
+            if passes.count < 3 { passes.append((tick, Array(Thread.callStackSymbols.dropFirst().prefix(40)))) }
             super.layout()
         }
 
-        func reset() { layouts = 0 }
+        func reset() {
+            layouts = 0
+            tick = 0
+            passes = []
+        }
+
+        /// Each counted pass's tick and the frames that asked for it.
+        var report: String {
+            passes.map { pass in
+                "\n— a pass after tick \(pass.tick):\n" + pass.stack.joined(separator: "\n")
+            }.joined()
+        }
     }
 
     private struct Hosted {
@@ -384,8 +402,9 @@ final class StageAndCardTickTests: XCTestCase {
     private func layouts(_ hosted: Hosted, _ rig: Rig, ticks: Int, step: TimeInterval) async -> Int {
         await AXProbe.wait(0.6)
         hosted.hosting.reset()
-        for _ in 0..<ticks {
+        for tick in 1...ticks {
             rig.advance(by: step)
+            hosted.hosting.tick = tick
             await AXProbe.wait(0.06)
         }
         await AXProbe.wait(0.15)
