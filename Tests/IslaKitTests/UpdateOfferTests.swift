@@ -428,7 +428,7 @@ final class UpdateOfferTests: XCTestCase {
         XCTAssertEqual(h.vm.updateOffer?.version, "0.3.0.1", "offered once the Mac is unlocked")
 
         let source = try SourceText.of("Sources/IslaKit/Notch/NotchController.swift")
-        let unlock = try XCTUnwrap(source.range(of: "private func screenUnlocked() {"))
+        let unlock = try XCTUnwrap(source.range(of: "func screenUnlocked() {"))
         let body = source[unlock.upperBound...].prefix(4000)
         let end = body.range(of: "\n    }\n")?.lowerBound ?? body.endIndex
         XCTAssertTrue(body[..<end].contains("updateScreenSeenAgain()"),
