@@ -63,7 +63,7 @@ final class SettingsTableTests: XCTestCase {
         for section in SettingsSection.allCases {
             XCTAssertEqual(section.glyph, expected[section], "\(section)")
             if let name = section.glyph.fallbackSymbol {
-                XCTAssertNotNil(NSImage(systemSymbolName: name, accessibilityDescription: nil),
+                XCTAssertNotNil(IslandGlyph(rawValue: name),
                                 "\(name) does not resolve — the tile would draw no glyph")
             }
         }
@@ -850,7 +850,7 @@ final class SettingsTableTests: XCTestCase {
     func testRowIconsResolve() {
         for row in SettingsRowID.allCases {
             guard let icon = row.icon else { continue }
-            XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil), "\(row): \(icon)")
+            XCTAssertNotNil(IslandGlyph(rawValue: icon), "\(row): \(icon)")
         }
         // Four more since 2026-11-14: the battery alerts, Microphone and Camera, Downloads.
         XCTAssertEqual(SettingsRowID.allCases.filter { $0.icon != nil }.count, 11)

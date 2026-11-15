@@ -951,8 +951,7 @@ struct SettingsPane: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 if chevron {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
+                    GlyphImage(.chevronRight, pointSize: 11)
                         .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                         .accessibilityHidden(true)
                 }
@@ -1752,8 +1751,7 @@ struct RowIcon: View {
     /// 13 pt in `secondaryLabelColor`, in a 20 pt column so the labels of a
     /// group line up whatever the glyph's width (native pass 2026-10-25).
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: SettingsLayout.labelRole.size))
+        GlyphImage(IslandGlyph(rawValue: symbol) ?? .gear, pointSize: SettingsLayout.labelRole.size)
             .foregroundStyle(Theme.settingsSecondaryLabel)
             .frame(width: 20)
             .accessibilityHidden(true)
@@ -2034,10 +2032,9 @@ struct LyricDelayControls: View {
         return Button {
             lyrics.userOffset = LyricDelayStep.next(lyrics.userOffset, later: later)
         } label: {
-            Image(systemName: later ? "plus" : "minus")
-                // Fitted to the 22 pt well, as the lyrics page's own
-                // per-track nudge is: a caption glyph would crowd it.
-                .font(.system(size: 8, weight: .bold))
+            // Fitted to the 22 pt well, as the lyrics page's own
+            // per-track nudge is: a caption glyph would crowd it.
+            GlyphImage(later ? .plus : .minus, pointSize: 8)
         }
         .buttonStyle(NotchButtonStyle(size: 22))
         .disabled(atEnd)
@@ -2228,8 +2225,7 @@ struct SettingsPopUpRow<Option: Identifiable & Hashable>: View {
                         .islandFont(SettingsLayout.labelRole, weight: .regular)
                         .foregroundStyle(Theme.settingsSecondaryLabel)
                         .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                    GlyphImage(.chevronUpDown, pointSize: 10)
                         .foregroundStyle(Theme.settingsSecondaryLabel)
                         .accessibilityHidden(true)
                 }

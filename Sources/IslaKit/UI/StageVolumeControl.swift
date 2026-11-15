@@ -49,8 +49,7 @@ struct StageVolumeSlider: View {
 
     var body: some View {
         HStack(spacing: Self.spacing) {
-            Image(systemName: "speaker.fill")
-                .font(.system(size: 11, weight: .medium))
+            GlyphImage(.speaker, pointSize: 11)
                 .frame(width: Self.glyphSlot, alignment: .leading)
             track
                 .volumeAccessibility(
@@ -58,8 +57,7 @@ struct StageVolumeSlider: View {
                     muted: volume.target == .system && volume.muted,
                     label: volume.label
                 ) { volume.set($0) }
-            Image(systemName: "speaker.wave.3.fill")
-                .font(.system(size: 11, weight: .medium))
+            GlyphImage(.speakerLoud, pointSize: 11)
                 .frame(width: Self.glyphSlot, alignment: .trailing)
         }
         .foregroundStyle(Theme.secondary)

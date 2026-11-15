@@ -678,9 +678,7 @@ struct MediaPane: View {
             case .spotify(let id, _): _ = spotify?.toggleSaved(trackID: id)
             }
         } label: {
-            Image(systemName: favourite.isOn ? "star.fill" : "star")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+            GlyphImage(favourite.isOn ? .starFilled : .star)
                 .frame(width: PlayerLayout.Control.favourite.glyph.width, height: PlayerLayout.Control.favourite.glyph.height)
                 .foregroundStyle(.white.opacity(Theme.playerSecondaryControlOpacity))
                 .symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)
@@ -823,7 +821,7 @@ struct MediaPane: View {
 
             if let footnote = message.footnote, let footer = frames.footer {
                 HStack(spacing: 6) {
-                    Image(systemName: "info.circle")
+                    GlyphImage(.info, pointSize: Theme.TypeRole.body.size)
                     Text(footnote).lineLimit(1)
                 }
                 .islandFont(.body, weight: .regular)
@@ -863,8 +861,7 @@ struct MissingCoverWell: View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(Theme.coverMissingWell)
             .overlay(
-                Image(systemName: "music.note")
-                    .font(.system(size: noteSize))
+                GlyphImage(.music, pointSize: noteSize)
                     .foregroundStyle(Theme.quaternary)
             )
     }
@@ -935,13 +932,10 @@ struct PlayerOutputButton: View {
         Button { presenter.present() } label: {
             Group {
                 if let glyph {
-                    Image(systemName: symbol)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+                    GlyphImage(IslandGlyph(rawValue: symbol) ?? .audioOutput)
                         .frame(width: glyph.width, height: glyph.height)
                 } else {
-                    Image(systemName: symbol)
-                        .font(HeaderIcon.font)
+                    GlyphImage(IslandGlyph(rawValue: symbol) ?? .audioOutput, pointSize: HeaderIcon.size)
                 }
             }
             .foregroundStyle(color)

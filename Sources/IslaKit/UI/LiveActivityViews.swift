@@ -75,9 +75,7 @@ struct LiveGlyph: View {
     var size: CGFloat = LiveActivityLayout.glyphSize
 
     var body: some View {
-        Image(systemName: Self.symbol(for: live))
-            .font(.system(size: size, weight: .semibold))
-            .symbolRenderingMode(.hierarchical)
+        GlyphImage(IslandGlyph(rawValue: Self.symbol(for: live)) ?? .timer, pointSize: size)
             .foregroundStyle(Self.tint(for: live))
             .frame(height: size + 2)
     }
@@ -207,8 +205,7 @@ struct LiveBubbleContent: View {
                 if live.isTimer { LiveValue(live: live, compact: false, reduceMotion: reduceMotion) }
             }
         case .music:
-            Image(systemName: "waveform")
-                .font(.system(size: 14, weight: .semibold))
+            GlyphImage(.waveform, pointSize: 14)
                 .foregroundStyle(Color.white)
         default:
             EmptyView()
@@ -270,8 +267,7 @@ struct TimerControlsView: View {
 
     private func roundButton(symbol: String, label: String, fill: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 16, weight: .bold))
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .close, pointSize: 16)
         }
         .buttonStyle(RoundControlStyle(fill: fill, increaseContrast: increaseContrast))
         .accessibilityLabel(label)
@@ -370,8 +366,7 @@ struct MicrophoneControlsView: View {
 
     private func roundButton(symbol: String, label: String, fill: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 16, weight: .bold))
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .close, pointSize: 16)
         }
         .buttonStyle(RoundControlStyle(fill: fill, increaseContrast: increaseContrast))
         .accessibilityLabel(label)
@@ -419,8 +414,7 @@ struct TimerDoneView: View {
     var body: some View {
         let shape = LiveActivityLayout.doneShape
         HStack(spacing: 12) {
-            Image(systemName: "timer")
-                .font(.system(size: 26, weight: .semibold))
+            GlyphImage(.timer, pointSize: 26)
                 .foregroundStyle(LiveActivityLayout.timerOrange)
             VStack(alignment: .leading, spacing: 2) {
                 Text(localized("Timer"))

@@ -212,8 +212,7 @@ struct WelcomePane: View {
         VStack(alignment: .leading, spacing: Self.legendSpacing) {
             ForEach(legend, id: \.symbol) { line in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: line.symbol)
-                        .font(.system(size: 14, weight: .regular))
+                    GlyphImage(IslandGlyph(rawValue: line.symbol) ?? .info, pointSize: 14)
                         .foregroundStyle(Theme.tertiary)
                         .frame(width: Self.glyphWidth)
                         .accessibilityHidden(true)

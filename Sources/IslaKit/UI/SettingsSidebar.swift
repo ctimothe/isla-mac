@@ -129,8 +129,7 @@ struct DrawnPaneTile: View {
                 startPoint: .top, endPoint: .bottom
             ))
             .overlay {
-                Image(systemName: symbol)
-                    .font(.system(size: side * 0.56, weight: .medium))
+                GlyphImage(IslandGlyph(rawValue: symbol) ?? .gear, pointSize: side * 0.56)
                     .foregroundStyle(Theme.settingsIconGlyph)
             }
             // Decoration: the row's title says what it is, and the symbol's

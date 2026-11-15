@@ -950,8 +950,7 @@ struct NotchContentView: View {
     private func confirmationHeader(_ confirmation: IslandConfirmation) -> some View {
         let scale = CompactIslandLayout.glyphScale(height: size.height)
         return HStack(spacing: 0) {
-            Image(systemName: confirmation.symbol)
-                .font(.system(size: ConfirmationLayout.symbolSize * scale, weight: .semibold))
+            GlyphImage(IslandGlyph(rawValue: confirmation.symbol) ?? .check, pointSize: ConfirmationLayout.symbolSize * scale)
                 .foregroundStyle(Color.white)
                 .padding(.leading, ConfirmationLayout.leadingInset)
             Spacer(minLength: 0)
@@ -999,7 +998,7 @@ struct NotchContentView: View {
     }
 
     /// Headphones connected (spec §19.5 c), an expanded alert: the device's
-    /// own symbol, hierarchical, at left; "Connected" over the device's name
+    /// own glyph at left; "Connected" over the device's name
     /// beside it, the name truncating at its tail. The battery ring waits for
     /// a level Isla can read without a new permission (§19.15, R9), so the
     /// name takes its width.
@@ -1007,10 +1006,7 @@ struct NotchContentView: View {
         let notchHeight = vm.geometry.notchSize.height
         let glyph = HeadphonesAlertLayout.glyphFrame(notchHeight: notchHeight)
         return ZStack(alignment: .topLeading) {
-            Image(systemName: symbol)
-                .resizable()
-                .symbolRenderingMode(.hierarchical)
-                .scaledToFit()
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .headphones)
                 .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.glyphOpacity))
                 .frame(width: glyph.width, height: glyph.height)
                 .offset(x: glyph.minX, y: glyph.minY)
@@ -1038,9 +1034,7 @@ struct NotchContentView: View {
     private func shelfHeader(count: Int) -> some View {
         let tray = CompactIslandLayout.shelfGlyphFrame(height: size.height)
         return HStack(spacing: 0) {
-            Image(systemName: "tray.full.fill")
-                .resizable()
-                .scaledToFit()
+            GlyphImage(.trayFullFilled)
                 .foregroundStyle(Color.white)
                 .frame(width: tray.width, height: tray.height)
                 .padding(.leading, tray.minX)
@@ -1302,8 +1296,7 @@ struct NotchContentView: View {
                         // a hole, and never a second, different kind of cover.
                         Theme.coverWell
                             .overlay {
-                                Image(systemName: "music.note")
-                                    .islandFont(.body, weight: .regular)
+                                GlyphImage(.music, pointSize: Theme.TypeRole.body.size)
                                     .foregroundStyle(Theme.secondary)
                             }
                     }
@@ -1325,8 +1318,7 @@ struct NotchContentView: View {
                     // 22 pt cover; the glyph is fitted to the cover, not type,
                     // so no role applies and the caption floor would be too
                     // large for it.
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 9, weight: .bold))
+                    GlyphImage(.play, pointSize: 9)
                         .foregroundStyle(Color.white)
                         .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
                         .offset(x: 0.5)

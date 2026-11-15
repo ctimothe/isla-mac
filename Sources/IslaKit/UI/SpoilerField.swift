@@ -177,8 +177,7 @@ struct RevealEye: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: hidden ? "eye" : "eye.slash")
-                .islandFont(.caption, weight: .semibold)
+            GlyphImage(hidden ? .eye : .eyeSlash, pointSize: Theme.TypeRole.caption.size)
                 .foregroundStyle(Theme.secondary)
                 .symbolSwap(value: hidden, reduceMotion: reduceMotion)
                 // A 10pt glyph is a 10pt target; the row's own background is a

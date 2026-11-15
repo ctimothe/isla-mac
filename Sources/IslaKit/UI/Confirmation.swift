@@ -66,8 +66,7 @@ struct CopyButton: View {
             flash($copied)
             Announcer.shared.announce(localized("Copied"))
         } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(HeaderIcon.font)
+            GlyphImage(copied ? .check : .copy, pointSize: HeaderIcon.size)
                 .foregroundStyle(copied ? Theme.success : Theme.secondary)
                 .symbolSwap(value: copied, reduceMotion: reduceMotion)
                 .frame(width: side, height: side)

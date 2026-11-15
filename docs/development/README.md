@@ -19,6 +19,7 @@ removed from the tree to keep it readable; they are still in the git history.
 | [plans/2026-10-17-activities-build-plan.md](plans/2026-10-17-activities-build-plan.md) | How the redesign was built, release by release (R7 onward). |
 | [plans/2026-10-19-dev-update-channel.md](plans/2026-10-19-dev-update-channel.md) | The private update channel on the owner's Mac and the island's update alert. |
 | [plans/2026-10-29-maturity-program.md](plans/2026-10-29-maturity-program.md) | Proposed: the scorecard, scenario matrix and batch loop that make Isla the best island on Macs without Apple's, and its behaviour on Macs with one. |
+| [plans/2026-11-15-islandcn-identical.md](plans/2026-11-15-islandcn-identical.md) | In progress: islandcn's island, activities, icons and motion, copied exactly and changed only where the notch forces it; built in slices S1–S9. |
 | [scorecard.md](scorecard.md) | The maturity program's bar: every feature scored 0–4 on design, accessibility, speed, efficiency, reliability and usability, with the evidence. |
 | [run-sheet.md](run-sheet.md) | Every open hardware check sorted into ten ordered sittings, with the stale ones, the ones that could be tests and the ones waiting on Apple. |
 | [design/](design/) | Design sources kept for reference, such as the app icon's directions. |

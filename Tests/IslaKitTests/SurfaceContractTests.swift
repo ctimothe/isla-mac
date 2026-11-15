@@ -82,7 +82,7 @@ final class SurfaceContractTests: XCTestCase {
     func testEveryHeaderGlyphResolves() {
         for surface in Surface.allCases {
             guard let symbol = surface.symbol else { continue }
-            XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), "\(symbol) for \(surface)")
+            XCTAssertNotNil(IslandGlyph(rawValue: symbol), "\(symbol) for \(surface)")
         }
         // Filled, like the Shelf's tray (owner's review, 2026-10-18).
         XCTAssertEqual(Surface.clipboard.symbol, "list.clipboard.fill")

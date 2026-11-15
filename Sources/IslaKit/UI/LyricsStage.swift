@@ -660,8 +660,7 @@ struct LyricsStage: View {
             following = true
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "music.note")
-                    .font(.system(size: 10, weight: .bold))
+                GlyphImage(.music, pointSize: 10)
                 Text(localized("Sync"))
                     .islandFont(11.5, weight: .semibold)
             }
@@ -788,8 +787,7 @@ struct LyricsStage: View {
     /// raised it.
     private func noticeRow(icon: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .regular))
+            GlyphImage(IslandGlyph(rawValue: icon) ?? .history, pointSize: 12)
                 .foregroundStyle(Theme.secondary)
                 .padding(.top, 1)
             Text(text)
@@ -899,8 +897,7 @@ struct LyricsStage: View {
     }
 
     private func statusGlyph(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 22, weight: .light))
+        GlyphImage(IslandGlyph(rawValue: symbol) ?? .music, pointSize: 22)
             .foregroundStyle(Theme.tertiary)
     }
 

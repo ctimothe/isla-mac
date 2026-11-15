@@ -41,7 +41,7 @@ final class IslandConfirmationTests: XCTestCase {
         XCTAssertEqual(added.symbol, "tray.and.arrow.down.fill")
         XCTAssertEqual(added.title, "Added to Shelf")
         for confirmation in [imported, copied, added] {
-            XCTAssertNotNil(NSImage(systemSymbolName: confirmation.symbol, accessibilityDescription: nil), confirmation.symbol)
+            XCTAssertNotNil(IslandGlyph(rawValue: confirmation.symbol), confirmation.symbol)
             XCTAssertEqual(confirmation.accessibilityLabel, confirmation.title)
         }
         XCTAssertEqual(IslandConfirmation.holdDuration, 1.5)
@@ -274,7 +274,7 @@ final class IslandConfirmationTests: XCTestCase {
 
         let already = IslandConfirmation(.alreadyOnShelf)
         XCTAssertEqual(already.title, "Already on the Shelf")
-        XCTAssertNotNil(NSImage(systemSymbolName: already.symbol, accessibilityDescription: nil), already.symbol)
+        XCTAssertNotNil(IslandGlyph(rawValue: already.symbol), already.symbol)
         LabLocalization.use("ru")
         defer { LabLocalization.use("en") }
         XCTAssertEqual(already.title, "Уже на полке")
