@@ -43,7 +43,7 @@ Upstream of this document:
 | 16 | *(17 Oct 2026)* The island and its activities are drawn exactly as in DynamicNotch's published screenshots — sizes, quadratic corners, the 2 pt tinted stroke, the overshooting spring, content arriving from a blur — rebuilt from scratch with Apple's SF Symbols and Isla's own words. No DynamicNotch code, image or text (GPL-3.0). §19.2–§19.5. |
 | 17 | *(17 Oct 2026)* Music and its lyrics are the main activity; the Shelf appears when files are dragged to the notch; a second live activity waits as a bubble beside the island. §19.1, §19.6, §19.7. |
 | 18 | *(18 Oct 2026)* Pages and dots. The open panel's four places — Music, Shelf, Clipboard, Translate — are pages in a fixed order: a two-finger swipe turns them and a row of dots under each shows where you are. Settings is a gear at the top right of every page. Tools is withdrawn. §19.16, release R8b. |
-| 19 | *(15 Nov 2026)* islandcn, identical: the island and every activity copy islandcn (MIT, commit `0011a41`) exactly, and the panels take its colours, type, icons and buttons, changed only where a notch forces it. Its icons — Hugeicons' free set (MIT) drawn by islandcn's recipes — replace every SF Symbol Isla draws; other apps' icons stay their own. Amends decision 16's "Apple's SF Symbols". Plan `2026-11-15-islandcn-identical.md`. |
+| 19 | *(15 Nov 2026)* islandcn, identical: the island and every activity copy islandcn (MIT, commit `0011a41`) exactly, and the panels take its colours, type, icons and buttons, changed only where a notch forces it. Its icons — Hugeicons' free set (MIT) drawn by islandcn's recipes — replace every SF Symbol Isla draws; other apps' icons and Apple's products (AirPods, Beats, HomePod, Apple TV, the Mac mini, Studio and Pro) stay their own. Amends decision 16's "Apple's SF Symbols". Plan `2026-11-15-islandcn-identical.md`. |
 
 ## 1. Conventions
 
@@ -2354,7 +2354,11 @@ volume pop-up do not change.
 > (`IslandGlyph`), not Apple's SF Symbols. A glyph named in this section by
 > its SF Symbol name (`music.note`, `tray.full.fill`) means the `IslandGlyph`
 > with that raw value. App Intents' Shortcuts icons stay SF Symbols: the
-> system draws those, not Isla.
+> system draws those, not Isla. An Apple product (AirPods of each model,
+> EarPods, every Beats, HomePod, Apple TV, Mac mini, Mac Studio, Mac Pro)
+> keeps Apple's own drawing where the Mac has it, as another app's icon stays
+> its own (owner, 2026-11-15): the free set has none of them, and its nearest
+> drawing told no model apart. A kind of device stays islandcn's.
 
 ### 19.1 The model
 

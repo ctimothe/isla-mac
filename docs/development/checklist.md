@@ -3438,7 +3438,10 @@ decision 19 and §19 amended 2026-11-15. Built slice by slice on
   Hugeicons' free set 4.4.0 (MIT, vendored by `Scripts/vendor-hugeicons.mjs`)
   rendered by a Swift port of islandcn's recipes (`GlyphRecipe`: line, fill,
   heavy, cut, gap and inlay parts; the island weight `2·(22/s)^0.35`; placement
-  and views). Credited in `THIRD_PARTY_NOTICES.md`, which
+  and views). An Apple product (AirPods of each model, EarPods, Beats,
+  HomePod, Apple TV, the Mac mini, Studio and Pro) keeps Apple's own drawing
+  where the Mac has it, as another app's icon stays its own; the free set has
+  none of them. Credited in `THIRD_PARTY_NOTICES.md`, which
   `test-provenance.sh` and `test-package.sh` now check. The whole set is drawn
   side by side with the symbols it replaced by `VisualLabGlyphsTests`
   (`bash Scripts/visual-lab.sh <folder> VisualLabGlyphsTests`).
@@ -3449,4 +3452,7 @@ Owed on hardware (record the Mac model and macOS version):
   Shelf, Clipboard, Translate, Settings' rows and sidebar, the lock card, the
   volume pop-up and the right-click and Output menus. No glyph is missing, cut
   off or a different size from its neighbours; the menus tint theirs.
+- [ ] **IC2-H2** AirPods (and any Beats or HomePod at hand) as the output:
+  the Output menu, the headphones alert, the volume pop-up and the lock card
+  draw that model's own shape, the same size as islandcn's glyphs beside it.
 
