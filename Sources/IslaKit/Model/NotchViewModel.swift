@@ -775,10 +775,7 @@ final class NotchViewModel: ObservableObject {
             // ignored the pointer leaving and could only be dismissed by
             // clicking somewhere else entirely.
             //
-            // Over the update alert the pointer is on its way to a button, and
-            // Open on Hover opening the panel would take the alert down under
-            // it (spec §19.5 f).
-            if !isOpen, case .update = activity { return .standsAsItIs }
+            if !isOpen, !Self.arrivalMayOpen(over: activity) { return .standsAsItIs }
             return Self.opensOnHoverEnabled ? .opens : .standsAsItIs
         }
         // The one place the pointer does not decide — see `holdsOpen`. Asked
@@ -786,6 +783,20 @@ final class NotchViewModel: ObservableObject {
         // that are not the pointer, like the screen going to sleep, still close
         // a pinned panel.
         return holdsOpen ? .standsAsItIs : .closes
+    }
+
+    /// Whether Open on Hover may open the panel over what the shut island
+    /// shows. Not over the update alert: the pointer is on its way to a
+    /// button, and opening would take the alert down under it (spec §19.5 f).
+    /// Nor over a new track's alert (§3.5, amended 2026-11-15): it hangs 65 pt
+    /// under the notch, as the pop-up does, and it comes to the pointer rather
+    /// than the pointer to it — a pointer resting on a tab bar under the notch
+    /// would otherwise open the panel on every skip. A click still opens it.
+    nonisolated static func arrivalMayOpen(over activity: IslandActivity) -> Bool {
+        switch activity {
+        case .update, .peek: return false
+        default: return true
+        }
     }
 
     /// The state half of a click that opens the island. The controller owns the
@@ -1655,9 +1666,6 @@ final class NotchViewModel: ObservableObject {
         let activity = self.activity
         let media = compactMediaActivity.bodySize(
             notchSize: geometry.notchSize,
-            // A peek an alert is standing over is not drawn, and takes none of
-            // the height.
-            peeking: activity == .peek,
             // The body the panel would open to, so the pill can never be wider
             // than the panel it turns into.
             bodyWidth: geometry.expandedSize.width
@@ -1686,9 +1694,17 @@ final class NotchViewModel: ObservableObject {
                 live, expanded: showsLiveControls, notchSize: geometry.notchSize,
                 bodyWidth: geometry.expandedSize.width
             )
-        case .peek, .music, .none:
+        case .peek:
+            return Self.newTrackBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+        case .music, .none:
             return media
         }
+    }
+
+    /// A new track: the pop-up's own body, under the notch (spec §3.5,
+    /// amended 2026-11-15). Pure, so the arithmetic has tests.
+    nonisolated static func newTrackBodySize(notchSize: CGSize, bodyWidth: CGFloat) -> CGSize {
+        NewTrackAlertLayout.shape.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
     }
 
     /// The Shelf as the island's live activity: the notch plus 75, the notch's

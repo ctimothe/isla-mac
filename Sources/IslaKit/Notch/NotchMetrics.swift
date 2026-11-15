@@ -112,17 +112,7 @@ enum NotchMetrics {
     static let hoverNudgeWidth: CGFloat = 8
     static let hoverNudgeDepth: CGFloat = 3
 
-    /// How much wider the pill goes while peeking, over the compact width.
-    /// Enough for a title beside the artwork without reaching the full body.
-    static let sneakPeekExtension: CGFloat = 300
-    /// How tall the island grows for a new track's peek (spec §3.5, owner
-    /// decision 3). Two lines — a title and an artist — do not fit the notch's
-    /// own 38 pt without being squeezed against the camera, so the island grows
-    /// 12 pt down into the wallpaper, the way a Live Activity's alert does,
-    /// rather than the text being made smaller. The window is never resized
-    /// (it is cut for 444 pt), so this is only a drawn height and an active
-    /// rect.
-    static let sneakPeekHeight: CGFloat = 50
-    // The headphones and the volume pop-up are expanded alerts since spec
-    // §19.5 c and d, sized by `ExpandedAlertShape`, not by wings.
+    // The headphones, the volume pop-up and a new track are expanded alerts
+    // since spec §19.5 c and d and §3.5 (amended 2026-11-15), sized by
+    // `ExpandedAlertShape`, not by wings.
 }

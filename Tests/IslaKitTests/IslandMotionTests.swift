@@ -31,7 +31,7 @@ final class IslandMotionTests: XCTestCase {
     func testPresentationsFollowTheSpec() {
         XCTAssertEqual(IslandMotion.presentation(of: .none), .idle)
         XCTAssertEqual(IslandMotion.presentation(of: .music), .compact("music"))
-        XCTAssertEqual(IslandMotion.presentation(of: .peek), .compact("music"), "a peek is the song's pill made wider")
+        XCTAssertEqual(IslandMotion.presentation(of: .peek), .expanded("peek"), "a new track is shown as the pop-up is")
         XCTAssertEqual(IslandMotion.presentation(of: .shelf(count: 3)), .compact("shelf"))
         XCTAssertEqual(IslandMotion.presentation(of: .music, hasBubble: true), .split("music"))
         XCTAssertEqual(

@@ -93,15 +93,17 @@ final class PanelWidthTests: XCTestCase {
     /// The compact pill lives inside the same body, so it moves with it.
     func testThePillNeverOutgrowsTheBodyItTurnsInto() {
         let notch = CGSize(width: 200, height: 32)
-        let narrow = CompactMediaActivity.playing.bodySize(
-            notchSize: notch, peeking: true, bodyWidth: NotchMetrics.minimumBodyWidth
-        )
-        XCTAssertEqual(narrow.width, NotchMetrics.minimumBodyWidth)
+        // A body narrower than the pill caps it; a wide one leaves it alone.
+        let capped = CompactMediaActivity.playing.bodySize(notchSize: notch, bodyWidth: 240)
+        XCTAssertEqual(capped.width, 240)
 
         let wide = CompactMediaActivity.playing.bodySize(
-            notchSize: notch, peeking: true, bodyWidth: NotchMetrics.maximumBodyWidth
+            notchSize: notch, bodyWidth: NotchMetrics.maximumBodyWidth
         )
-        XCTAssertGreaterThan(wide.width, narrow.width)
+        XCTAssertGreaterThan(wide.width, capped.width)
         XCTAssertLessThanOrEqual(wide.width, NotchMetrics.maximumBodyWidth)
+        // A new track's alert is the pop-up's body, capped the same way.
+        let alert = NotchViewModel.newTrackBodySize(notchSize: notch, bodyWidth: NotchMetrics.minimumBodyWidth)
+        XCTAssertLessThanOrEqual(alert.width, NotchMetrics.minimumBodyWidth)
     }
 }

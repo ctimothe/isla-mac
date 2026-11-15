@@ -204,7 +204,7 @@ final class IslandOutlineHost {
         if before == nil || previous?.shape != new.shape {
             // A shadow that is nothing before and after has no silhouette to
             // follow, and the compact activities that cost the most frames
-            // (the pill, the peek, the charger) cast none.
+            // (the pill, the charger) cast none.
             let casts = (before?.shadowOpacity ?? 0) > 0 || new.shadowOpacity > 0
             moveShape(from: before?.shape, to: new.shape, curve: curve, now: now, followsShadow: casts)
         }

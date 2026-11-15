@@ -627,9 +627,6 @@ enum Theme {
     /// into the notch never gains a corner.
     static let collapsedTopRadius: CGFloat = 8.67
     static let collapsedBottomRadius: CGFloat = 12.67
-    /// The peek island's bottom corners (spec §2.3, kept by §19.4): 16, round
-    /// the 34 pt cover's 8 pt corner.
-    static let peekBottomRadius: CGFloat = 16
     // The open radii are the surface's own (`Surface.topRadius`,
     // `bottomRadius`, §19.2): 34 / 44, and 24 / 34 for the tray.
 
@@ -692,12 +689,6 @@ enum Theme {
     static func artworkMetrics(isOpen: Bool) -> (side: CGFloat, cornerRadius: CGFloat) {
         isOpen ? (PlayerLayout.coverSide, PlayerLayout.coverRadius) : (22, 5)
     }
-
-    /// The cover while a new track peeks (spec §3.5): 34 pt at radius 8,
-    /// concentric with the peek's 16 pt corner and 8 pt inset. A third size of
-    /// the one cover, not a second cover — the pill's artwork view takes it
-    /// while `isPeeking` and the frame interpolates between the two.
-    static let peekArtworkMetrics: (side: CGFloat, cornerRadius: CGFloat) = (34, 8)
 
     // MARK: - The compact island's surface (spec §2.1, §3.2, §3.3)
 

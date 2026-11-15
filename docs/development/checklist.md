@@ -3445,6 +3445,14 @@ decision 19 and §19 amended 2026-11-15. Built slice by slice on
   `test-provenance.sh` and `test-package.sh` now check. The whole set is drawn
   side by side with the symbols it replaced by `VisualLabGlyphsTests`
   (`bash Scripts/visual-lab.sh <folder> VisualLabGlyphsTests`).
+- **A new track shows as the volume pop-up does** (owner, 2026-11-15; redesign
+  spec §3.5 amended). The peek no longer widens the song's pill to 520 × 50:
+  it is the pop-up's shape under the notch, arriving and folding on the
+  pop-up's spring and fade, with the title where the output's name is and the
+  cover, artist and equalizer in the bar's row (`NewTrackAlertLayout`,
+  `NewTrackAlertContent`; `NewTrackAlertTests`). Hold, rank, refusals, click
+  and the New Tracks switch are unchanged. islandcn has no peek, so this is
+  done ahead of S9 and follows whatever the pop-up's motion becomes.
 
 Owed on hardware (record the Mac model and macOS version):
 - [ ] **IC2-H1** Every surface on the owner's notch, light and dark wallpaper:
@@ -3455,4 +3463,13 @@ Owed on hardware (record the Mac model and macOS version):
 - [ ] **IC2-H2** AirPods (and any Beats or HomePod at hand) as the output:
   the Output menu, the headphones alert, the volume pop-up and the lock card
   draw that model's own shape, the same size as islandcn's glyphs beside it.
+- [ ] **IC2-H3** Skip a song in Spotify and in Music with the panel shut: the
+  new track drops under the notch exactly as a volume press does — same
+  shape, same speed in and out, no sideways widening — holds about 2 s and
+  folds back into the song's pill. Then press a volume key while it shows (the
+  pop-up takes over in place), skip again during its hold (it stays and the
+  cover swaps), click it (the player opens), and skip with Reduce Motion on (a
+  crossfade). A long title and a long artist end in an ellipsis inside the
+  shape, never under the camera. With Open on Hover on and the pointer resting
+  just under the notch, a skip shows the alert and does not open the panel.
 

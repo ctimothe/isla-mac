@@ -177,8 +177,8 @@ struct NotchContentView: View {
         // the body when one surface turns into another.
         if isOpen { return vm.openBottomRadius }
         if restsInNotch && !isAwake { return Theme.restingNotchBottomRadius }
-        // The peek's taller island takes 16, each expanded alert its own
-        // (§19.5), every compact activity 12.67 — whichever is drawn, since
+        // Each expanded alert its own (§19.5; a new track the pop-up's,
+        // §3.5), every compact activity 12.67 — whichever is drawn, since
         // an alert replaces what it outranks.
         return IslandShapeRadii.closed(for: vm.activity, liveControls: vm.showsLiveControls).bottom
     }
@@ -689,7 +689,7 @@ struct NotchContentView: View {
         // activity arriving overshoots, an alert opening barely does, a fold
         // back is nearly damped and going home is not sprung past at all. The
         // keys are the ones these changes always rode: the song's pill, the
-        // peek, the charger and headphones, the confirmation, and the update
+        // charger and headphones, the confirmation, and the update
         // alert — keyed to its version, not to the offer, since the
         // installer's progress redraws inside it and moves no edge.
         .modifier(IslandMorph(
@@ -697,7 +697,7 @@ struct NotchContentView: View {
                 of: vm.activity, hasBubble: vm.bubble != nil, liveControls: vm.showsLiveControls
             ),
             keys: MorphKeys(
-                compact: compactActivity, peeking: vm.isPeeking, ambient: vm.ambient,
+                compact: compactActivity, ambient: vm.ambient,
                 confirmation: vm.confirmation, update: vm.updateOffer?.version,
                 live: vm.liveActivities.map(\.kind), liveControls: vm.showsLiveControls,
                 bubble: vm.bubble.map { IslandMotion.presentation(of: $0) }
@@ -709,6 +709,9 @@ struct NotchContentView: View {
         // whether it is up, not to its level: a press only moves the bar,
         // which has a curve of its own.
         .animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hud != nil)
+        // A new track is the pop-up with the song in it, and rides the same
+        // spring in and out (§3.5, amended 2026-11-15), not the morph.
+        .animation(Theme.hud(reduceMotion: reduceMotion), value: vm.isPeeking)
         // The Shelf as the live activity coming and going, and its count
         // changing (spec §19.4) — a file kept with the panel shut. Keyed to
         // the live count, not the Shelf's: a collected file's moment begins
@@ -777,10 +780,12 @@ struct NotchContentView: View {
                 // are exactly as they were when the moment ends.
                 compactMediaHeader(morph: travellingMorph)
                     // A live activity that outranks the song (a timer, a
-                    // recording) replaces it as an alert does.
+                    // recording) replaces it as an alert does, and so does a
+                    // new track's alert, as the pop-up does (§3.5, amended
+                    // 2026-11-15).
                     .opacity(
                         vm.ambient == nil && vm.hud == nil && vm.confirmation == nil && vm.updateOffer == nil
-                            && !holdsLive ? 1 : 0
+                            && !holdsLive && vm.activity != .peek ? 1 : 0
                     )
                     // Faded under the update alert, and out of VoiceOver's
                     // way with it: the alert's container lets its own
@@ -795,6 +800,22 @@ struct NotchContentView: View {
                     // the pop-up and not this body (`HUDLiveLevel`).
                     HUDPillContent(live: vm.hudLive, size: size, notchHeight: vm.geometry.notchSize.height)
                         .transition(Theme.hudArrival(reduceMotion: reduceMotion))
+                case .peek:
+                    // A new track, shown exactly as the pop-up is (§3.5,
+                    // amended 2026-11-15): its shape, its spring and its fade.
+                    if let song = vm.nowPlaying.presented {
+                        NewTrackAlertContent(
+                            song: song, size: size, notchHeight: vm.geometry.notchSize.height,
+                            animatesEqualizer: compactActivity.animatesEqualizer,
+                            equalizerColors: CompactEqualizerMotion.colors(
+                                isPlaying: compactActivity.tintsEqualizer,
+                                tint: vm.coverTint.nsColor,
+                                increaseContrast: appearance.increaseContrast
+                            ),
+                            reduceMotion: reduceMotion
+                        )
+                        .transition(Theme.hudArrival(reduceMotion: reduceMotion))
+                    }
                 case .confirmation(let confirmation):
                     // A compact activity, and it arrives as one: the
                     // charger's look, which under Reduce Motion is a fade.
@@ -836,7 +857,7 @@ struct NotchContentView: View {
                         }
                     }
                     .id(live.kind)
-                case .peek, .music, .none:
+                case .music, .none:
                     EmptyView()
                 }
             }
@@ -1168,8 +1189,8 @@ struct NotchContentView: View {
     ///
     /// The cover is 8 pt from the island's left edge and the equalizer's last
     /// bar 8 pt from its right (spec §3.1), both centred in the island's height
-    /// — on the 38 pt notch that is the "7 from the bottom" the board draws, and
-    /// on the peek's 50 pt it is the 8 the peek's cover is inset. Pinned to the
+    /// — on the 38 pt notch that is the "7 from the bottom" the board draws.
+    /// Pinned to the
     /// island's own edges rather than centred in a wing, so the margins are the
     /// same on a notch of any width.
     ///
@@ -1186,38 +1207,6 @@ struct NotchContentView: View {
             compactArtwork(morph: morph)
                 .pillPresence(shown, reduceMotion: reduceMotion)
                 .padding(.leading, CompactIslandLayout.coverInset)
-            // Only while peeking, and only in the left wing on a real notch
-            // (see `CompactIslandLayout.peekTextWidth`): the title is what the
-            // peek exists to show, and the right wing keeps the equalizer so
-            // the island still says whether audio is moving.
-            if vm.isPeeking, let track = vm.nowPlaying.presented?.track {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(track.title)
-                        .islandFont(.subhead, weight: .semibold)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text(track.artist)
-                        .islandFont(.body, weight: .regular)
-                        .foregroundStyle(Theme.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .frame(
-                    width: CompactIslandLayout.peekTextWidth(
-                        islandWidth: size.width, notchWidth: notchWidth, isPhysical: vm.geometry.isPhysical
-                    ),
-                    alignment: .leading
-                )
-                // The title materializes rather than fading flat: the same
-                // blur-and-settle the cover makes arriving. And it dissolves
-                // with the cover when the pill folds — a pause settling
-                // mid-peek used to fold the island in over a title still at
-                // full strength, slicing it.
-                .pillPresence(shown, reduceMotion: reduceMotion)
-                .padding(.leading, 10)
-                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
-            }
             Spacer(minLength: 0)
             compactPlaybackState(morph: morph)
                 .pillPresence(shown, reduceMotion: reduceMotion)
@@ -1271,13 +1260,11 @@ struct NotchContentView: View {
     ///   swap on the picture inside (`trackSwapCover`), keyed on the presented
     ///   song, never on this frame.
     private func compactArtwork(morph: Namespace.ID?) -> some View {
-        // 22 pt at radius 5 resting (16 at 4 on the short island), 34 at 8
-        // while a track peeks: one cover in three sizes, and the frame
-        // interpolates between them on the same curve the island grows on.
-        let metrics = vm.isPeeking && compactActivity.isVisible
-            ? Theme.peekArtworkMetrics
-            : (side: CompactIslandLayout.coverSide(height: size.height),
-               cornerRadius: CompactIslandLayout.coverRadius(height: size.height))
+        // 22 pt at radius 5 resting, 16 at 4 on the short island. A new track
+        // no longer grows it: that is the alert's own cover now (§3.5,
+        // amended 2026-11-15).
+        let metrics = (side: CompactIslandLayout.coverSide(height: size.height),
+                       cornerRadius: CompactIslandLayout.coverRadius(height: size.height))
         return Color.clear
             .overlay {
                 Group {
@@ -1330,7 +1317,7 @@ struct NotchContentView: View {
                 RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
                     .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
             )
-            .morph(MorphID.compact(MorphID.artwork, folded: !compactActivity.isVisible), in: morph)
+            .morph(MorphID.compact(MorphID.artwork, folded: !travelsFromThePill), in: morph)
             .frame(width: metrics.side, height: metrics.side)
             .animation(Theme.contentAnimation, value: showsPausedCover)
     }
@@ -1371,7 +1358,18 @@ struct NotchContentView: View {
         )
         .scaleEffect(scale)
         .frame(width: side, height: side)
-        .morph(MorphID.compact(MorphID.equalizer, folded: !compactActivity.isVisible), in: morph)
+        .morph(MorphID.compact(MorphID.equalizer, folded: !travelsFromThePill), in: morph)
+    }
+
+    /// Whether the pill's cover and equalizer are the near end of their travel
+    /// into the panel: while it shows, and not while a new track's alert
+    /// stands over it (§3.5, amended 2026-11-15). Faded under the alert, the
+    /// pill is laid out in the alert's 103 pt and its cover sits some 30 pt
+    /// below where it rests, so a click on the alert flew the player's cover
+    /// in from a place nobody could see (review, 2026-11-15). Folded, the
+    /// panel's cover arrives with its pane, as it does from a folded pill.
+    private var travelsFromThePill: Bool {
+        compactActivity.isVisible && vm.activity != .peek
     }
 
     /// The view model's, because the peek announces the same sentence.
@@ -1713,7 +1711,6 @@ extension View {
 /// activities, as one value for `IslandMorph`.
 private struct MorphKeys: Equatable {
     var compact: CompactMediaActivity
-    var peeking: Bool
     var ambient: AmbientActivity?
     var confirmation: IslandConfirmation?
     var update: String?

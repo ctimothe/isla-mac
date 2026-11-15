@@ -156,7 +156,7 @@ final class VisualLabAnimationTests: VisualLabCase {
             try curve(Theme.open(reduceMotion: true), "open-close-reduce-motion", "panel open/close under Reduce Motion", "Theme.swift open(reduceMotion:)"),
             try curve(Theme.openAnimation, "player-layout", "player changing between two layouts of one height", "Theme.swift openAnimation", travel: body),
             try curve(Theme.compactAnimation, "compact", "pill resizing around a new track", "Theme.swift compactAnimation", travel: Double(NotchMetrics.compactMediaExtension)),
-            try curve(Theme.pill(reduceMotion: false), "pill-unfold", "pill growing out of the notch and folding back, the peek widening, and the pill's content arriving and leaving with it (blur 15→0, scale x 0.8→1, opacity)", "Theme.swift pill(reduceMotion:)", travel: Double(NotchMetrics.compactMediaExtension) / 2),
+            try curve(Theme.pill(reduceMotion: false), "pill-unfold", "pill growing out of the notch and folding back, and the pill's content arriving and leaving with it (blur 15→0, scale x 0.8→1, opacity)", "Theme.swift pill(reduceMotion:)", travel: Double(NotchMetrics.compactMediaExtension) / 2),
             try curve(Theme.pill(reduceMotion: true), "pill-reduce-motion", "pill fold/unfold under Reduce Motion", "Theme.swift pill(reduceMotion:)"),
             try curve(Theme.lyricScroll, "lyric-scroll", "stage page step, lock-card lyric window, row brightening", "Theme.swift lyricScroll",
                       travel: Double(LyricsStage.slotHeight + LyricsStage.slotSpacing)),

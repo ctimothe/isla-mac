@@ -2219,7 +2219,13 @@ final class NotchController {
             .removeDuplicates()
             .dropFirst()
             .sink { [weak self] key in
-                guard key != nil else { return }
+                guard key != nil else {
+                    // The song went with nothing after it: an alert left up
+                    // would be the pop-up's shape with no song in it for the
+                    // rest of its hold.
+                    self?.endPeekWithoutASong()
+                    return
+                }
                 self?.sneakPeek()
             }
             .store(in: &cancellables)
@@ -2810,18 +2816,21 @@ final class NotchController {
     /// through `alertQueue` like the rest: it waits, for a second at most,
     /// while the panel is open, files are dragged to it or the Mac is locked,
     /// and while a higher alert — the pop-up, the charger, headphones — holds
-    /// the island. A peek on top of one of those would put two things in one
-    /// pill. Nothing peeks *at* a locked screen: the peek re-cuts the collapsed
+    /// the island. A new track on top of one of those would put two things in
+    /// one island. Nothing peeks *at* a locked screen: the peek re-cuts the collapsed
     /// rects, and while the shield is up those rects belong to the lock card —
     /// a track changing on a locked Mac used to hand the card's hit region to a
     /// strip computed for the notch-sized window, killing its transport and
     /// leaving a phantom click-eating rectangle elsewhere on the shield.
     ///
     /// Refused outright, not queued, with the pointer on the island: the user
-    /// is doing something there, and the peek would fold the pill out from
-    /// under them when it ended. The pointer is asked only once nothing
-    /// blocks — over an open panel it is always inside, and that says nothing
-    /// about the pill the peek will widen once the panel has gone.
+    /// is doing something there, and the alert would fold out from under them
+    /// when it ended. The pointer is asked only once nothing blocks — over an
+    /// open panel it is always inside, and that says nothing about the island
+    /// the alert will hang from once the panel has gone.
+    ///
+    /// Shown as the volume pop-up is (spec §3.5, amended 2026-11-15): its shape
+    /// under the notch, its spring in and out.
     private func sneakPeek() {
         guard NotchViewModel.newTracksEnabled else { return }
         guard let vm = viewModel else { return }
@@ -2840,7 +2849,11 @@ final class NotchController {
         guard postAlert(.peek, to: vm) == .show else { return }
 
         peekWork?.cancel()
-        vm.isPeeking = true
+        // Unfolding as the pop-up does, on its spring (§3.5, amended
+        // 2026-11-15: "exactly how the volume changer is shown").
+        withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.isPeeking = true
+        }
         // Spoken only once every refusal above has passed, so VoiceOver hears
         // a new track exactly when a sighted person sees one — and the Peek
         // at New Tracks switch silences both. The pill's own label, so the
@@ -2855,17 +2868,27 @@ final class NotchController {
                 vm.isPeeking = false
                 return
             }
-            // The pill's own fold, not the 0.16 s content ease: a peek ending
-            // takes some 200 pt of title back in, and at that speed it read as
-            // the pill snapping shut. The shell declares the same curve for
+            // Folding back into the song's pill on the pop-up's spring, as
+            // the pop-up folds. The shell declares the same curve for
             // `isPeeking`; stating it here keeps the two from drifting apart.
-            withAnimation(Theme.pill(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
                 vm.isPeeking = false
             }
             self.promoteWaitingAlert()
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + NotchMetrics.sneakPeekDuration, execute: work)
+    }
+
+    /// Folds a new track's alert whose song is gone, on the pop-up's spring.
+    private func endPeekWithoutASong() {
+        guard let vm = viewModel, vm.isPeeking else { return }
+        peekWork?.cancel()
+        peekWork = nil
+        withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {
+            vm.isPeeking = false
+        }
+        promoteWaitingAlert()
     }
 
     // MARK: The island's alerts in time (spec §19.1)
@@ -4010,18 +4033,18 @@ final class NotchController {
             // activity — the pill widens with what is playing, and every point
             // of what is drawn has to open the panel.
             //
-            // And the full drawn height: the island is 50 pt tall while a new
-            // track peeks (spec §3.5), and `collapsedDepth` alone is the
-            // notch's 38. The rects are re-cut on `isPeeking` in both
-            // directions, so they cover the 12 pt that grew for the hold and
-            // shrink back with the fold.
+            // And the full drawn height: an alert hangs under the notch — a
+            // new track as the pop-up does (spec §3.5, amended 2026-11-15) —
+            // and `collapsedDepth` alone is the notch's 38. The rects are
+            // re-cut on `isPeeking` in both directions, so they cover what
+            // grew for the hold and shrink back with the fold.
             let drawnDepth = max(vm.geometry.collapsedDepth, vm.bodySize.height)
             size = CGSize(width: vm.bodySize.width, height: drawnDepth)
             pointer.openRect = vm.geometry.collapsedHoverRect(for: vm.bodySize.width, height: drawnDepth)
         }
-        // Follows the pill, which changes width with what is playing and widens
-        // again for a peek. Left at the width it was built with, the lift would
-        // stop short of the artwork the moment a track started.
+        // Follows the island, which changes width with what is playing and
+        // with each alert it shows. Left at the width it was built with, the
+        // lift would stop short of the artwork the moment a track started.
         pointer.hoverRect = vm.geometry.collapsedIslandHoverRect(
             for: vm.bodySize.width, height: open ? nil : vm.bodySize.height
         )
