@@ -134,9 +134,19 @@ final class OutputMenuController: NSObject {
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             (isCurrent ? Theme.accentNSColor : NSColor.white.withAlphaComponent(0.16)).setFill()
             NSBezierPath(ovalIn: rect).fill()
+            // An Apple product is Apple's drawing, configured white as the
+            // row's symbol always was.
+            if let product = glyph.appleProductImage?.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+            ) {
+                product.draw(in: NSRect(
+                    x: rect.midX - product.size.width / 2, y: rect.midY - product.size.height / 2,
+                    width: product.size.width, height: product.size.height
+                ))
             // The glyph's path is y down in its box; this image is y up, and a
             // template image would draw black here, not the white the row needs.
-            if let context = NSGraphicsContext.current?.cgContext {
+            } else if let context = NSGraphicsContext.current?.cgContext {
                 context.saveGState()
                 context.translateBy(x: rect.midX - box / 2, y: rect.midY + box / 2)
                 context.scaleBy(x: 1, y: -1)

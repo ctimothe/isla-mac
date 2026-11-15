@@ -65,7 +65,7 @@ enum HostMac: Equatable {
 }
 
 /// The device glyph as a list of candidates, and the one step that turns the
-/// list into a symbol name Isla has a glyph for.
+/// list into a name Isla can draw on this macOS.
 ///
 /// **Why Bluetooth speakers are told from headphones by name, not by Class of
 /// Device.** The honest source is IOBluetooth: `IOBluetoothDevice`'s
@@ -84,17 +84,19 @@ enum HostMac: Equatable {
 /// way as the name: add a branch ahead of the Bluetooth transport case, and
 /// cache the read per device UID, off the media-key path.
 enum OutputGlyph {
-    /// Whether Isla has a glyph for the symbol's name. The table is the app's
-    /// own (`IslandGlyph`), so the answer is the same on every macOS and a
-    /// name this app does not know is the only way to get a no.
+    /// Whether Isla can draw the name here. A kind of device is islandcn's
+    /// glyph and always can; an Apple product is Apple's own drawing
+    /// (`IslandGlyph.isAppleProduct`), which only a macOS that has its symbol
+    /// can draw, so "airpods.pro.gen3" on macOS 15 falls to "airpods.pro".
     static func exists(_ name: String) -> Bool {
-        IslandGlyph(rawValue: name) != nil
+        guard let glyph = IslandGlyph(rawValue: name) else { return false }
+        return !glyph.isAppleProduct || glyph.appleProductImage != nil
     }
 
-    /// The first candidate Isla has a glyph for. The list's last entry is the
+    /// The first candidate Isla can draw here. The list's last entry is the
     /// choice that has always shipped, so it is the answer when none resolves;
-    /// a candidate the table has not learned yet degrades to the old glyph and
-    /// never to an empty one.
+    /// a newer product on a Mac that predates its symbol degrades to the older
+    /// one and never to an empty glyph.
     static func resolve(_ candidates: [String], exists: (String) -> Bool = OutputGlyph.exists) -> String {
         candidates.first(where: exists) ?? candidates.last ?? AudioOutputs.outputFallbackSymbol
     }

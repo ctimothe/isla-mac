@@ -209,12 +209,50 @@ final class IslandGlyphTests: XCTestCase {
         XCTAssertEqual(IslandGlyph.symbolBox(pointSize: 13), 15.5)
     }
 
+    // MARK: - Apple's products
+
+    func testAppleProductsKeepApplesDrawingAndGenericDevicesAreIslandcns() {
+        // Owner, 2026-11-15 ("fix it along"): the free set has no AirPods, no
+        // Beats, no HomePod and no Mac mini, and a generic drawing told none
+        // of them apart. A product keeps Apple's own drawing, as another
+        // app's icon stays its own; a kind of device (headphones, a speaker,
+        // a laptop, a display) is islandcn's.
+        let products: Set<IslandGlyph> = [
+            .airPods, .airPodsGen3, .airPodsGen4, .airPodsPro, .airPodsProGen3, .airPodsMax, .earPods,
+            .beatsHeadphones, .beatsEarphones, .powerbeats, .powerbeatsPro, .powerbeatsProLegacy,
+            .studioBuds, .studioBudsPlus, .beatsFitPro, .soloBuds, .beatsPill,
+            .homePod, .homePodMini, .appleTV, .macMini, .macStudio, .macPro,
+        ]
+        for glyph in IslandGlyph.allCases {
+            XCTAssertEqual(glyph.isAppleProduct, products.contains(glyph), "\(glyph)")
+        }
+    }
+
+    func testAProductDrawsApplesSymbolWhereThisMacHasIt() {
+        for glyph in IslandGlyph.allCases {
+            let system = glyph.isAppleProduct ? NSImage(systemSymbolName: glyph.rawValue, accessibilityDescription: nil) : nil
+            XCTAssertEqual(glyph.appleProductImage != nil, system != nil, "\(glyph)")
+        }
+        // Old enough for every macOS Isla runs on (15 and later).
+        for glyph: IslandGlyph in [.airPods, .airPodsPro, .airPodsMax, .beatsHeadphones, .homePod, .appleTV, .macMini, .macStudio] {
+            XCTAssertNotNil(glyph.appleProductImage, "\(glyph)")
+        }
+    }
+
+    func testAProductsImageIsATemplateOfTheAskedSize() {
+        let image = IslandGlyph.airPodsPro.nsImage(size: 16)
+        XCTAssertTrue(image.isTemplate)
+        XCTAssertEqual(image.size, NSSize(width: 16, height: 16))
+    }
+
     // MARK: - No SF Symbols left
 
     func testNothingIslaDrawsIsAnSFSymbol() throws {
         // Owner, 2026-11-15: islandcn's icons replace every SF Symbol Isla
         // draws. App Intents' `systemImageName` stays: Shortcuts and
-        // Spotlight draw those, not Isla.
+        // Spotlight draw those, not Isla. The one other is Apple's drawing of
+        // an Apple product, looked up in exactly one place
+        // (`IslandGlyph.appleProductImage`, GlyphImage.swift).
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/IslaKit")
@@ -224,7 +262,9 @@ final class IslandGlyphTests: XCTestCase {
             let text = try String(contentsOf: url, encoding: .utf8)
             for (number, line) in text.components(separatedBy: "\n").enumerated() {
                 let code = line.components(separatedBy: "//").first ?? line
-                if code.contains("Image(systemName:") || code.contains("systemSymbolName:")
+                let productLookup = url.lastPathComponent == "GlyphImage.swift"
+                    && code.contains("NSImage(systemSymbolName: rawValue")
+                if code.contains("Image(systemName:") || code.contains("systemSymbolName:") && !productLookup
                     || code.contains("Label(") && code.contains("systemImage:") {
                     offenders.append("\(url.lastPathComponent):\(number + 1)")
                 }

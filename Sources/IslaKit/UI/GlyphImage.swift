@@ -45,12 +45,27 @@ struct GlyphImage: View {
         // names itself (`accessibilityLabel`), and the glyph must not add its
         // drawing's name to that.
         if let side {
-            GlyphShape(glyph: glyph, fit: fit)
+            drawing
                 .frame(width: side, height: side)
                 .accessibilityHidden(true)
         } else {
-            GlyphShape(glyph: glyph, fit: fit)
+            drawing
                 .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder private var drawing: some View {
+        if let product = glyph.appleProductImage {
+            // Apple's drawing of an Apple product, tinted like every glyph. In
+            // a box it keeps a Hugeicons drawing's margin (2 of 24 units a side).
+            let inset = side.map { fit == .box ? $0 / 12 : 0 } ?? 0
+            Image(nsImage: product)
+                .renderingMode(.template)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .padding(inset)
+        } else {
+            GlyphShape(glyph: glyph, fit: fit)
         }
     }
 }
@@ -79,10 +94,26 @@ extension IslandGlyph {
         GlyphCache.shared.path(self, size: size)
     }
 
+    /// Apple's own drawing of this Apple product, or nil when it is not one
+    /// (`isAppleProduct`) or this macOS predates its symbol. The only place
+    /// Isla asks for an SF Symbol: `IslandGlyphTests` holds it to that.
+    var appleProductImage: NSImage? {
+        guard isAppleProduct else { return nil }
+        return GlyphCache.shared.product(self) { NSImage(systemSymbolName: rawValue, accessibilityDescription: nil) }
+    }
+
     /// A template image of the glyph, for an `NSMenuItem` or for a glyph set
     /// inside a run of text, where only an image can go. Template, so the menu
     /// or the text tints it.
     func nsImage(size: CGFloat) -> NSImage {
+        if let product = appleProductImage {
+            let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+                product.draw(in: Self.fitted(product.size, in: rect.insetBy(dx: size / 12, dy: size / 12)))
+                return true
+            }
+            image.isTemplate = true
+            return image
+        }
         let path = self.path(size: size)
         let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
@@ -120,6 +151,15 @@ extension IslandGlyph {
         return image
     }
 
+    /// `size` scaled to fit `rect` and centred in it.
+    static func fitted(_ size: NSSize, in rect: NSRect) -> NSRect {
+        guard size.width > 0, size.height > 0 else { return rect }
+        let scale = min(rect.width / size.width, rect.height / size.height)
+        let fitted = NSSize(width: size.width * scale, height: size.height * scale)
+        return NSRect(x: rect.midX - fitted.width / 2, y: rect.midY - fitted.height / 2,
+                      width: fitted.width, height: fitted.height)
+    }
+
     /// A glyph inside a run of text: `Text(glyph.textImage(pointSize: 13))`.
     /// An image in text sits on the baseline, and one taller than the font's
     /// ascent (about 0.95 of the point size) grows the line, which moved every
@@ -144,6 +184,9 @@ final class GlyphCache: @unchecked Sendable {
 
     private let lock = NSLock()
     private var paths: [Key: CGPath] = [:]
+    /// Apple's product drawings, looked up once: the answer cannot change
+    /// while the app runs, and a symbol lookup is not free in a body pass.
+    private var products: [IslandGlyph: NSImage?] = [:]
     /// A frame that animates its size asks for a new size every frame; past
     /// this many the cache starts over rather than growing without end.
     private let limit = 1024
@@ -162,6 +205,15 @@ final class GlyphCache: @unchecked Sendable {
         paths[key] = made
         lock.unlock()
         return made
+    }
+
+    func product(_ glyph: IslandGlyph, lookUp: () -> NSImage?) -> NSImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let known = products[glyph] { return known }
+        let found = lookUp()
+        products[glyph] = .some(found)
+        return found
     }
 
     /// The glyph placed in `rect` by `fit`.

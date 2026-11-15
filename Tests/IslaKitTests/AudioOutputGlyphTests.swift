@@ -1,3 +1,4 @@
+import AppKit
 import CoreAudio
 import XCTest
 @testable import IslaKit
@@ -162,5 +163,17 @@ final class AudioOutputGlyphTests: XCTestCase {
             with: "Sources/IslaKit/UI/LockScreenCard.swift"), encoding: .utf8)
         XCTAssertFalse(source.contains("fallback: \"airplayaudio\""))
         XCTAssertTrue(source.contains("fallback: AudioOutputs.outputFallbackSymbol"))
+    }
+
+    /// A product's own drawing is a candidate only on a macOS that has it, so
+    /// "airpods.pro.gen3" on macOS 15 falls through to "airpods.pro" as it did
+    /// before the glyphs were islandcn's; every other name always draws.
+    func testAProductCountsOnlyWhereThisMacDrawsIt() {
+        for glyph in IslandGlyph.allCases {
+            let drawn = glyph.isAppleProduct
+                ? NSImage(systemSymbolName: glyph.rawValue, accessibilityDescription: nil) != nil : true
+            XCTAssertEqual(OutputGlyph.exists(glyph.rawValue), drawn, glyph.rawValue)
+        }
+        XCTAssertFalse(OutputGlyph.exists("not.a.glyph"))
     }
 }

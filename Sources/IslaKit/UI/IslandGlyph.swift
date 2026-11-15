@@ -317,6 +317,29 @@ enum IslandGlyph: String, CaseIterable {
         }
     }
 
+    /// An Apple product, which keeps Apple's own drawing where this Mac has it
+    /// (`appleProductImage`), as another app's icon stays that app's.
+    ///
+    /// Owner, 2026-11-15 ("fix it along"): the free set has no AirPods, no
+    /// Beats, no HomePod and no Mac mini, so its nearest drawings showed every
+    /// pair of AirPods alike, a Beats Pill as any speaker and a Mac mini as a
+    /// monitor — the last being the very bug the host-Mac glyph was written to
+    /// fix. A kind of device rather than a product (headphones, earbuds, a
+    /// speaker, a laptop, a display, a television) stays islandcn's. The
+    /// recipe above is still the drawing on a macOS without the product's
+    /// symbol, and wherever only a path will do.
+    var isAppleProduct: Bool {
+        switch self {
+        case .airPods, .airPodsGen3, .airPodsGen4, .airPodsPro, .airPodsProGen3, .airPodsMax, .earPods,
+             .beatsHeadphones, .beatsEarphones, .powerbeats, .powerbeatsPro, .powerbeatsProLegacy,
+             .studioBuds, .studioBudsPlus, .beatsFitPro, .soloBuds, .beatsPill,
+             .homePod, .homePodMini, .appleTV, .macMini, .macStudio, .macPro:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// islandcn's own glyphs, copied from `glyphs.tsx` recipe for recipe.
     private enum Recipes {
         /// Triangle01's outline turned to point right, scaled to Pause's 16 unit
