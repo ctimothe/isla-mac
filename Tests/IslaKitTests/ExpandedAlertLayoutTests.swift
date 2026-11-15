@@ -62,7 +62,7 @@ final class ExpandedAlertLayoutTests: XCTestCase {
     }
 
     /// Radii by what the island shows: each alert its own, the compact
-    /// activities the reference's 8.67 / 12.67, the peek's bottom 16.
+    /// activities the reference's 8.67 / 12.67, a new track the pop-up's.
     func testTheOutlineTakesTheRadiiOfWhatItShows() {
         let hud = HUDMoment(HUDReading(kind: .display, level: 0.5, muted: false, deviceSymbol: nil))
         XCTAssertEqual(IslandShapeRadii.closed(for: .hud(hud)).top, 18.67)
@@ -74,7 +74,7 @@ final class ExpandedAlertLayoutTests: XCTestCase {
             XCTAssertEqual(IslandShapeRadii.closed(for: compact).top, Theme.collapsedTopRadius)
             XCTAssertEqual(IslandShapeRadii.closed(for: compact).bottom, Theme.collapsedBottomRadius)
         }
-        XCTAssertEqual(IslandShapeRadii.closed(for: .peek).bottom, Theme.peekBottomRadius)
+        XCTAssertEqual(IslandShapeRadii.closed(for: .peek).bottom, 22.67)
     }
 
     // MARK: Volume and brightness (§19.5 d)

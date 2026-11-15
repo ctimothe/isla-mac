@@ -49,16 +49,26 @@ final class VisualLabPillTests: VisualLabCase {
                               notes: "Paused, inside the linger before the pill folds (the lab stretches the linger so it can be drawn).") { variant in
             Self.scene(try await self.pill(session, track: .init(), pauseAfter: true), variant, height: size.height)
         }
-        try await shoot.shoot("new-track-peek", variants: variants, size: size) { variant in
-            Self.scene(try await self.pill(session, track: .init(), configure: { $0.isPeeking = true }), variant, height: size.height)
+        // A new track hangs under the notch as the volume pop-up does (spec
+        // §3.5, amended 2026-11-15), deeper than the pill's strip: drawn in a
+        // taller frame so its second row is in the picture.
+        let alert = CGSize(width: size.width, height: 140)
+        try await shoot.shoot("new-track-peek", variants: variants, size: alert,
+                              notes: "A new track, shown as the volume pop-up is: its shape under the notch, the title, the cover and artist along the bar's row, the equalizer where the number is.") { variant in
+            Self.scene(try await self.pill(session, track: .init(), configure: { $0.isPeeking = true }), variant, height: alert.height)
         }
-        try await shoot.shoot("new-track-peek-long-title", variants: [.base, .w480, .russian], size: size) { variant in
+        try await shoot.shoot("new-track-peek-long-title", variants: [.base, .w480, .russian], size: alert) { variant in
             Self.scene(try await self.pill(session, track: LabFixtures.longTitle, configure: { $0.isPeeking = true }),
-                       variant, height: size.height)
+                       variant, height: alert.height)
         }
-        try await shoot.shoot("new-track-peek-cjk", variants: [.base], size: size) { variant in
+        try await shoot.shoot("new-track-peek-cjk", variants: [.base], size: alert) { variant in
             Self.scene(try await self.pill(session, track: LabFixtures.cjkTitle, configure: { $0.isPeeking = true }),
-                       variant, height: size.height)
+                       variant, height: alert.height)
+        }
+        try await shoot.shoot("new-track-peek-synthetic-notch", variants: [.base], size: alert,
+                              notes: "A display with no cutout: under the notch Isla draws, the rows keep their place below it.") { variant in
+            Self.scene(try await self.pill(session, physical: false, track: .init(), configure: { $0.isPeeking = true }),
+                       variant, height: alert.height)
         }
         try await shoot.shoot("charger-charging", variants: variants, size: size) { variant in
             Self.scene(try await self.pill(session, configure: { $0.ambient = .charging(level: 82, isCharging: true) }),

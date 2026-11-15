@@ -60,8 +60,9 @@ enum IslandStroke {
     }
 
     /// A shape taller than 68 casts black 0.22, radius 14, no offset, so a
-    /// surface separates from a busy window under it. A compact activity and
-    /// the 50 pt peek sit on the menu bar's own strip and cast nothing.
+    /// surface separates from a busy window under it — an expanded alert (the
+    /// pop-up, a new track, headphones) as much as a panel. A compact activity
+    /// sits on the menu bar's own strip and casts nothing.
     static func castsShadow(height: CGFloat) -> Bool {
         height > Theme.islandShadowThreshold
     }

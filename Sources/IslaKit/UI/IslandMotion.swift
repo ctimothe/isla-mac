@@ -95,8 +95,8 @@ enum IslandMotion {
     }
 
     /// The presentation an activity is drawn in (spec §19.4, §19.5): the
-    /// charger, the confirmation, the peek and the live activities are
-    /// compact; the pop-up, headphones and the update are expanded alerts.
+    /// charger, the confirmation and the live activities are compact; the
+    /// pop-up, a new track, headphones and the update are expanded alerts.
     static func presentation(
         of activity: IslandActivity, hasBubble: Bool = false, liveControls: Bool = false
     ) -> Presentation {
@@ -104,6 +104,9 @@ enum IslandMotion {
         switch activity {
         case .none: return .idle
         case .hud: return .expanded("hud")
+        // A new track is the pop-up with the song in it (§3.5, amended
+        // 2026-11-15), so it changes as the pop-up does.
+        case .peek: return .expanded("peek")
         case .ambient(.headphones): return .expanded("headphones")
         case .ambient(.batteryLow): return .expanded("batteryLow")
         case .ambient(.batteryFull): return .expanded("batteryFull")
@@ -115,8 +118,7 @@ enum IslandMotion {
         case .update: return .expanded("update")
         case .ambient(.charging): compact = "charging"
         case .confirmation: compact = "confirmation"
-        // The peek is the song's own pill made wider (§3.5).
-        case .peek, .music: compact = "music"
+        case .music: compact = "music"
         case .shelf: compact = "shelf"
         }
         return hasBubble ? .split(compact) : .compact(compact)

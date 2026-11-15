@@ -95,9 +95,12 @@ Branch `feat/islandcn-identical`, cut from `feat/islandcn-activities`
   shimmer and tail text, step progress), started by App Intents and `isla://`.
   New watchers default off and are recorded in `checklist.md`.
 - **S8 Panels.** The surfaces take S1–S3's icons, tokens and buttons.
-- **S9 Every other motion** (`motion.md` §B, ~45 entries: the new-track
-  change, panel open and close, alerts, the HUD, lyric lines, pages, the
-  Shelf), each on its islandcn equivalent or the nearest islandcn family.
+- **S9 Every other motion** (`motion.md` §B, ~45 entries: panel open and
+  close, alerts, the HUD, lyric lines, pages, the Shelf), each on its
+  islandcn equivalent or the nearest islandcn family. The new-track change is
+  done ahead of S9 (owner, 2026-11-15): islandcn has no peek, so a new song
+  shows exactly as the volume pop-up does, under the notch (redesign spec
+  §3.5, amended), and follows whatever the pop-up's motion becomes.
 
 Then: Codex review of the branch, a Claude Opus review of the motion core,
 `./scripts/check`, the dev feed, and the owner's hardware checks (to be

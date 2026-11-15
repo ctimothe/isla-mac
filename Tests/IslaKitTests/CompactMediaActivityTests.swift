@@ -96,30 +96,23 @@ final class CompactMediaActivityTests: XCTestCase {
         XCTAssertEqual(EqualizerPresentation(isPlaying: true, reduceMotion: true), .resting)
     }
 
-    /// The peek widens the pill and grows it so a title and an artist have somewhere to go, and only then.
-    func testPeekingWidensTheCompactPill() {
+    /// The pill is the notch and its extension at the notch's height; a new
+    /// track no longer widens or grows it (spec §3.5, amended 2026-11-15) —
+    /// it shows as the volume pop-up does, under the notch.
+    func testThePillKeepsOneSizeForANewTrack() {
         let notch = CGSize(width: 200, height: 32)
         let resting = CompactMediaActivity.playing.bodySize(notchSize: notch)
-        let peeking = CompactMediaActivity.playing.bodySize(notchSize: notch, peeking: true)
-
-        XCTAssertGreaterThan(peeking.width, resting.width)
-        // Redesign 2026-10-15, spec §3.5: a peek now grows to 50 pt for its two
-        // lines; it used to widen and never grow taller.
-        XCTAssertEqual(resting.height, 32)
-        XCTAssertEqual(peeking.height, NotchMetrics.sneakPeekHeight, "a peek widens and grows to 50 pt")
+        XCTAssertEqual(resting, CGSize(width: 200 + NotchMetrics.compactMediaExtension, height: 32))
         XCTAssertLessThanOrEqual(
-            peeking.width,
+            resting.width,
             NotchMetrics.standardBody.width,
-            "and never past the body the open panel uses"
+            "never past the body the open panel uses"
         )
     }
 
-    /// Nothing playing means nothing to peek at.
-    func testHiddenActivityIgnoresPeeking() {
+    /// Nothing playing means the bare notch.
+    func testHiddenActivityIsTheNotch() {
         let notch = CGSize(width: 200, height: 32)
-        XCTAssertEqual(
-            CompactMediaActivity.hidden.bodySize(notchSize: notch, peeking: true),
-            notch
-        )
+        XCTAssertEqual(CompactMediaActivity.hidden.bodySize(notchSize: notch), notch)
     }
 }

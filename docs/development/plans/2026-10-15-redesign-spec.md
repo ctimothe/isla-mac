@@ -184,7 +184,7 @@ board that motivated them, as the file does today.
 | Expand / Collapse, 208 ↔ 400 | spring **0.40 / 1.0**; cover, title and transport travel with the body | crossfade 0.24, no travel | **NEW `expandAnimation`** |
 | Player ↔ lyric column | spring 0.34 / 1.0, one morph (cover 132 → 52, title 16 → 13, controls fold left) | crossfade 0.24 | `openAnimation` |
 | Island appears / folds | spring 0.42 / 1.0; content out 0.20, in 0.36 after 0.07 | easeInOut 0.24 | `pillUnfold`, `pillFold`, `pillContent` |
-| New-track peek, 300 → 520 wide and 38 → 50 tall | spring 0.28 / 1.0; text in on `pillContentIn` after the shape; holds 2.2 s; folds 0.42 / 1.0 | crossfade, no growth travel | `compactAnimation`, `sneakPeekDuration` |
+| New-track peek *(amended 2026-11-15: the pop-up's shape and motion under the notch, §3.5)* | the pop-up's: `Theme.hud` in and out, content on its 0.1 s fade; holds 2.2 s | the pop-up's | `Theme.hud`, `hudArrival`, `sneakPeekDuration` |
 | Charging, headphones | same beat as the peek | crossfade | `compactAnimation`, `ambientDuration` |
 | Volume / brightness pop-up (R5) | spring **0.28 / 1.0** to open; the level bar easeOut **0.12** per press; folds 0.42 / 1.0 after **1.5 s** idle | appears and folds by crossfade; the bar steps | **NEW `hudAnimation`, `hudLevel`, `hudLinger`** |
 | Lyric line advances | spring 0.42 / 0.86 (the one overshoot: the song carries momentum) | crossfade 0.24 | `lyricScroll` |
@@ -288,6 +288,41 @@ greyscale or missing. Computed once per artwork, off the main actor, on a
 reuses that code; there is one tint per track.
 
 ### 3.5 New-track peek (decision 3)
+
+> **Amended 2026-11-15 (owner: "instead of that motion we should make that new
+> song is playing motions to be exactly how the volume changer is shown, just
+> under the physical notch itself").** The peek no longer widens the song's
+> pill to 520 × 50. A new track is an expanded alert in the volume pop-up's
+> shape (§12, §19.5 d: `ExpandedAlertShape.volume`, the reference's
+> 245.4 × 103, radii 18.67 / 22.67), hung under the notch, and it comes and
+> goes exactly as the pop-up does: it grows out of the notch on the pop-up's
+> spring (`Theme.hud`, response 0.3, damping 1.0; Reduce Motion's 0.24 s
+> ease-in-out), its content arrives and leaves on the pop-up's 0.1 s fade
+> (`Theme.hudArrival`), and it folds back into the song's pill on that same
+> spring. Its content stands in the pop-up's rows, in the reference's
+> coordinates (a shape x, and y under a 38 pt notch, as §19.5):
+>
+> - the title where the output's name is: 15 regular, white 0.90, x 34,
+>   baseline 58, truncating at its tail at right 34;
+> - the cover where the symbol is: 20 × 20, radius 5, at (34, 70.5), centred
+>   on the bar's line (y 80.5); with no artwork, the cover well and its note
+>   (§3.2);
+> - the artist along the bar: 13 regular, white 0.55, from x 64 (the cover's
+>   end and 10), baseline 85, truncating at its tail 10 before the equalizer;
+> - the equalizer where the number is: the compact island's own (18 pt, the
+>   cover's tint while playing), its right edge at right 34.5, centred on the
+>   bar's line.
+>
+> What the peek was otherwise stands: it holds `sneakPeekDuration` (2.2 s),
+> keeps rank 10 (§19.1), is refused with the pointer on the island, over a
+> film or a talk and while locked, a click on it opens the player, VoiceOver
+> hears the track as it arrives, and Settings' New Tracks switch turns it off.
+> The clickable region is the alert's body, as every alert's is. Open on Hover
+> does not open the panel over it, as over the update alert: it comes to the
+> pointer, and a pointer resting under the notch would otherwise open the panel
+> on every skip. Opening from it, the player's cover arrives with its pane
+> rather than travelling from the pill faded underneath. The bullets below
+> describe the withdrawn 520 × 50 pill.
 
 `Island-Peek`, `Island-Peek-Long`.
 

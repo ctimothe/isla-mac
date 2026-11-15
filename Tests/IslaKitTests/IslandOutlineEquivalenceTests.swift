@@ -43,7 +43,7 @@ final class IslandOutlineEquivalenceTests: XCTestCase {
             Case(name: "charging, green line", state: state(
                 365, 38, 8.67, 12.67, stroke: Theme.chargingGreen.opacity(Theme.islandStrokeTintOpacity))),
             Case(name: "hovered compact island", state: state(300, 38, 8.67, 12.67, fill: Theme.islandHover)),
-            Case(name: "the peek", state: state(330, 50, 8.67, 16)),
+            Case(name: "volume pop-up or a new track", state: state(245.4, 103, 18.67, 22.67)),
             Case(name: "headphones alert", state: state(410, 95, 20, 38)),
             Case(name: "player", state: state(628, 198, 34, 44)),
             Case(name: "shelf tray", state: state(628, 260, 24, 34)),

@@ -110,14 +110,18 @@ final class IslandStrokeTests: XCTestCase {
     // MARK: Shadow
 
     /// A shape taller than 68 casts black 0.22, radius 14, no offset, so a
-    /// surface separates from a busy window under it. A compact activity, the
-    /// 50 pt peek and the resting notch cast none.
+    /// surface separates from a busy window under it. A compact activity and
+    /// the resting notch cast none; the pop-up and a new track, which hang
+    /// under the notch in its shape, cast one alike.
     func testOnlyAShapeTallerThanSixtyEightCastsAShadow() {
         XCTAssertEqual(Theme.islandShadowThreshold, 68)
         XCTAssertEqual(Theme.islandShadowOpacity, 0.22)
         XCTAssertEqual(Theme.islandShadowRadius, 14)
         XCTAssertFalse(IslandStroke.castsShadow(height: 38), "a compact activity")
-        XCTAssertFalse(IslandStroke.castsShadow(height: 50), "the peek")
+        XCTAssertFalse(IslandStroke.castsShadow(height: 50), "a shape 12 under the notch")
+        XCTAssertTrue(IslandStroke.castsShadow(height: NotchViewModel.newTrackBodySize(
+            notchSize: CGSize(width: 200, height: 38), bodyWidth: 560
+        ).height), "the pop-up and a new track")
         XCTAssertFalse(IslandStroke.castsShadow(height: 68), "taller than, not as tall as")
         XCTAssertTrue(IslandStroke.castsShadow(height: 68.5))
         XCTAssertTrue(IslandStroke.castsShadow(height: 95), "the headphones alert")
