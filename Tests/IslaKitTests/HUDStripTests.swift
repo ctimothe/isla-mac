@@ -339,8 +339,7 @@ final class HUDStripTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/HUDViews.swift"), encoding: .utf8)
         XCTAssertFalse(views.contains("value: hud.level"), "the level is never the value of an .animation")
         XCTAssertFalse(views.contains("numericText"), "nor does the number roll")
-        let theme = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/Theme.swift"), encoding: .utf8)
+        let theme = try SourceText.of("Sources/IslaKit/UI/Theme.swift")
         XCTAssertFalse(theme.contains("static let hudLevel"), "and Theme has no curve for it")
     }
 

@@ -135,9 +135,7 @@ final class ExpandedAlertLayoutTests: XCTestCase {
         XCTAssertEqual(HUDLayout.mutedFillOpacity, 0.32)
         // Flat white, no amber and no glow (owner's review, 2026-10-18).
         XCTAssertEqual(HUDLayout.levelOpacity, 0.92)
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = (try? String(contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)) ?? ""
+        let shell = (try? SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")) ?? ""
         XCTAssertFalse(shell.contains("hudAmber"))
         XCTAssertFalse(shell.contains("glowRadius"))
     }

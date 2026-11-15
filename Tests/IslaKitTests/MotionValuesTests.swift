@@ -59,12 +59,8 @@ final class MotionValuesTests: XCTestCase {
 
         // The shell's own sites, read from the source because the curve a
         // transaction carries cannot be observed from outside a render.
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
-        let controller = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/Notch/NotchController.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
+        let controller = try SourceText.of("Sources/IslaKit/Notch/NotchController.swift")
         XCTAssertTrue(shell.contains(".animation(Theme.island(reduceMotion: reduceMotion), value: vm.openBodySize.height)"))
         XCTAssertTrue(shell.contains(".animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hud != nil)"),
                       "the pop-up has its own quick spring (spec §19.3, amended 2026-10-18)")
@@ -107,10 +103,7 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertEqual(Theme.hud(reduceMotion: true), Theme.reducedMotion)
         XCTAssertGreaterThan(Theme.hudArrivalScale, 0.9)
         XCTAssertLessThanOrEqual(Theme.hudContentFadeDuration, 0.12, "the content is there at once")
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertTrue(shell.contains("notchHeight: vm.geometry.notchSize.height)\n                        .transition(Theme.hudArrival(reduceMotion: reduceMotion))"))
     }
 
@@ -212,10 +205,7 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertLessThanOrEqual(Theme.paneSwapScales(reduceMotion: false).removal, 1)
         XCTAssertLessThanOrEqual(Theme.paneSwapScales(reduceMotion: false).insertion, 1)
 
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertTrue(shell.contains(".animation(Theme.swapIn)"))
         XCTAssertTrue(shell.contains(".animation(Theme.swapOut)"))
         // The surface change is the outermost of the shell's animations, so a
@@ -230,10 +220,7 @@ final class MotionValuesTests: XCTestCase {
     /// end all stay inside the island (owner's hard rule, 2026-10-18), and the
     /// border is drawn over the content, never under it.
     func testTheContentNeverLeavesTheOutline() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertFalse(shell.contains("vm.travellingLeg == nil ? 0 : shapeBottomRadius"), "the clip is square at rest again")
         // The cut is the outline's own shape at the shape's own size: the
         // SwiftUI mask for a shell that draws its outline, a layer mask on the

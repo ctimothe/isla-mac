@@ -100,10 +100,7 @@ final class IslandMotionTests: XCTestCase {
     /// the peek, the charger, the confirmation and the update now go through
     /// `IslandMorph`.
     func testTheShellAnimatesActivityChangesThroughTheMorph() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift")
-        let shell = try String(contentsOf: url, encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertTrue(shell.contains(".modifier(IslandMorph("), "the shell has no morph")
         // The locked pill keeps its own keyed charger curve beneath the
         // lock's refusal, so `vm.ambient` is not in this list.

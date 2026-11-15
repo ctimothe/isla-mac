@@ -67,12 +67,8 @@ final class NewTrackAlertTests: XCTestCase {
     /// the pop-up's spring to it and fades its content in on the pop-up's
     /// fade, and the morph no longer carries it.
     func testItRidesThePopUpsSpringAndFade() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
-        let controller = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/Notch/NotchController.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
+        let controller = try SourceText.of("Sources/IslaKit/Notch/NotchController.swift")
         XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {\n            vm.isPeeking = true"),
                       "it arrives on the pop-up's spring")
         XCTAssertTrue(controller.contains("withAnimation(Theme.hud(reduceMotion: SystemAppearance.shared.reduceMotion)) {\n                vm.isPeeking = false"),
@@ -189,10 +185,7 @@ extension NewTrackAlertTests {
     /// height and its cover sits where nobody sees it. Read from the source,
     /// as the shell's other wiring is.
     func testThePillUnderItIsFadedAndDoesNotTravel() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertTrue(shell.contains("&& !holdsLive && vm.activity != .peek ? 1 : 0"), "faded under it")
         XCTAssertTrue(shell.contains("compactActivity.isVisible && vm.activity != .peek"))
         XCTAssertTrue(shell.contains(".morph(MorphID.compact(MorphID.artwork, folded: !travelsFromThePill), in: morph)"))
