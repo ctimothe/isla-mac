@@ -454,15 +454,6 @@ struct ClipRow: View {
         ClipMark.mark(for: item.kind, hidden: hidden)
     }
 
-    /// The glyph a symbol mark names, or nil for the marks that are drawings
-    /// (a swatch, a thumbnail, a file's icon). A covered row keeps its kind's
-    /// glyph readable (spec §9.4), which supersedes H-026's one neutral glyph:
-    /// what the cover hides is the content, and the count in the header.
-    static func glyph(for item: ClipItem, hidden: Bool) -> String? {
-        if case .symbol(let name) = mark(for: item, hidden: hidden) { return name }
-        return nil
-    }
-
     var body: some View {
         HStack(spacing: ClipboardLayout.contentLeading - ClipboardLayout.rowInset - ClipboardLayout.markSide) {
             leadingMark
@@ -1006,13 +997,6 @@ enum ClipHighlight {
             result[attributedRange].foregroundColor = Theme.findHighlightText
         }
         return result
-    }
-
-    /// The matched ranges as character offsets, for a test that holds what is
-    /// lit without reading attributes.
-    static func matchedText(_ runs: [Run], query: String) -> [String] {
-        let plain = runs.map(\.text).joined()
-        return ClipboardSearch.ranges(of: query, in: plain).map { String(plain[$0]) }
     }
 }
 

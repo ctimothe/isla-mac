@@ -16,10 +16,6 @@ import SwiftUI
 struct PlayerLayout: Equatable {
     /// The shape's shoulder on the player (`Surface.topRadius`).
     static let shoulder: CGFloat = 34
-    /// The header row's height the boards are drawn with — a 14-inch MacBook
-    /// Pro's notch. Kept for the surfaces that are rendered with no notch
-    /// around them.
-    static let referenceHeaderHeight: CGFloat = SurfaceLayout.referenceNotchHeight
 
     let bodyWidth: CGFloat
     /// Whether the person has the Output button on (Settings › Music). Off, its
@@ -263,14 +259,6 @@ struct PlayerLayout: Equatable {
             used = next
         }
         return OpenButtonRow(apps: chosen, form: .full)
-    }
-
-    /// The apps alone, for a caller that does not draw.
-    static func openButtonApps(
-        _ apps: [AppIcons.Installed], room: CGFloat, spacing: CGFloat = EmptyFrames.buttonSpacing,
-        limit: Int = maxOpenButtons, labelWidth: (AppIcons.Installed) -> CGFloat
-    ) -> [AppIcons.Installed] {
-        openButtonRow(apps, room: room, spacing: spacing, limit: limit, labelWidth: labelWidth).apps
     }
 
     static func emptyFrames(

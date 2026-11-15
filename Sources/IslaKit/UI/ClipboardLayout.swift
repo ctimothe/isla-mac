@@ -98,24 +98,6 @@ enum ClipboardLayout {
         let pane = rowWidth(bodyWidth: bodyWidth)
         return max(1, Int(((pane + imageGap) / (imageTile.width + imageGap)).rounded(.down)))
     }
-
-    static func imageTileFrame(index: Int, columns: Int) -> CGRect {
-        let row = index / columns
-        let column = index % columns
-        return CGRect(
-            x: CGFloat(column) * (imageTile.width + imageGap),
-            y: CGFloat(row) * (imageTile.height + imageAgeGap + imageAgeHeight + imageRowGap),
-            width: imageTile.width, height: imageTile.height
-        )
-    }
-
-    /// The grid's scrolled height, tiles and ages.
-    static func imageContentHeight(count: Int, columns: Int) -> CGFloat {
-        guard count > 0 else { return 0 }
-        let rows = (count + columns - 1) / columns
-        let row = imageTile.height + imageAgeGap + imageAgeHeight
-        return CGFloat(rows) * row + CGFloat(rows - 1) * imageRowGap
-    }
 }
 
 // MARK: - The search and the Kind filter (§19.8)

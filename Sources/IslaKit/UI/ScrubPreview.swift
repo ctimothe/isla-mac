@@ -16,12 +16,4 @@ enum ScrubPreview {
         guard width > 0, duration > 0 else { return nil }
         return min(max(Double(x / width), 0), 1)
     }
-
-    /// Bubble center x, clamped so the bubble never clips the bar's edges.
-    /// When the bar is narrower than the bubble, pins to the bar's center.
-    static func bubbleCenterX(x: CGFloat, width: CGFloat, bubbleWidth: CGFloat) -> CGFloat {
-        let half = bubbleWidth / 2
-        guard width > bubbleWidth else { return width / 2 }
-        return min(max(x, half), width - half)
-    }
 }

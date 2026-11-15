@@ -330,7 +330,7 @@ private struct SliderHarness: View {
 
     var body: some View {
         SettingsSliderRow(
-            symbol: SettingsIcon.panelWidth,
+            symbol: "arrow.left.and.right",
             title: title,
             value: $value,
             range: range,
@@ -354,7 +354,7 @@ private struct ChoiceHarness: View {
 
     var body: some View {
         SettingsChoiceRow(
-            symbol: SettingsIcon.cardStyle,
+            symbol: "circle.lefthalf.filled",
             title: localized("Card Style"),
             options: NotchViewModel.LockCardStyle.allCases,
             selection: Binding(get: { selection }, set: { selection = $0; onPick($0) }),

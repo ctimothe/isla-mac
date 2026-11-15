@@ -314,11 +314,11 @@ final class VisualLabConfirmationTests: VisualLabCase {
             plate(CopyButton(copy: {}))
         }
         try await shoot.shoot("confirm-text-idle", variants: [.base, .russian], size: size) { _ in
-            plate(ConfirmTextButton(title: localized("Clear"), armedTitle: localized("Clear Everything"), action: {}))
+            plate(ConfirmPushButton(title: localized("Clear"), armedTitle: localized("Clear Everything"), action: {}))
         }
         try await shoot.shoot("confirm-text-armed", variants: [.base, .contrast, .russian], size: size,
                               interact: { LabAccessibility.press(localized("Clear"), in: $0) }) { _ in
-            plate(ConfirmTextButton(title: localized("Clear"), armedTitle: localized("Clear Everything"), action: {}))
+            plate(ConfirmPushButton(title: localized("Clear"), armedTitle: localized("Clear Everything"), action: {}))
         }
         try await shoot.shoot("confirm-push-armed", variants: [.base, .contrast, .russian], size: CGSize(width: 360, height: 60),
                               notes: "Settings' destructive push button, armed: a normal plate that asks in the destructive style (R4, spec §10). The action is a no-op here.",

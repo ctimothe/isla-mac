@@ -48,7 +48,9 @@ final class NewTrackAlertTests: XCTestCase {
     func testItComesAndGoesAsThePopUpDoes() {
         let peek = IslandMotion.presentation(of: .peek)
         let hud = IslandMotion.presentation(of: .hud(volume))
-        XCTAssertTrue(peek.isExpanded, "an expanded alert, no longer the song's pill made wider")
+        if case .expanded = peek {} else {
+            XCTFail("an expanded alert, no longer the song's pill made wider")
+        }
         for from in [IslandMotion.Presentation.compact("music"), .split("music"), .idle, .expanded("headphones")] {
             XCTAssertEqual(IslandMotion.transition(from: from, to: peek), IslandMotion.transition(from: from, to: hud),
                            "into it from \(from)")

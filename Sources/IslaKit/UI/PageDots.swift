@@ -17,12 +17,6 @@ enum PageDotsLayout {
         return (0..<count).map { CGPoint(x: first + CGFloat($0) * pitch, y: y) }
     }
 
-    static func dotFrames(bodySize: CGSize) -> [CGRect] {
-        centres(bodySize: bodySize).map {
-            CGRect(x: $0.x - dotSide / 2, y: $0.y - dotSide / 2, width: dotSide, height: dotSide)
-        }
-    }
-
     /// Each dot's target: 14 × 20 centred on it, so the four meet with no gap
     /// between them and a click a little off a dot still lands on one.
     static func hitFrames(bodySize: CGSize) -> [CGRect] {

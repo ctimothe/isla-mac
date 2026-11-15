@@ -8,37 +8,7 @@ import XCTest
 @MainActor
 final class FindabilityTests: XCTestCase {
 
-    // MARK: Lyrics offers
-
-    func testLyricsOffOffersToTurnThemOn() {
-        XCTAssertEqual(LyricsPresentation.offer(for: .disabled, localLookup: nil, onlineEnabled: false), .turnOnLyrics)
-    }
-
-    /// A streamed song never has a local file, so "No local lyrics." was the
-    /// end of the road for every Spotify listener who had not found the
-    /// second switch.
-    func testNoLocalMatchOffersTheOnlineLookupOnlyWhileItIsOff() {
-        XCTAssertEqual(LyricsPresentation.offer(for: .noLocalLyrics, localLookup: nil, onlineEnabled: false), .lookUpOnline)
-        XCTAssertNil(LyricsPresentation.offer(for: .noLocalLyrics, localLookup: nil, onlineEnabled: true))
-    }
-
-    func testPagesWithTheirOwnAnswerOfferNothing() {
-        XCTAssertNil(LyricsPresentation.offer(for: .resolving, localLookup: nil, onlineEnabled: false))
-        XCTAssertNil(LyricsPresentation.offer(for: .findingLocalLyrics, localLookup: nil, onlineEnabled: false))
-    }
-
-    /// A stream used to read as "off" and offer Show Lyrics, which rewrote an
-    /// already-true switch. A track nothing can look up offers nothing at all.
-    func testATrackThatCannotBeLookedUpOffersNothing() {
-        for reason in [LyricsAvailability.Reason.noLength, .noTitle] {
-            for online in [false, true] {
-                XCTAssertNil(LyricsPresentation.offer(
-                    for: .cannotLookUp(reason), localLookup: nil, onlineEnabled: online
-                ))
-            }
-            XCTAssertFalse(LyricsPresentation.canRetry(.cannotLookUp(reason)))
-        }
-    }
+    // MARK: Lyrics captions
 
     func testTheDisabledCaptionNoLongerSendsYouToSettings() {
         let caption = LyricsPresentation.compactCaption(for: .disabled, currentLine: nil)

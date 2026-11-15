@@ -88,10 +88,6 @@ enum IslandMotion {
         /// A compact activity with a second waiting as the bubble beside it.
         case split(String)
 
-        var isExpanded: Bool {
-            if case .expanded = self { return true }
-            return false
-        }
     }
 
     /// The presentation an activity is drawn in (spec §19.4, §19.5): the
