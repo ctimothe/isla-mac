@@ -3502,3 +3502,26 @@ Owed on hardware (record the Mac model and macOS version):
 - [ ] **IC-H6** A timer while music plays: the song waits as the bubble, it
   pinches off the island's end with the neck and merges back when the timer
   is cancelled.
+
+## islandcn identical — 2026-11-15
+
+Plan `docs/development/plans/2026-11-15-islandcn-identical.md`; redesign spec
+decision 19 and §19 amended 2026-11-15. Built slice by slice on
+`feat/islandcn-identical`.
+
+- **S1 Icons.** islandcn's glyphs replace every SF Symbol Isla draws:
+  Hugeicons' free set 4.4.0 (MIT, vendored by `Scripts/vendor-hugeicons.mjs`)
+  rendered by a Swift port of islandcn's recipes (`GlyphRecipe`: line, fill,
+  heavy, cut, gap and inlay parts; the island weight `2·(22/s)^0.35`; placement
+  and views). Credited in `THIRD_PARTY_NOTICES.md`, which
+  `test-provenance.sh` and `test-package.sh` now check. The whole set is drawn
+  side by side with the symbols it replaced by `VisualLabGlyphsTests`
+  (`bash Scripts/visual-lab.sh <folder> VisualLabGlyphsTests`).
+
+Owed on hardware (record the Mac model and macOS version):
+- [ ] **IC2-H1** Every surface on the owner's notch, light and dark wallpaper:
+  the island's activities, the player and its transport, the lyric stage, the
+  Shelf, Clipboard, Translate, Settings' rows and sidebar, the lock card, the
+  volume pop-up and the right-click and Output menus. No glyph is missing, cut
+  off or a different size from its neighbours; the menus tint theirs.
+

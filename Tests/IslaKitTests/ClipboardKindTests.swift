@@ -161,7 +161,7 @@ final class ClipboardKindTests: XCTestCase {
         XCTAssertEqual(ClipFilter.allCases.map(\.symbol), ["square.grid.2x2", "text.alignleft", "link", "photo", "doc"])
         XCTAssertEqual(ClipFilter.allCases.map(\.title), ["All", "Text", "Links", "Images", "Files"])
         for filter in ClipFilter.allCases {
-            XCTAssertNotNil(NSImage(systemSymbolName: filter.symbol, accessibilityDescription: nil), filter.symbol)
+            XCTAssertNotNil(IslandGlyph(rawValue: filter.symbol), filter.symbol)
         }
     }
 

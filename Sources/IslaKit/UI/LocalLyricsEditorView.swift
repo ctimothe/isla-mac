@@ -108,7 +108,11 @@ struct LocalLyricsEditorView: View {
                 Button {
                     draft.insertLine(after: draft.rows.count - 1)
                 } label: {
-                    Label(localized("Add Lyric Line"), systemImage: "plus.circle")
+                    Label {
+                        Text(localized("Add Lyric Line"))
+                    } icon: {
+                        GlyphImage(.plusCircle, pointSize: Theme.TypeRole.body.size)
+                    }
                 }
                 .buttonStyle(OfferButtonStyle(horizontalPadding: 10, fixedHeight: 22))
                 .accessibilityLabel(localized("Add Lyric Line"))
@@ -218,8 +222,7 @@ struct LocalLyricsEditorView: View {
     /// After (+) and Remove Lyric Line (−).
     private func circleTool(symbol: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 9, weight: .semibold))
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .plus, pointSize: 9)
                 .foregroundStyle(Theme.secondary)
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(Theme.editorFieldFill))

@@ -106,7 +106,7 @@ final class AmbientMomentTests: XCTestCase {
         XCTAssertEqual(AmbientActivity.charging(level: 80, isCharging: true).chargeSymbol, "bolt.fill")
         XCTAssertEqual(AmbientActivity.charging(level: 80, isCharging: false).chargeSymbol, "powerplug.fill")
         for symbol in ["bolt.fill", "powerplug.fill"] {
-            XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), "\(symbol) must resolve")
+            XCTAssertNotNil(IslandGlyph(rawValue: symbol), "\(symbol) must resolve")
         }
     }
 

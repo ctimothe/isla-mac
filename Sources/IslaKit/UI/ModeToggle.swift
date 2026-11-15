@@ -25,8 +25,7 @@ struct ModeToggle: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 2) {
-                Image(systemName: symbol)
-                    .font(.system(size: glyphSize, weight: .semibold))
+                GlyphImage(IslandGlyph(rawValue: symbol) ?? .repeatAll, pointSize: glyphSize)
                     .foregroundStyle(isOn ? accent : Theme.tertiary)
                     // On the symbol, not `isOn`: repeat goes from "all" to
                     // "one" staying on, and the row's animation never saw it.

@@ -143,8 +143,7 @@ struct TranslatePopUp: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
                 // A glyph fitted to the plate, not type.
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
+                GlyphImage(.chevronUpDown, pointSize: 8)
                     .foregroundStyle(Theme.secondary)
                     .accessibilityHidden(true)
             }

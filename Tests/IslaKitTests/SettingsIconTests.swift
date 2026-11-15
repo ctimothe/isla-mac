@@ -14,7 +14,7 @@ final class SettingsIconTests: XCTestCase {
     func testEverySettingsSymbolResolves() {
         for name in SettingsIcon.all {
             XCTAssertNotNil(
-                NSImage(systemSymbolName: name, accessibilityDescription: nil),
+                IslandGlyph(rawValue: name),
                 "\(name) does not resolve on this system — the row would draw no icon at all"
             )
         }

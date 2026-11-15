@@ -23,8 +23,7 @@ struct ClipboardKindControl: View {
                 Button { selection = filter } label: {
                     Group {
                         if usesSymbols {
-                            Image(systemName: filter.symbol)
-                                .font(HeaderIcon.font)
+                            GlyphImage(IslandGlyph(rawValue: filter.symbol) ?? .grid, pointSize: HeaderIcon.size)
                         } else {
                             Text(filter.title)
                                 .font(.system(size: 12, weight: isSelected ? .medium : .regular))
@@ -81,8 +80,7 @@ struct ClipboardSearchField: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: ClipboardHeader.searchFieldRadius, style: .continuous)
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .regular))
+            GlyphImage(.search, pointSize: 12)
                 .foregroundStyle(Theme.secondary)
                 .accessibilityHidden(true)
             TextField("", text: $browser.query, prompt: Text(localized("Search")).foregroundStyle(Theme.tertiary))
@@ -94,8 +92,7 @@ struct ClipboardSearchField: View {
                 .accessibilityLabel(localized("Search"))
             if !browser.query.isEmpty {
                 Button { browser.clearQuery() } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12, weight: .regular))
+                    GlyphImage(.closeCircleFilled, pointSize: 12)
                         .foregroundStyle(Theme.tertiary)
                         .frame(width: ClipboardHeader.clearSide + 6, height: 24)
                         .contentShape(Rectangle())

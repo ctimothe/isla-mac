@@ -179,8 +179,7 @@ struct HeaderToolButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(HeaderIcon.font)
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .gear, pointSize: HeaderIcon.size)
                 .foregroundStyle(isOn ? Color.white : Theme.secondary)
                 // The gear turning into Settings' close button, and back, is
                 // one glyph replaced in its well rather than two buttons
@@ -304,8 +303,7 @@ struct HeaderGlyphView: View {
         Group {
             switch glyph {
             case .symbol(let name):
-                Image(systemName: name)
-                    .font(HeaderIcon.font)
+                GlyphImage(IslandGlyph(rawValue: name) ?? .music, pointSize: HeaderIcon.size)
                     .foregroundStyle(Color.white)
             case .app(let icon):
                 Image(nsImage: icon)
@@ -358,8 +356,7 @@ struct IconWordButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: ShelfLayout.removeAllGap) {
-                Image(systemName: symbol)
-                    .font(HeaderIcon.font)
+                GlyphImage(IslandGlyph(rawValue: symbol) ?? .trash, pointSize: HeaderIcon.size)
                     .frame(width: ShelfLayout.removeAllGlyphWidth)
                 Text(word)
                     .font(.system(size: HeaderIcon.wordSize, weight: .medium))

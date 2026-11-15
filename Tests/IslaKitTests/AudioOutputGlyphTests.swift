@@ -128,7 +128,7 @@ final class AudioOutputGlyphTests: XCTestCase {
         XCTAssertEqual(OutputGlyph.resolve([], exists: { _ in false }), AudioOutputs.outputFallbackSymbol)
     }
 
-    /// Every candidate's last entry is a symbol this macOS really has.
+    /// Every candidate's last entry is a name Isla has a glyph for.
     func testEveryListEndsInARealSymbol() {
         let names = [
             "AirPods Pro 3", "AirPods 4", "AirPods Max", "Powerbeats Pro", "Beats Studio Buds +", "Beats Pill",
@@ -145,7 +145,7 @@ final class AudioOutputGlyphTests: XCTestCase {
                 for host in [HostMac.laptop, .mini, .studio, .pro, .desktop] {
                     let list = OutputGlyph.candidates(transport: transport, dataSource: nil, name: name, host: host)
                     XCTAssertNotNil(
-                        NSImage(systemSymbolName: list.last!, accessibilityDescription: nil),
+                        IslandGlyph(rawValue: list.last!),
                         "\(list.last!) for \(name ?? "nil") does not resolve"
                     )
                 }

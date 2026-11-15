@@ -230,12 +230,11 @@ struct SystemVolumeSlider: View {
             // to the track's tone: still the level the sound comes back at,
             // no longer a level anyone is hearing. The glyph sits in the
             // slashed one's width, so the bar does not shift when it swaps.
-            Image(systemName: "speaker.slash.fill")
-                .islandFont(look == .sound ? .body : .caption, weight: .regular)
+            let glyphRole: Theme.TypeRole = look == .sound ? .body : .caption
+            GlyphImage(.speakerMuted, pointSize: glyphRole.size)
                 .hidden()
                 .overlay(alignment: .leading) {
-                    Image(systemName: model.muted ? "speaker.slash.fill" : "speaker.fill")
-                        .islandFont(look == .sound ? .body : .caption, weight: .regular)
+                    GlyphImage(model.muted ? .speakerMuted : .speaker, pointSize: glyphRole.size)
                 }
                 .frame(width: look == .sound ? Self.soundGlyphSlot : nil, alignment: .leading)
             bar(palette)
@@ -247,8 +246,7 @@ struct SystemVolumeSlider: View {
                 // element's frame is the strip a pointer lands on, not the
                 // 12 pt row the strip is laid out in.
                 .volumeAccessibility(level: model.level, muted: model.muted) { model.step(to: $0) }
-            Image(systemName: "speaker.wave.3.fill")
-                .islandFont(look == .sound ? .body : .caption, weight: .regular)
+            GlyphImage(.speakerLoud, pointSize: glyphRole.size)
                 .frame(width: look == .sound ? Self.soundGlyphSlot : nil, alignment: .trailing)
         }
         .foregroundStyle(palette.glyph)

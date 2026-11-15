@@ -115,9 +115,7 @@ struct IslandBubble: View {
     private var content: some View {
         let scale = CompactIslandLayout.glyphScale(height: height)
         return HStack(spacing: IslandBubbleLayout.spacing) {
-            Image(systemName: "tray.full.fill")
-                .resizable()
-                .scaledToFit()
+            GlyphImage(.trayFullFilled)
                 .foregroundStyle(Color.white)
                 .frame(
                     width: IslandBubbleLayout.glyphSize.width * scale,

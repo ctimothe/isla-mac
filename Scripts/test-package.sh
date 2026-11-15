@@ -25,6 +25,8 @@ test -f "$APP/Contents/Resources/Licenses/LICENSE"
 test -f "$APP/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.md"
 grep -q 'Copyright (c) 2026 akalikbergenov' \
     "$APP/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.md"
+grep -q 'Copyright (c) 2025 Hugeicons' \
+    "$APP/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.md"
 test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$PLIST")" = "com.ctimothe.isla"
 test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$PLIST")" = "Isla"
 test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' "$PLIST")" = "Isla"

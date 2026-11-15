@@ -530,7 +530,7 @@ struct InterludeMarker: View {
             // at this size: on the lock card the window's rows are measured
             // by their type, and a symbol image framed on its own came out a
             // few points shorter and moved every line below it.
-            Text(Image(systemName: "music.note"))
+            Text(IslandGlyph.music.textImage(pointSize: fontSize))
                 .islandFont(fontSize, weight: weight)
                 .foregroundStyle(tone)
             Capsule()

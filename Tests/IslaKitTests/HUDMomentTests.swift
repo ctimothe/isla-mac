@@ -49,7 +49,7 @@ final class HUDMomentTests: XCTestCase {
                    "speaker.slash.fill", "sun.max.fill", "light.max"]
             + Array(HUDSymbol.personalDevices)
         for symbol in all {
-            XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), symbol)
+            XCTAssertNotNil(IslandGlyph(rawValue: symbol), symbol)
         }
     }
 

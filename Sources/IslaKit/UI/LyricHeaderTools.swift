@@ -23,8 +23,7 @@ struct HeaderIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(HeaderIcon.font)
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .more, pointSize: HeaderIcon.size)
                 .foregroundStyle(isOn ? Color.white : Theme.secondary)
                 .frame(width: StageToolFrames.side, height: StageToolFrames.side)
                 .background(
@@ -130,8 +129,8 @@ final class LyricsMoreMenuController: NSObject {
                 item.target = self
                 item.isEnabled = entry.isEnabled
                 item.state = entry.isChecked ? .on : .off
-                if let symbol = Self.symbol(for: entry.kind) {
-                    item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                if let symbol = Self.symbol(for: entry.kind), let glyph = IslandGlyph(rawValue: symbol) {
+                    item.image = glyph.nsImage(size: 16)
                 }
                 kinds[ObjectIdentifier(item)] = entry.kind
                 // A disabled line is a readout; leaving it with no action keeps
@@ -229,8 +228,7 @@ struct LyricsMoreButton: View {
     var body: some View {
         let label = localized("More Lyrics Options")
         Button { presenter.present() } label: {
-            Image(systemName: "ellipsis")
-                .font(HeaderIcon.font)
+            GlyphImage(.more, pointSize: HeaderIcon.size)
                 .foregroundStyle(Theme.secondary)
                 .frame(width: StageToolFrames.side, height: StageToolFrames.side)
                 .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))

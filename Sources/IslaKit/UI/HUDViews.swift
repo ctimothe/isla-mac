@@ -30,9 +30,7 @@ struct HUDPillContent: View {
                     .frame(width: HUDLayout.titleWidth(islandWidth: size.width), alignment: .leading)
                     .islandBaseline(HUDLayout.titleBaseline(notchHeight: notchHeight))
                     .offset(x: HUDLayout.titleLeading)
-                Image(systemName: hud.symbol)
-                    .resizable()
-                    .scaledToFit()
+                GlyphImage(IslandGlyph(rawValue: hud.symbol) ?? .speakerLoud)
                     .foregroundStyle(Color.white)
                     .frame(width: symbol.width, height: symbol.height)
                     .offset(x: symbol.minX, y: symbol.minY)
@@ -77,9 +75,7 @@ struct LockedHUDContent: View {
         if let hud = live.moment {
             let fill = Color.white.opacity(hud.muted ? HUDLayout.mutedFillOpacity : HUDLayout.levelOpacity)
             HStack(spacing: 0) {
-                Image(systemName: hud.symbol)
-                    .resizable()
-                    .scaledToFit()
+                GlyphImage(IslandGlyph(rawValue: hud.symbol) ?? .speakerLoud)
                     .foregroundStyle(Color.white)
                     .frame(width: LockedHUDLayout.symbolSize.width, height: LockedHUDLayout.symbolSize.height)
                     .padding(.leading, CompactIslandLayout.chargingTextInset)
@@ -117,9 +113,7 @@ struct HUDStripContent: View {
         if let hud = live.moment {
             let fill = Color.white.opacity(hud.muted ? HUDLayout.mutedFillOpacity : HUDLayout.levelOpacity)
             HStack(spacing: HUDStripLayout.spacing) {
-                Image(systemName: hud.symbol)
-                    .resizable()
-                    .scaledToFit()
+                GlyphImage(IslandGlyph(rawValue: hud.symbol) ?? .speakerLoud)
                     .foregroundStyle(Color.white)
                     .frame(width: HUDStripLayout.symbolSize.width, height: HUDStripLayout.symbolSize.height)
                 // The track is a flexible well and the fill its left
@@ -228,10 +222,7 @@ struct StripNoticeContent: View {
                 EmptyView()
             case .headphones(let name, let symbol):
                 HStack(spacing: HUDStripLayout.spacing) {
-                    Image(systemName: symbol)
-                        .resizable()
-                        .symbolRenderingMode(.hierarchical)
-                        .scaledToFit()
+                    GlyphImage(IslandGlyph(rawValue: symbol) ?? .headphones)
                         .foregroundStyle(Color.white.opacity(HeadphonesAlertLayout.glyphOpacity))
                         .frame(width: StripNoticeLayout.symbolSize.width, height: StripNoticeLayout.symbolSize.height)
                     // The name gives way at its tail; "Connected" is always
@@ -268,8 +259,7 @@ struct StripNoticeContent: View {
                 }
             case .timerDone(let duration):
                 HStack(spacing: HUDStripLayout.spacing) {
-                    Image(systemName: "timer")
-                        .font(.system(size: StripNoticeLayout.textSize, weight: .semibold))
+                    GlyphImage(.timer, pointSize: StripNoticeLayout.textSize)
                         .foregroundStyle(LiveActivityLayout.timerOrange)
                         .frame(width: StripNoticeLayout.symbolSize.width)
                     Text(localized("Timer done"))
@@ -283,8 +273,7 @@ struct StripNoticeContent: View {
             }
         case .confirmation(let confirmation):
             HStack(spacing: HUDStripLayout.spacing) {
-                Image(systemName: confirmation.symbol)
-                    .font(.system(size: StripNoticeLayout.textSize, weight: .semibold))
+                GlyphImage(IslandGlyph(rawValue: confirmation.symbol) ?? .check, pointSize: StripNoticeLayout.textSize)
                     .foregroundStyle(Color.white)
                     .frame(width: StripNoticeLayout.symbolSize.width)
                 Text(confirmation.title)

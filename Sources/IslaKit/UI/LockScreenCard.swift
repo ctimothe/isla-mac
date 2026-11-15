@@ -648,11 +648,10 @@ struct LockScreenCard: View {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
                         .fill(Theme.cardFill)
                         .overlay(
-                            Image(systemName: "music.note")
-                                // A third of the cover's side, at either cover
-                                // size — a proportion, not a size, so no role
-                                // can name it.
-                                .font(.system(size: side / 3, weight: .light))
+                            // A third of the cover's side, at either cover
+                            // size — a proportion, not a size, so no role
+                            // can name it.
+                            GlyphImage(.music, pointSize: side / 3)
                                 .foregroundStyle(Theme.cardTertiary)
                         )
                 }
@@ -715,8 +714,7 @@ struct LockScreenCard: View {
                 // reader of the clock, re-run on a seek or a pause, never on
                 // a tick.
                 ClockReader { ringProgress(side: frame.width) }
-                Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
-                    .islandFont(.subhead)
+                GlyphImage(media.isPlaying ? .pause : .play, pointSize: Theme.TypeRole.subhead.size)
                     .foregroundStyle(.white)
                     .symbolSwap(value: media.isPlaying, reduceMotion: reduceMotion)
             }
@@ -779,8 +777,7 @@ struct LockScreenCard: View {
     ) -> some View {
         let frame = LockCardLayout.chevron(pane: target, cardSize)
         return Button(action: action) {
-            Image(systemName: symbol)
-                .islandFont(.caption, weight: .semibold)
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .chevronLeft, pointSize: Theme.TypeRole.caption.size)
                 .foregroundStyle(Theme.cardSecondary)
                 .frame(width: frame.width, height: frame.height)
                 .background(Circle().fill(Theme.cardFill))
@@ -1320,8 +1317,7 @@ struct LockScreenCard: View {
                     Circle()
                         .fill(marks.well.color)
                         .frame(width: LockCardLayout.outputCircle, height: LockCardLayout.outputCircle)
-                    Image(systemName: device.symbol)
-                        .islandFont(.body)
+                    GlyphImage(IslandGlyph(rawValue: device.symbol) ?? .audioOutput, pointSize: Theme.TypeRole.body.size)
                         .foregroundStyle(marks.glyph.color)
                 }
                 Text(device.name)
@@ -1333,8 +1329,7 @@ struct LockScreenCard: View {
                     // Hidden from VoiceOver: the row already says "selected"
                     // through its trait, and a second "checkmark" would be
                     // the same fact twice.
-                    Image(systemName: "checkmark")
-                        .islandFont(.caption, weight: .semibold)
+                    GlyphImage(.check, pointSize: Theme.TypeRole.caption.size)
                         .foregroundStyle(.white)
                         .accessibilityHidden(true)
                 }
@@ -1581,8 +1576,7 @@ struct LockScreenCard: View {
         return Button {
             pane = open ? .player : target
         } label: {
-            Image(systemName: symbol)
-                .islandFont(.subhead, weight: .medium)
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .audioOutput, pointSize: Theme.TypeRole.subhead.size)
                 .foregroundStyle(open ? Color.white : Theme.cardSecondary)
                 // The output glyph follows the route, which moves when a
                 // device is picked or unplugged — never in an animation.
@@ -1667,9 +1661,7 @@ struct LockScreenCard: View {
                 case .spotify(let id, _): _ = spotify.toggleSaved(trackID: id)
                 }
             } label: {
-                Image(systemName: favourite.isOn ? "star.fill" : "star")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                GlyphImage(favourite.isOn ? .starFilled : .star)
                     .frame(width: glyph.width * scale, height: glyph.height * scale)
                     .foregroundStyle(.white.opacity(Theme.playerSecondaryControlOpacity))
                     .symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)

@@ -324,8 +324,7 @@ struct TranslatePane: View {
         Button {
             choose { translator.swap() }
         } label: {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(HeaderIcon.font)
+            GlyphImage(.swap, pointSize: HeaderIcon.size)
                 .foregroundStyle(Theme.secondary)
                 .frame(width: TranslateLayout.swapWidth, height: TranslateLayout.pairHeight)
                 .contentShape(RoundedRectangle(cornerRadius: StageToolFrames.cornerRadius, style: .continuous))
@@ -558,8 +557,7 @@ struct TranslatePane: View {
 
     private var clearButton: some View {
         Button { translator.reset() } label: {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 13, weight: .regular))
+            GlyphImage(.closeCircleFilled, pointSize: 13)
                 .foregroundStyle(Theme.tertiary)
                 .frame(width: TranslateLayout.clearSide, height: TranslateLayout.clearSide)
                 .contentShape(Rectangle())
@@ -734,15 +732,13 @@ struct TranslatePane: View {
         let symbol = online ? SettingsIcon.online : "lock.fill"
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 4) {
-                Image(systemName: symbol)
-                    .font(.system(size: 9, weight: .regular))
+                GlyphImage(IslandGlyph(rawValue: symbol) ?? .lock, pointSize: 9)
                 Text(words)
                     .islandFont(.caption, weight: .regular)
                     .lineLimit(1)
                     .fixedSize()
             }
-            Image(systemName: symbol)
-                .font(.system(size: 9, weight: .regular))
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .lock, pointSize: 9)
         }
         .foregroundStyle(Theme.tertiary)
         .help(words)
@@ -763,8 +759,7 @@ struct TranslatePane: View {
         return Button {
             speaker.toggle(translator.output, languageCode: route.target.code)
         } label: {
-            Image(systemName: "speaker.wave.2.fill")
-                .font(HeaderIcon.font)
+            GlyphImage(.audioOutput, pointSize: HeaderIcon.size)
                 .foregroundStyle(speaking ? Color.white : Theme.secondary)
                 .frame(width: TranslateLayout.footerButton.width, height: TranslateLayout.footerButton.height)
                 .background(
@@ -798,8 +793,7 @@ struct TranslatePane: View {
                     .controlSize(.small)
                     .frame(height: 18)
             case .symbol(let name, let isWarning):
-                Image(systemName: name)
-                    .font(.system(size: 18, weight: .regular))
+                GlyphImage(IslandGlyph(rawValue: name) ?? .alertCircle, pointSize: 18)
                     .foregroundStyle(isWarning ? Theme.warning : Theme.secondary)
                     .frame(height: 18)
                     .accessibilityHidden(true)
