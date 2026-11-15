@@ -195,8 +195,7 @@ struct MagSafeRing: View {
                 .stroke(fill, style: StrokeStyle(lineWidth: line, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             if isCharging {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: CompactIslandLayout.magSafeBoltSize * scale, weight: .bold))
+                GlyphImage(.bolt, pointSize: CompactIslandLayout.magSafeBoltSize * scale)
                     .foregroundStyle(Color.white)
             }
         }
@@ -231,11 +230,9 @@ struct BatteryBolt: View {
         let size = CompactIslandLayout.batteryBoltSize * scale
         let bodyWidth = CompactIslandLayout.batteryBodySize.width * scale
         ZStack {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: size + 2 * scale, weight: .heavy))
+            GlyphImage(.bolt, pointSize: size + 2 * scale)
                 .foregroundStyle(Color.black)
-            Image(systemName: "bolt.fill")
-                .font(.system(size: size, weight: .bold))
+            GlyphImage(.bolt, pointSize: size)
                 .foregroundStyle(Color.white)
         }
         // Centred on the body, not on the body and cap together.

@@ -124,9 +124,6 @@ struct WelcomePane: View {
         }
     }
 
-    /// Every key this pane shows, so a test can prove both tables carry them.
-    static let localizedKeys = Copy.english.all
-
     /// The fourth line's shortcuts as bound now: Clipboard, Translate, then
     /// Lyrics — the order Settings › Shortcuts lists them in.
     @MainActor static func liveShortcuts(
@@ -212,8 +209,7 @@ struct WelcomePane: View {
         VStack(alignment: .leading, spacing: Self.legendSpacing) {
             ForEach(legend, id: \.symbol) { line in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: line.symbol)
-                        .font(.system(size: 14, weight: .regular))
+                    GlyphImage(IslandGlyph(rawValue: line.symbol) ?? .info, pointSize: 14)
                         .foregroundStyle(Theme.tertiary)
                         .frame(width: Self.glyphWidth)
                         .accessibilityHidden(true)

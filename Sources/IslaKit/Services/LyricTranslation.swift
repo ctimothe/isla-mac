@@ -684,13 +684,6 @@ final class LyricTranslation: ObservableObject {
         rows.contains { $0 != nil }
     }
 
-    /// Whether the lyric area draws a translation under any line of this state:
-    /// what decides the taller pitch.
-    func drawsTranslations(in state: LyricsStore.State) -> Bool {
-        guard case .synced(let lines) = state else { return false }
-        return Self.hasRows(displayRows(for: lines))
-    }
-
     /// The translation row of line `index` of the timeline last presented — what
     /// the lock card shows under the sung line (R2). Nil when Translate Lyrics
     /// is off, translations are hidden, the line has none, or no timeline is

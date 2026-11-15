@@ -37,27 +37,21 @@ enum CompactMediaActivity: Equatable {
     /// (spec §3.2).
     var tintsEqualizer: Bool { self == .playing }
 
-    /// - Parameter peeking: whether a new track is showing itself. The pill
-    ///   widens for that moment so the title has somewhere to go, and grows to
-    ///   `NotchMetrics.sneakPeekHeight` for the two lines of it (spec §3.5),
-    ///   then returns to the size the artwork and equalizer need on their own.
+    /// The pill: the notch and `compactMediaExtension`, at the notch's
+    /// height. A new track no longer widens it (spec §3.5, amended
+    /// 2026-11-15): it shows as the pop-up does, and the pill waits faded
+    /// under it.
     /// - Parameter bodyWidth: the expanded body's width, which the pill may
     ///   never outgrow. Passed rather than read, so the arithmetic stays pure and
     ///   the tests can state a width instead of writing a default.
     func bodySize(
         notchSize: CGSize,
-        peeking: Bool = false,
         bodyWidth: CGFloat = NotchMetrics.defaultBodyWidth
     ) -> CGSize {
         guard isVisible else { return notchSize }
-        let extension_ = peeking
-            ? NotchMetrics.sneakPeekExtension
-            : NotchMetrics.compactMediaExtension
         return CGSize(
-            width: min(notchSize.width + extension_, bodyWidth),
-            // Never shorter than the notch: a display whose bar is taller than
-            // 50 pt has no peek to grow.
-            height: peeking ? max(notchSize.height, NotchMetrics.sneakPeekHeight) : notchSize.height
+            width: min(notchSize.width + NotchMetrics.compactMediaExtension, bodyWidth),
+            height: notchSize.height
         )
     }
 }

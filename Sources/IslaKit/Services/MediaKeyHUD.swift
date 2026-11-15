@@ -875,11 +875,6 @@ final class MediaKeyGate: @unchecked Sendable {
         }
     }
 
-    /// Whether any hold had an event at or after `moment`.
-    func hasHold(heardSince moment: TimeInterval) -> Bool {
-        lock.withLock { holds.keys.contains { (lastEvent[$0] ?? -.infinity) >= moment } }
-    }
-
     /// Clears every hold unless one had an event at or after `moment`, in one
     /// step under the lock: true when it cleared. See `panelOpened`.
     func clearHoldsUnlessHeard(since moment: TimeInterval) -> Bool {

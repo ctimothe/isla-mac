@@ -343,7 +343,7 @@ final class ChargePortTests: XCTestCase {
         XCTAssertEqual(MagSafeRing.fraction(level: 140), 1)
         XCTAssertEqual(MagSafeRing.fraction(level: -3), 0)
         for symbol in ["bolt.fill"] {
-            XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil))
+            XCTAssertNotNil(IslandGlyph(rawValue: symbol))
         }
     }
 

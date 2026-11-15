@@ -48,7 +48,12 @@ final class PageDotsTests: XCTestCase {
                         // The dots lie in their own band: nothing of a page's
                         // content is under them.
                         let band = body.height - SurfaceLayout.pageDotsBand
-                        for dot in PageDotsLayout.dotFrames(bodySize: body) {
+                        for dot in centres.map({
+                            CGRect(
+                                x: $0.x - PageDotsLayout.dotSide / 2, y: $0.y - PageDotsLayout.dotSide / 2,
+                                width: PageDotsLayout.dotSide, height: PageDotsLayout.dotSide
+                            )
+                        }) {
                             XCTAssertEqual(dot.size, CGSize(width: 6, height: 6), at)
                             XCTAssertGreaterThanOrEqual(dot.minY, band, at)
                             XCTAssertLessThanOrEqual(dot.maxY, body.height, at)

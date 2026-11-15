@@ -63,7 +63,7 @@ final class AudioOutputSymbolTests: XCTestCase {
             for source in sources {
                 let name = AudioOutputs.symbol(forTransport: transport, dataSource: source)
                 XCTAssertNotNil(
-                    NSImage(systemSymbolName: name, accessibilityDescription: nil),
+                    IslandGlyph(rawValue: name),
                     "\(name) does not resolve"
                 )
             }

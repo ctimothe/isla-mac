@@ -462,7 +462,7 @@ enum ShelfIcon {
     var nsImage: NSImage? {
         switch self {
         case .symbol(let name):
-            return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            return IslandGlyph(rawValue: name)?.nsImage(size: 16)
         case .image(let image):
             let sized = (image.copy() as? NSImage) ?? image
             sized.size = NSSize(width: 16, height: 16)
@@ -471,17 +471,16 @@ enum ShelfIcon {
     }
 }
 
-/// Draws a `ShelfIcon` at `size`: a symbol in the font a symbol is drawn in,
-/// an image as it is — original colours, never tinted.
+/// Draws a `ShelfIcon` at `size`: a glyph where a symbol set in that point
+/// size stood, an image as it is — original colours, never tinted.
 struct ShelfIconView: View {
     let icon: ShelfIcon
     let size: CGFloat
-    var weight: Font.Weight = .regular
 
     var body: some View {
         switch icon {
         case .symbol(let name):
-            Image(systemName: name).font(.system(size: size, weight: weight))
+            GlyphImage(IslandGlyph(rawValue: name) ?? .airDrop, pointSize: size)
         case .image(let image):
             Image(nsImage: image)
                 .renderingMode(.original)

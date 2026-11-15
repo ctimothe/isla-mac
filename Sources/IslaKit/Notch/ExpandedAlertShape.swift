@@ -63,21 +63,28 @@ struct ExpandedAlertShape: Equatable {
 }
 
 /// The outline's radii for what the shut island shows: each expanded alert its
-/// own, the peek its taller bottom corner, every compact activity the
-/// reference's 8.67 / 12.67. One function, read by the shape and by both hit
+/// own (the new track the pop-up's, §3.5 amended 2026-11-15), every compact
+/// activity the reference's 8.67 / 12.67. One function, read by the shape and by both hit
 /// rects, so the black and the clickable cannot disagree about the shoulders.
 enum IslandShapeRadii {
-    static func closed(for activity: IslandActivity) -> (top: CGFloat, bottom: CGFloat) {
+    static func closed(for activity: IslandActivity, liveControls: Bool = false) -> (top: CGFloat, bottom: CGFloat) {
+        if liveControls {
+            return (LiveActivityLayout.controlsShape.topRadius, LiveActivityLayout.controlsShape.bottomRadius)
+        }
         switch activity {
         case .hud:
-            return (ExpandedAlertShape.volume.topRadius, ExpandedAlertShape.volume.bottomRadius)
+            return (HUDLayout.shape.topRadius, HUDLayout.shape.bottomRadius)
+        case .peek:
+            return (NewTrackAlertLayout.shape.topRadius, NewTrackAlertLayout.shape.bottomRadius)
         case .ambient(.headphones):
             return (ExpandedAlertShape.headphones.topRadius, ExpandedAlertShape.headphones.bottomRadius)
+        case .ambient(.batteryLow):
+            return (ExpandedAlertShape.batteryLow.topRadius, ExpandedAlertShape.batteryLow.bottomRadius)
+        case .ambient(.batteryFull), .ambient(.timerDone):
+            return (ExpandedAlertShape.batteryFull.topRadius, ExpandedAlertShape.batteryFull.bottomRadius)
         case .update:
             return (ExpandedAlertShape.update.topRadius, ExpandedAlertShape.update.bottomRadius)
-        case .peek:
-            return (Theme.collapsedTopRadius, Theme.peekBottomRadius)
-        case .confirmation, .ambient(.charging), .music, .shelf, .none:
+        case .confirmation, .ambient(.charging), .music, .shelf, .live, .none:
             return (Theme.collapsedTopRadius, Theme.collapsedBottomRadius)
         }
     }
@@ -115,6 +122,64 @@ enum HeadphonesAlertLayout {
     /// show there is no ring, and the name takes its width.
     static func nameWidth(islandWidth: CGFloat) -> CGFloat {
         max(0, islandWidth - textLeading - shape.trailing(37.7))
+    }
+}
+
+/// Where a new track's parts sit (spec §3.5, amended 2026-11-15; owner: "exactly
+/// how the volume changer is shown, just under the physical notch"). It is the
+/// pop-up — its shape, and its rows read with the song in them: the title where
+/// the output's name is, the cover where the symbol is, the artist along the
+/// bar and the equalizer where the number is. Body-local, from the reference's
+/// shape-relative numbers, so a wider pop-up keeps the leading content where it
+/// was and takes the equalizer with its right edge, as the pop-up takes its
+/// number.
+enum NewTrackAlertLayout {
+    /// The pop-up's own shape, not a copy of its numbers: the two cannot drift.
+    static var shape: ExpandedAlertShape { HUDLayout.shape }
+
+    /// The title, in the output name's type and place: 15 regular, white 0.90,
+    /// x 34, baseline 58, truncating at its tail at right 34.
+    static var titleSize: CGFloat { HUDLayout.titleSize }
+    static var titleOpacity: Double { HUDLayout.titleOpacity }
+    static var titleLeading: CGFloat { HUDLayout.titleLeading }
+    static func titleBaseline(notchHeight: CGFloat) -> CGFloat { HUDLayout.titleBaseline(notchHeight: notchHeight) }
+    static func titleWidth(islandWidth: CGFloat) -> CGFloat { HUDLayout.titleWidth(islandWidth: islandWidth) }
+
+    /// The cover, 20 × 20 at radius 5, on the title's leading edge (x 34) and
+    /// centred on the bar's line (y 80.5): at (34, 70.5). The symbol it stands
+    /// in for starts at 35.5 because a speaker's drawing has a margin; a cover
+    /// is ink to its edge, so it takes the title's line instead.
+    static let coverSide: CGFloat = 20
+    static let coverRadius: CGFloat = 5
+    static func coverFrame(notchHeight: CGFloat) -> CGRect {
+        CGRect(x: shape.x(34), y: shape.y(70.5, notchHeight: notchHeight), width: coverSide, height: coverSide)
+    }
+
+    /// The artist along the bar: 13 regular, white 0.55, 10 past the cover,
+    /// baseline 85 — its capitals centred on the bar's line.
+    static let artistSize: CGFloat = 13
+    static let artistOpacity: Double = 0.55
+    static let artistGap: CGFloat = 10
+    static var artistLeading: CGFloat { shape.x(34) + coverSide + artistGap }
+    static func artistBaseline(notchHeight: CGFloat) -> CGFloat { shape.y(85, notchHeight: notchHeight) }
+    /// It truncates at its tail 10 before the equalizer.
+    static func artistWidth(islandWidth: CGFloat) -> CGFloat {
+        max(0, equalizerMinX(islandWidth: islandWidth) - artistGap - artistLeading)
+    }
+
+    /// The compact island's own equalizer (18 pt, the cover's tint while
+    /// playing), ending where the number ends (right 34.5), centred on the
+    /// bar's line.
+    static var equalizerSide: CGFloat { CompactIslandLayout.equalizerSide }
+    private static func equalizerMinX(islandWidth: CGFloat) -> CGFloat {
+        islandWidth - HUDLayout.numberTrailingInset - equalizerSide
+    }
+    static func equalizerFrame(islandWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
+        let line = shape.y(80.5, notchHeight: notchHeight)
+        return CGRect(
+            x: equalizerMinX(islandWidth: islandWidth), y: line - equalizerSide / 2,
+            width: equalizerSide, height: equalizerSide
+        )
     }
 }
 

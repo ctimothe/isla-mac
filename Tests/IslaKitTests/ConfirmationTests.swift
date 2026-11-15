@@ -67,7 +67,7 @@ final class ConfirmationTests: XCTestCase {
 
         var cleared = 0
         let root = await AXProbe.tree(
-            of: ConfirmTextButton(title: "Clear", armedTitle: "Clear Everything") { cleared += 1 },
+            of: ConfirmPushButton(title: "Clear", armedTitle: "Clear Everything") { cleared += 1 },
             size: CGSize(width: 200, height: 60)
         )
         guard let clear = root.all(role: "AXButton").first(where: { $0.label == "Clear" }) else {
@@ -97,7 +97,7 @@ final class ConfirmationTests: XCTestCase {
         try XCTSkipIf(NSWorkspace.shared.isVoiceOverEnabled, "VoiceOver is on: the allowance is 8 s, not 3")
         var cleared = 0
         let root = await AXProbe.tree(
-            of: ConfirmTextButton(title: "Clear", armedTitle: "Clear Everything") { cleared += 1 },
+            of: ConfirmPushButton(title: "Clear", armedTitle: "Clear Everything") { cleared += 1 },
             size: CGSize(width: 200, height: 60)
         )
         func button(_ label: String, in tree: AXNode) throws -> AXNode {
@@ -122,21 +122,6 @@ final class ConfirmationTests: XCTestCase {
         XCTAssertNotNil(try? button("Clear", in: lapsed), "lapsed by itself\n\(lapsed.dump)")
         XCTAssertEqual(cleared, 1, "a lapse never acts")
         XCTAssertFalse(ArmedConfirmations.shared.disarmAll(), "and it left nothing registered for Escape to take")
-    }
-
-    /// The caption word alone measured 27x13 in the lab dump, beside
-    /// Deselect: a near miss armed Clear or hit the row underneath.
-    func testCaptionButtonsAreBigEnough() async {
-        let root = await AXProbe.tree(
-            of: ConfirmTextButton(title: "Clear", armedTitle: "Clear Everything") {},
-            size: CGSize(width: 200, height: 60)
-        )
-        guard let clear = root.all(role: "AXButton").first(where: { $0.label == "Clear" }),
-              let frame = clear.frame else {
-            return XCTFail(root.dump)
-        }
-        XCTAssertGreaterThanOrEqual(frame.width, Theme.minimumHitSize.width, "\(frame)\n\(root.dump)")
-        XCTAssertGreaterThanOrEqual(frame.height, Theme.minimumHitSize.height, "\(frame)\n\(root.dump)")
     }
 
     func testCopyButtonSaysCopied() async {

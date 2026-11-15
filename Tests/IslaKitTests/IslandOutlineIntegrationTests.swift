@@ -144,7 +144,11 @@ final class IslandOutlineIntegrationTests: XCTestCase {
         XCTAssertEqual(ask.state.shape, target.shape, "the shape is going where it was going")
         // The shape's flight is the one the alert began, not a new one: where it
         // is at a given moment is what it was going to be.
-        let expected = OutlineCurve.island.progress(at: 0.07)
+        // Headphones out of the bare notch open on the iPhone's
+        // `appearExpand` spring (spec §19.3, amended 2026-11-14), which the
+        // shell's morph puts on the transaction over the `withAnimation`.
+        let expected = OutlineCurve.of(IslandMotion.animation(for: .appearExpand, reduceMotion: false))
+            .progress(at: 0.07)
         let after = try XCTUnwrap(host.drawn(at: began + 0.07)).width
         let start = try XCTUnwrap(host.drawn(at: began)).width
         XCTAssertGreaterThanOrEqual(after, before, "and has gone on opening, not started again from where it began")

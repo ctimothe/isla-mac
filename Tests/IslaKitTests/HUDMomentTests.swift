@@ -49,7 +49,7 @@ final class HUDMomentTests: XCTestCase {
                    "speaker.slash.fill", "sun.max.fill", "light.max"]
             + Array(HUDSymbol.personalDevices)
         for symbol in all {
-            XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), symbol)
+            XCTAssertNotNil(IslandGlyph(rawValue: symbol), symbol)
         }
     }
 
@@ -162,7 +162,7 @@ final class HUDMomentTests: XCTestCase {
         func allowed(
             open: Bool = false, drop: Bool = false, locked: Bool = false, asleep: Bool = false
         ) -> Bool {
-            NotchController.hudAllowed(isOpen: open, isDropTargeted: drop, isLocked: locked, screensAsleep: asleep)
+            NotchController.hudPlacement(isOpen: open, isDropTargeted: drop, isLocked: locked, screensAsleep: asleep) != nil
         }
         XCTAssertTrue(allowed())
         XCTAssertTrue(allowed(open: true), "the capsule under the open panel (2026-10-25)")

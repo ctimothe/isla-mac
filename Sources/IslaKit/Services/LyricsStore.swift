@@ -143,7 +143,7 @@ final class LyricsStore: ObservableObject {
         let offset: TimeInterval
     }
 
-    init(offsetsDirectory: URL? = nil, defaults: UserDefaults = .standard) {
+    init(offsetsDirectory: URL? = nil, defaults: UserDefaults = .stores) {
         self.defaults = defaults
         let directory = offsetsDirectory
             ?? AppPaths.live.supportFile("lyrics-local")
@@ -366,14 +366,6 @@ final class LyricsStore: ObservableObject {
     func dismissUnassignedLegacyOffset(named filename: String) {
         unassignedLegacyOffsets.removeAll { $0.filename == filename }
         Self.writeUnassignedLegacyOffsets(unassignedLegacyOffsets, to: unassignedOffsetsURL)
-    }
-
-    func clear() {
-        activeLocalTrackIdentity = nil
-        activeDocumentID = nil
-        trackOffset = 0
-        presentLocalOverride(false)
-        present(.disabled)
     }
 
     /// Retains only timing corrections from pre-local releases. The old lyric

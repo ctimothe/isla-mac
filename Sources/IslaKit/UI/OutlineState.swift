@@ -15,7 +15,6 @@ struct OutlineColor: OutlineMixable {
     var blue: Double
     var alpha: Double
 
-    static let clear = OutlineColor(red: 0, green: 0, blue: 0, alpha: 0)
     static let black = OutlineColor(red: 0, green: 0, blue: 0, alpha: 1)
 
     init(red: Double, green: Double, blue: Double, alpha: Double) {
@@ -118,7 +117,6 @@ struct OutlineState: Equatable {
 
     var width: Double { shape.width }
     var height: Double { shape.height }
-    var topRadius: Double { shape.topRadius }
     var bottomRadius: Double { shape.bottomRadius }
     var shadowOpacity: Double { shadow.value }
 

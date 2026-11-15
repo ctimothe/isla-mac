@@ -75,8 +75,7 @@ struct ShelfPane: View {
     /// panel, and "the notch" was true of only one of those.
     private var emptyLine: some View {
         VStack(spacing: 6) {
-            Image(systemName: "tray")
-                .font(.system(size: 26, weight: .regular))
+            GlyphImage(.tray, pointSize: 26)
                 .foregroundStyle(Theme.tertiary)
                 .accessibilityHidden(true)
                 .padding(.bottom, 4)
@@ -153,7 +152,7 @@ struct ShelfPane: View {
                     clear.confirm { shelf.clear() }
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "trash").font(.system(size: 11, weight: .regular))
+                        GlyphImage(.trash, pointSize: 11)
                         Text(localized("Remove All"))
                     }
                 }
@@ -477,8 +476,7 @@ private struct ShelfTile: View {
                 Circle()
                     .fill(Theme.shelfBadgeDisc)
                     .frame(width: ShelfLayout.badgeDisc, height: ShelfLayout.badgeDisc)
-                Image(systemName: "xmark.circle.fill")
-                    .resizable()
+                GlyphImage(.closeCircleFilled)
                     .frame(width: badge.width, height: badge.height)
                     .foregroundStyle(Theme.shelfBadgeGlyph)
             }

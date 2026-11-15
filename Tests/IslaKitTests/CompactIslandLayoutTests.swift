@@ -18,9 +18,9 @@ final class CompactIslandLayoutTests: XCTestCase {
     private let notchWidths: [CGFloat] = [180, 185, 200, 220, 240]
     private let shoulder = Theme.collapsedTopRadius
 
-    private func island(notchWidth: CGFloat, height: CGFloat = 38, peeking: Bool = false) -> CGSize {
+    private func island(notchWidth: CGFloat, height: CGFloat = 38) -> CGSize {
         CompactMediaActivity.playing.bodySize(
-            notchSize: CGSize(width: notchWidth, height: height), peeking: peeking, bodyWidth: 620
+            notchSize: CGSize(width: notchWidth, height: height), bodyWidth: 620
         )
     }
 
@@ -34,7 +34,6 @@ final class CompactIslandLayoutTests: XCTestCase {
     func testTheCompactOutlineIsTheReferences() {
         XCTAssertEqual(Theme.collapsedTopRadius, 8.67, "shoulders 8.67")
         XCTAssertEqual(Theme.collapsedBottomRadius, 12.67, "bottom corners 12.67")
-        XCTAssertEqual(Theme.peekBottomRadius, 16, "the peek keeps its 16 on this outline")
         XCTAssertGreaterThanOrEqual(
             Theme.restingNotchBottomRadius, Theme.collapsedBottomRadius,
             "folding into the notch never gains a corner"
@@ -45,7 +44,6 @@ final class CompactIslandLayoutTests: XCTestCase {
 
     func testEachCompactActivityIsTheNotchPlusItsOwnDelta() {
         XCTAssertEqual(NotchMetrics.compactMediaExtension, 70)
-        XCTAssertEqual(NotchMetrics.compactWing, 35)
         XCTAssertEqual(NotchMetrics.compactShelfExtension, 75)
         XCTAssertEqual(NotchMetrics.compactChargingExtension, 180)
         let charger = AmbientActivity.charging(level: 67, isCharging: true)
@@ -70,27 +68,11 @@ final class CompactIslandLayoutTests: XCTestCase {
 
     // MARK: Music
 
-    /// The cover 22 × 22, radius 5, at (17.3, 8); the equalizer 18 × 18, top
-    /// 10, ending right 19.3 — at every notch width, so the wings' content sits
-    /// where it does on the reference whatever the camera's span.
-    func testTheCoverAndTheEqualizerSitWhereTheReferenceDoesAtEveryNotchWidth() {
-        for notch in notchWidths {
-            let size = island(notchWidth: notch)
-            let cover = CompactIslandLayout.coverFrame(height: size.height)
-            let bars = CompactIslandLayout.equalizerFrame(islandWidth: size.width, height: size.height)
-
-            XCTAssertEqual(cover.size, CGSize(width: 22, height: 22))
-            XCTAssertEqual(CompactIslandLayout.coverRadius(height: size.height), 5)
-            XCTAssertEqual(shape(cover.minX), 17.3, accuracy: 0.001, "x 17.3 (nw \(notch))")
-            XCTAssertEqual(cover.minY, 8, "y 8: centred in 38")
-
-            XCTAssertEqual(bars.size, CGSize(width: 18, height: 18))
-            XCTAssertEqual(bars.minY, 10, "top 10: centred in 38")
-            XCTAssertEqual(right(bars.maxX, islandWidth: size.width), 19.3, accuracy: 0.001, "ending right 19.3 (nw \(notch))")
-
-            XCTAssertLessThanOrEqual(cover.maxX, NotchMetrics.compactWing, "the cover stays in the left wing")
-            XCTAssertGreaterThanOrEqual(bars.minX, size.width - NotchMetrics.compactWing, "the bars stay in the right wing")
-        }
+    /// The cover 22 × 22, radius 5: the morph's compact end.
+    func testTheCoverIsTheMorphsCompactEnd() {
+        XCTAssertEqual(CompactIslandLayout.coverSide(height: 38), 22)
+        XCTAssertEqual(CompactIslandLayout.coverRadius(height: 38), 5)
+        XCTAssertEqual(CompactIslandLayout.coverLeading, 17.3)
         XCTAssertEqual(Theme.artworkMetrics(isOpen: false).side, 22, "the morph's compact end is the cover's")
         XCTAssertEqual(Theme.artworkMetrics(isOpen: false).cornerRadius, 5)
     }
@@ -158,16 +140,10 @@ final class CompactIslandLayoutTests: XCTestCase {
         XCTAssertEqual(shape(CompactIslandLayout.chargingTextInset), 18.5, accuracy: 0.001)
         XCTAssertEqual(CompactIslandLayout.chargingTextSize, 14)
         XCTAssertEqual(CompactIslandLayout.levelToBatteryGap, 6)
-        for notch in notchWidths {
-            let width = notch + NotchMetrics.compactChargingExtension
-            let battery = CompactIslandLayout.batteryFrame(islandWidth: width, height: notchHeight)
-            XCTAssertEqual(battery.body.size, CGSize(width: 28, height: 16))
-            XCTAssertEqual(battery.cap.size, CGSize(width: 2, height: 6))
-            XCTAssertEqual(battery.cap.minX - battery.body.maxX, 1.5, accuracy: 0.001)
-            XCTAssertEqual(right(battery.cap.maxX, islandWidth: width), 19.3, accuracy: 0.001)
-            XCTAssertEqual(battery.body.midY, notchHeight / 2, "vertically centred")
-            XCTAssertEqual(battery.cap.midY, battery.body.midY)
-        }
+        XCTAssertEqual(CompactIslandLayout.batteryBodySize, CGSize(width: 28, height: 16))
+        XCTAssertEqual(CompactIslandLayout.batteryCapSize, CGSize(width: 2, height: 6))
+        XCTAssertEqual(CompactIslandLayout.batteryCapGap, 1.5)
+        XCTAssertEqual(CompactIslandLayout.batteryTrailing, 19.3)
         XCTAssertEqual(CompactIslandLayout.batteryRadius, 6)
         XCTAssertEqual(CompactIslandLayout.batteryCapRadius, 1.5)
     }
@@ -202,95 +178,24 @@ final class CompactIslandLayoutTests: XCTestCase {
     /// glyphs are 0.75 of their size; at 32 and 38 everything is full size and
     /// centred.
     func testTheShortIslandsCoverIsSixteenAndItsGlyphsThreeQuarters() {
-        let short = CompactIslandLayout.coverFrame(height: 24)
-        XCTAssertEqual(short.size, CGSize(width: 16, height: 16))
-        XCTAssertEqual(short.minY, 4, "centred in 24")
+        XCTAssertEqual(CompactIslandLayout.coverSide(height: 24), 16)
+        XCTAssertEqual(CompactIslandLayout.coverRadius(height: 24), 4)
         XCTAssertEqual(CompactIslandLayout.glyphScale(height: 24), 0.75)
-        XCTAssertEqual(CompactIslandLayout.equalizerFrame(islandWidth: 270, height: 24).size, CGSize(width: 13.5, height: 13.5))
         XCTAssertEqual(CompactIslandLayout.shelfGlyphFrame(height: 24).size, CGSize(width: 19.5, height: 15))
-        XCTAssertEqual(CompactIslandLayout.batteryFrame(islandWidth: 380, height: 24).body.size, CGSize(width: 21, height: 12))
         for height: CGFloat in [32, 38] {
             XCTAssertEqual(CompactIslandLayout.glyphScale(height: height), 1)
-            let cover = CompactIslandLayout.coverFrame(height: height)
-            XCTAssertEqual(cover.size.width, 22)
-            XCTAssertEqual(cover.midY, height / 2, "centred in \(height)")
-            XCTAssertEqual(CompactIslandLayout.equalizerFrame(islandWidth: 290, height: height).midY, height / 2)
+            XCTAssertEqual(CompactIslandLayout.coverSide(height: height), 22)
+            XCTAssertEqual(CompactIslandLayout.shelfGlyphFrame(height: height).midY, height / 2, "centred in \(height)")
         }
-        XCTAssertEqual(CompactIslandLayout.coverFrame(height: 32).minY, 5)
-    }
-
-    // MARK: The peek
-
-    func testThePeekIsFiveHundredTwentyWideAndFiftyTall() {
-        let size = island(notchWidth: 220, peeking: true)
-        XCTAssertEqual(NotchMetrics.sneakPeekExtension, 300, "the peek's width is unchanged")
-        XCTAssertEqual(size.width, 520)
-        XCTAssertEqual(NotchMetrics.sneakPeekHeight, 50)
-        XCTAssertEqual(size.height, 50, "it grows 12 pt below the 38 pt notch")
-    }
-
-    /// The window is never resized and the body is the widest it can be, so a
-    /// narrow panel setting still caps the peek, and a bar that is already
-    /// taller than 50 has nothing to grow.
-    func testThePeekNeverOutgrowsThePanelOrShrinksBelowTheNotch() {
-        let capped = CompactMediaActivity.playing.bodySize(
-            notchSize: CGSize(width: 220, height: 38), peeking: true, bodyWidth: 480
-        )
-        XCTAssertEqual(capped.width, 480)
-        let tall = CompactMediaActivity.playing.bodySize(
-            notchSize: CGSize(width: 220, height: 60), peeking: true
-        )
-        XCTAssertEqual(tall.height, 60)
-    }
-
-    func testThePeekFolds() {
-        XCTAssertEqual(
-            CompactMediaActivity.playing.bodySize(notchSize: CGSize(width: 220, height: 38)),
-            CGSize(width: 290, height: 38),
-            "back to the notch plus 70, at the notch's height"
-        )
-        XCTAssertEqual(NotchMetrics.sneakPeekDuration, 2.2, "it still holds 2.2 s")
-    }
-
-    /// The peek keeps its content (§19.4): a 34 pt cover 8 from the top, on the
-    /// resting cover's own left edge so nothing jumps sideways as it grows,
-    /// and the title 10 past it; the equalizer centred, on the resting bars'
-    /// right edge.
-    func testThePeekCoverAndTextSitWhereTheBoardPutsThem() {
-        let cover = CompactIslandLayout.peekCoverFrame(height: 50)
-        XCTAssertEqual(cover.size, CGSize(width: 34, height: 34))
-        XCTAssertEqual(cover.minY, 8)
-        XCTAssertEqual(cover.minX, CompactIslandLayout.coverFrame(height: 38).minX, "the resting cover's left edge")
-        XCTAssertEqual(CompactIslandLayout.peekTextLeading, cover.maxX + 10, accuracy: 0.001)
-        let bars = CompactIslandLayout.equalizerFrame(islandWidth: 520, height: 50)
-        XCTAssertEqual(bars.midY, 25, "the equalizer is centred at y 25")
-        XCTAssertEqual(right(bars.maxX, islandWidth: 520), 19.3, accuracy: 0.001)
-    }
-
-    /// Over a real notch the text may not run into the camera housing, so the
-    /// two lines end 8 pt short of the cutout; on a display with none they run
-    /// the board's whole way to the equalizer. Deliberate difference from the
-    /// board, which draws a long title across the cutout.
-    func testThePeekTextEndsBeforeTheCutoutOnARealNotchAndBeforeTheBarsWithoutOne() {
-        let leading = CompactIslandLayout.peekTextLeading
-        let physical = CompactIslandLayout.peekTextWidth(islandWidth: 520, notchWidth: 220, isPhysical: true)
-        XCTAssertEqual(leading + physical, 150 - 8, accuracy: 0.001, "8 short of the cutout, in a 150 pt wing")
-        let synthetic = CompactIslandLayout.peekTextWidth(islandWidth: 500, notchWidth: 200, isPhysical: false)
-        let bars = CompactIslandLayout.equalizerFrame(islandWidth: 500, height: 50)
-        XCTAssertLessThan(CompactIslandLayout.peekTextLeading + synthetic, bars.minX)
-        XCTAssertEqual(
-            CompactIslandLayout.peekTextWidth(islandWidth: 220, notchWidth: 220, isPhysical: true), 0,
-            "a folded island has no room, and never a negative width"
-        )
     }
 
     /// Green means charging, and only a battery that says how full it is can
     /// be drawn that way.
     func testOnlyAChargingBatteryWithALevelIsGreen() {
-        XCTAssertTrue(AmbientActivity.charging(level: 82, isCharging: true).usesChargingGreen)
-        XCTAssertFalse(AmbientActivity.charging(level: nil, isCharging: true).usesChargingGreen)
-        XCTAssertFalse(AmbientActivity.charging(level: 80, isCharging: false).usesChargingGreen, "held, not charging")
-        XCTAssertFalse(AmbientActivity.headphones(name: "AirPods", symbol: "airpods").usesChargingGreen)
+        XCTAssertTrue(AmbientActivity.charging(level: 82, isCharging: true).chargeTint == .green)
+        XCTAssertFalse(AmbientActivity.charging(level: nil, isCharging: true).chargeTint == .green)
+        XCTAssertFalse(AmbientActivity.charging(level: 80, isCharging: false).chargeTint == .green, "held, not charging")
+        XCTAssertFalse(AmbientActivity.headphones(name: "AirPods", symbol: "airpods").chargeTint == .green)
     }
 
     // MARK: A display without a notch
@@ -311,37 +216,41 @@ final class CompactIslandLayoutTests: XCTestCase {
 
     // MARK: Hit areas
 
-    /// While the peek holds the island is 50 pt tall, and the rects the pointer
+    /// While a new track shows, the island hangs under the notch as the
+    /// pop-up does (spec §3.5, amended 2026-11-15), and the rects the pointer
     /// and the click are tested against are cut for that — then cut back.
     @MainActor
-    func testTheActiveAndHoverRectsFollowThePeeksHeight() throws {
+    func testTheActiveAndHoverRectsFollowANewTracksHeight() throws {
         let geometry = try XCTUnwrap(NotchGeometry.current(), "a test host always has a screen")
-        let resting = geometry.collapsedIslandRect(for: 520)
-        let peeking = geometry.collapsedIslandRect(for: 520, height: 50)
+        let alert = NotchViewModel.newTrackBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+        let resting = geometry.collapsedIslandRect(for: alert.width)
+        let showing = geometry.collapsedIslandRect(for: alert.width, height: alert.height)
         XCTAssertEqual(resting.height, geometry.collapsedDepth)
-        XCTAssertEqual(peeking.height, max(50, geometry.collapsedDepth))
-        XCTAssertEqual(peeking.maxY, resting.maxY, "both hang from the top of the display")
-        XCTAssertLessThan(peeking.minY, resting.minY, "the peek reaches further down")
+        XCTAssertEqual(showing.height, max(alert.height, geometry.collapsedDepth))
+        XCTAssertEqual(showing.maxY, resting.maxY, "both hang from the top of the display")
+        XCTAssertLessThan(showing.minY, resting.minY, "the alert reaches further down")
 
-        let target = geometry.collapsedHoverRect(for: 520, height: 50)
-        XCTAssertTrue(target.insetBy(dx: -1, dy: -1).contains(peeking), "the open target contains the island")
-        let belowTheNotch = CGPoint(x: peeking.midX, y: peeking.minY + 2)
-        XCTAssertTrue(geometry.collapsedIslandHoverRect(for: 520, height: 50).contains(belowTheNotch))
-        XCTAssertFalse(geometry.collapsedIslandHoverRect(for: 520).contains(belowTheNotch), "the folded rect does not")
+        let target = geometry.collapsedHoverRect(for: alert.width, height: alert.height)
+        XCTAssertTrue(target.insetBy(dx: -1, dy: -1).contains(showing), "the open target contains the island")
+        let belowTheNotch = CGPoint(x: showing.midX, y: showing.minY + 2)
+        XCTAssertTrue(geometry.collapsedIslandHoverRect(for: alert.width, height: alert.height).contains(belowTheNotch))
+        XCTAssertFalse(geometry.collapsedIslandHoverRect(for: alert.width).contains(belowTheNotch),
+                       "the folded rect does not")
 
         // A height under the notch's can never shrink the target.
         XCTAssertEqual(geometry.collapsedIslandRect(for: 300, height: 4).height, geometry.collapsedDepth)
     }
 
     /// The gesture rect the SwiftUI click is tested against takes the island's
-    /// own height, so the peek's 12 pt below the notch opens the panel too.
+    /// own height, so every point of a new track's alert under the notch
+    /// opens the panel too, shoulders included.
     @MainActor
-    func testTheClickRectCoversThePeeksFiftyPoints() throws {
+    func testTheClickRectCoversANewTracksAlert() throws {
         let geometry = try XCTUnwrap(NotchGeometry.current())
-        let rect = geometry.compactGestureRect(
-            for: CGSize(width: 520, height: 50), topRadius: Theme.collapsedTopRadius
-        )
-        XCTAssertEqual(rect.height, 50)
-        XCTAssertEqual(rect.width, 520 + 2 * Theme.collapsedTopRadius)
+        let alert = NotchViewModel.newTrackBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+        let shoulder = IslandShapeRadii.closed(for: .peek).top
+        let rect = geometry.compactGestureRect(for: alert, topRadius: shoulder)
+        XCTAssertEqual(rect.height, alert.height)
+        XCTAssertEqual(rect.width, alert.width + 2 * shoulder, accuracy: 0.001)
     }
 }

@@ -63,7 +63,7 @@ final class SettingsTableTests: XCTestCase {
         for section in SettingsSection.allCases {
             XCTAssertEqual(section.glyph, expected[section], "\(section)")
             if let name = section.glyph.fallbackSymbol {
-                XCTAssertNotNil(NSImage(systemSymbolName: name, accessibilityDescription: nil),
+                XCTAssertNotNil(IslandGlyph(rawValue: name),
                                 "\(name) does not resolve — the tile would draw no glyph")
             }
         }
@@ -116,7 +116,10 @@ final class SettingsTableTests: XCTestCase {
         // switch at its default. Conditional rows are tested below.
         let expected: [SettingsSection: [SettingsRowID]] = [
             // R5 (spec §12) turns Volume and Brightness on: last in "The island shows", off by default.
-            .general: [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness],
+            // 2026-11-14 (plan islandcn-activities): the battery alerts sit
+            // with the charger, Microphone and Camera and Downloads after New Tracks.
+            .general: [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .lowBattery, .fullBattery,
+                       .headphones, .newTracks, .recording, .downloads, .volumeAndBrightness],
             .privacy: [.clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording],
             .shortcuts: [.shortcutOpenPanel, .shortcutClipboard, .shortcutLyrics, .shortcutTranslate],
             .music: [.musicOnly, .volumeAndOutput, .lyricBand],
@@ -413,13 +416,13 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertTrue(SettingsContext().offersVolumeAndBrightness)
         XCTAssertEqual(SettingsRowID.volumeAndBrightness.key, "island.showHUD")
         XCTAssertEqual(SettingsRowID.volumeAndBrightness.defaultValue, .off, "off until chosen")
-        XCTAssertEqual(NotchViewModel.showHUDKey, "island.showHUD")
         XCTAssertEqual(SettingsRowID.volumeAndBrightness.kind, .toggle)
 
         // Visible in General, last in "The island shows", and nowhere else.
         XCTAssertEqual(
             SettingsTable.rows(for: .general, context: SettingsContext()),
-            [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .headphones, .newTracks, .volumeAndBrightness]
+            [.launchAtLogin, .openOnHover, .swipeToOpen, .panelWidth, .charging, .lowBattery, .fullBattery,
+             .headphones, .newTracks, .recording, .downloads, .volumeAndBrightness]
         )
         for section in SettingsSection.allCases where section != .general {
             XCTAssertFalse(SettingsTable.rows(for: section, context: Self.everything).contains(.volumeAndBrightness),
@@ -590,15 +593,15 @@ final class SettingsTableTests: XCTestCase {
     /// read from an empty suite, and from a suite holding the opposite.
     func testTheAccessorsReadTheTablesDefaults() {
         let empty = suite()
-        XCTAssertEqual(NotchViewModel.volumeAndOutputEnabled(in: empty), true)
-        XCTAssertEqual(NotchViewModel.lyricBandEnabled(in: empty), true)
+        XCTAssertEqual(SettingsRowID.volumeAndOutput.isOn(in: empty), true)
+        XCTAssertEqual(SettingsRowID.lyricBand.isOn(in: empty), true)
         XCTAssertEqual(NotchViewModel.translateLyricsEnabled(in: empty), false)
         XCTAssertEqual(NotchViewModel.restAsBannerEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.chargingEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.headphonesEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.newTracksEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.translateKeepHistoryEnabled(in: empty), false)
-        XCTAssertEqual(NotchViewModel.translateSpeakButtonEnabled(in: empty), true)
+        XCTAssertEqual(SettingsRowID.speakButton.isOn(in: empty), true)
         XCTAssertEqual(NotchViewModel.lockCardStyle(in: empty), .clear)
         XCTAssertEqual(NotchViewModel.lockCardSize(in: empty), .compact)
 
@@ -609,7 +612,7 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertFalse(NotchViewModel.chargingEnabled(in: flipped))
         XCTAssertTrue(NotchViewModel.headphonesEnabled(in: flipped), "one switch does not move another")
         XCTAssertTrue(NotchViewModel.translateKeepHistoryEnabled(in: flipped))
-        XCTAssertFalse(NotchViewModel.translateSpeakButtonEnabled(in: flipped))
+        XCTAssertFalse(SettingsRowID.speakButton.isOn(in: flipped))
     }
 
     // MARK: - The last section, restored
@@ -728,7 +731,9 @@ final class SettingsTableTests: XCTestCase {
         let blocks = SettingsTable.blocks(for: .general)
         XCTAssertTrue(blocks.contains(.header("The island shows")))
         // R5 added Volume and Brightness to the group (spec §12).
-        XCTAssertTrue(blocks.contains(.group([.charging, .headphones, .newTracks, .volumeAndBrightness])))
+        XCTAssertTrue(blocks.contains(.group([
+            .charging, .lowBattery, .fullBattery, .headphones, .newTracks, .recording, .downloads, .volumeAndBrightness,
+        ])))
         LabLocalization.use("ru")
         XCTAssertEqual(SettingsRowID.charging.title, "Подключение зарядки", "spec §19.14")
         XCTAssertEqual(SettingsRowID.headphones.title, "Подключение наушников")
@@ -844,9 +849,10 @@ final class SettingsTableTests: XCTestCase {
     func testRowIconsResolve() {
         for row in SettingsRowID.allCases {
             guard let icon = row.icon else { continue }
-            XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil), "\(row): \(icon)")
+            XCTAssertNotNil(IslandGlyph(rawValue: icon), "\(row): \(icon)")
         }
-        XCTAssertEqual(SettingsRowID.allCases.filter { $0.icon != nil }.count, 7)
+        // Four more since 2026-11-14: the battery alerts, Microphone and Camera, Downloads.
+        XCTAssertEqual(SettingsRowID.allCases.filter { $0.icon != nil }.count, 11)
     }
 
     /// A row's kind decides what it draws; a switch has a default, a slider a

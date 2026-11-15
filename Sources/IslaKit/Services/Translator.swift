@@ -566,9 +566,6 @@ final class Translator: ObservableObject {
         return SystemLanguageModel.default.supportsLocale(Locale(identifier: language.code))
     }
 
-    /// Why the model is not answering, or nil when it is ready.
-    var modelObstacle: Obstacle? { Self.modelObstacle() }
-
     static func modelObstacle() -> Obstacle? {
         guard #available(macOS 26.0, *) else { return .needsNewerSystem }
         switch SystemLanguageModel.default.availability {

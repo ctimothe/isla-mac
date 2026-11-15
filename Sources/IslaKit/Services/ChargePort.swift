@@ -61,11 +61,6 @@ enum ChargePortReading {
             isActive = Self.flag(properties["Active"]) || Self.flag(properties["ConnectionActive"])
         }
 
-        init(portType: String, isActive: Bool) {
-            self.portType = portType
-            self.isActive = isActive
-        }
-
         private static func flag(_ value: Any?) -> Bool {
             if let bool = value as? Bool { return bool }
             if let number = value as? NSNumber { return number.boolValue }

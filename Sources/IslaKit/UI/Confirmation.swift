@@ -66,8 +66,7 @@ struct CopyButton: View {
             flash($copied)
             Announcer.shared.announce(localized("Copied"))
         } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(HeaderIcon.font)
+            GlyphImage(copied ? .check : .copy, pointSize: HeaderIcon.size)
                 .foregroundStyle(copied ? Theme.success : Theme.secondary)
                 .symbolSwap(value: copied, reduceMotion: reduceMotion)
                 .frame(width: side, height: side)
@@ -140,12 +139,11 @@ final class ArmedConfirmations {
     }
 }
 
-/// The arming both confirmation shapes share: press, announce, lapse, and the
+/// The arming a confirmation button runs on: press, announce, lapse, and the
 /// three ways out of it — a second press, the lapse, Escape.
 ///
-/// It was two copies of a `@State` flag and a `Task` once, which had no hover
-/// pause, no voice and no way for Escape to reach them; one object now, so
-/// the Settings row and the pane footers cannot drift apart again.
+/// It was a bare `@State` flag and a `Task` once, which had no hover pause, no
+/// voice and no way for Escape to reach them.
 @MainActor
 private final class ConfirmationArming: ObservableObject {
     @Published private(set) var armed = false
@@ -213,55 +211,22 @@ private final class ConfirmationArming: ObservableObject {
     }
 }
 
-/// A destructive action that asks before it acts.
+/// A destructive action that asks before it acts (redesign 2026-10-15, spec
+/// §10): a push button that asks before it acts.
 ///
 /// Two presses rather than a dialog. This panel never activates and hangs off
 /// the top edge of the screen: a sheet would either fail to take focus or
 /// cover the very thing being confirmed. Arming in place keeps the question
 /// where the answer is, and walking away is the safe outcome — the arming
 /// lapses on its own, so the dangerous state is never the resting one.
-struct ConfirmTextButton: View {
-    let title: String
-    let armedTitle: String
-    let action: () -> Void
-
-    @StateObject private var arming = ConfirmationArming()
-
-    var body: some View {
-        Button {
-            arming.press(armedTitle: armedTitle, action: action)
-        } label: {
-            Text(arming.armed ? armedTitle : title)
-                .islandFont(.caption)
-                .foregroundStyle(arming.armed ? Theme.danger : Theme.secondary)
-                // The word alone was a 27x13 target beside Deselect (F-014):
-                // a near miss above or below it hit the list instead, and one
-                // to the side armed the wrong control. The floor is the
-                // panel's token; the width still follows the word.
-                .frame(minWidth: Theme.minimumHitSize.width, minHeight: Theme.minimumHitSize.height)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(PanelButtonStyle())
-        .accessibilityLabel(arming.armed ? armedTitle : title)
-        .accessibilityHint(arming.armed ? "" : localized("Asks for confirmation before acting."))
-        .animation(Theme.contentAnimation, value: arming.armed)
-        .onHover { arming.hover($0) }
-        .onDisappear { arming.disarm() }
-    }
-}
-
-/// The Settings shape of `ConfirmTextButton` (redesign 2026-10-15, spec §10): a
-/// push button that asks before it acts.
 ///
 /// Actions in Settings are push buttons on trailing rows and never red text
 /// rows — a red row is an iOS cell, and on a Mac the one button that destroys
 /// something is still a button. It looks like every other push button until it
 /// is pressed once; then its plate says the question ("Delete These Files",
 /// "Disconnect") in the destructive style, and a second press — before the
-/// arming lapses, Escape takes it back — does the thing. Same arming as
-/// `ConfirmTextButton`, so the pane footers and this cannot drift apart, and
-/// the same announcement for VoiceOver, which hears the arming rather than
-/// seeing it.
+/// arming lapses, Escape takes it back — does the thing. VoiceOver hears the
+/// arming rather than seeing it (`ConfirmationArming`).
 struct ConfirmPushButton: View {
     let title: String
     let armedTitle: String

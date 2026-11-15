@@ -47,8 +47,8 @@ final class RestingNotchTests: XCTestCase {
             let drawn = NotchContentView.clearingCutout(pill, notchHeight: notch.height, isPhysical: true)
             XCTAssertEqual(drawn.width, pill.width, "only the height moves")
             XCTAssertEqual(drawn.height, notch.height + half, "the line's inner edge at the cutout's, and no lower")
-            let peek = CGSize(width: notch.width + 300, height: 50)
-            XCTAssertEqual(NotchContentView.clearingCutout(peek, notchHeight: notch.height, isPhysical: true), peek,
+            let taller = CGSize(width: notch.width + 300, height: 50)
+            XCTAssertEqual(NotchContentView.clearingCutout(taller, notchHeight: notch.height, isPhysical: true), taller,
                            "a shape already past the cutout is drawn as it was")
             XCTAssertEqual(NotchContentView.clearingCutout(pill, notchHeight: notch.height, isPhysical: false), pill,
                            "a display with no cutout has nothing to clear")
@@ -214,8 +214,8 @@ final class PausedFoldTests: XCTestCase {
     func testANewSongArrivingPausedRestsToo() {
         guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
-        vm.playbackChanged(isPlaying: false, hasTrack: true, title: "One")
-        vm.playbackChanged(isPlaying: false, hasTrack: true, title: "Two")
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
         XCTAssertTrue(vm.pauseHasSettled)
     }
 

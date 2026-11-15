@@ -54,31 +54,11 @@ final class LockCardLayoutTests: XCTestCase {
         // No lyric on it: the sung line and its translation are the standard
         // card's alone, and everything under them moves up.
         XCTAssertNil(Layout.lyric(.compact))
-        XCTAssertNil(Layout.translation(.compact))
         XCTAssertEqual(Layout.progress(.compact), CGRect(x: 20, y: 110, width: 380, height: 12))
         XCTAssertEqual(Layout.transport(.compact), CGRect(x: 130, y: 132, width: 160, height: 36))
         XCTAssertEqual(Layout.footer(.compact), CGRect(x: 20, y: 188, width: 380, height: 28))
         XCTAssertEqual(Layout.chevron(pane: .player, .compact), CGRect(x: 376, y: 20, width: 24, height: 24))
         XCTAssertEqual(Layout.header(.card, pane: .player, .compact).cover, CGRect(x: 20, y: 20, width: 64, height: 64))
-    }
-
-    /// **The morph keeps its top and its centre.** The banner's top edge is the
-    /// card's top edge and both are centred on the window's card area, which is
-    /// what makes the cover, the title and the artist travel down and out
-    /// instead of being swapped (`Lock-Frames`), at either card size.
-    func testTheMorphKeepsCentreXAndTop() {
-        for size in NotchViewModel.LockCardSize.allCases {
-            let banner = Layout.shapeFrame(.banner, size)
-            let card = Layout.shapeFrame(.card, size)
-            let canvas = Layout.canvas(size)
-            XCTAssertEqual(banner.minY, card.minY, "\(size): the same top edge")
-            XCTAssertEqual(banner.minY, 0, "\(size): hung from the top of the card's area")
-            XCTAssertEqual(banner.midX, card.midX, "\(size): the same centre x")
-            XCTAssertEqual(card.midX, canvas.width / 2, "\(size): centred in the window's area")
-            XCTAssertEqual(card.size, canvas, "\(size): the card is the window's whole area")
-            XCTAssertLessThanOrEqual(banner.maxX, card.maxX, "\(size): the banner is drawn inside the card")
-            XCTAssertGreaterThanOrEqual(banner.minX, card.minX)
-        }
     }
 
     // MARK: - The banner
@@ -113,18 +93,14 @@ final class LockCardLayoutTests: XCTestCase {
         XCTAssertEqual(Layout.favourite(.standard), CGRect(x: 384, y: 18, width: 28, height: 28))
         XCTAssertEqual(Layout.chevron(pane: .player, .standard), CGRect(x: 420, y: 20, width: 24, height: 24))
         XCTAssertEqual(Layout.lyric(.standard), CGPoint(x: 20, y: 104))
-        XCTAssertEqual(Layout.translation(.standard), CGPoint(x: 20, y: 125))
         XCTAssertEqual(Layout.progress(.standard), CGRect(x: 20, y: 158, width: 420, height: 12))
         XCTAssertEqual(Layout.transport(.standard), CGRect(x: 150, y: 190, width: 160, height: 36))
 
         let footer = Layout.footer(.standard)
         XCTAssertEqual(footer, CGRect(x: 20, y: 252, width: 420, height: 28))
         XCTAssertEqual(Layout.footerButton, 28)
-        // The slider runs 40 to 380 of the footer, the Output button sits at 392.
-        XCTAssertEqual(Layout.footerSlider(.standard).minX - footer.minX, 40)
-        XCTAssertEqual(Layout.footerSlider(.standard).width, 340)
+        // The Output button sits at 392 of the footer.
         XCTAssertEqual(footer.width - Layout.footerButton, 392)
-        XCTAssertEqual(Layout.footerSlider(.standard).midY, footer.midY, "centred on the rail")
     }
 
     /// Title and artist stop short of the control at their right and truncate at
@@ -203,7 +179,7 @@ final class LockCardLayoutTests: XCTestCase {
 
         let row = Layout.outputVolume(.standard)
         let bar = row.width - 2 * (SystemVolumeSlider.soundGlyphSlot + SystemVolumeSlider.soundSpacing)
-        XCTAssertEqual(bar, Layout.outputBarWidthOnStandard, "the board's 380 between the glyphs")
+        XCTAssertEqual(bar, 380, "the board's 380 between the glyphs")
         XCTAssertEqual(SystemVolumeSlider.soundTrackHeight, 8, "an 8 pt track with a knob")
         // The speaker glyphs sit at the board's 26 and 434.
         XCTAssertEqual(row.minX + SystemVolumeSlider.soundGlyphSlot / 2, 26)

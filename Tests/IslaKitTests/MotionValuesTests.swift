@@ -42,11 +42,6 @@ final class MotionValuesTests: XCTestCase {
         let firstReturn = try XCTUnwrap(samples.indices.first { $0 > 400 && samples[$0] <= 1 })
         let laterExcess = samples[firstReturn...].map { abs($0 - 1) }.max() ?? 0
         XCTAssertLessThan(laterExcess, 0.001, "the return swing is under a tenth of a percent")
-        // Quicker off the mark than the 0.34 critically damped open it replaced.
-        XCTAssertLessThan(
-            Theme.springRiseTime(response: Theme.islandResponse, damping: Theme.islandDamping, level: 0.99),
-            Theme.springRiseTime(response: Theme.openResponse, damping: 1, level: 0.99)
-        )
     }
 
     /// Every change of the outline's size rides it: opening, closing a beat
@@ -64,12 +59,8 @@ final class MotionValuesTests: XCTestCase {
 
         // The shell's own sites, read from the source because the curve a
         // transaction carries cannot be observed from outside a render.
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
-        let controller = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/Notch/NotchController.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
+        let controller = try SourceText.of("Sources/IslaKit/Notch/NotchController.swift")
         XCTAssertTrue(shell.contains(".animation(Theme.island(reduceMotion: reduceMotion), value: vm.openBodySize.height)"))
         XCTAssertTrue(shell.contains(".animation(Theme.hud(reduceMotion: reduceMotion), value: vm.hud != nil)"),
                       "the pop-up has its own quick spring (spec §19.3, amended 2026-10-18)")
@@ -92,14 +83,13 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertFalse(listed.contains(String(describing: Theme.islandSpring)))
         XCTAssertFalse(listed.contains(String(describing: Theme.closeAnimation)), "the close is the outline's spring, late")
         for (name, curve) in [
-            ("open, inside a surface", Theme.openAnimation), ("compact", Theme.compactAnimation),
             ("caption out", Theme.captionTurnOut), ("caption in", Theme.captionTurnIn),
             ("update card", Theme.expandAnimation), ("lock card", Theme.lockCardMorph),
             ("pop-up", Theme.hudSpring),
         ] {
             XCTAssertTrue(listed.contains(String(describing: curve)), name)
         }
-        XCTAssertEqual(listed.count, 7)
+        XCTAssertEqual(listed.count, 5)
     }
 
     /// The pop-up is there at once: the outline springs (response 0.3, no
@@ -113,28 +103,29 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertEqual(Theme.hud(reduceMotion: true), Theme.reducedMotion)
         XCTAssertGreaterThan(Theme.hudArrivalScale, 0.9)
         XCTAssertLessThanOrEqual(Theme.hudContentFadeDuration, 0.12, "the content is there at once")
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertTrue(shell.contains("notchHeight: vm.geometry.notchSize.height)\n                        .transition(Theme.hudArrival(reduceMotion: reduceMotion))"))
     }
 
     // MARK: Content arriving (spec §19.3)
 
-    func testExpandedContentArrivesFromBlurThirtyAndAPoint() {
+    /// islandcn's `appearExpand.enterBlur` (12): the phone's incoming alert is
+    /// far less blurred than the 30 Isla drew (spec §19.3, amended 2026-11-14).
+    func testExpandedContentArrivesFromBlurTwelveAndAPoint() {
         XCTAssertEqual(
             IslandArrival.expanded(reduceMotion: false),
-            IslandArrival(opacity: 0, blur: 30, scale: CGSize(width: 0.6, height: 0.2), anchor: UnitPoint(x: 0.5, y: 0.4))
+            IslandArrival(opacity: 0, blur: 12, scale: CGSize(width: 0.6, height: 0.2), anchor: UnitPoint(x: 0.5, y: 0.4))
         )
         XCTAssertEqual(IslandArrival.arrived(anchor: IslandArrival.expandedAnchor).anchor, UnitPoint(x: 0.5, y: 0.4),
                        "both ends scale about one point")
     }
 
-    func testCompactContentArrivesFromBlurFifteenAndFourFifthsOfItsWidth() {
+    /// islandcn's `appear` blur, 12; the width as before, and the height
+    /// whole, because the Mac's compact pill never grows downward.
+    func testCompactContentArrivesFromBlurTwelveAndFourFifthsOfItsWidth() {
         XCTAssertEqual(
             IslandArrival.compact(reduceMotion: false),
-            IslandArrival(opacity: 0, blur: 15, scale: CGSize(width: 0.8, height: 1), anchor: .center)
+            IslandArrival(opacity: 0, blur: 12, scale: CGSize(width: 0.8, height: 1), anchor: .center)
         )
         XCTAssertEqual(IslandArrival.arrived(), IslandArrival(opacity: 1, blur: 0, scale: CGSize(width: 1, height: 1), anchor: .center))
         XCTAssertEqual(PillPresence.appearance(shown: false, reduceMotion: false), .compact(reduceMotion: false),
@@ -166,7 +157,6 @@ final class MotionValuesTests: XCTestCase {
         let variants: [(String, Animation)] = [
             ("open", Theme.open(reduceMotion: true)),
             ("close", Theme.close(reduceMotion: true)),
-            ("compact", Theme.compact(reduceMotion: true)),
             ("pill fold and unfold", Theme.pill(reduceMotion: true)),
             ("the outline", Theme.island(reduceMotion: true)),
             ("lyric page", Theme.lyricScroll(reduceMotion: true)),
@@ -215,10 +205,7 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertLessThanOrEqual(Theme.paneSwapScales(reduceMotion: false).removal, 1)
         XCTAssertLessThanOrEqual(Theme.paneSwapScales(reduceMotion: false).insertion, 1)
 
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertTrue(shell.contains(".animation(Theme.swapIn)"))
         XCTAssertTrue(shell.contains(".animation(Theme.swapOut)"))
         // The surface change is the outermost of the shell's animations, so a
@@ -233,10 +220,7 @@ final class MotionValuesTests: XCTestCase {
     /// end all stay inside the island (owner's hard rule, 2026-10-18), and the
     /// border is drawn over the content, never under it.
     func testTheContentNeverLeavesTheOutline() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertFalse(shell.contains("vm.travellingLeg == nil ? 0 : shapeBottomRadius"), "the clip is square at rest again")
         // The cut is the outline's own shape at the shape's own size: the
         // SwiftUI mask for a shell that draws its outline, a layer mask on the
@@ -244,7 +228,8 @@ final class MotionValuesTests: XCTestCase {
         // (`IslandOutlineHostTests`). Either way it is made before the line
         // is drawn over it.
         let mask = try XCTUnwrap(shell.range(of: ".modifier(OutlineMask("))
-        let cut = try XCTUnwrap(shell.range(of: "content.mask(alignment: .top) {\n                NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)\n                    .frame(width: size.width, height: size.height)"))
+        let modifiers = try SourceText.of("Sources/IslaKit/UI/NotchContentViewModifiers.swift")
+        let cut = try XCTUnwrap(modifiers.range(of: "content.mask(alignment: .top) {\n                NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)\n                    .frame(width: size.width, height: size.height)"))
         let stroke = try XCTUnwrap(shell.range(of: "IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)"))
         XCTAssertLessThan(mask.lowerBound, stroke.lowerBound, "the border is drawn under the content")
         XCTAssertNotNil(cut, "the mask is the outline's shape")
@@ -409,7 +394,6 @@ final class MotionValuesTests: XCTestCase {
             ("LockScreenCard.swift", ".symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)"),
             ("LockScreenCard.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
             ("ClipboardPane.swift", ".symbolSwap(value: justCopied, reduceMotion: reduceMotion)"),
-            ("ModeToggle.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
         ]
         for site in sites {
             XCTAssertTrue(

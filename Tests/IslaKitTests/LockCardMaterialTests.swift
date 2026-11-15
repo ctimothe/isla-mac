@@ -172,7 +172,7 @@ final class LockCardMaterialTests: XCTestCase {
         XCTAssertEqual(solid.redComponent * 255, 0x1C, accuracy: 0.5)
         XCTAssertEqual(solid.greenComponent * 255, 0x1C, accuracy: 0.5)
         XCTAssertEqual(solid.blueComponent * 255, 0x1E, accuracy: 0.5)
-        let clear = try XCTUnwrap(NSColor(Theme.lockCardTransparent).usingColorSpace(.sRGB))
+        let clear = try XCTUnwrap(NSColor(Theme.lockCardTransparent(alpha: LockCardMaterial.transparentAlpha)).usingColorSpace(.sRGB))
         XCTAssertEqual(clear.redComponent, 0, accuracy: 0.001)
         XCTAssertEqual(clear.alphaComponent, 0.30, accuracy: 0.001)
     }
@@ -339,7 +339,7 @@ final class LockCardMaterialTests: XCTestCase {
         )
         XCTAssertEqual(try XCTUnwrap(card), 1, accuracy: 0.02, "the card sits over the white middle")
         let strip = WallpaperTone.meanLuminance(
-            ofWallpaperAt: url, screenSize: screen, notchCenterX: 320, mayRead: { _ in true }
+            ofWallpaperAt: url, screenSize: screen, region: CGRect(x: 10, y: 0, width: 620, height: 60), mayRead: { _ in true }
         )
         XCTAssertEqual(try XCTUnwrap(strip), 0, accuracy: 0.02, "while the island's strip is over the black top")
     }

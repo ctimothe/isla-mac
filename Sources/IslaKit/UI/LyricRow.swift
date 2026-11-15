@@ -435,25 +435,30 @@ struct LyricRow: View {
 /// A fill, not Apple Music's breathing dots: a slow loop for as long as a solo
 /// lasts is the decorative motion the apple-design skill warns against, and a
 /// fill tells the one thing worth knowing — when the words come back. Nothing
-/// here loops at any setting. The fill is placed by the clock on each frame
-/// while the song plays, the way `KaraokeText` places its edge, and under
-/// Reduce Motion it moves only with the published position, a step at a time,
-/// with no animation between.
+/// here loops at any setting.
+///
+/// The fill is Core Animation's, along the song's clock (Batch 22,
+/// 2026-11-05), as the player's bar is (`PlaybackFill`). It was placed by a
+/// `TimelineView` that read the clock on every display frame while the song
+/// played, so a solo laid out and drew the whole stage or the whole lock card
+/// at the display's rate: 5.2 % of a core on the stage and 4.4 % on the card
+/// in the idle-cost lab. It is now one animation from where the song stands
+/// in the rest to where the voice comes back, laid again only when the clock
+/// changes course. Under Reduce Motion it fills the same way, as the bar
+/// does: a fill is a reading of the clock, not travel, and it used to step
+/// with the published position ten times a second, a difference no eye can
+/// tell at 44 points over five seconds or more.
 ///
 /// Drawn in the line's own greys — its surface's `LyricRow.Ramp` context step
 /// while another row is lit, the ramp's unswept step while it plays — so it
 /// sits in the page's depth rather than on top of it.
 struct InterludeMarker: View {
-    /// How far through the interlude the clock is, 0 to 1, as last published.
-    let progress: Double
+    /// What the track is filled with (`InterludeMarker.fill`).
+    let fill: Fill
     /// Whether this is the interlude playing now.
     let isCurrent: Bool
     /// How many rows away from the lit one, for the depth falloff.
     let distance: Int
-    /// The progress read afresh on every display frame, or nil to draw
-    /// `progress` as it is. Handed in only while this interlude plays and the
-    /// song moves, so a marker nobody is waiting through costs no frames.
-    var clock: (@MainActor () -> Double)? = nil
     /// The line's own type size, so the note sits on the same baseline and
     /// the row is exactly as tall as a one-line lyric beside it.
     var fontSize: CGFloat = Theme.TypeRole.title.size
@@ -464,21 +469,41 @@ struct InterludeMarker: View {
     /// is the card's grey and not the panel's dimmer one beside a card line.
     var surface: LyricRow.Surface = .panel
 
-    /// The fill a surface hands the marker for `slot`: read on every display
-    /// frame while this is the interlude playing and the song moves, nil
-    /// otherwise. One answer for the stage and the lock card, so the two
-    /// draw the same rest the same way.
+    /// How the track is filled: the share filled at the moment the surface
+    /// read (`progress`), and the song's course through the rest on the
+    /// rest's own time (`course`, 0 where the voice stopped, `length` where
+    /// it comes back), which Core Animation runs between the clock's changes.
+    struct Fill: Equatable {
+        var progress: Double
+        var course: PlaybackClock.Motion
+        var length: TimeInterval
+    }
+
+    /// The fill a surface hands the marker for `slot`: the song's own course
+    /// while this is the interlude playing, so it fills toward the voice as
+    /// the song moves and stands where a paused song stopped; still at the
+    /// share `at` reads otherwise, empty ahead of the song and full behind
+    /// it. One answer for the stage and the lock card, so the two draw the
+    /// same rest the same way.
+    ///
+    /// `at` is the lyric moment the surface read, `motion` the clock's course
+    /// as the surface shows it (still during a hold), and `lead` the lyric
+    /// lead `at` was read with, so the course lands on the same moment.
     ///
     /// The stage drew three still dots here until 2026-10-31 (spec §5.4's
     /// first `Lyrics-Instrumental`), while the lock card filled its track
     /// toward the voice; the owner wanted the card's on both, since the fill
     /// says when the singing starts and the dots said nothing.
-    static func liveFill(
-        for slot: LyricSlot, isCurrent: Bool, media: MediaController, lead: TimeInterval,
-        held: NowPlayingPresenter.HeldClock?
-    ) -> (@MainActor () -> Double)? {
-        guard isCurrent else { return nil }
-        return LyricSweep.liveProgress(slot, clock: LyricSweep.frameClock(media: media, lead: lead, held: held))
+    static func fill(
+        for slot: LyricSlot, isCurrent: Bool, at: TimeInterval, motion: PlaybackClock.Motion, lead: TimeInterval
+    ) -> Fill {
+        let progress = LyricSweep.interludeProgress(slot, at: at)
+        guard case .interlude(let from, let to, _) = slot, to > from else {
+            return Fill(progress: progress, course: .still(0), length: 0)
+        }
+        let length = to - from
+        guard isCurrent else { return Fill(progress: progress, course: .still(progress * length), length: length) }
+        return Fill(progress: progress, course: motion.shifted(by: lead - from), length: length)
     }
 
     /// How long the track is. Short on purpose: a progress bar the width of
@@ -499,34 +524,23 @@ struct InterludeMarker: View {
     }
 
     var body: some View {
-        let clockDriven = clock != nil && !reduceMotion
         let tone = Color.white.opacity(opacity)
         return HStack(spacing: 8) {
             // An image inside a `Text`, so the row takes a text line's height
             // at this size: on the lock card the window's rows are measured
             // by their type, and a symbol image framed on its own came out a
             // few points shorter and moved every line below it.
-            Text(Image(systemName: "music.note"))
+            Text(IslandGlyph.music.textImage(pointSize: fontSize))
                 .islandFont(fontSize, weight: weight)
                 .foregroundStyle(tone)
-            // One timeline always, paused unless the clock drives it, as in
-            // `KaraokeText`: a marker that starts or stops playing keeps its
-            // identity rather than being swapped mid-solo.
-            TimelineView(.animation(minimumInterval: nil, paused: !clockDriven)) { _ in
-                let drawn = clockDriven ? clock?() ?? progress : progress
-                Capsule()
-                    .fill(Theme.hairline)
-                    .frame(width: Self.trackWidth, height: Self.trackHeight)
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(tone)
-                            .frame(width: Self.filledWidth(progress: drawn), height: Self.trackHeight)
-                    }
-                    // Never interpolated. The stage turns its page in an
-                    // animated transaction, and carried along with it the
-                    // fill would ease behind the clock it is drawn from.
-                    .transaction { $0.animation = nil }
-            }
+            Capsule()
+                .fill(Theme.hairline)
+                .frame(width: Self.trackWidth, height: Self.trackHeight)
+                .overlay(alignment: .leading) { filled(tone) }
+                // Never interpolated. The stage turns its page in an
+                // animated transaction, and carried along with it the
+                // fill would ease behind the clock it is drawn from.
+                .transaction { $0.animation = nil }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(Theme.lyricScroll(reduceMotion: reduceMotion), value: isCurrent)
@@ -537,6 +551,27 @@ struct InterludeMarker: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilityLabel)
         .accessibilityAddTraits(isCurrent ? [.isStaticText, .isSelected] : [.isStaticText])
+    }
+
+    /// The filled part: one layer on the song's clock (`PlaybackFill`), drawn
+    /// by SwiftUI at the share read only where layers are not drawn, the
+    /// visual lab's bitmaps (`KaraokeTrack.drawsLayers`), on its frozen clock.
+    @ViewBuilder
+    private func filled(_ tone: Color) -> some View {
+        if KaraokeTrack.drawsLayers {
+            PlaybackFill(
+                input: .init(
+                    motion: fill.course, duration: fill.length,
+                    width: Self.trackWidth, height: Self.trackHeight, radius: Self.trackHeight / 2
+                ),
+                color: tone
+            )
+            .frame(width: Self.trackWidth, height: Self.trackHeight)
+        } else {
+            Capsule()
+                .fill(tone)
+                .frame(width: Self.filledWidth(progress: fill.progress), height: Self.trackHeight)
+        }
     }
 
     @MainActor

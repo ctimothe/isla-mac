@@ -221,7 +221,7 @@ final class SettingsAccessibilityTests: XCTestCase {
         // runner's macOS 26.6 the same call moves the slider by the system's
         // own tenth of the range (0.3 s here) and returns false, which is what
         // a slider did before the custom step existed, so it is not a regression.
-        // Recorded in docs/development/plans/2026-10-11-needs-continuation.md.
+        // Recorded in docs/development/open-checks.md.
         try XCTSkipUnless(
             ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27,
             "VoiceOver's one-step increment on a SwiftUI slider is only honoured on macOS 27 (the probe sees the system step on 26.6)"
@@ -330,7 +330,7 @@ private struct SliderHarness: View {
 
     var body: some View {
         SettingsSliderRow(
-            symbol: SettingsIcon.panelWidth,
+            symbol: "arrow.left.and.right",
             title: title,
             value: $value,
             range: range,
@@ -354,7 +354,7 @@ private struct ChoiceHarness: View {
 
     var body: some View {
         SettingsChoiceRow(
-            symbol: SettingsIcon.cardStyle,
+            symbol: "circle.lefthalf.filled",
             title: localized("Card Style"),
             options: NotchViewModel.LockCardStyle.allCases,
             selection: Binding(get: { selection }, set: { selection = $0; onPick($0) }),

@@ -99,10 +99,7 @@ final class SettingsStagedMountTests: XCTestCase {
     /// The delay the shell asks for is the leaving pane's whole duration, at
     /// which the arriving one has not yet begun to show — and only for a swap.
     func testTheShellStagesASwapByTheLeavingPanesDuration() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertTrue(shell.contains("mountsAfter: vm.arrivedOverAnOpenSurface ? Theme.swapOutDuration : 0"),
                       "pane(for: .settings) names Theme.swapOutDuration, not a number of its own")
     }
@@ -205,10 +202,7 @@ final class SettingsStagedMountTests: XCTestCase {
     /// Other surfaces are not delayed: only the heavy one asks, and the
     /// shell asks in one place.
     func testNoOtherSurfaceWaits() async throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shellSource = try String(
-            contentsOf: sources.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let shellSource = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertEqual(shellSource.components(separatedBy: "mountsAfter:").count - 1, 1,
                        "only pane(for: .settings) passes a mount delay")
 

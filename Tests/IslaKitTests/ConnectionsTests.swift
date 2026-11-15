@@ -17,15 +17,6 @@ final class ConnectionsTests: XCTestCase {
         ))
     }
 
-    /// The two players Isla drives head the list whether or not they are
-    /// installed: Apple Music ships with macOS, and Spotify's row is where its
-    /// account is connected, which is worth showing before the app is.
-    func testAppleMusicAndSpotifyAreAlwaysListedFirst() {
-        let rows = PlayerConnections.rows(in: mac([:]))
-        XCTAssertEqual(rows.map(\.service.bundleID), ["com.apple.Music", "com.spotify.client"])
-        XCTAssertNil(rows[1].installed, "no icon is invented for an app that is not there")
-    }
-
     /// Every other service is listed only when its app is installed, with the
     /// name the Finder shows, sorted the way the Finder sorts.
     func testOtherServicesAppearOnlyWhenInstalled() {
@@ -38,13 +29,12 @@ final class ConnectionsTests: XCTestCase {
             // service with an account: not a connection.
             "com.coppertino.Vox": "VOX",
         ])
-        let rows = PlayerConnections.rows(in: icons)
+        let rows = PlayerConnections.installedOthers(in: icons)
         XCTAssertEqual(
             rows.map(\.service.bundleID),
-            ["com.apple.Music", "com.spotify.client", "com.deezer.deezer-desktop", "com.tidal.desktop", "ru.yandex.desktop.music"]
+            ["com.deezer.deezer-desktop", "com.tidal.desktop", "ru.yandex.desktop.music"]
         )
-        XCTAssertEqual(rows.dropFirst(2).map { $0.installed?.name }, ["Deezer", "TIDAL", "Яндекс Музыка"])
-        XCTAssertEqual(PlayerConnections.installedOthers(in: icons).count, 3)
+        XCTAssertEqual(rows.map { $0.installed?.name }, ["Deezer", "TIDAL", "Яндекс Музыка"])
     }
 
     /// The catalogue is the major services with a Mac app; a web player has

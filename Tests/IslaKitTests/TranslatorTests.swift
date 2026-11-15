@@ -479,7 +479,7 @@ final class TranslatorTests: XCTestCase {
             let count = text.components(separatedBy: "Capsule().strokeBorder(Theme.hairline").count - 1
             strokes += Array(repeating: file.lastPathComponent, count: count)
         }
-        XCTAssertEqual(strokes, ["Theme.swift"], "one capsule style, drawn in Theme")
+        XCTAssertEqual(strokes, ["ButtonStyles.swift"], "one capsule style, drawn in the button styles beside Theme")
     }
 
     // MARK: - Text that arrives by hot key or Service

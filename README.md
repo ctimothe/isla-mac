@@ -50,9 +50,13 @@ from there.
 - **Shelf.** Drop files onto the notch to keep them at hand and drag them out
   again, Quick Look them, or AirDrop them. Screenshots and screen recordings
   appear here too.
-- **Charging and headphones.** Plugging in shows the battery level on the
-  island for a moment; AirPods and other Bluetooth headphones show their name
-  when they connect.
+- **The island.** One thing at a time, like the iPhone's: what's playing, a
+  timer or stopwatch (right-click the island), a charger (MagSafe or USB-C,
+  with its watts), low and full battery, headphones connecting, and, if you
+  turn them on, the app using the microphone or camera and downloads in
+  progress. A second activity waits as a bubble beside the first.
+- **Volume and brightness.** Optionally, the island replaces the Mac's own
+  volume and brightness pop-up (needs Accessibility, off by default).
 - **Clipboard.** The last 40 items copied while Isla runs. Click one to copy
   it again. It can be turned off in Settings.
 - **Translate.** Sixteen languages, translated on the Mac by Apple's
@@ -81,6 +85,9 @@ no setting:
 
 Isla keeps no web cache and no cookies from any of these requests.
 
+Microphone and Camera and Downloads (both off by default) only look at what
+other apps do on this Mac; nothing from them leaves it.
+
 Spotify tokens are stored in a file readable only by your user account in
 `~/Library/Application Support/Isla`. Signed builds use the Keychain instead.
 macOS asks before Isla controls Music or Spotify through Apple Events, the
@@ -91,9 +98,9 @@ fallback used when Now Playing is unavailable.
 - **The player says only Music and Spotify can be seen.** macOS refused Isla's
   Now Playing reader, usually because the download quarantine is still on the
   app. Run the `xattr` command from Install, then **Settings → Music → Try Again**.
-- **A shortcut does nothing.** Another app may own it. Settings → Keyboard
-  Shortcuts says so and lets you pick another.
-- **Anything else.** **Settings → Application → Copy Diagnostics**, then **Report a Problem…**
+- **A shortcut does nothing.** Another app may own it. Settings → Shortcuts
+  says so and lets you pick another.
+- **Anything else.** **Settings → About → Copy Diagnostics**, then **Report a Problem…**
   and paste it into the form. The report lists versions, settings and Isla's own
   log, and nothing you played, copied or translated.
 

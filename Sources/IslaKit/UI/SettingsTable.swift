@@ -130,6 +130,8 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     // General
     case launchAtLogin, openLoginItems, openOnHover, hoverDelay, swipeToOpen, panelWidth
     case charging, headphones, newTracks, volumeAndBrightness, accessibilityPermission
+    // The island shows, added 2026-11-14 (plan `2026-11-14-islandcn-activities`)
+    case lowBattery, fullBattery, recording, downloads
     // Privacy
     case clipboardHistory, includeImages, keepPinned
     case coverClipboard, coverTranslate, hideFromRecording
@@ -175,6 +177,7 @@ enum SettingsRowID: String, CaseIterable, Hashable {
     var kind: Kind {
         switch self {
         case .launchAtLogin, .openOnHover, .swipeToOpen, .charging, .headphones, .newTracks, .volumeAndBrightness,
+             .lowBattery, .fullBattery, .recording, .downloads,
              .clipboardHistory, .includeImages, .keepPinned, .coverClipboard, .coverTranslate, .hideFromRecording,
              .musicOnly, .volumeAndOutput, .lyricBand, .showLyrics, .wordKaraoke, .translateLyrics,
              .lookUpLyricsOnline, .showOnLockScreen, .restAsBanner, .translateOnline, .keepHistory, .speakButton,
@@ -222,6 +225,10 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .charging: return localized("Charger Connected")
         case .headphones: return localized("Headphones Connecting")
         case .newTracks: return localized("New Tracks")
+        case .lowBattery: return localized("Low Battery Warning")
+        case .fullBattery: return localized("Fully Charged")
+        case .recording: return localized("Microphone and Camera")
+        case .downloads: return localized("Downloads")
         case .volumeAndBrightness: return localized("Volume and Brightness")
         case .accessibilityPermission: return localized("Accessibility")
         case .clipboardHistory: return localized("Clipboard History")
@@ -305,6 +312,10 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .charging: return SettingsIcon.showCharging
         case .headphones: return SettingsIcon.showHeadphones
         case .newTracks: return "music.note"
+        case .lowBattery: return "battery.25percent"
+        case .fullBattery: return "battery.100percent.bolt"
+        case .recording: return "mic.fill"
+        case .downloads: return "arrow.down.circle"
         case .volumeAndBrightness: return "speaker.wave.2"
         case .copyDiagnostics: return SettingsIcon.copyDiagnostics
         case .reportProblem: return SettingsIcon.reportProblem
@@ -325,6 +336,10 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .charging: return NotchViewModel.chargingKey
         case .headphones: return NotchViewModel.headphonesKey
         case .newTracks: return NotchViewModel.newTracksKey
+        case .lowBattery: return NotchViewModel.lowBatteryKey
+        case .fullBattery: return NotchViewModel.fullBatteryKey
+        case .recording: return NotchViewModel.recordingKey
+        case .downloads: return NotchViewModel.downloadsKey
         case .volumeAndBrightness: return SettingsTable.volumeAndBrightnessKey
         case .clipboardHistory: return NotchViewModel.clipboardHistoryKey
         case .includeImages: return NotchViewModel.clipboardIncludeImagesKey
@@ -367,6 +382,12 @@ enum SettingsRowID: String, CaseIterable, Hashable {
         case .swipeToOpen: return .on
         case .panelWidth: return .number(Double(NotchMetrics.defaultBodyWidth))
         case .charging, .headphones, .newTracks: return .on
+        // The battery's own alerts read only IOKit, like the charger: on.
+        case .lowBattery, .fullBattery: return .on
+        // Both watch other apps — which one has the microphone, what lands in
+        // Downloads — and Downloads asks macOS for the folder: off until
+        // chosen (CLAUDE.md, hard constraints; checklist, Scope divergence).
+        case .recording, .downloads: return .off
         case .volumeAndBrightness: return .off
         case .clipboardHistory, .includeImages: return .on
         case .keepPinned: return .off
@@ -559,8 +580,8 @@ enum SettingsTable {
         blocks.append(.header(localized("The island shows")))
         var shows: [SettingsRowID] = []
         // Only on a Mac with a battery to report on.
-        if c.hasBattery { shows.append(.charging) }
-        shows += [.headphones, .newTracks]
+        if c.hasBattery { shows += [.charging, .lowBattery, .fullBattery] }
+        shows += [.headphones, .newTracks, .recording, .downloads]
         if c.offersVolumeAndBrightness { shows.append(.volumeAndBrightness) }
         blocks.append(.group(shows))
         if c.offersVolumeAndBrightness {

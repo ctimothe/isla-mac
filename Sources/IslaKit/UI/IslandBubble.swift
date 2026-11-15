@@ -38,8 +38,15 @@ enum IslandBubbleLayout {
     /// island's shoulder is the compact one. A wider count moves the centre
     /// by half its growth: the left edge holds its gap and the bubble grows
     /// to the right.
-    static func centreOffset(islandWidth: CGFloat, count: Int) -> CGFloat {
-        islandWidth / 2 + Theme.collapsedTopRadius + gap + width(count: count) / 2
+    static func centreOffset(islandWidth: CGFloat, bubbleWidth: CGFloat) -> CGFloat {
+        islandWidth / 2 + Theme.collapsedTopRadius + gap + bubbleWidth / 2
+    }
+
+    /// The bubble's width for what it holds: the Shelf's grows with its
+    /// count, every other activity keeps islandcn's one width.
+    static func width(for bubble: IslandActivity) -> CGFloat {
+        if case .shelf(let count) = bubble { return width(count: count) }
+        return LiveActivityLayout.bubbleWidth
     }
 }
 
@@ -52,6 +59,11 @@ enum IslandBubbleLayout {
 /// the island's `#1C1C1E`, the colour a pressed island takes.
 struct IslandBubble: View {
     let count: Int
+    /// What the bubble holds when it is not the Shelf (amended 2026-11-14):
+    /// a timer, a recording, a download or the song, in minimal form.
+    var activity: IslandActivity? = nil
+    var reduceMotion = false
+    var now: () -> Date = Date.init
     let height: CGFloat
     /// The black shape's own height: the pill's beside it, which on a real
     /// notch drops half the stroke below the body (`NotchContentView.clearingCutout`)
@@ -69,21 +81,37 @@ struct IslandBubble: View {
 
     var body: some View {
         Button(action: action) {
-            content
+            if let activity, !isShelf {
+                LiveBubbleContent(activity: activity, reduceMotion: reduceMotion)
+                    .accessibilityHidden(true)
+            } else {
+                content
+            }
         }
         .buttonStyle(BubbleStyle(
-            width: IslandBubbleLayout.width(count: count), height: height,
-            outlineHeight: outlineHeight ?? height, increaseContrast: increaseContrast
+            width: activity.map(IslandBubbleLayout.width(for:)) ?? IslandBubbleLayout.width(count: count),
+            height: height, outlineHeight: outlineHeight ?? height, increaseContrast: increaseContrast
         ))
-        .accessibilityLabel(Self.label(count: count))
+        .accessibilityLabel(accessibilityName)
+    }
+
+    private var isShelf: Bool {
+        if case .shelf? = activity { return true }
+        return false
+    }
+
+    private var accessibilityName: String {
+        switch activity {
+        case .live(let live)?: return live.accessibilityLabel(at: now())
+        case .music?: return localized("Music")
+        default: return Self.label(count: count)
+        }
     }
 
     private var content: some View {
         let scale = CompactIslandLayout.glyphScale(height: height)
         return HStack(spacing: IslandBubbleLayout.spacing) {
-            Image(systemName: "tray.full.fill")
-                .resizable()
-                .scaledToFit()
+            GlyphImage(.trayFullFilled)
                 .foregroundStyle(Color.white)
                 .frame(
                     width: IslandBubbleLayout.glyphSize.width * scale,

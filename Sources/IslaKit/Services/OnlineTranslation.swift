@@ -44,11 +44,6 @@ final class OnlineAllowance: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         until = midnight
     }
-
-    func reset() {
-        lock.lock(); defer { lock.unlock() }
-        until = nil
-    }
 }
 
 /// The one part of Translate that reaches the network, and only when **Translate

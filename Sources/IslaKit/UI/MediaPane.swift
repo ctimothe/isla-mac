@@ -89,7 +89,7 @@ struct MediaPane: View {
     /// through `@AppStorage` so the switch in Settings redraws the player while
     /// it is on screen. Absent means the spec's default — **on** for both, and
     /// the Output button is the owner-waived exception to the default-off rule
-    /// for system-wide settings (`NotchViewModel.volumeAndOutputEnabled`; the
+    /// for system-wide settings (`SettingsRowID.volumeAndOutput`; the
     /// stored key keeps its old name, "Volume and Output", so the owner's
     /// choice survives the 2026-10-16 relabel).
     @AppStorage(NotchViewModel.volumeAndOutputKey) private var outputButtonOn = true
@@ -598,13 +598,6 @@ struct MediaPane: View {
         }
     }
 
-    /// Kept for the lock card and the tests that measure an hour-long song's
-    /// times: 26 and 30 for a song, wider for one whose times carry another
-    /// digit.
-    static func timeWidths(duration: TimeInterval) -> (elapsed: CGFloat, remaining: CGFloat) {
-        duration >= 3600 ? (52, 52) : (26, 30)
-    }
-
     // MARK: - Controls
 
     /// What the Favourite star can do for this song (§19.6): Music's, through
@@ -678,9 +671,7 @@ struct MediaPane: View {
             case .spotify(let id, _): _ = spotify?.toggleSaved(trackID: id)
             }
         } label: {
-            Image(systemName: favourite.isOn ? "star.fill" : "star")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+            GlyphImage(favourite.isOn ? .starFilled : .star)
                 .frame(width: PlayerLayout.Control.favourite.glyph.width, height: PlayerLayout.Control.favourite.glyph.height)
                 .foregroundStyle(.white.opacity(Theme.playerSecondaryControlOpacity))
                 .symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)
@@ -823,7 +814,7 @@ struct MediaPane: View {
 
             if let footnote = message.footnote, let footer = frames.footer {
                 HStack(spacing: 6) {
-                    Image(systemName: "info.circle")
+                    GlyphImage(.info, pointSize: Theme.TypeRole.body.size)
                     Text(footnote).lineLimit(1)
                 }
                 .islandFont(.body, weight: .regular)
@@ -863,8 +854,7 @@ struct MissingCoverWell: View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(Theme.coverMissingWell)
             .overlay(
-                Image(systemName: "music.note")
-                    .font(.system(size: noteSize))
+                GlyphImage(.music, pointSize: noteSize)
                     .foregroundStyle(Theme.quaternary)
             )
     }
@@ -935,13 +925,10 @@ struct PlayerOutputButton: View {
         Button { presenter.present() } label: {
             Group {
                 if let glyph {
-                    Image(systemName: symbol)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+                    GlyphImage(IslandGlyph(rawValue: symbol) ?? .audioOutput)
                         .frame(width: glyph.width, height: glyph.height)
                 } else {
-                    Image(systemName: symbol)
-                        .font(HeaderIcon.font)
+                    GlyphImage(IslandGlyph(rawValue: symbol) ?? .audioOutput, pointSize: HeaderIcon.size)
                 }
             }
             .foregroundStyle(color)

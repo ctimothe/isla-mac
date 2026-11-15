@@ -494,6 +494,20 @@ final class IdleCostLab: VisualLabCase {
                 show(LabFixtures.timeline(), on: rig)
                 self.lock(rig, pane: .lyrics)
             },
+            // Batch 22: a solo playing, its marker filling toward the voice.
+            // The gap file's rest runs from 0:12 to 0:40, so a run that starts
+            // at 0:14 is inside it for 26 seconds. The marker read the clock on
+            // every display frame while it filled, on the stage and the card.
+            State(name: "open-stage-interlude") { rig in
+                await play(.init(elapsed: 14), on: rig)
+                show(LabFixtures.timeline((try? LabFixtures.gapLines()) ?? []), on: rig)
+                await open(rig, on: .stage)
+            },
+            State(name: "lock-interlude") { rig in
+                await play(.init(elapsed: 14), on: rig)
+                show(LabFixtures.timeline((try? LabFixtures.gapLines()) ?? []), on: rig)
+                self.lock(rig, pane: .lyrics)
+            },
         ]
     }
 

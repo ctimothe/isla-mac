@@ -117,9 +117,12 @@ final class OpenFromAWiderIslandTests: XCTestCase {
     }
 
     /// The whole route at the controller: a click 8 pt in from the far end of
-    /// a peek opens the player unpinned, and the watcher holds the panel on
-    /// the island the click came from.
-    func testAClickOnThePeeksFarEndOpensThePlayerUnpinned() throws {
+    /// an island wider than the player opens the player unpinned, and the
+    /// watcher holds the panel on the island the click came from. The island
+    /// was the new-track peek's 520 × 50 until it became the pop-up's shape
+    /// (spec §3.5, amended 2026-11-15); the rule stands for any island that
+    /// reaches past the player, so the size is stated here.
+    func testAClickOnAWideIslandsFarEndOpensThePlayerUnpinned() throws {
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: NotchStores())
         let root = NotchRootView(frame: CGRect(origin: .zero, size: vm.geometry.windowSize))
         let controller = NotchController()
@@ -129,9 +132,7 @@ final class OpenFromAWiderIslandTests: XCTestCase {
         vm.isOpen = false
 
         let notch = vm.geometry.notchSize
-        let peek = vm.geometry.collapsedHoverRect(
-            for: notch.width + NotchMetrics.sneakPeekExtension, height: NotchMetrics.sneakPeekHeight
-        )
+        let peek = vm.geometry.collapsedHoverRect(for: notch.width + 300, height: 50)
         controller.pointer.collapsedIsland = { peek }
         let point = CGPoint(x: peek.minX + 6 + 8, y: peek.maxY - 10)
         controller.pointerLocation = { point }
@@ -213,10 +214,9 @@ final class OpenFromAWiderIslandTests: XCTestCase {
         vm.isOpen = false
 
         let notch = vm.geometry.notchSize
-        let peek = CGSize(
-            width: notch.width + NotchMetrics.sneakPeekExtension,
-            height: max(notch.height, NotchMetrics.sneakPeekHeight)
-        )
+        // A new track's alert: the pop-up's body under the notch (§3.5,
+        // amended 2026-11-15).
+        let peek = NotchViewModel.newTrackBodySize(notchSize: notch, bodyWidth: vm.geometry.expandedSize.width)
         let shoulder = IslandShapeRadii.closed(for: .peek).top
         controller.pointer.collapsedIsland = {
             NotchController.collapsedIslandRect(geometry: vm.geometry, body: peek, shoulder: shoulder, bubble: .zero)

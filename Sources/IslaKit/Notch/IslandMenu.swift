@@ -7,6 +7,13 @@ import Carbon.HIToolbox
 struct IslandMenuItem: Equatable {
     enum Kind: Equatable {
         case clipboard, translateClipboard, shelf, lyrics, separator, settings, quit
+        /// The Timer submenu's rows (plan 2026-11-14 S3): a preset, the
+        /// stopwatch, and the controls of whichever is running.
+        case timerGroup
+        case startTimer(minutes: Int)
+        case startStopwatch
+        case pauseTimer, resumeTimer, cancelTimer
+        case pauseStopwatch, resumeStopwatch, resetStopwatch
     }
 
     var kind: Kind
@@ -16,6 +23,8 @@ struct IslandMenuItem: Equatable {
     /// key moved in Settings moves here, and a cleared one shows nothing.
     var shown: HotKeyBinding? = nil
     var isEnabled = true
+    /// The rows of a submenu; empty for an ordinary row.
+    var submenu: [IslandMenuItem] = []
 }
 
 /// The island's right-click menu (spec §19.9, board `R2-Menu`): an `NSMenu` at
@@ -31,7 +40,10 @@ enum IslandMenu {
     /// playing or paused (spec §19.9, amended 2026-10-18): a paused song
     /// still has words to show, and with no song the stage it opens is the
     /// empty player.
-    static func items(bindings: [HotKeyAction: HotKeyBinding], hasSong: Bool) -> [IslandMenuItem] {
+    static func items(
+        bindings: [HotKeyAction: HotKeyBinding], hasSong: Bool,
+        countdown: IslandTimerState? = nil, stopwatch: IslandTimerState? = nil
+    ) -> [IslandMenuItem] {
         [
             IslandMenuItem(kind: .clipboard, title: localized("Clipboard"), shown: bindings[.showClipboard]),
             IslandMenuItem(
@@ -40,10 +52,37 @@ enum IslandMenu {
             ),
             IslandMenuItem(kind: .shelf, title: localized("Shelf")),
             IslandMenuItem(kind: .lyrics, title: localized("Lyrics"), shown: bindings[.showLyrics], isEnabled: hasSong),
+            IslandMenuItem(kind: .timerGroup, title: localized("Timer"), submenu: timerRows(countdown: countdown, stopwatch: stopwatch)),
             IslandMenuItem(kind: .separator, title: ""),
             IslandMenuItem(kind: .settings, title: localized("Settings…")),
             IslandMenuItem(kind: .quit, title: localized("Quit Isla")),
         ]
+    }
+
+    /// The Timer submenu: the controls of what runs, then the presets and the
+    /// stopwatch (plan 2026-11-14 S3). The island has no timer surface — a
+    /// timer is set from here or from Shortcuts, and shown on the island.
+    static func timerRows(countdown: IslandTimerState?, stopwatch: IslandTimerState?) -> [IslandMenuItem] {
+        var rows: [IslandMenuItem] = []
+        if let countdown {
+            rows.append(countdown.isPaused
+                ? IslandMenuItem(kind: .resumeTimer, title: localized("Resume Timer"))
+                : IslandMenuItem(kind: .pauseTimer, title: localized("Pause Timer")))
+            rows.append(IslandMenuItem(kind: .cancelTimer, title: localized("Cancel Timer")))
+        }
+        if let stopwatch {
+            rows.append(stopwatch.isPaused
+                ? IslandMenuItem(kind: .resumeStopwatch, title: localized("Resume Stopwatch"))
+                : IslandMenuItem(kind: .pauseStopwatch, title: localized("Pause Stopwatch")))
+            rows.append(IslandMenuItem(kind: .resetStopwatch, title: localized("Reset Stopwatch")))
+        }
+        if !rows.isEmpty { rows.append(IslandMenuItem(kind: .separator, title: "")) }
+        for minutes in IslandTimerCenter.presetMinutes {
+            rows.append(IslandMenuItem(kind: .startTimer(minutes: minutes), title: localized("%d min", minutes)))
+        }
+        rows.append(IslandMenuItem(kind: .separator, title: ""))
+        rows.append(IslandMenuItem(kind: .startStopwatch, title: localized("Stopwatch"), isEnabled: stopwatch == nil))
+        return rows
     }
 
     /// What a secondary click — a right-click, or a click with Control held —
@@ -134,6 +173,12 @@ enum IslandMenu {
                 menu.addItem(.separator())
                 continue
             }
+            if !item.submenu.isEmpty {
+                let row = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
+                row.submenu = self.menu(item.submenu, perform: perform)
+                menu.addItem(row)
+                continue
+            }
             let action = MenuAction { perform(item.kind) }
             let row = NSMenuItem(title: item.title, action: #selector(MenuAction.run(_:)), keyEquivalent: "")
             row.target = action
@@ -144,6 +189,23 @@ enum IslandMenu {
             }
             menu.actions.append(action)
             menu.addItem(row)
+        }
+        return menu
+    }
+
+    /// A plain menu of rows that each run their closure: the microphone
+    /// card's Quit, one row per app holding the microphone. The row is the
+    /// confirmation — a second, deliberate choice naming the app — so a stray
+    /// press on Quit quits nothing.
+    static func choices(_ rows: [(title: String, run: () -> Void)]) -> NSMenu {
+        let menu = ActionMenu(title: "Isla")
+        menu.autoenablesItems = false
+        for row in rows {
+            let action = MenuAction(row.run)
+            let item = NSMenuItem(title: row.title, action: #selector(MenuAction.run(_:)), keyEquivalent: "")
+            item.target = action
+            menu.actions.append(action)
+            menu.addItem(item)
         }
         return menu
     }

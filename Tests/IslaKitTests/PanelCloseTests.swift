@@ -139,12 +139,8 @@ final class PanelCloseTests: XCTestCase {
     /// with the fade and put the slice back. Read from the source because the
     /// curve a transaction carries cannot be observed from outside a render.
     func testBothClosePathsRideTheCloseCurve() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let controller = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/Notch/NotchController.swift"), encoding: .utf8)
-        let shell = try String(
-            contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)
+        let controller = try SourceText.of("Sources/IslaKit/Notch/NotchController.swift")
+        let shell = try SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")
         XCTAssertTrue(controller.contains("withAnimation(Theme.close(reduceMotion: SystemAppearance.shared.reduceMotion)) { vm.isOpen = false }"))
         XCTAssertTrue(shell.contains(".animation(isOpen ? Theme.open(reduceMotion: reduceMotion) : Theme.close(reduceMotion: reduceMotion), value: isOpen)"))
     }

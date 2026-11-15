@@ -153,7 +153,25 @@ struct LyricsStage: View {
         )
     }
 
-    private var now: TimeInterval { (heldClock?.position ?? media.position) + lead }
+    /// Where the stage reads the song (Batch 22, 2026-11-05): the clock's line
+    /// reading (`PlaybackClock.linePosition`), which moves only when a line
+    /// can turn, the held song's stop during a hold.
+    ///
+    /// The stage read the position, so the 0.1 s tick re-ran it whole — every
+    /// row it lays out, the scroll view, the mask — to draw the rows already
+    /// drawn: 3.0 % of a core open on the stage in the idle-cost lab. What the
+    /// rows show turns only where a line starts, where its voice ends and
+    /// where a rest begins, which are the boundaries the reading keeps; the
+    /// sung line's sweep and a playing rest's fill move on Core Animation from
+    /// the clock's course (`songMotion`), read by those rows alone.
+    private var linePosition: TimeInterval { media.shownLinePosition(held: heldClock, lead: lead) }
+
+    private var now: TimeInterval { linePosition + lead }
+
+    /// The clock's course as the stage shows it: still during a hold. Read
+    /// only inside a row's `ClockReader`, so a seek or a correction re-runs
+    /// the row that moves and not the page.
+    private var songMotion: PlaybackClock.Motion { media.shownMotion(held: heldClock) }
 
     private var wordTimingEnabled: Bool {
         LyricsPresentation.usesWordTiming(
@@ -165,11 +183,15 @@ struct LyricsStage: View {
 
     private var inputs: LyricInputs {
         LyricInputs(
-            position: heldClock?.position ?? media.position, precisionSync: media.precisionSync,
+            position: linePosition, precisionSync: media.precisionSync,
             userOffset: lyrics.userOffset, trackOffset: lyrics.trackOffset,
             wordTiming: wordTimingEnabled
         )
     }
+
+    /// What the stage reads the song with, for the tests that hold it off the
+    /// tick (`StageAndCardTickTests`).
+    var inputsForTests: LyricInputs { inputs }
 
     /// What the stage draws for one reading of the clock: the sung row (nil
     /// during an intro) and the row the page centres on. The caption and the
@@ -393,7 +415,11 @@ struct LyricsStage: View {
                         // much as a line, so the page still maps the clock to
                         // a row by arithmetic.
                         ForEach(Array(slots.enumerated()), id: \.element) { position, slot in
-                            Group {
+                            // Each row in a reader of its own: the sung line
+                            // and a playing rest read the clock's course, and
+                            // a seek or a correction then re-runs that row
+                            // alone. No other row reads the clock at all.
+                            ClockReader {
                                 switch slot {
                                 case .line(let index):
                                     row(
@@ -660,8 +686,7 @@ struct LyricsStage: View {
             following = true
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "music.note")
-                    .font(.system(size: 10, weight: .bold))
+                GlyphImage(.music, pointSize: 10)
                 Text(localized("Sync"))
                     .islandFont(11.5, weight: .semibold)
             }
@@ -691,8 +716,10 @@ struct LyricsStage: View {
             at: now,
             end: LyricSweep.end(of: index, in: lines),
             // Only the sung row is handed the clock; every other row is lit
-            // whole or not at all.
-            clock: isCurrent ? LyricSweep.songClock(media: media, lead: lead, held: heldClock) : nil,
+            // whole or not at all. From the clock's course, which a seek, a
+            // pause or a correction changes and a tick does not, and which
+            // only this row reads.
+            clock: isCurrent ? LyricSweep.songClock(motion: songMotion, lead: lead) : nil,
             // The stage reads at 22 bold, the sung line at full white and never
             // larger (decision 6). A long line wraps to a second and only past
             // that is cut at its tail, its full words still what VoiceOver
@@ -759,17 +786,16 @@ struct LyricsStage: View {
     /// goes (spec §5.4, amended 2026-10-31). No seek and no hint: there are no
     /// words here to jump to, and the line it leads to is the next row down.
     private func interludeRow(_ slot: LyricSlot, at: TimeInterval, isCurrent: Bool, distance: Int) -> some View {
-        // Only the interlude playing reads the clock per frame, and only
-        // while the song moves: the frames are spent on the one row somebody
-        // is waiting through.
-        let clock: (@MainActor () -> Double)? = InterludeMarker.liveFill(
-            for: slot, isCurrent: isCurrent, media: media, lead: lead, held: heldClock
-        )
-        return InterludeMarker(
-            progress: LyricSweep.interludeProgress(slot, at: at),
+        // Only the interlude playing reads the clock's course; Core Animation
+        // fills it from there, so the one row somebody is waiting through
+        // costs no frames either.
+        InterludeMarker(
+            fill: InterludeMarker.fill(
+                for: slot, isCurrent: isCurrent, at: at,
+                motion: isCurrent ? songMotion : .still(0), lead: lead
+            ),
             isCurrent: isCurrent,
             distance: distance,
-            clock: clock,
             fontSize: metrics.fontSize,
             weight: metrics.weight,
             reading: !following,
@@ -788,8 +814,7 @@ struct LyricsStage: View {
     /// raised it.
     private func noticeRow(icon: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .regular))
+            GlyphImage(IslandGlyph(rawValue: icon) ?? .history, pointSize: 12)
                 .foregroundStyle(Theme.secondary)
                 .padding(.top, 1)
             Text(text)
@@ -899,8 +924,7 @@ struct LyricsStage: View {
     }
 
     private func statusGlyph(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 22, weight: .light))
+        GlyphImage(IslandGlyph(rawValue: symbol) ?? .music, pointSize: 22)
             .foregroundStyle(Theme.tertiary)
     }
 

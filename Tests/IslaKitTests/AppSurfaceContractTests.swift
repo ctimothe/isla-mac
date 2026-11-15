@@ -23,7 +23,6 @@ final class AppSurfaceContractTests: XCTestCase {
     func testNoStatusItemSymbolSurvives() {
         let identity = [
             ProductIdentity.displayName,
-            ProductIdentity.executableName,
             ProductIdentity.bundleIdentifier,
             ProductIdentity.supportDirectoryName,
             ProductIdentity.screenshotDirectoryName,

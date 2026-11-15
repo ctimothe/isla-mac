@@ -186,7 +186,7 @@ final class HeaderNotchBandTests: XCTestCase {
         XCTAssertEqual(unknown.title, localized("Music"))
         XCTAssertEqual(unknown.glyph, .symbol("music.note"))
         XCTAssertEqual(PlayerSourceTitle(name: "  ", icon: nil).title, localized("Music"))
-        XCTAssertNotNil(NSImage(systemSymbolName: "music.note", accessibilityDescription: nil))
+        XCTAssertNotNil(IslandGlyph(rawValue: "music.note"))
 
         let font = NSFont.systemFont(ofSize: SurfaceHeaderLayout.titleSize, weight: .semibold)
         for name in ["Yandex Music", "Google Chrome", "Apple Music", "Telegram", "Deezer", "Music"] {

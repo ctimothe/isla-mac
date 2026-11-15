@@ -6,7 +6,7 @@ final class ShelfStoreTests: XCTestCase {
     func testLoadUsesStoredPathsWithoutRemovingInaccessibleEntries() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(["/protected/example.txt"], forKey: "shelf.urls")
 
         let store = ShelfStore(defaults: defaults)
@@ -21,7 +21,7 @@ final class ShelfStoreTests: XCTestCase {
     func testCapturesReadNewestFirstByWhenTheyWereTaken() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         let late = URL(fileURLWithPath: "/tmp/Screen Recording at 16.37.40.mov")
         let early = URL(fileURLWithPath: "/tmp/Screen Recording at 14.47.45.mov")
@@ -36,7 +36,7 @@ final class ShelfStoreTests: XCTestCase {
     func testADropIsDatedWhenItWasDropped() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         let capture = URL(fileURLWithPath: "/tmp/Screenshot at 09.00.00.png")
         let dropped = URL(fileURLWithPath: "/tmp/notes.txt")
@@ -54,7 +54,7 @@ final class ShelfStoreTests: XCTestCase {
     func testEachCardIsBookmarkedOnceNotOnEverySave() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         var made: [String] = []
         store.makeBookmark = { url in
@@ -80,7 +80,7 @@ final class ShelfStoreTests: XCTestCase {
     func testAFailedBookmarkIsTriedAgain() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         var attempts = 0
         store.makeBookmark = { _ in
@@ -102,7 +102,7 @@ final class ShelfStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: file) }
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         ShelfStore(defaults: defaults).add([file])
 
         let reloaded = ShelfStore(defaults: defaults)
@@ -121,7 +121,7 @@ final class ShelfStoreTests: XCTestCase {
     func testDatesSurviveAReload() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let taken = Date(timeIntervalSince1970: 1_790_000_000)
         let url = URL(fileURLWithPath: "/tmp/Screenshot.png")
         ShelfStore(defaults: defaults).add([url], dates: [url: taken])
@@ -144,7 +144,7 @@ final class ShelfStoreTests: XCTestCase {
 
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set([trashed.path], forKey: "shelf.urls")
         let store = ShelfStore(defaults: defaults)
         store.load()
@@ -164,7 +164,7 @@ final class ShelfStoreTests: XCTestCase {
     func testClearPersistsOnlyToTheInjectedDefaults() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(["/tmp/example.txt"], forKey: "shelf.urls")
         let store = ShelfStore(defaults: defaults)
         store.load()
@@ -180,7 +180,7 @@ final class ShelfStoreTests: XCTestCase {
     func testShiftClickSelectsTheContiguousRangeFromTheAnchor() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(
             ["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt", "/tmp/d.txt"],
             forKey: "shelf.urls"
@@ -199,7 +199,7 @@ final class ShelfStoreTests: XCTestCase {
     func testCommandClickStillTogglesOnlyTheClickedItem() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(
             ["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt", "/tmp/d.txt"],
             forKey: "shelf.urls"
@@ -223,7 +223,7 @@ final class ShelfStoreTests: XCTestCase {
     func testCommandClickThenShiftClickSelectsTheRange() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(
             ["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt", "/tmp/d.txt"],
             forKey: "shelf.urls"
@@ -243,7 +243,7 @@ final class ShelfStoreTests: XCTestCase {
     func testATrimDropsTrimmedCardsFromTheSelection() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = quietStore(defaults)
         let base = Date(timeIntervalSinceNow: -100_000)
         let full = (0..<ShelfStore.limit).map { URL(fileURLWithPath: "/tmp/full-\($0).png") }
@@ -266,7 +266,7 @@ final class ShelfStoreTests: XCTestCase {
     func testAddReportsDuplicatesAndEvictions() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = quietStore(defaults)
         let base = Date(timeIntervalSinceNow: -100_000)
         let full = (0..<ShelfStore.limit).map { URL(fileURLWithPath: "/tmp/full-\($0).png") }
@@ -294,7 +294,7 @@ final class ShelfStoreTests: XCTestCase {
     func testTheDropNoticeClearsItself() async throws {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = quietStore(defaults)
         store.noticeLifetime = .milliseconds(200)
         let url = URL(fileURLWithPath: "/tmp/twice.png")
@@ -331,7 +331,7 @@ final class ShelfStoreTests: XCTestCase {
     func testANoticeClearsItself() async throws {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = quietStore(defaults)
         store.noticeLifetime = .milliseconds(150)
 
@@ -357,7 +357,7 @@ final class ShelfStoreTests: XCTestCase {
     func testRemoveSelectedLeavesTheRest() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(
             ["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt", "/tmp/d.txt"],
             forKey: "shelf.urls"
@@ -389,7 +389,7 @@ final class ShelfStoreTests: XCTestCase {
     func testRefreshFromDiskEvictsACardWhoseFileWasDeleted() async throws {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -483,7 +483,7 @@ final class ShelfStoreTests: XCTestCase {
     func testRefreshFromDiskKeepsACardWhoseFileExistsButIsUnreadable() async throws {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let file = dir.appendingPathComponent("secret.txt")
@@ -513,7 +513,7 @@ final class ShelfStoreTests: XCTestCase {
     func testFreshRecordingIsImportedOnce() throws {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(Date.distantPast, forKey: RecordingPickup.sinceKey)
 
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -536,7 +536,7 @@ final class ShelfStoreTests: XCTestCase {
     func testAFutureSinceIsRewrittenSoTheNextCaptureArrives() throws {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(Date().addingTimeInterval(365 * 86400), forKey: RecordingPickup.sinceKey)
 
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -564,7 +564,7 @@ final class ShelfStoreTests: XCTestCase {
     func testRemovedRecordingStaysRemoved() throws {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(Date.distantPast, forKey: RecordingPickup.sinceKey)
 
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -595,7 +595,7 @@ final class ShelfStoreTests: XCTestCase {
 
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(Date.distantPast, forKey: RecordingPickup.sinceKey)
 
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -618,7 +618,7 @@ final class ShelfStoreTests: XCTestCase {
     func testACardOnAnUnmountedVolumeStaysOffline() async {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let path = "/Volumes/Isla-Test-\(UUID())/report.pdf"
         defaults.set([path], forKey: "shelf.urls")
         let store = ShelfStore(defaults: defaults)
@@ -644,7 +644,7 @@ final class ShelfStoreTests: XCTestCase {
         try Data([1]).write(to: file)
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set([file.path], forKey: "shelf.urls")
 
         let store = ShelfStore(defaults: defaults)
@@ -675,7 +675,7 @@ final class ShelfStoreTests: XCTestCase {
     func testAnOfflineCardKeepsItsBookmark() async {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let path = "/Volumes/Isla-Test-\(UUID())/report.pdf"
         let original = Data("a bookmark to a disk that is not here".utf8)
         defaults.set([path], forKey: "shelf.urls")
@@ -699,7 +699,7 @@ final class ShelfStoreTests: XCTestCase {
     func testAnOfflineCardIsLeftOutOfADrag() async {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let offline = "/Volumes/Isla-Test-\(UUID())/report.pdf"
         defaults.set(["/tmp/here.txt", offline], forKey: "shelf.urls")
         let store = ShelfStore(defaults: defaults)
@@ -762,7 +762,7 @@ final class ShelfStoreTests: XCTestCase {
         }
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(files.map(\.path), forKey: "shelf.urls")
         let store = ShelfStore(defaults: defaults)
         var requested = 0
@@ -785,7 +785,7 @@ final class ShelfStoreTests: XCTestCase {
     func testABurstOfThumbnailsIsOneRedraw() async throws {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"], forKey: "shelf.urls")
         let store = ShelfStore(defaults: defaults)
         var pending: [(NSImage?) -> Void] = []
@@ -810,7 +810,7 @@ final class ShelfStoreTests: XCTestCase {
     func testReachabilityIsNotAskedOnTheMainThread() async {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         defaults.set(["/tmp/a.txt", "/tmp/b.txt"], forKey: "shelf.urls")
         let store = ShelfStore(defaults: defaults)
         let log = ThreadLog()
@@ -850,7 +850,7 @@ final class ShelfStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         store.requestThumbnail = { _, _ in }
         store.add([a])
@@ -881,7 +881,7 @@ final class ShelfStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         store.requestThumbnail = { _, _ in }
         store.add([a])
@@ -905,7 +905,7 @@ final class ShelfStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         store.requestThumbnail = { _, _ in }
         let other = URL(fileURLWithPath: "/tmp/stays-\(UUID()).txt")
@@ -926,7 +926,7 @@ final class ShelfStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         store.requestThumbnail = { _, _ in }
         store.moveSettleDelays = [.milliseconds(20), .milliseconds(20)]
@@ -948,7 +948,7 @@ final class ShelfStoreTests: XCTestCase {
     func testAGroupDragLiftsTheGrabbedCardFirst() {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let store = ShelfStore(defaults: defaults)
         store.requestThumbnail = { _, _ in }
         store.makeBookmark = { Data($0.path.utf8) }
@@ -1002,7 +1002,7 @@ final class ShelfStoreTests: XCTestCase {
     func testTheActionBarActsOnTheReachableSelectionInShelfOrder() async {
         let suite = "ShelfStoreTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { defaults.removePersistentDomain(forName: suite); UserDefaults.removeSuiteFile(named: suite) }
         let offline = "/Volumes/Isla-Test-\(UUID())/report.pdf"
         defaults.set(["/tmp/a.txt", offline, "/tmp/b.txt", "/tmp/c.txt"], forKey: "shelf.urls")
         let store = ShelfStore(defaults: defaults)

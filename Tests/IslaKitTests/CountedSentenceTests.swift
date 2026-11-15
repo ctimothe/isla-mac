@@ -30,12 +30,10 @@ final class CountedSentenceTests: XCTestCase {
 
     /// What is asked aloud is what is drawn: each question has one source.
     func testTheQuestionSpokenIsTheQuestionDrawn() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let files = ["ShelfPane.swift", "ClipboardPane.swift", "ClipboardLayout.swift", "NotchContentView.swift",
                      "IslandBubble.swift"]
         let sources = try files.map {
-            try String(contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/\($0)"), encoding: .utf8)
+            try SourceText.of("Sources/IslaKit/UI/\($0)")
         }.joined()
         for key in ["localized(\"Remove all %d items?", "localized(\"Clear %d entries?", "localized(\"Shelf, %d items\""] {
             XCTAssertEqual(sources.components(separatedBy: key).count - 1, 1, "\(key) is built in one place")

@@ -1,3 +1,4 @@
+import AppKit
 import CoreAudio
 import XCTest
 @testable import IslaKit
@@ -128,7 +129,7 @@ final class AudioOutputGlyphTests: XCTestCase {
         XCTAssertEqual(OutputGlyph.resolve([], exists: { _ in false }), AudioOutputs.outputFallbackSymbol)
     }
 
-    /// Every candidate's last entry is a symbol this macOS really has.
+    /// Every candidate's last entry is a name Isla has a glyph for.
     func testEveryListEndsInARealSymbol() {
         let names = [
             "AirPods Pro 3", "AirPods 4", "AirPods Max", "Powerbeats Pro", "Beats Studio Buds +", "Beats Pill",
@@ -145,7 +146,7 @@ final class AudioOutputGlyphTests: XCTestCase {
                 for host in [HostMac.laptop, .mini, .studio, .pro, .desktop] {
                     let list = OutputGlyph.candidates(transport: transport, dataSource: nil, name: name, host: host)
                     XCTAssertNotNil(
-                        NSImage(systemSymbolName: list.last!, accessibilityDescription: nil),
+                        IslandGlyph(rawValue: list.last!),
                         "\(list.last!) for \(name ?? "nil") does not resolve"
                     )
                 }
@@ -162,5 +163,17 @@ final class AudioOutputGlyphTests: XCTestCase {
             with: "Sources/IslaKit/UI/LockScreenCard.swift"), encoding: .utf8)
         XCTAssertFalse(source.contains("fallback: \"airplayaudio\""))
         XCTAssertTrue(source.contains("fallback: AudioOutputs.outputFallbackSymbol"))
+    }
+
+    /// A product's own drawing is a candidate only on a macOS that has it, so
+    /// "airpods.pro.gen3" on macOS 15 falls through to "airpods.pro" as it did
+    /// before the glyphs were islandcn's; every other name always draws.
+    func testAProductCountsOnlyWhereThisMacDrawsIt() {
+        for glyph in IslandGlyph.allCases {
+            let drawn = glyph.isAppleProduct
+                ? NSImage(systemSymbolName: glyph.rawValue, accessibilityDescription: nil) != nil : true
+            XCTAssertEqual(OutputGlyph.exists(glyph.rawValue), drawn, glyph.rawValue)
+        }
+        XCTAssertFalse(OutputGlyph.exists("not.a.glyph"))
     }
 }

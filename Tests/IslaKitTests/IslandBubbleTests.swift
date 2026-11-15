@@ -60,7 +60,7 @@ final class IslandBubbleTests: XCTestCase {
                 let geometry = try geometry(notchWidth: notch, height: height)
                 let island = CGSize(width: notch + NotchMetrics.compactMediaExtension, height: height)
                 let outline = geometry.contentRect(for: island).insetBy(dx: -Theme.collapsedTopRadius, dy: 0)
-                let bubble = geometry.bubbleRect(islandWidth: island.width, height: height, count: 3)
+                let bubble = geometry.bubbleRect(islandWidth: island.width, height: height, bubbleWidth: IslandBubbleLayout.width(count: 3))
                 XCTAssertEqual(bubble.minX, outline.maxX + 16, accuracy: 0.001, "nw \(notch), H \(height)")
                 XCTAssertEqual(bubble.width, 58, accuracy: 0.001)
                 XCTAssertEqual(bubble.height, height, accuracy: 0.001, "the island's own height")
@@ -71,23 +71,6 @@ final class IslandBubbleTests: XCTestCase {
                 )
             }
         }
-    }
-
-    /// The same bubble in the coordinates a SwiftUI gesture reports, the way
-    /// `compactGestureRect` is the island's.
-    func testTheGestureRectIsTheBubbleTheOtherWayUp() throws {
-        let geometry = try geometry()
-        let bubble = geometry.bubbleRect(islandWidth: 255, height: 38, count: 3)
-        let gesture = geometry.bubbleGestureRect(islandWidth: 255, height: 38, count: 3)
-        XCTAssertEqual(gesture.minX, bubble.minX, accuracy: 0.001)
-        XCTAssertEqual(gesture.width, bubble.width, accuracy: 0.001)
-        XCTAssertEqual(gesture.minY, 0, accuracy: 0.001, "SwiftUI counts from the top")
-        XCTAssertEqual(gesture.height, 38, accuracy: 0.001)
-        XCTAssertEqual(
-            gesture.midX - geometry.windowSize.width / 2,
-            IslandBubbleLayout.centreOffset(islandWidth: 255, count: 3), accuracy: 0.001,
-            "where the view draws it: the island's centre plus the offset"
-        )
     }
 
     /// 58 for one digit and 8 more for each further digit (spec §19.7,
@@ -101,13 +84,13 @@ final class IslandBubbleTests: XCTestCase {
         XCTAssertEqual(IslandBubbleLayout.width(count: ShelfStore.limit), 66, "the Shelf's limit is two digits")
 
         let geometry = try geometry()
-        let one = geometry.bubbleRect(islandWidth: 255, height: 38, count: 7)
-        let two = geometry.bubbleRect(islandWidth: 255, height: 38, count: 60)
+        let one = geometry.bubbleRect(islandWidth: 255, height: 38, bubbleWidth: IslandBubbleLayout.width(count: 7))
+        let two = geometry.bubbleRect(islandWidth: 255, height: 38, bubbleWidth: IslandBubbleLayout.width(count: 60))
         XCTAssertEqual(two.minX, one.minX, accuracy: 0.001, "the gap to the island holds")
         XCTAssertEqual(two.width, 66, accuracy: 0.001)
         XCTAssertEqual(
-            IslandBubbleLayout.centreOffset(islandWidth: 255, count: 60)
-                - IslandBubbleLayout.centreOffset(islandWidth: 255, count: 7),
+            IslandBubbleLayout.centreOffset(islandWidth: 255, bubbleWidth: IslandBubbleLayout.width(count: 60))
+                - IslandBubbleLayout.centreOffset(islandWidth: 255, bubbleWidth: IslandBubbleLayout.width(count: 7)),
             4, accuracy: 0.001, "the centre moves by half the growth"
         )
     }
@@ -201,9 +184,9 @@ final class IslandBubbleTests: XCTestCase {
         isolated.stores.media.apply(playing())
         XCTAssertEqual(vm.openTarget, .player, "the island shows Music")
 
-        vm.clickOpened(pointerIsOnPanel: true, opening: .tray)
+        vm.clickOpened(opening: .tray) { _ in true }
         XCTAssertEqual(vm.surface, .tray, "the bubble's click")
-        vm.clickOpened(pointerIsOnPanel: true)
+        vm.clickOpened { _ in true }
         XCTAssertEqual(vm.surface, .player, "the island's click")
     }
 
@@ -224,7 +207,7 @@ final class IslandBubbleTests: XCTestCase {
         keep(2, on: isolated)
         isolated.stores.media.apply(playing())
         controller.refreshCollapsedRects()
-        let bubble = vm.geometry.bubbleRect(islandWidth: vm.bodySize.width, height: vm.bodySize.height, count: 2)
+        let bubble = vm.geometry.bubbleRect(islandWidth: vm.bodySize.width, height: vm.bodySize.height, bubbleWidth: IslandBubbleLayout.width(count: 2))
         XCTAssertEqual(vm.bubbleCount, 2)
         XCTAssertTrue(root.bubbleRect.contains(CGPoint(x: bubble.midX, y: bubble.midY)))
         XCTAssertNotNil(root.hitTest(CGPoint(x: bubble.midX, y: bubble.midY)), "a click on the bubble reaches the panel")

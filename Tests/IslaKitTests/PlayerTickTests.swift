@@ -140,9 +140,12 @@ final class PlayerTickTests: XCTestCase {
         XCTAssertEqual(turned, "Second line", "the open player's line stood still")
     }
 
-    /// The stage and the lock card read the clock in their own bodies, so the
-    /// tick still reaches them: the lab put them at 0.3 % after this change
-    /// against 3.5 % before, which a frozen clock would also explain.
+    /// The stage and the lock card still move with the song. Since Batch 22
+    /// (2026-11-05) neither re-runs on a tick (`StageAndCardTickTests`): they
+    /// turn on the line reading, their times on whole seconds and their bar,
+    /// ring and fills on Core Animation. A frozen clock would pass those
+    /// tests as well, so these hold that what VoiceOver reads still turns a
+    /// few seconds on.
     func testTheStageStillMovesWithTheTick() async throws {
         let rig = await playing(elapsed: 1.5, lyrics: true)
         defer {

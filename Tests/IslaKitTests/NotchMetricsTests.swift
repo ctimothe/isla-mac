@@ -4,7 +4,8 @@ import XCTest
 
 final class NotchMetricsTests: XCTestCase {
     func testApprovedGeometryAndTimingDriveTheShell() {
-        XCTAssertEqual(NotchMetrics.standardBody, CGSize(width: 620, height: 208))
+        XCTAssertEqual(NotchMetrics.maximumBodyWidth, 620)
+        XCTAssertEqual(NotchMetrics.standardBodyHeight, 208)
         XCTAssertEqual(NotchMetrics.tallestBody, CGSize(width: 620, height: 400))
         XCTAssertEqual(NotchMetrics.maximumWindow, CGSize(width: 700, height: 444))
         XCTAssertEqual(NotchMetrics.openDelay, 0.05)

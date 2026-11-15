@@ -18,9 +18,6 @@ extension NotchViewModel {
         case player, stage, tray, drop, clipboard, translate, settings, welcome
         var id: String { rawValue }
 
-        /// The surfaces somebody can be sent to.
-        static let reachable: [Surface] = [.player, .stage, .tray, .clipboard, .translate, .settings]
-
         /// The four pages, in their one order, left to right (§19.16). The
         /// order never changes and no page is ever missing — Music with no
         /// song is the empty player, an empty Shelf says how to fill it — so
@@ -64,16 +61,6 @@ extension NotchViewModel {
         /// and Clipboard, whose search field types from the first key (§19.8).
         var takesKeyboard: Bool { self == .clipboard || self == .translate }
 
-        /// The surfaces that carry the gear at (`bw − 46`, 6) (§19.16): every
-        /// page and the stage, where the Tools button stood, and Settings,
-        /// where it is the close button that goes back (`HeaderGear`).
-        var hasGear: Bool {
-            switch self {
-            case .player, .stage, .tray, .clipboard, .translate, .settings: return true
-            case .drop, .welcome: return false
-            }
-        }
-
         /// The shoulder: 24 for the drop surface, 34 for every other surface.
         /// The tray had the drop surface's 24 / 34 while it was a strip; at
         /// the three tools' shared size it takes theirs, so turning between
@@ -99,6 +86,9 @@ extension NotchViewModel {
         case open(Surface)
         /// An alert folds, and the island returns to what is live.
         case foldAlert
+        /// A timer, a recording or a download answers in place (plan
+        /// 2026-11-14): the timer's controls, the app recording, the folder.
+        case live(LiveActivity)
         /// Nothing: the update alert is answered by its buttons alone
         /// (§19.1's table), and a click beside them is not an answer.
         case nothing
@@ -117,6 +107,13 @@ extension NotchViewModel {
         case .hud, .confirmation, .ambient: return .foldAlert
         case .update: return .nothing
         case .peek: return .open(.player)
+        // A camera alone names no app (CoreMediaIO says only that a camera
+        // runs), so there is nothing to bring forward: the click opens the
+        // panel as the bare notch's would, rather than doing nothing (Codex
+        // review 2026-11-14).
+        case .live(.recording(let state)) where state.microphoneApps.isEmpty:
+            return .open(openTarget(live: live, hasTrack: hasTrack, lastPage: lastPage))
+        case .live(let live): return .live(live)
         case .music, .shelf, .none: return .open(openTarget(live: live, hasTrack: hasTrack, lastPage: lastPage))
         }
     }
@@ -136,7 +133,7 @@ extension NotchViewModel {
         switch live {
         case .peek, .music: return .player
         case .shelf: return .tray
-        case .hud, .confirmation, .ambient, .update, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
+        case .hud, .confirmation, .ambient, .update, .live, .none: return hasTrack ? .player : (lastPage.isPage ? lastPage : .player)
         }
     }
 }
@@ -193,24 +190,15 @@ enum SurfaceLayout {
         spec.offsetBy(dx: 0, dy: -referenceNotchHeight)
     }
 
-    /// The same for a body frame measured on this notch, which is what the
-    /// summoned surfaces' layouts hand out.
-    static func inContent(_ body: CGRect, headerHeight: CGFloat) -> CGRect {
-        body.offsetBy(dx: 0, dy: -headerHeight)
-    }
-
     /// A control in the header row, drawn at `spec`'s size and centred on the
     /// row whatever its height: the reference centres everything on a 38 pt
     /// row (a 26 pt well at y 6, a 16 pt line at 11), and a 32 pt notch keeps
     /// the centring rather than the offset.
     static func headerCentreY(notchHeight: CGFloat) -> CGFloat { notchHeight / 2 }
 
-    /// The gear and every other header tool: 26 × 26, the gear ending 20
-    /// from the body's right edge (§19.8, §19.16).
-    static let headerToolSide: CGFloat = 26
+    /// The gear's left edge: 26 wide, ending 20 from the body's right edge
+    /// (§19.8, §19.16).
     static func gearX(bodyWidth: CGFloat) -> CGFloat { bodyWidth - 46 }
-    /// The glyph-and-title pair's leading edge on a summoned surface.
-    static let headerTitleLeading: CGFloat = 20
 
     /// The outline between pages (§19.16): at `position` along `pages`, each
     /// page's own size at rest, and the two either side of it mixed by the

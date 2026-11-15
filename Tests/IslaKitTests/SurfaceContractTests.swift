@@ -44,12 +44,7 @@ final class SurfaceContractTests: XCTestCase {
             Surface.allCases,
             [.player, .stage, .tray, .drop, .clipboard, .translate, .settings, .welcome]
         )
-        XCTAssertEqual(Surface.reachable, [.player, .stage, .tray, .clipboard, .translate, .settings])
         XCTAssertEqual(Surface.allCases.filter(\.takesKeyboard), [.clipboard, .translate], "§19.8")
-        XCTAssertEqual(
-            Surface.allCases.filter(\.hasGear), [.player, .stage, .tray, .clipboard, .translate, .settings],
-            "the gear on every page, the stage and Settings (§19.16)"
-        )
     }
 
     /// Four pages in one order, left to right, always all four (§19.16). The
@@ -82,7 +77,7 @@ final class SurfaceContractTests: XCTestCase {
     func testEveryHeaderGlyphResolves() {
         for surface in Surface.allCases {
             guard let symbol = surface.symbol else { continue }
-            XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), "\(symbol) for \(surface)")
+            XCTAssertNotNil(IslandGlyph(rawValue: symbol), "\(symbol) for \(surface)")
         }
         // Filled, like the Shelf's tray (owner's review, 2026-10-18).
         XCTAssertEqual(Surface.clipboard.symbol, "list.clipboard.fill")
@@ -197,25 +192,25 @@ final class SurfaceContractTests: XCTestCase {
         // the first page (§19.16).
         XCTAssertEqual(vm.surface, .player)
         XCTAssertEqual(vm.openTarget, .player)
-        vm.clickOpened(pointerIsOnPanel: true)
+        vm.clickOpened { _ in true }
         XCTAssertEqual(vm.surface, .player)
 
         // The player: a click on Music, ⌃⌥⌘I while it plays.
         isolated.stores.media.apply(playing())
         XCTAssertEqual(vm.openTarget, .player)
-        vm.clickOpened(pointerIsOnPanel: true)
+        vm.clickOpened { _ in true }
         XCTAssertEqual(vm.surface, .player)
 
         // The stage: a click on the player's cover or title, ⌃⌥⌘L, the menu's
         // Lyrics. Hide Lyrics turns it back into the player.
         vm.openStage()
         XCTAssertEqual(vm.surface, .stage)
-        XCTAssertTrue(vm.isShowingLyrics)
+        XCTAssertTrue(vm.surface == .stage)
         vm.hideLyrics()
         XCTAssertEqual(vm.surface, .player)
 
         // The tray: the bubble, the Shelf activity, the menu, its dot.
-        vm.clickOpened(pointerIsOnPanel: true, opening: .tray)
+        vm.clickOpened(opening: .tray) { _ in true }
         XCTAssertEqual(vm.surface, .tray)
 
         // Clipboard and Translate from the menu and the shortcuts, Settings from

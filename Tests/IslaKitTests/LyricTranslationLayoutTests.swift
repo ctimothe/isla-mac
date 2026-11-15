@@ -219,13 +219,13 @@ final class LyricTranslationLayoutTests: XCTestCase {
         let isolated = ProbeFixtures.isolatedStores()
         defer { isolated.release() }
         let vm = NotchViewModel(geometry: try LabGeometry.make(), stores: isolated.stores)
-        XCTAssertFalse(vm.showsTranslationTool, "hidden while Translate Lyrics is off")
+        XCTAssertFalse(vm.translation.isEnabled, "hidden while Translate Lyrics is off")
         isolated.suite.set(true, forKey: NotchViewModel.translateLyricsKey)
         isolated.stores.lyricTranslation.refresh()
-        XCTAssertTrue(vm.showsTranslationTool)
+        XCTAssertTrue(vm.translation.isEnabled)
         isolated.suite.set(false, forKey: NotchViewModel.translateLyricsKey)
         isolated.stores.lyricTranslation.refresh()
-        XCTAssertFalse(vm.showsTranslationTool)
+        XCTAssertFalse(vm.translation.isEnabled)
     }
 
     // MARK: - The stage, in the accessibility tree

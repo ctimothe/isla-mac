@@ -284,8 +284,7 @@ struct ClipboardPane: View {
     /// glyph is drawing (F-036, M-08).
     private func emptyState(in frame: CGRect) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: "doc.on.clipboard")
-                .font(.system(size: 26, weight: .regular))
+            GlyphImage(.clipboard, pointSize: 26)
                 .foregroundStyle(Theme.tertiary)
                 .accessibilityHidden(true)
                 .padding(.bottom, 4)
@@ -318,8 +317,7 @@ struct ClipboardPane: View {
     /// symbol, "No Links", and a line saying copies of that kind will land here.
     private func kindEmpty(title: String, symbol: String, in frame: CGRect) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 26, weight: .regular))
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .clipboard, pointSize: 26)
                 .foregroundStyle(Theme.tertiary)
                 .accessibilityHidden(true)
                 .padding(.bottom, 4)
@@ -339,8 +337,7 @@ struct ClipboardPane: View {
     /// words are the system's own for a search that found nothing.
     private func noResults(in frame: CGRect) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 26, weight: .regular))
+            GlyphImage(.search, pointSize: 26)
                 .foregroundStyle(Theme.tertiary)
                 .accessibilityHidden(true)
                 .padding(.bottom, 4)
@@ -369,8 +366,7 @@ struct ClipboardPane: View {
             width: ClipboardLayout.rowWidth(bodyWidth: bodyWidth), height: ClipboardLayout.alertHeight
         )
         return HStack(spacing: 10) {
-            Image(systemName: "hand.raised")
-                .font(.system(size: 14, weight: .regular))
+            GlyphImage(.hand, pointSize: 14)
                 .foregroundStyle(Theme.warning)
                 .frame(width: 20)
                 .accessibilityHidden(true)
@@ -458,15 +454,6 @@ struct ClipRow: View {
         ClipMark.mark(for: item.kind, hidden: hidden)
     }
 
-    /// The glyph a symbol mark names, or nil for the marks that are drawings
-    /// (a swatch, a thumbnail, a file's icon). A covered row keeps its kind's
-    /// glyph readable (spec §9.4), which supersedes H-026's one neutral glyph:
-    /// what the cover hides is the content, and the count in the header.
-    static func glyph(for item: ClipItem, hidden: Bool) -> String? {
-        if case .symbol(let name) = mark(for: item, hidden: hidden) { return name }
-        return nil
-    }
-
     var body: some View {
         HStack(spacing: ClipboardLayout.contentLeading - ClipboardLayout.rowInset - ClipboardLayout.markSide) {
             leadingMark
@@ -534,8 +521,7 @@ struct ClipRow: View {
     private var leadingMark: some View {
         switch Self.mark(for: item, hidden: hidden) {
         case .symbol(let name):
-            Image(systemName: name)
-                .islandFont(.reading, weight: .regular)
+            GlyphImage(IslandGlyph(rawValue: name) ?? .document, pointSize: Theme.TypeRole.reading.size)
                 .foregroundStyle(Theme.secondary)
                 // The copied tick takes the mark's place only in the trailing
                 // slot (below): the mark is what says what the row is.
@@ -652,8 +638,7 @@ struct ClipRow: View {
             // flash, in place of the hover controls, so a copy is a shape
             // and a word, never a tint alone.
             HStack(spacing: 5) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .regular))
+                GlyphImage(.checkCircle, pointSize: 12)
                     .foregroundStyle(Theme.success)
                     .symbolSwap(value: justCopied, reduceMotion: reduceMotion)
                 Text(localized("Copied"))
@@ -675,7 +660,7 @@ struct ClipRow: View {
                         symbol: item.isPinned ? "pin.fill" : "pin", label: item.isPinned ? localized("Unpin") : localized("Pin"),
                         tint: item.isPinned ? Color.white : Theme.secondary
                     ) { clipboard.togglePin(item) }
-                    hoverButton(symbol: "xmark", label: localized("Remove Entry"), tint: Theme.secondary, weight: .semibold) {
+                    hoverButton(symbol: "xmark", label: localized("Remove Entry"), tint: Theme.secondary) {
                         clipboard.remove(item)
                     }
                 } else if isSelected {
@@ -707,11 +692,10 @@ struct ClipRow: View {
     }
 
     private func hoverButton(
-        symbol: String, label: String, tint: Color, weight: Font.Weight = .regular, action: @escaping () -> Void
+        symbol: String, label: String, tint: Color, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: symbol == "xmark" ? 9 : 11, weight: weight))
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .close, pointSize: symbol == "xmark" ? 9 : 11)
                 .foregroundStyle(tint)
                 // A 10pt glyph is a ~10pt target sitting beside the reveal eye,
                 // inside a row whose own background copies to the pasteboard —
@@ -793,8 +777,7 @@ struct ClipImageTile: View {
                 .overlay(alignment: .topTrailing) { if hovering && !justCopied { hoverButtons } }
                 .overlay(alignment: .topLeading) {
                     if item.isPinned && !hovering && !hidden {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 9, weight: .regular))
+                        GlyphImage(.pinFilled, pointSize: 9)
                             .foregroundStyle(Color.white)
                             .padding(4)
                             .background(Circle().fill(Color.black.opacity(0.55)))
@@ -860,8 +843,7 @@ struct ClipImageTile: View {
 
     private func tileButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: symbol == "xmark" ? 9 : 10, weight: .semibold))
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .close, pointSize: symbol == "xmark" ? 9 : 10)
                 .foregroundStyle(Color.white)
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(Color.black.opacity(0.6)))
@@ -876,8 +858,7 @@ struct ClipImageTile: View {
         ZStack {
             Color.black.opacity(0.55)
             HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .regular))
+                GlyphImage(.checkCircle, pointSize: 12)
                     .foregroundStyle(Theme.success)
                     .symbolSwap(value: justCopied, reduceMotion: reduceMotion)
                 Text(localized("Copied"))
@@ -1016,13 +997,6 @@ enum ClipHighlight {
             result[attributedRange].foregroundColor = Theme.findHighlightText
         }
         return result
-    }
-
-    /// The matched ranges as character offsets, for a test that holds what is
-    /// lit without reading attributes.
-    static func matchedText(_ runs: [Run], query: String) -> [String] {
-        let plain = runs.map(\.text).joined()
-        return ClipboardSearch.ranges(of: query, in: plain).map { String(plain[$0]) }
     }
 }
 

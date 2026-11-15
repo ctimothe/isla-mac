@@ -859,18 +859,10 @@ final class LyricsCoordinatorTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertEqual(coordinator.availability, .cannotLookUp(.noLength))
-        XCTAssertNil(LyricsPresentation.offer(
-            for: coordinator.availability, localLookup: coordinator.localLookup, onlineEnabled: false
-        ))
-        XCTAssertNil(LyricsPresentation.offer(
-            for: coordinator.availability, localLookup: coordinator.localLookup, onlineEnabled: true
-        ))
         XCTAssertEqual(
             LyricsPresentation.compactCaption(for: coordinator.availability, currentLine: nil),
             localized("No lyrics for live audio.")
         )
-        XCTAssertFalse(LyricsPresentation.canRetry(coordinator.availability))
-        XCTAssertFalse(LyricsPresentation.canOpenLocalActions(coordinator.availability))
     }
 
     /// The player publishes the title before the length, so a real song

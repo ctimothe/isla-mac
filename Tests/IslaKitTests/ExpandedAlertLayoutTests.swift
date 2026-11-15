@@ -51,7 +51,7 @@ final class ExpandedAlertLayoutTests: XCTestCase {
         let notch = CGSize(width: 180, height: 38)
         let hud = HUDMoment(HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil))
         XCTAssertEqual(
-            NotchViewModel.hudBodySize(hud, notchSize: notch, bodyWidth: 560),
+            NotchViewModel.hudBodySize(notchSize: notch, bodyWidth: 560),
             ExpandedAlertShape.volume.bodySize(notchSize: notch, bodyWidth: 560)
         )
         XCTAssertEqual(
@@ -62,7 +62,7 @@ final class ExpandedAlertLayoutTests: XCTestCase {
     }
 
     /// Radii by what the island shows: each alert its own, the compact
-    /// activities the reference's 8.67 / 12.67, the peek's bottom 16.
+    /// activities the reference's 8.67 / 12.67, a new track the pop-up's.
     func testTheOutlineTakesTheRadiiOfWhatItShows() {
         let hud = HUDMoment(HUDReading(kind: .display, level: 0.5, muted: false, deviceSymbol: nil))
         XCTAssertEqual(IslandShapeRadii.closed(for: .hud(hud)).top, 18.67)
@@ -74,7 +74,7 @@ final class ExpandedAlertLayoutTests: XCTestCase {
             XCTAssertEqual(IslandShapeRadii.closed(for: compact).top, Theme.collapsedTopRadius)
             XCTAssertEqual(IslandShapeRadii.closed(for: compact).bottom, Theme.collapsedBottomRadius)
         }
-        XCTAssertEqual(IslandShapeRadii.closed(for: .peek).bottom, Theme.peekBottomRadius)
+        XCTAssertEqual(IslandShapeRadii.closed(for: .peek).bottom, 22.67)
     }
 
     // MARK: Volume and brightness (§19.5 d)
@@ -132,15 +132,10 @@ final class ExpandedAlertLayoutTests: XCTestCase {
     func testTheFillIsTheLevelOfTheTrackAndMutedKeepsIt() {
         let width: CGFloat = 208.06
         let track = HUDLayout.trackFrame(islandWidth: width, notchHeight: 38)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 0.5, islandWidth: width, notchHeight: 38).width, track.width / 2, accuracy: 0.001)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 0, islandWidth: width, notchHeight: 38).width, 0)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 1.4, islandWidth: width, notchHeight: 38).width, track.width, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.mutedFillOpacity, 0.32)
         // Flat white, no amber and no glow (owner's review, 2026-10-18).
         XCTAssertEqual(HUDLayout.levelOpacity, 0.92)
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let shell = (try? String(contentsOf: root.appendingPathComponent("Sources/IslaKit/UI/NotchContentView.swift"), encoding: .utf8)) ?? ""
+        let shell = (try? SourceText.of("Sources/IslaKit/UI/NotchContentView.swift")) ?? ""
         XCTAssertFalse(shell.contains("hudAmber"))
         XCTAssertFalse(shell.contains("glowRadius"))
     }

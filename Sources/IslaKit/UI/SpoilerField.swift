@@ -131,43 +131,6 @@ private struct Splitmix64 {
     }
 }
 
-/// A string that is either shown or replaced by the dust — never both, and
-/// never merely made transparent.
-struct SpoilerText: View {
-    let text: String
-    let hidden: Bool
-    var font: Font = Theme.TypeRole.body.font(weight: .regular)
-    var color: Color = .white
-    /// Height of the field that stands in for the text, so a covered row is
-    /// exactly as tall as an uncovered one.
-    var height: CGFloat = 12
-    /// Anything stable that differs between rows — the row's id will do. Not
-    /// the text itself: identical strings would then draw identical dust, and
-    /// "these two rows hold the same thing" is worth hiding too.
-    var seed: UInt64 = 0x9E3779B97F4A7C15
-
-    var body: some View {
-        if hidden {
-            SpoilerField(seed: seed)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: height)
-                // Or the trailing spacer would split the row with it, and the
-                // width of the covered area would follow the row's contents.
-                .layoutPriority(1)
-                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-                // Announced rather than described: a screen reader must not be
-                // the hole in a feature about not showing things.
-                .accessibilityLabel(Text(localized("Hidden")))
-        } else {
-            Text(text)
-                .font(font)
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-}
-
 /// The eye that uncovers one row. Sits where a row's other controls sit and
 /// appears on hover with them.
 struct RevealEye: View {
@@ -177,8 +140,7 @@ struct RevealEye: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: hidden ? "eye" : "eye.slash")
-                .islandFont(.caption, weight: .semibold)
+            GlyphImage(hidden ? .eye : .eyeSlash, pointSize: Theme.TypeRole.caption.size)
                 .foregroundStyle(Theme.secondary)
                 .symbolSwap(value: hidden, reduceMotion: reduceMotion)
                 // A 10pt glyph is a 10pt target; the row's own background is a

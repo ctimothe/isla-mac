@@ -129,21 +129,31 @@ final class OutputMenuController: NSObject {
     /// (spec §4.5).
     static func rowImage(symbol: String, isCurrent: Bool) -> NSImage {
         let side: CGFloat = 26
-        let glyph = (NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            ?? NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil))?
-            .withSymbolConfiguration(
-                NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-                    .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
-            )
+        let glyph = IslandGlyph(rawValue: symbol) ?? .audioOutput
+        let box = IslandGlyph.symbolBox(pointSize: 13)
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             (isCurrent ? Theme.accentNSColor : NSColor.white.withAlphaComponent(0.16)).setFill()
             NSBezierPath(ovalIn: rect).fill()
-            if let glyph {
-                let size = glyph.size
-                glyph.draw(in: NSRect(
-                    x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
-                    width: size.width, height: size.height
+            // An Apple product is Apple's drawing, configured white as the
+            // row's symbol always was.
+            if let product = glyph.appleProductImage?.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+            ) {
+                product.draw(in: NSRect(
+                    x: rect.midX - product.size.width / 2, y: rect.midY - product.size.height / 2,
+                    width: product.size.width, height: product.size.height
                 ))
+            // The glyph's path is y down in its box; this image is y up, and a
+            // template image would draw black here, not the white the row needs.
+            } else if let context = NSGraphicsContext.current?.cgContext {
+                context.saveGState()
+                context.translateBy(x: rect.midX - box / 2, y: rect.midY + box / 2)
+                context.scaleBy(x: 1, y: -1)
+                context.addPath(glyph.path(size: box))
+                context.setFillColor(NSColor.white.cgColor)
+                context.fillPath()
+                context.restoreGState()
             }
             return true
         }

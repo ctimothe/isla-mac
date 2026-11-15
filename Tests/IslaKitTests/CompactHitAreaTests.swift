@@ -26,7 +26,7 @@ final class CompactHitAreaTests: XCTestCase {
     }
 
     /// It follows the width rather than being cut once, so the panel-width
-    /// setting and the pill widening for a peek both stay clickable end to end.
+    /// setting and an island of any width both stay clickable end to end.
     func testItFollowsWhateverWidthTheIslandIs() throws {
         let geometry = try XCTUnwrap(NotchGeometry.current())
         let narrow = geometry.contentRect(for: CGSize(width: 200, height: geometry.collapsedDepth))

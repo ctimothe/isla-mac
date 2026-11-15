@@ -47,9 +47,7 @@ struct UpdateAlertView: View {
         let stage = self.stage
         let glyph = Layout.glyphFrame(notchHeight: notchHeight)
         ZStack(alignment: .topLeading) {
-            Image(systemName: Layout.glyphSymbol)
-                .resizable()
-                .scaledToFit()
+            GlyphImage(IslandGlyph(rawValue: Layout.glyphSymbol) ?? .downloadFilled)
                 .foregroundStyle(Theme.updateBlue.gradient)
                 .frame(width: glyph.width, height: glyph.height)
                 .offset(x: glyph.minX, y: glyph.minY)

@@ -45,6 +45,8 @@ final class AmbientWatch {
         /// Runs `work` on the main actor after `delay` seconds.
         var after: @MainActor (_ delay: TimeInterval, _ work: @escaping @MainActor @Sendable () -> Void) -> Void
         var now: @MainActor () -> Date
+        /// Whether Low Power Mode is on, for Battery Low's advice (§19.5 a).
+        var lowPowerMode: @Sendable () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled }
 
         static let live = Environment(
             readPower: { AmbientWatch.readPower() },
@@ -117,6 +119,8 @@ final class AmbientWatch {
 
     private var powerSource: CFRunLoopSource?
     private var lastPower: Power?
+    /// Battery Low and Full Battery's crossings (spec §19.5 a, b).
+    private var batteryAlerts = BatteryAlerts(seed: nil)
     /// Stamps each arrival, so a reading that settles after the charger was
     /// pulled, or after a newer arrival, is dropped.
     private var arrivalGeneration = 0
@@ -165,6 +169,7 @@ final class AmbientWatch {
     /// a Mac launched on, the headphones already connected.
     func seed() {
         lastPower = environment.readPower()
+        batteryAlerts = BatteryAlerts(seed: lastPower)
         if let headphones = environment.readHeadphones() { knownHeadphones = Set(headphones.map(\.uid)) }
     }
 
@@ -194,6 +199,12 @@ final class AmbientWatch {
         // next real plug-in look like the first reading, which is no event.
         guard let now = environment.readPower() else { return }
         defer { lastPower = now }
+        // The battery's own alerts come first and from every reading: a
+        // discharge crosses 20 percent on battery, where everything below
+        // returns early, and a charge reaches 100 long after the plug-in.
+        if let alert = batteryAlerts.reading(now, lowPowerMode: environment.lowPowerMode()) {
+            onEvent?(alert)
+        }
         let date = environment.now()
         guard now.onExternalPower else {
             // Pulled: an arrival still settling is not one any more.

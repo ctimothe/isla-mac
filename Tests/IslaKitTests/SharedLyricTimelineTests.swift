@@ -261,21 +261,16 @@ final class SharedLyricTimelineTests: XCTestCase {
         for state in states {
             XCTAssertFalse(LyricsPresentation.compactCaption(for: state, currentLine: nil).isEmpty, "\(state)")
         }
-        XCTAssertTrue(LyricsPresentation.canOpenLocalActions(.noLocalLyrics))
-        XCTAssertTrue(LyricsPresentation.canOpenLocalActions(.invalidLocalFile(.malformed)))
-        // A track that cannot be looked up has no identity to bind a file to.
-        XCTAssertFalse(LyricsPresentation.canOpenLocalActions(.cannotLookUp(.noLength)))
-        XCTAssertFalse(LyricsPresentation.canOpenLocalActions(.cannotLookUp(.noTitle)))
     }
 
     func testWordKaraokeDefaultsOffAndPersistsAnExplicitSelection() {
-        UserDefaults.standard.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey)
-        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey) }
+        UserDefaults.stores.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey)
+        defer { UserDefaults.stores.removeObject(forKey: LyricsStore.wordKaraokeEnabledKey) }
 
         let lyrics = LyricsStore()
         XCTAssertFalse(lyrics.wordKaraokeEnabled)
         lyrics.wordKaraokeEnabled = true
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: LyricsStore.wordKaraokeEnabledKey))
+        XCTAssertTrue(UserDefaults.stores.bool(forKey: LyricsStore.wordKaraokeEnabledKey))
     }
 
     /// A word shorter than a frame fills as the clock crosses it (L-11).

@@ -1,33 +1,16 @@
-# Development notes
+# Development docs
 
-This folder records how Isla was designed, planned, tested and checked. You
-don't need any of it to use Isla. It's here for contributors who want to know
-why something works the way it does.
+For contributors. You don't need any of this to use Isla.
 
-Most files are dated and describe the project as it was on that day. The
-design document and its dated amendments always win; otherwise, when two files
-disagree, the newer one is right.
-
-Some audits cite raw JSON ledgers and long research digests. Those were
-removed from the tree to keep it readable; they are still in the git history.
-
-| Where | What it holds |
+| File | What it is for |
 | --- | --- |
-| [plans/2026-08-18-dynamic-island-parity-design.md](plans/2026-08-18-dynamic-island-parity-design.md) | The design Isla is built to. Changes are added as dated amendments, never rewritten. |
-| [checklist.md](checklist.md) | What each release finished, what Isla deliberately does differently from Cyclop, and the checks still owed on real hardware. |
-| [plans/2026-10-15-redesign-spec.md](plans/2026-10-15-redesign-spec.md) | The redesign: the island, its activities, and the pages and dots that replaced the tabs (§19 binds). Amended in place, dated. |
-| [plans/2026-10-17-activities-build-plan.md](plans/2026-10-17-activities-build-plan.md) | How the redesign was built, release by release (R7 onward). |
-| [plans/2026-10-19-dev-update-channel.md](plans/2026-10-19-dev-update-channel.md) | The private update channel on the owner's Mac and the island's update alert. |
-| [plans/2026-10-29-maturity-program.md](plans/2026-10-29-maturity-program.md) | Proposed: the scorecard, scenario matrix and batch loop that make Isla the best island on Macs without Apple's, and its behaviour on Macs with one. |
-| [scorecard.md](scorecard.md) | The maturity program's bar: every feature scored 0–4 on design, accessibility, speed, efficiency, reliability and usability, with the evidence. |
-| [run-sheet.md](run-sheet.md) | Every open hardware check sorted into ten ordered sittings, with the stale ones, the ones that could be tests and the ones waiting on Apple. |
-| [design/](design/) | Design sources kept for reference, such as the app icon's directions. |
-| [plans/](plans/) | Plans for each piece of work, before it was built. |
-| [specs/](specs/) | Feature designs. `shell-music-mvp.md` describes an earlier prototype, not this app. |
-| [audits/](audits/) | Reviews of the whole app and the bugs they found. |
-| [research/](research/) | Background reading: Apple's own players, other notch apps, technical limits. |
-| [performance/](performance/) | CPU and memory measured against Cyclop 0.6.5. |
-| [verification/](verification/) | Results of release-candidate checks. |
+| [spec.md](spec.md) | What Isla does today and the rules it keeps. The behaviour contract: change it in the same commit as the behaviour. |
+| [open-checks.md](open-checks.md) | What is still owed: hardware checks on a notched MacBook, open findings and open owner decisions. |
+| [plans/2026-11-15-islandcn-identical.md](plans/2026-11-15-islandcn-identical.md) | The active plan: islandcn's island, activities, icons and motion, slice by slice. |
+| [audits/2026-11-15-islandcn-identical/](audits/2026-11-15-islandcn-identical/) | The plan's inputs: islandcn's motion, activities and icons, measured against Isla. |
+
+These describe the app as it is. Finished plans, audits, research and the
+history of every decision are in git: `git log -- docs/development`.
 
 How to verify and ship a release is in [../runbook.md](../runbook.md) and
 [../release-checklist.md](../release-checklist.md).

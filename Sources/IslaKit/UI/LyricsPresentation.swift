@@ -51,51 +51,6 @@ enum LyricsPresentation {
         }
     }
 
-    /// The one action an empty lyrics page offers, if any.
-    enum Offer: Equatable {
-        /// Lyrics are off: turn them on, which reaches nothing but this Mac.
-        case turnOnLyrics
-        /// Nothing local matched and LRCLIB was never asked: ask it, with
-        /// the disclosure beside the button.
-        case lookUpOnline
-    }
-
-    static func offer(
-        for availability: LyricsAvailability,
-        localLookup: LocalLyricsLookup?,
-        onlineEnabled: Bool
-    ) -> Offer? {
-        switch availability {
-        case .disabled:
-            return .turnOnLyrics
-        case .noLocalLyrics:
-            // An ambiguous match already has its own choice on the page.
-            if case .ambiguous = localLookup { return nil }
-            return onlineEnabled ? nil : .lookUpOnline
-        case .cannotLookUp:
-            // Nothing to offer. Show Lyrics is already on, and Look Up Online
-            // cannot identify a recording with no length or no title.
-            return nil
-        default:
-            return nil
-        }
-    }
-
-    static func canRetry(_ availability: LyricsAvailability) -> Bool {
-        switch availability {
-        case .ready: return true
-        case .noLocalLyrics, .invalidLocalFile: return true
-        default: return false
-        }
-    }
-
-    static func canOpenLocalActions(_ availability: LyricsAvailability) -> Bool {
-        switch availability {
-        case .noLocalLyrics, .invalidLocalFile: return true
-        default: return false
-        }
-    }
-
     static func usesWordTiming(
         _ granularity: LyricTimeline.Granularity?,
         precisionMeasured: Bool,

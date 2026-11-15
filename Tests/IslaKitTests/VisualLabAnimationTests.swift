@@ -154,9 +154,7 @@ final class VisualLabAnimationTests: VisualLabCase {
             try curve(Theme.open(reduceMotion: false), "open-close", "panel open (shape, header, cover morph) on the outline's spring; the close is \"close\"", "Theme.swift islandSpring", travel: body),
             try curve(Theme.close(reduceMotion: false), "close", "panel close (shape, header, cover morph), the outline's spring after closeShapeDelay", "Theme.swift close(reduceMotion:)", travel: body),
             try curve(Theme.open(reduceMotion: true), "open-close-reduce-motion", "panel open/close under Reduce Motion", "Theme.swift open(reduceMotion:)"),
-            try curve(Theme.openAnimation, "player-layout", "player changing between two layouts of one height", "Theme.swift openAnimation", travel: body),
-            try curve(Theme.compactAnimation, "compact", "pill resizing around a new track", "Theme.swift compactAnimation", travel: Double(NotchMetrics.compactMediaExtension)),
-            try curve(Theme.pill(reduceMotion: false), "pill-unfold", "pill growing out of the notch and folding back, the peek widening, and the pill's content arriving and leaving with it (blur 15→0, scale x 0.8→1, opacity)", "Theme.swift pill(reduceMotion:)", travel: Double(NotchMetrics.compactMediaExtension) / 2),
+            try curve(Theme.pill(reduceMotion: false), "pill-unfold", "pill growing out of the notch and folding back, and the pill's content arriving and leaving with it (blur 15→0, scale x 0.8→1, opacity)", "Theme.swift pill(reduceMotion:)", travel: Double(NotchMetrics.compactMediaExtension) / 2),
             try curve(Theme.pill(reduceMotion: true), "pill-reduce-motion", "pill fold/unfold under Reduce Motion", "Theme.swift pill(reduceMotion:)"),
             try curve(Theme.lyricScroll, "lyric-scroll", "stage page step, lock-card lyric window, row brightening", "Theme.swift lyricScroll",
                       travel: Double(LyricsStage.slotHeight + LyricsStage.slotSpacing)),
@@ -180,8 +178,8 @@ final class VisualLabAnimationTests: VisualLabCase {
         // the clock on every frame (`KaraokeText.clock`, F-011), and
         // `KaraokeText.sweepAnimation` is nil in every case. The lyric lab's
         // L5 measures what it draws.
-        let press = try literal("Sources/IslaKit/UI/Theme.swift", #"\.animation\(\.easeOut\(duration: ([0-9.]+)\), value: configuration\.isPressed\)"#)
-        curves.append(try curve(.easeOut(duration: press), "button-press", "NotchButtonStyle press dim", "Theme.swift NotchButtonStyle"))
+        let press = try literal("Sources/IslaKit/UI/ButtonStyles.swift", #"\.animation\(\.easeOut\(duration: ([0-9.]+)\), value: configuration\.isPressed\)"#)
+        curves.append(try curve(.easeOut(duration: press), "button-press", "NotchButtonStyle press dim", "ButtonStyles.swift NotchButtonStyle"))
         // The refusal shake is no longer a curve: it is time-driven
         // (`RefusalShake.offset(at:)`), sampled into refusal-shake-offset.csv.
         let shimmer = try literal("Sources/IslaKit/UI/Skeleton.swift", #"\.linear\(duration: ([0-9.]+)\)\.repeatForever"#)
@@ -438,7 +436,7 @@ final class VisualLabAnimationTests: VisualLabCase {
         let openBody = CGSize(width: NotchMetrics.defaultBodyWidth, height: NotchMetrics.standardBodyHeight)
         let pillBody = CGSize(width: notch.width + NotchMetrics.compactMediaExtension, height: notch.height)
 
-        let note = "Reconstructed from the sampled curves and the real end-state views; see docs/development/audits/2026-10-11-visual-lab/README.md §Keyframes."
+        let note = "Reconstructed from the sampled curves and the real end-state views; see Scripts/visual-lab.sh."
 
         func frame(_ sequence: String, _ ms: Int, size: CGSize, notes: String, _ view: @escaping () -> AnyView) async throws {
             let shoot = LabPhotographer(session: session, surface: "keyframes-\(sequence)")
@@ -748,7 +746,10 @@ private struct PillKeyframe: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .frame(width: wing)
                 Color.clear.frame(width: notch.width, height: 1)
-                EqualizerBars(isAnimating: false, opacity: 0.82)
+                CompactEqualizer(
+                    isAnimating: false,
+                    colors: CompactEqualizerMotion.colors(isPlaying: false, tint: .white, increaseContrast: false)
+                )
                     .frame(width: wing)
             }
             .frame(width: bodyWidth, height: notch.height)

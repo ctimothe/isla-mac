@@ -84,9 +84,7 @@ struct TransportGlyphButton: View {
         let label = kind.label(isPlaying: isPlaying)
         let glyph = Self.glyphSize(kind, hitTarget: hitTarget)
         Button(action: action) {
-            Image(systemName: symbol)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+            GlyphImage(IslandGlyph(rawValue: symbol) ?? .play)
                 .frame(width: glyph.width, height: glyph.height)
                 .foregroundStyle(.white.opacity(Theme.playerTransportOpacity))
                 // Replaced, not swapped: a hard cut on the control the eye is

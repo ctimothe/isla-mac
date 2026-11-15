@@ -29,7 +29,6 @@ final class PlayerLayoutTests: XCTestCase {
         XCTAssertEqual(PlayerLayout.y(164.6), 126.6, accuracy: 0.0001)
         XCTAssertEqual(layout().right(54.2), 357.4 + 34 - 54.2, accuracy: 0.0001, "an edge given from the shape's right")
         XCTAssertEqual(layout().centre, 357.4 / 2, accuracy: 0.0001, "m, the shape's centre, which is the body's")
-        XCTAssertEqual(PlayerLayout.referenceHeaderHeight, 38)
         // The body's own size is the same arithmetic, from the layout type.
         let notch = CGSize(width: 185, height: 38)
         XCTAssertEqual(SurfaceLayout.bodySize(for: .player, bodyWidth: 560, notch: notch).width, PlayerLayout.referenceBodyWidth, accuracy: 0.0001)
@@ -280,17 +279,17 @@ final class PlayerLayoutTests: XCTestCase {
     /// Fits all three: the first three in order, no more than three.
     func testAtMostThreeButtonsInTheGivenOrder() {
         let apps = [app("a", "A"), app("b", "B"), app("c", "C"), app("d", "D"), app("e", "E")]
-        let chosen = PlayerLayout.openButtonApps(apps, room: 10_000) { _ in 40 }
+        let chosen = PlayerLayout.openButtonRow(apps, room: 10_000) { _ in 40 }.apps
         XCTAssertEqual(chosen.map(\.bundleID), ["a", "b", "c"])
         XCTAssertEqual(PlayerLayout.maxOpenButtons, 3)
-        XCTAssertEqual(PlayerLayout.openButtonApps([], room: 400) { _ in 40 }, [])
+        XCTAssertEqual(PlayerLayout.openButtonRow([], room: 400) { _ in 40 }.apps, [])
     }
 
     /// Never a truncated button: what does not fit is left out. Each button is
     /// 42 + 40 = 82 wide; three need 82 × 3 + 16 = 262.
     func testTheCapFollowsTheRoomAtEachWidth() {
         let apps = [app("a", "A"), app("b", "B"), app("c", "C")]
-        func count(_ room: CGFloat) -> Int { PlayerLayout.openButtonApps(apps, room: room) { _ in 40 }.count }
+        func count(_ room: CGFloat) -> Int { PlayerLayout.openButtonRow(apps, room: room) { _ in 40 }.apps.count }
         XCTAssertEqual(count(262), 3, "exactly fits")
         XCTAssertEqual(count(261), 2, "one point short: the third is left out, not squeezed")
         XCTAssertEqual(count(172), 2)
@@ -303,7 +302,7 @@ final class PlayerLayoutTests: XCTestCase {
     /// not jump the queue, because Apple Music and Spotify lead on purpose.
     func testALongNameEndsTheRowAndNothingSkipsAheadOfIt() {
         let apps = [app("a", "A"), app("b", "Bbbbbbbbbbbbbbbbbbbb"), app("c", "C")]
-        let chosen = PlayerLayout.openButtonApps(apps, room: 260) { $0.bundleID == "b" ? 200 : 20 }
+        let chosen = PlayerLayout.openButtonRow(apps, room: 260) { $0.bundleID == "b" ? 200 : 20 }.apps
         XCTAssertEqual(chosen.map(\.bundleID), ["a"])
     }
 

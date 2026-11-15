@@ -18,8 +18,20 @@ final class IslandActivityTests: XCTestCase {
         XCTAssertEqual(headphones.rank, 6)
         XCTAssertEqual(charging.rank, 7)
         XCTAssertEqual(IslandActivity.peek.rank, 10, "the new-track peek")
-        XCTAssertEqual(IslandActivity.music.rank, 11)
-        XCTAssertEqual(IslandActivity.shelf(count: 3).rank, 12)
+        // Amended 2026-11-14 (plan islandcn-activities, then the owner's
+        // screenshot the same day): what the person started and is attending
+        // to stands highest — a timer, a stopwatch, the song — and what an
+        // app is doing on its own waits under it: the microphone, a download,
+        // the Shelf. A muted microphone keeps its place (owner, 2026-11-15).
+        XCTAssertEqual(IslandActivity.live(.timer(IslandTimerState(kind: .countdown(duration: 60), runningSince: Date(), banked: 0))).rank, 11)
+        XCTAssertEqual(IslandActivity.live(.stopwatch(IslandTimerState(kind: .stopwatch, runningSince: Date(), banked: 0))).rank, 12)
+        XCTAssertEqual(IslandActivity.music.rank, 13)
+        XCTAssertEqual(IslandActivity.live(.recording(CaptureState(microphone: ["a"], camera: false))).rank, 14)
+        XCTAssertEqual(IslandActivity.live(.downloads([DownloadProgress(name: "a.zip", bytesSoFar: 1, totalBytes: 2)])).rank, 15)
+        XCTAssertEqual(IslandActivity.shelf(count: 3).rank, 16)
+        XCTAssertEqual(
+            IslandActivity.live(.recording(CaptureState(microphone: ["a"], camera: false, muted: true))).rank, 14
+        )
         XCTAssertNil(IslandActivity.none.rank, "the bare notch is not an activity")
 
         for alert in [hud, headphones, charging, .peek] {
@@ -54,26 +66,6 @@ final class IslandActivityTests: XCTestCase {
         XCTAssertEqual(current(hud: volume, ambient: charger, peeking: true, music: true, shelf: 2), .hud(volume))
         XCTAssertEqual(current(ambient: charger, shelf: 4), .ambient(charger), "an alert over the Shelf alone")
         XCTAssertEqual(current(shelf: 0), .none, "an empty Shelf is not live")
-    }
-
-    // MARK: The bubble
-
-    /// Only Music and the Shelf are live, so only the Shelf can be the bubble,
-    /// and only beside a compact live activity: never during an alert, a
-    /// surface or the lock.
-    func testTheBubbleIsTheShelfBesideMusicAndNowhereElse() {
-        func bubble(_ activity: IslandActivity, shelf: Int = 3, open: Bool = false, locked: Bool = false) -> Int? {
-            IslandActivity.bubble(beside: activity, shelfCount: shelf, isOpen: open, isLocked: locked)
-        }
-        XCTAssertEqual(bubble(.music), 3, "Music holds the island; the Shelf waits beside it")
-        XCTAssertNil(bubble(.music, shelf: 0), "an empty Shelf")
-        XCTAssertNil(bubble(.shelf(count: 3)), "the Shelf is the island itself")
-        XCTAssertNil(bubble(.none, shelf: 0))
-        for alert in [hud, headphones, charging, .peek] {
-            XCTAssertNil(bubble(alert), "never during an alert: \(alert)")
-        }
-        XCTAssertNil(bubble(.music, open: true), "never while a surface is open")
-        XCTAssertNil(bubble(.music, locked: true), "never while locked")
     }
 
     // MARK: Replacement

@@ -27,13 +27,13 @@ final class LyricRoutesTests: XCTestCase {
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
         vm.open(.player)
         vm.openStage()
-        XCTAssertTrue(vm.isShowingLyrics)
+        XCTAssertTrue(vm.surface == .stage)
         vm.open(.tray)
-        XCTAssertFalse(vm.isShowingLyrics, "the stage is a surface of its own")
+        XCTAssertFalse(vm.surface == .stage, "the stage is a surface of its own")
 
         // And coming back does not restore it: the player opens as the player.
         vm.open(.player)
-        XCTAssertFalse(vm.isShowingLyrics)
+        XCTAssertFalse(vm.surface == .stage)
     }
 
     /// What lands on the pasteboard is the song, not the app's bookkeeping:
@@ -62,8 +62,8 @@ final class LyricRoutesTests: XCTestCase {
     /// source, or the delay a pair of AirPods adds — and it clamps where the
     /// store says it does, however far the slider is dragged.
     func testTheGlobalLyricDelayClampsAtThreeSecondsEitherWay() {
-        UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey)
-        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey) }
+        UserDefaults.stores.removeObject(forKey: LyricsStore.offsetKey)
+        defer { UserDefaults.stores.removeObject(forKey: LyricsStore.offsetKey) }
         let store = LyricsStore()
 
         store.userOffset = 12
@@ -73,7 +73,7 @@ final class LyricRoutesTests: XCTestCase {
 
         store.userOffset = 0.4
         XCTAssertEqual(
-            UserDefaults.standard.double(forKey: LyricsStore.offsetKey), 0.4, accuracy: 0.0001,
+            UserDefaults.stores.double(forKey: LyricsStore.offsetKey), 0.4, accuracy: 0.0001,
             "a correction the listener made has to survive the next launch"
         )
         // And it reaches the surfaces through the one clock every one of them
@@ -116,8 +116,8 @@ final class IntentSurfaceTests: XCTestCase {
     /// They are declared in two files, and a shortcut that could ask for four
     /// seconds would get three back with no explanation.
     func testTheDelayIntentOffersExactlyWhatTheStoreWillKeep() {
-        UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey)
-        defer { UserDefaults.standard.removeObject(forKey: LyricsStore.offsetKey) }
+        UserDefaults.stores.removeObject(forKey: LyricsStore.offsetKey)
+        defer { UserDefaults.stores.removeObject(forKey: LyricsStore.offsetKey) }
         let store = LyricsStore()
         store.userOffset = 3
         XCTAssertEqual(store.userOffset, 3, accuracy: 0.0001)

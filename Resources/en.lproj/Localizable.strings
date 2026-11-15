@@ -604,3 +604,51 @@
 "Spotify asks for Premium on Isla’s registration." = "Spotify asks for Premium on Isla’s registration.";
 "Spotify refused this account." = "Spotify refused this account.";
 "Spotify ended Isla’s access. Connect again." = "Spotify ended Isla’s access. Connect again.";
+
+/* Battery alerts and new island rows, 2026-11-14 */
+"Battery Low" = "Battery Low";
+"Battery Low, %d percent" = "Battery Low, %d percent";
+"Full Battery" = "Full Battery";
+"Full Battery. You can unplug the charger." = "Full Battery. You can unplug the charger.";
+"Connect a charger soon." = "Connect a charger soon.";
+"Connect a charger soon, or turn on Low Power Mode." = "Connect a charger soon, or turn on Low Power Mode.";
+"You can unplug the charger." = "You can unplug the charger.";
+"Low Battery Warning" = "Low Battery Warning";
+"Fully Charged" = "Fully Charged";
+"Microphone and Camera" = "Microphone and Camera";
+"Downloads" = "Downloads";
+
+/* Live activities: timer, stopwatch, recording, downloads (plan 2026-11-14) */
+"Camera in use" = "Camera in use";
+"Cancel Timer" = "Cancel Timer";
+"Done" = "Done";
+"Downloaded %@" = "Downloaded %@";
+"Downloaded" = "Downloaded";
+"Downloading %@, %d percent" = "Downloading %@, %d percent";
+"Downloading %@" = "Downloading %@";
+"Microphone and camera in use" = "Microphone and camera in use";
+"Microphone in use" = "Microphone in use";
+"Show %@" = "Show %@";
+"Microphone Muted" = "Microphone Muted";
+"Microphone" = "Microphone";
+"In use" = "In use";
+"Unmute Microphone" = "Unmute Microphone";
+"Mute Microphone" = "Mute Microphone";
+"Quit %@…" = "Quit %@…";
+"Quit App…" = "Quit App…";
+"Quit %@" = "Quit %@";
+"Microphone in use, muted" = "Microphone in use, muted";
+"Pause Stopwatch" = "Pause Stopwatch";
+"Pause Timer" = "Pause Timer";
+"Received %@ by AirDrop" = "Received %@ by AirDrop";
+"Reset Stopwatch" = "Reset Stopwatch";
+"Resume Stopwatch" = "Resume Stopwatch";
+"Resume Timer" = "Resume Timer";
+"Resume" = "Resume";
+"Stopwatch paused, %@" = "Stopwatch paused, %@";
+"Stopwatch, %@" = "Stopwatch, %@";
+"Stopwatch" = "Stopwatch";
+"Timer done" = "Timer done";
+"Timer paused, %@ left" = "Timer paused, %@ left";
+"Timer, %@ left" = "Timer, %@ left";
+"Timer" = "Timer";

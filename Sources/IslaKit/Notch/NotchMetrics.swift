@@ -16,11 +16,6 @@ enum NotchMetrics {
         CGSize(width: width, height: standardBodyHeight)
     }
 
-    /// The *widest* body, which is what the window is cut for and what the
-    /// window arithmetic is written against. The window is never resized — it is
-    /// transparent outside the panel, and what is clickable is decided by the
-    /// active rect — so a narrower body simply leaves more of it transparent.
-    static let standardBody = CGSize(width: maximumBodyWidth, height: standardBodyHeight)
     /// The tallest body the window was ever cut for. The tab that asked for it
     /// — the teleprompter — was removed on 2026-08-22, but the window keeps this
     /// height on purpose: `maximumWindow` is derived from it, and a window that
@@ -42,8 +37,6 @@ enum NotchMetrics {
     /// The charger: "Charging" in the left wing, the level and a drawn battery
     /// in the right — words, where Music has a picture, so wider.
     static let compactChargingExtension: CGFloat = 180
-    /// One wing of the Music island: half of `compactMediaExtension`.
-    static let compactWing: CGFloat = compactMediaExtension / 2
     static let openDelay: TimeInterval = 0.05
     static let closeDelay: TimeInterval = 0.32
     static let fastPointerInterval: TimeInterval = 1.0 / 60.0
@@ -112,17 +105,7 @@ enum NotchMetrics {
     static let hoverNudgeWidth: CGFloat = 8
     static let hoverNudgeDepth: CGFloat = 3
 
-    /// How much wider the pill goes while peeking, over the compact width.
-    /// Enough for a title beside the artwork without reaching the full body.
-    static let sneakPeekExtension: CGFloat = 300
-    /// How tall the island grows for a new track's peek (spec §3.5, owner
-    /// decision 3). Two lines — a title and an artist — do not fit the notch's
-    /// own 38 pt without being squeezed against the camera, so the island grows
-    /// 12 pt down into the wallpaper, the way a Live Activity's alert does,
-    /// rather than the text being made smaller. The window is never resized
-    /// (it is cut for 444 pt), so this is only a drawn height and an active
-    /// rect.
-    static let sneakPeekHeight: CGFloat = 50
-    // The headphones and the volume pop-up are expanded alerts since spec
-    // §19.5 c and d, sized by `ExpandedAlertShape`, not by wings.
+    // The headphones, the volume pop-up and a new track are expanded alerts
+    // since spec §19.5 c and d and §3.5 (amended 2026-11-15), sized by
+    // `ExpandedAlertShape`, not by wings.
 }

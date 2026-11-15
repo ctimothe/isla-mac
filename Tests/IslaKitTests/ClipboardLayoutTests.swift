@@ -78,15 +78,7 @@ final class ClipboardLayoutTests: XCTestCase {
         XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 560), 5, "5 × 88 + 4 × 12 = 488 of 528")
         XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 480), 4, "4 × 88 + 3 × 12 = 388 of 448")
         XCTAssertEqual(ClipboardLayout.imageColumns(bodyWidth: 620), 6, "6 × 88 + 5 × 12 = 588 of 588: it just fits")
-        // The board puts the tiles at 100 pt steps.
-        XCTAssertEqual(ClipboardLayout.imageTileFrame(index: 3, columns: 5).minX, 300)
-        XCTAssertEqual(ClipboardLayout.imageTileFrame(index: 0, columns: 5).size, CGSize(width: 88, height: 66))
-        XCTAssertEqual(ClipboardLayout.imageTileFrame(index: 5, columns: 5).minX, 0, "the sixth starts a row")
-        XCTAssertGreaterThan(ClipboardLayout.imageTileFrame(index: 5, columns: 5).minY, 66 + 14)
-        XCTAssertEqual(ClipboardLayout.imageContentHeight(count: 0, columns: 5), 0)
-        XCTAssertGreaterThan(
-            ClipboardLayout.imageContentHeight(count: 6, columns: 5), ClipboardLayout.imageContentHeight(count: 5, columns: 5)
-        )
+        XCTAssertEqual(ClipboardLayout.imageTile, CGSize(width: 88, height: 66))
     }
 
     // MARK: The search and the Kind filter
@@ -217,7 +209,5 @@ final class ClipboardLayoutTests: XCTestCase {
     func testTheWellsStepUpUnderIncreaseContrast() {
         XCTAssertEqual(Theme.clipboardWellOpacity(increaseContrast: false), 0.08)
         XCTAssertGreaterThan(Theme.clipboardWellOpacity(increaseContrast: true), 0.08)
-        XCTAssertEqual(Theme.searchFieldOpacity(increaseContrast: false), 0.10)
-        XCTAssertGreaterThan(Theme.searchFieldOpacity(increaseContrast: true), 0.10)
     }
 }

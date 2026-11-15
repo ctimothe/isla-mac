@@ -29,19 +29,19 @@ final class PlayerSettingsTests: XCTestCase {
     /// picks an output.
     func testBothDefaultToOn() {
         let defaults = suite()
-        XCTAssertTrue(NotchViewModel.volumeAndOutputEnabled(in: defaults))
-        XCTAssertTrue(NotchViewModel.lyricBandEnabled(in: defaults))
+        XCTAssertTrue(SettingsRowID.volumeAndOutput.isOn(in: defaults))
+        XCTAssertTrue(SettingsRowID.lyricBand.isOn(in: defaults))
     }
 
     func testAStoredValueWinsAndOffStaysOff() {
         let defaults = suite()
         defaults.set(false, forKey: NotchViewModel.volumeAndOutputKey)
         defaults.set(false, forKey: NotchViewModel.lyricBandKey)
-        XCTAssertFalse(NotchViewModel.volumeAndOutputEnabled(in: defaults))
-        XCTAssertFalse(NotchViewModel.lyricBandEnabled(in: defaults))
+        XCTAssertFalse(SettingsRowID.volumeAndOutput.isOn(in: defaults))
+        XCTAssertFalse(SettingsRowID.lyricBand.isOn(in: defaults))
         defaults.set(true, forKey: NotchViewModel.volumeAndOutputKey)
-        XCTAssertTrue(NotchViewModel.volumeAndOutputEnabled(in: defaults))
-        XCTAssertFalse(NotchViewModel.lyricBandEnabled(in: defaults), "one switch does not move the other")
+        XCTAssertTrue(SettingsRowID.volumeAndOutput.isOn(in: defaults))
+        XCTAssertFalse(SettingsRowID.lyricBand.isOn(in: defaults), "one switch does not move the other")
     }
 
     /// The panel's audio watch is quiet under test: a pane built here must never

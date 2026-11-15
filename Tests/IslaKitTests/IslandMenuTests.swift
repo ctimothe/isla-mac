@@ -15,11 +15,11 @@ final class IslandMenuTests: XCTestCase {
         let items = IslandMenu.items(bindings: bindings, hasSong: true)
         XCTAssertEqual(
             items.map(\.kind),
-            [.clipboard, .translateClipboard, .shelf, .lyrics, .separator, .settings, .quit]
+            [.clipboard, .translateClipboard, .shelf, .lyrics, .timerGroup, .separator, .settings, .quit]
         )
         XCTAssertEqual(
             items.filter { $0.kind != .separator }.map(\.title),
-            ["Clipboard", "Translate Clipboard", "Shelf", "Lyrics", "Settings…", "Quit Isla"].map { localized($0) }
+            ["Clipboard", "Translate Clipboard", "Shelf", "Lyrics", "Timer", "Settings…", "Quit Isla"].map { localized($0) }
         )
     }
 
@@ -83,7 +83,8 @@ final class IslandMenuTests: XCTestCase {
         // Through each row's own target and action, which is what AppKit
         // sends: `performActionForItem` routes through `NSApp`, which a test
         // process does not have.
-        for index in [0, 6] {
+        // The Timer submenu sits at 4 since 2026-11-14, so Quit is at 7.
+        for index in [0, 7] {
             let row = menu.items[index]
             let target = try XCTUnwrap(row.target as? NSObject, "a row keeps its target alive: \(row.title)")
             let action = try XCTUnwrap(row.action)

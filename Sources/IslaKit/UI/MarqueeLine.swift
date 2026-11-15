@@ -40,8 +40,6 @@ struct MarqueeLine<Content: View>: View {
 
     /// How long the line rests at its start before each pass.
     static var rest: TimeInterval { MarqueeTiming.rest }
-    /// The reading pace, points a second.
-    static var speed: CGFloat { MarqueeTiming.speed }
     /// The space between the line and the copy that follows it.
     static var gap: CGFloat { MarqueeTiming.gap }
     /// The fade at each end.

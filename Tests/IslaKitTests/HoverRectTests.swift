@@ -50,16 +50,15 @@ final class HoverRectTests: XCTestCase {
         let hold = geometry.hoverRect(for: geometry.expandedSize)
 
         // Every width the collapsed pill is ever cut to: bare notch, playing,
-        // and the widest a sneak peek can reach. Taken from the same source the
-        // panel takes them from, so the cap is the real cap.
+        // a new track's alert (the pop-up's body), and the widest body. Taken
+        // from the same source the panel takes them from, so the cap is the
+        // real cap.
         let playing = CompactMediaActivity.playing
         let widths = [
             geometry.notchSize.width,
             playing.bodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width).width,
-            playing.bodySize(
-                notchSize: geometry.notchSize,
-                peeking: true,
-                bodyWidth: geometry.expandedSize.width
+            NotchViewModel.newTrackBodySize(
+                notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
             ).width,
             geometry.expandedSize.width,
         ]

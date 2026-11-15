@@ -28,7 +28,7 @@ final class SeekAccessibilityTests: XCTestCase {
         await LabFixtures.play(LabFixtures.Track(duration: 238, elapsed: 27, cover: nil), on: media)
 
         let pane = MediaPane(media: media, lyrics: isolated.stores.lyrics, morph: nil, icons: SettingsFixture.macWithApps([:]))
-        let root = await AXProbe.tree(of: pane, size: CGSize(width: NotchMetrics.standardBody.width, height: 162))
+        let root = await AXProbe.tree(of: pane, size: CGSize(width: NotchMetrics.maximumBodyWidth, height: 162))
 
         let scrubber = try XCTUnwrap(root.first(label: "Playback Position"), root.dump)
         XCTAssertEqual(scrubber.role, "AXSlider", root.dump)

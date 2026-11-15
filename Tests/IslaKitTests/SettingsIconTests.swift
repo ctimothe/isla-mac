@@ -14,7 +14,7 @@ final class SettingsIconTests: XCTestCase {
     func testEverySettingsSymbolResolves() {
         for name in SettingsIcon.all {
             XCTAssertNotNil(
-                NSImage(systemSymbolName: name, accessibilityDescription: nil),
+                IslandGlyph(rawValue: name),
                 "\(name) does not resolve on this system — the row would draw no icon at all"
             )
         }
@@ -23,7 +23,7 @@ final class SettingsIconTests: XCTestCase {
     /// No symbol is listed twice.
     ///
     /// The set is read at a glance, down a single column, and two rows wearing
-    /// the same glyph is the mistake that survives review. `clear` is deliberately
+    /// the same glyph is the mistake that survives review. 
     /// listed once and used by both Clear rows: same action, different files, and
     /// they should look identical.
     func testNoSymbolIsListedTwice() {
@@ -48,13 +48,5 @@ final class SettingsIconTests: XCTestCase {
                 "\(name) decorates rather than names what the row does"
             )
         }
-    }
-
-    /// A heart means a liked song. It never meant "connect an account", which is
-    /// what it sat on.
-    func testAccountRowsUseAnAccountSymbol() {
-        XCTAssertTrue(SettingsIcon.connectAccount.hasPrefix("person"))
-        XCTAssertTrue(SettingsIcon.disconnectAccount.hasPrefix("person"))
-        XCTAssertFalse(SettingsIcon.all.contains { $0.contains("heart") })
     }
 }

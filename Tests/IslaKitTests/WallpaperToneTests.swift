@@ -8,11 +8,9 @@ import XCTest
 /// this file draws — never on the desk of whoever runs it.
 ///
 /// The lock card's Automatic material reads this measurement over its own
-/// region; the island stopped asking on 2026-10-17 (spec §19.2). What these
-/// hold: dark below a mean luma of 0.20 and not above it, only the region asked
-/// about counts, the picture is laid on the screen aspect-fill, the answer is
-/// cached by file and date, a gated file is never opened, and every failure is
-/// "not dark".
+/// region. What these hold: only the region asked about counts, the picture is
+/// laid on the screen aspect-fill, the answer is cached by file and date, a
+/// gated file is never opened, and every failure answers nothing.
 final class WallpaperToneTests: XCTestCase {
     private var directory: URL!
 
@@ -60,13 +58,18 @@ final class WallpaperToneTests: XCTestCase {
     }
 
     private let screen = CGSize(width: 1512, height: 982)
-    private var centre: CGFloat { screen.width / 2 }
+    /// The strip along the top the measuring tests look at: the part of the
+    /// screen the island used to sit on, wide enough to tell a bright middle
+    /// from a dark one.
+    private var strip: CGRect {
+        CGRect(x: screen.width / 2 - 310, y: 0, width: 620, height: 60)
+    }
 
     /// The fixtures live in a temporary folder, which the real gate rightly
     /// refuses (it is neither the system's nor the home folder's), so the tests
     /// that are about *measuring* open the gate; the gate has its own tests.
-    private func reading(of url: URL?) -> WallpaperTone.Reading {
-        WallpaperTone.reading(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true })
+    private func luminance(of url: URL) -> Double? {
+        WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, region: strip, mayRead: { _ in true })
     }
 
     // MARK: The privacy gate
@@ -125,9 +128,9 @@ final class WallpaperToneTests: XCTestCase {
     }
 
     /// The gate is decided before any file call: the reader is never invoked
-    /// for a gated file, and the answer is "unknown" — no key line. For a
+    /// for a gated file, and the answer is nil. For a
     /// system picture the reader is asked.
-    func testAGatedWallpaperAnswersUnknownWithoutTouchingTheFile() throws {
+    func testAGatedWallpaperAnswersNothingWithoutTouchingTheFile() throws {
         var asked: [URL] = []
         let reader: (URL) -> CGImage? = { url in
             asked.append(url)
@@ -142,54 +145,41 @@ final class WallpaperToneTests: XCTestCase {
             "/Users/tester/Library/Containers/gated-\(UUID().uuidString).jpg",
         ].map { URL(fileURLWithPath: $0) }
         for url in gated {
-            let reading = WallpaperTone.reading(
-                ofWallpaperAt: url, screenSize: screen, notchCenterX: centre,
+            let luminance = WallpaperTone.meanLuminance(
+                ofWallpaperAt: url, screenSize: screen, region: strip,
                 mayRead: { WallpaperTone.isReadableWithoutPrompt($0, home: self.home) }, thumbnail: reader
             )
-            XCTAssertEqual(reading, .unknown, url.path)
+            XCTAssertNil(luminance, url.path)
         }
         XCTAssertTrue(asked.isEmpty, "a gated file is never handed to the reader: \(asked)")
 
         let system = URL(fileURLWithPath: "/System/Library/Desktop Pictures/gate-test-\(UUID().uuidString).heic")
-        let reading = WallpaperTone.reading(
-            ofWallpaperAt: system, screenSize: screen, notchCenterX: centre,
+        let luminance = WallpaperTone.meanLuminance(
+            ofWallpaperAt: system, screenSize: screen, region: strip,
             mayRead: { WallpaperTone.isReadableWithoutPrompt($0, home: self.home) }, thumbnail: reader
         )
         XCTAssertEqual(asked, [system], "a system picture is read")
-        XCTAssertEqual(reading, .dark)
+        XCTAssertLessThan(try XCTUnwrap(luminance), 0.1)
     }
 
     /// The gate is what the app runs with unless told otherwise: a perfectly
-    /// readable dark picture in a folder the gate does not know answers nothing.
+    /// readable picture in a folder the gate does not know answers nothing.
     func testTheRealGateIsTheDefault() throws {
         let url = try write(solid(grey: 0.02), as: "default-gate")
-        XCTAssertEqual(reading(of: url), .dark, "with the gate opened by the fixture helper")
-        XCTAssertEqual(
-            WallpaperTone.reading(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre), .unknown,
+        XCTAssertNotNil(luminance(of: url), "with the gate opened by the fixture helper")
+        XCTAssertNil(
+            WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, region: strip),
             "a temporary folder is neither the system's nor the home folder's"
         )
     }
 
-    // MARK: Dark and light
+    // MARK: Measuring
 
-    func testADarkPictureIsDarkAndALightOneIsNot() throws {
+    func testADarkPictureMeasuresUnderALightOne() throws {
         let aerial = try write(solid(grey: 8.0 / 255), as: "aerial")      // the owner's measured 8/255
         let sky = try write(solid(grey: 0.41), as: "sky-blue")
-        XCTAssertEqual(reading(of: aerial), .dark)
-        XCTAssertEqual(reading(of: sky), .light)
-    }
-
-    /// The line is 0.20 of *encoded* luma, the units the spec's four
-    /// measurements are in: Pro Black at 0.09 is dark and Sonoma at 0.36 is
-    /// not. In linear light Sonoma would be about 0.1 and fall under the line.
-    func testTheThresholdIsTwentyPercentOfEncodedLuma() throws {
-        XCTAssertEqual(WallpaperTone.darkThreshold, 0.20)
-        XCTAssertEqual(reading(of: try write(solid(grey: 0.09))), .dark, "Pro Black")
-        XCTAssertEqual(reading(of: try write(solid(grey: 0.19))), .dark, "just under the line")
-        XCTAssertEqual(reading(of: try write(solid(grey: 0.22))), .light, "just over it")
-        XCTAssertEqual(reading(of: try write(solid(grey: 0.36))), .light, "Sonoma")
-        XCTAssertEqual(WallpaperTone.reading(forMeanLuminance: 0.1999), .dark)
-        XCTAssertEqual(WallpaperTone.reading(forMeanLuminance: 0.20), .light, "at the line is not under it")
+        XCTAssertEqual(try XCTUnwrap(luminance(of: aerial)), 8.0 / 255, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(luminance(of: sky)), 0.41, accuracy: 0.01)
     }
 
     func testTheMeanIsRec709LumaOfTheEncodedValues() throws {
@@ -201,24 +191,22 @@ final class WallpaperToneTests: XCTestCase {
         XCTAssertEqual(mean, 0.7152, accuracy: 0.003)
     }
 
-    // MARK: Failure is not dark
+    // MARK: Failure answers nothing
 
-    func testEveryFailureIsNotDark() throws {
-        XCTAssertEqual(reading(of: nil), .unknown, "no wallpaper URL")
-        XCTAssertEqual(reading(of: directory.appendingPathComponent("missing.png")), .unknown, "a file that is not there")
-        XCTAssertEqual(reading(of: directory), .unknown, "a folder, which is what a rotating wallpaper names")
+    func testEveryFailureAnswersNothing() throws {
+        XCTAssertNil(luminance(of: directory.appendingPathComponent("missing.png")), "a file that is not there")
+        XCTAssertNil(luminance(of: directory), "a folder, which is what a rotating wallpaper names")
         let corrupt = directory.appendingPathComponent("corrupt.png")
         try Data("not a picture at all".utf8).write(to: corrupt)
-        XCTAssertEqual(reading(of: corrupt), .unknown, "an unreadable file")
-        XCTAssertEqual(WallpaperTone.reading(forMeanLuminance: nil), .unknown)
+        XCTAssertNil(luminance(of: corrupt), "an unreadable file")
     }
 
-    // MARK: Only the strip behind the island counts
+    // MARK: Only the region asked about counts
 
-    /// The top 60 pt — 6 % of this screen's height — is what the island sits
-    /// on. A wallpaper dark at the top and bright below is dark for this
-    /// purpose, and the other way round is not.
-    func testOnlyTheStripBehindTheIslandIsMeasured() throws {
+    /// The top 60 pt — 6 % of this screen's height — is the region here. A
+    /// wallpaper dark at the top and bright below measures dark, and the other
+    /// way round does not.
+    func testOnlyTheRegionAskedAboutIsMeasuredDown() throws {
         let width = 1512, height = 982
         let darkTop = try image(width: width, height: height) {
             fill($0, grey: 0.9, CGRect(x: 0, y: 0, width: width, height: height))
@@ -229,12 +217,12 @@ final class WallpaperToneTests: XCTestCase {
             fill($0, grey: 0.02, CGRect(x: 0, y: 0, width: width, height: height))
             fill($0, grey: 0.9, CGRect(x: 0, y: height - 70, width: width, height: 70))
         }
-        XCTAssertEqual(reading(of: try write(darkTop)), .dark)
-        XCTAssertEqual(reading(of: try write(lightTop)), .light)
+        XCTAssertLessThan(try XCTUnwrap(luminance(of: try write(darkTop))), 0.2)
+        XCTAssertGreaterThan(try XCTUnwrap(luminance(of: try write(lightTop))), 0.5)
     }
 
-    /// And only within 310 pt of the notch's centre.
-    func testOnlyTheWidthBehindTheIslandIsMeasured() throws {
+    /// And only within the region's width.
+    func testOnlyTheRegionAskedAboutIsMeasuredAcross() throws {
         let width = 1512, height = 982
         let darkMiddle = try image(width: width, height: height) {
             fill($0, grey: 0.9, CGRect(x: 0, y: 0, width: width, height: height))
@@ -244,16 +232,8 @@ final class WallpaperToneTests: XCTestCase {
             fill($0, grey: 0.02, CGRect(x: 0, y: 0, width: width, height: height))
             fill($0, grey: 0.9, CGRect(x: 756 - 330, y: 0, width: 660, height: height))
         }
-        XCTAssertEqual(reading(of: try write(darkMiddle)), .dark)
-        XCTAssertEqual(reading(of: try write(lightMiddle)), .light)
-    }
-
-    func testTheRegionIsTheNotchsCentrePlusOrMinusThreeTenAcrossTheTopSixtyPoints() {
-        let region = WallpaperTone.islandRegion(screenSize: screen, notchCenterX: centre)
-        XCTAssertEqual(region, CGRect(x: 756 - 310, y: 0, width: 620, height: 60))
-        let atTheEdge = WallpaperTone.islandRegion(screenSize: screen, notchCenterX: 100)
-        XCTAssertEqual(atTheEdge.minX, 0, "clipped to the screen, never negative")
-        XCTAssertEqual(atTheEdge.maxX, 410)
+        XCTAssertLessThan(try XCTUnwrap(luminance(of: try write(darkMiddle))), 0.2)
+        XCTAssertGreaterThan(try XCTUnwrap(luminance(of: try write(lightMiddle))), 0.5)
     }
 
     // MARK: Aspect-fill
@@ -308,20 +288,20 @@ final class WallpaperToneTests: XCTestCase {
         // survive the round trip through `Date`.
         let original = Date(timeIntervalSince1970: 1_700_000_000)
         try FileManager.default.setAttributes([.modificationDate: original], ofItemAtPath: url.path)
-        let first = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true }))
+        let first = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, region: strip, mayRead: { _ in true }))
         XCTAssertLessThan(first, 0.2)
 
         // Replace the contents with a bright picture and put the date back: to
         // the cache, nothing has changed.
         try write(solid(grey: 0.9), as: "cached")
         try FileManager.default.setAttributes([.modificationDate: original], ofItemAtPath: url.path)
-        let cached = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true }))
+        let cached = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, region: strip, mayRead: { _ in true }))
         XCTAssertEqual(cached, first, "the same file and date is a cache hit")
 
         try FileManager.default.setAttributes(
             [.modificationDate: original.addingTimeInterval(60)], ofItemAtPath: url.path
         )
-        let fresh = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, notchCenterX: centre, mayRead: { _ in true }))
+        let fresh = try XCTUnwrap(WallpaperTone.meanLuminance(ofWallpaperAt: url, screenSize: screen, region: strip, mayRead: { _ in true }))
         XCTAssertGreaterThan(fresh, 0.5, "a new modification date is read again")
     }
 }
