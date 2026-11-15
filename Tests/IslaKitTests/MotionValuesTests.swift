@@ -228,7 +228,8 @@ final class MotionValuesTests: XCTestCase {
         // (`IslandOutlineHostTests`). Either way it is made before the line
         // is drawn over it.
         let mask = try XCTUnwrap(shell.range(of: ".modifier(OutlineMask("))
-        let cut = try XCTUnwrap(shell.range(of: "content.mask(alignment: .top) {\n                NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)\n                    .frame(width: size.width, height: size.height)"))
+        let modifiers = try SourceText.of("Sources/IslaKit/UI/NotchContentViewModifiers.swift")
+        let cut = try XCTUnwrap(modifiers.range(of: "content.mask(alignment: .top) {\n                NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)\n                    .frame(width: size.width, height: size.height)"))
         let stroke = try XCTUnwrap(shell.range(of: "IslandStrokeShape(topRadius: shapeTopRadius, bottomRadius: shapeBottomRadius)"))
         XCTAssertLessThan(mask.lowerBound, stroke.lowerBound, "the border is drawn under the content")
         XCTAssertNotNil(cut, "the mask is the outline's shape")
