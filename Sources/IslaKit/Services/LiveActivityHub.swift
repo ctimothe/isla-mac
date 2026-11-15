@@ -20,15 +20,20 @@ final class LiveActivityHub: ObservableObject {
         var makeDownloads: @MainActor () -> DownloadWatch
         var timers: IslandTimerCenter
         var notificationCenter: NotificationCenter
-        /// Mutes or unmutes the Mac's microphone input off the main thread
-        /// (`MicrophoneMute`), then calls `done` on the main actor. A test's
-        /// never touches a real device.
-        var setMicrophoneMuted: @MainActor (_ muted: Bool, _ done: @escaping @MainActor @Sendable () -> Void) -> Void = {
-            muted, done in
-            DispatchQueue.global(qos: .userInitiated).async {
-                MicrophoneMute.setMuted(muted)
-                DispatchQueue.main.async { MainActor.assumeIsolated { done() } }
-            }
+        /// Mutes the Mac's microphones and writes down what it changed
+        /// (`MicrophoneMute.hold`); says whether anything is held. Blocks on
+        /// coreaudiod. A test's never touches a real device.
+        var holdMicrophoneMute: @Sendable () -> Bool = { MicrophoneMute.hold() }
+        /// Gives back what a hold changed, in this run or one that ended
+        /// while muted. Blocks on coreaudiod.
+        var releaseMicrophoneMute: @Sendable () -> Void = { MicrophoneMute.release() }
+        /// Runs a hold or a release on `MicrophoneMute.queue`, in order;
+        /// `wait` blocks until it is done (only at quit).
+        var onMicrophoneQueue: @Sendable (_ wait: Bool, _ work: @escaping @Sendable () -> Void) -> Void = { wait, work in
+            if wait { MicrophoneMute.queue.sync(execute: work) } else { MicrophoneMute.queue.async(execute: work) }
+        }
+        var onMain: @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
+            DispatchQueue.main.async { MainActor.assumeIsolated { work() } }
         }
 
         @MainActor static var live: Environment {
@@ -62,6 +67,9 @@ final class LiveActivityHub: ObservableObject {
     private var capture: CaptureWatch?
     private var downloads: DownloadWatch?
     private var captureState: CaptureState = .none
+    /// The island's Mute is on: set the moment it is pressed, so the island
+    /// answers at once, and the device follows on the mute queue.
+    private var microphoneMuted = false
     private var activeDownloads: [DownloadProgress] = []
     private var cancellables = Set<AnyCancellable>()
     private var defaultsObserver: NSObjectProtocol?
@@ -75,6 +83,10 @@ final class LiveActivityHub: ObservableObject {
 
     func start() {
         guard defaultsObserver == nil else { return }
+        // A run that quit or crashed while muted left the Mac muted with no
+        // island to unmute it; the session that mute was for is over.
+        let environment = self.environment
+        environment.onMicrophoneQueue(false) { environment.releaseMicrophoneMute() }
         if let data = environment.defaults.data(forKey: Self.timersKey),
            let snapshot = try? JSONDecoder().decode(IslandTimerCenter.Snapshot.self, from: data) {
             timers.restore(snapshot)
@@ -103,17 +115,42 @@ final class LiveActivityHub: ObservableObject {
         if let defaultsObserver { environment.notificationCenter.removeObserver(defaultsObserver) }
         defaultsObserver = nil
         cancellables.removeAll()
+        // Isla is quitting: the mute goes with it, before the process does.
+        if microphoneMuted {
+            microphoneMuted = false
+            let environment = self.environment
+            environment.onMicrophoneQueue(true) { environment.releaseMicrophoneMute() }
+        }
         capture?.stop()
         capture = nil
         downloads?.stop()
         downloads = nil
     }
 
-    /// The island's Mute and Unmute. The watch hears the device change by
-    /// itself; it is asked again once the change is made, so the island
-    /// answers the press without waiting on the system's notice.
+    /// The island's Mute and Unmute. A mute lasts as long as the recording
+    /// it was pressed for: it is given back when the last app lets go of the
+    /// microphone, when the Recording switch goes off and when Isla quits,
+    /// so it can never be left on with no island to undo it.
     func setMicrophoneMuted(_ muted: Bool) {
-        environment.setMicrophoneMuted(muted) { [weak self] in self?.capture?.reread() }
+        guard muted != microphoneMuted else { return }
+        if muted, captureState.microphoneApps.isEmpty { return }
+        microphoneMuted = muted
+        republish()
+        let environment = self.environment
+        guard muted else {
+            environment.onMicrophoneQueue(false) { environment.releaseMicrophoneMute() }
+            return
+        }
+        environment.onMicrophoneQueue(false) {
+            let held = environment.holdMicrophoneMute()
+            environment.onMain { [weak self] in
+                // No microphone had a mute or a level to turn down: the
+                // island must not say the apps hear silence.
+                guard let self, !held, self.microphoneMuted else { return }
+                self.microphoneMuted = false
+                self.republish()
+            }
+        }
     }
 
     /// Starts or stops each watch to match its switch. Called on every
@@ -123,8 +160,10 @@ final class LiveActivityHub: ObservableObject {
         if wantsCapture, capture == nil {
             let watch = environment.makeCapture()
             watch.onChange = { [weak self] state in
-                self?.captureState = state
-                self?.republish()
+                guard let self else { return }
+                self.captureState = state
+                if state.microphoneApps.isEmpty { self.setMicrophoneMuted(false) }
+                self.republish()
             }
             capture = watch
             watch.start()
@@ -132,6 +171,7 @@ final class LiveActivityHub: ObservableObject {
             watch.stop()
             capture = nil
             captureState = .none
+            setMicrophoneMuted(false)
             republish()
         }
         let wantsDownloads = SettingsRowID.downloads.isOn(in: environment.defaults)
@@ -157,8 +197,10 @@ final class LiveActivityHub: ObservableObject {
     }
 
     private func publish(countdown: IslandTimerState?, stopwatch: IslandTimerState?) {
+        var capture = captureState
+        capture.microphoneMuted = microphoneMuted && !capture.microphoneApps.isEmpty
         let next = LiveActivity.standing(
-            capture: captureState, countdown: countdown, stopwatch: stopwatch, downloads: activeDownloads
+            capture: capture, countdown: countdown, stopwatch: stopwatch, downloads: activeDownloads
         )
         if next != live { live = next }
     }

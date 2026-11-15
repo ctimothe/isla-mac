@@ -28,12 +28,14 @@ enum LiveActivity: Equatable {
         // What the person started and is watching stands over the song
         // (13); what an app does on its own waits under it. A microphone in
         // use is the second: on 2026-11-14 a song was playing while cmux held
-        // the microphone, and the island showed the microphone. Muted, it is
-        // last of all, under the Shelf, and shows only when nothing else does.
+        // the microphone, and the island showed the microphone. Muted, it
+        // keeps its place (owner, 2026-11-15): the mute is the person's and
+        // lasts while the app records, so it waits beside the song as the
+        // bubble, where its Unmute is one click away. It ranked last, under
+        // the Shelf, until then, and a muted call went out of sight.
         case .timer: return 11
         case .stopwatch: return 12
-        case .recording(let state):
-            return state.microphoneMuted && !state.cameraInUse ? 17 : 14
+        case .recording: return 14
         case .downloads: return 15
         }
     }

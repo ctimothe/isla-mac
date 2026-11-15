@@ -22,7 +22,7 @@ final class IslandActivityTests: XCTestCase {
         // screenshot the same day): what the person started and is attending
         // to stands highest — a timer, a stopwatch, the song — and what an
         // app is doing on its own waits under it: the microphone, a download,
-        // the Shelf, and last a microphone the person has muted.
+        // the Shelf. A muted microphone keeps its place (owner, 2026-11-15).
         XCTAssertEqual(IslandActivity.live(.timer(IslandTimerState(kind: .countdown(duration: 60), runningSince: Date(), banked: 0))).rank, 11)
         XCTAssertEqual(IslandActivity.live(.stopwatch(IslandTimerState(kind: .stopwatch, runningSince: Date(), banked: 0))).rank, 12)
         XCTAssertEqual(IslandActivity.music.rank, 13)
@@ -30,11 +30,7 @@ final class IslandActivityTests: XCTestCase {
         XCTAssertEqual(IslandActivity.live(.downloads([DownloadProgress(name: "a.zip", bytesSoFar: 1, totalBytes: 2)])).rank, 15)
         XCTAssertEqual(IslandActivity.shelf(count: 3).rank, 16)
         XCTAssertEqual(
-            IslandActivity.live(.recording(CaptureState(microphone: ["a"], camera: false, muted: true))).rank, 17
-        )
-        XCTAssertEqual(
-            IslandActivity.live(.recording(CaptureState(microphone: ["a"], camera: true, muted: true))).rank, 14,
-            "a camera is not muted by the microphone's switch"
+            IslandActivity.live(.recording(CaptureState(microphone: ["a"], camera: false, muted: true))).rank, 14
         )
         XCTAssertNil(IslandActivity.none.rank, "the bare notch is not an activity")
 

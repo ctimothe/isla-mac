@@ -322,8 +322,10 @@ are the exception the design did not anticipate:
   (`LiveActivityHubTests`, `CaptureWatchTests`). Since the second 2026-11-14
   amendment a click opens a card instead, with two actions that reach past
   Isla, each only on the person's press: **Mute** sets the Mac's input mute
-  on every input device (a system-wide setting, which outlives Isla and is
-  undone by Unmute or Sound settings), and **Quit** sends the chosen app its
+  on each real microphone (a system-wide setting), and since 2026-11-15 holds
+  it only while an app records — it is given back when the recording ends,
+  when the switch goes off, when Isla quits and at the next launch after a
+  crash, and only on the channels Isla changed — and **Quit** sends the chosen app its
   own Quit (`NSRunningApplication.terminate`, no permission asked). Nothing
   is done to another app or a device without that press.
 - **Downloads** (Settings › General, default off, added 2026-11-14; S5) shows a
@@ -3408,11 +3410,17 @@ Owed on hardware (record the Mac model and macOS version):
   cmux): the song holds the island and the microphone waits as the bubble,
   with that app's icon, never Siri's dot. A click on the bubble opens the card
   on the island.
-- [ ] **IC-H8** The card's Mute: the other side of a call hears nothing, the
-  island shows a crossed-out microphone under everything, Sound settings show
-  the input muted; Unmute restores it. Quit names each app in a menu; the
+- [ ] **IC-H8** The card's Mute: the other side of a call hears nothing and
+  the island shows a crossed-out microphone, still beside a playing song as
+  the bubble; Unmute restores it. Mute during a Granola dictation, then end
+  the dictation: the microphone is unmuted again (Audio MIDI Setup › MacBook
+  Pro Microphone › Mute is off), and stays so after a restart. Quit Isla
+  while muted: the microphone is unmuted. Quit names each app in a menu; the
   chosen one quits (asking about unsaved work as ⌘Q would) and the orange dot
   goes.
+- [ ] **IC-H9** Talking to Granola with music paused and playing for five
+  minutes: the microphone activity shows the whole time (on the island or as
+  the bubble) and never says Muted unless the island's Mute was pressed.
 - [ ] **IC-H5** Downloads on: a Safari and a Chrome download show the ring,
   then Downloaded; a click reveals the file. An AirDrop from a phone says
   AirDrop.

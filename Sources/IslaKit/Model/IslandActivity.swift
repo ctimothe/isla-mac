@@ -38,8 +38,8 @@ enum IslandActivity: Equatable {
     /// 2026-11-14): live while it has any.
     case shelf(count: Int)
     /// A timer, a stopwatch, a recording or a download (amended 2026-11-14,
-    /// ranks 11, 12, 14 and 15, a muted microphone 17): live while it stands
-    /// (`LiveActivity`).
+    /// ranks 11, 12, 14 and 15; a muted microphone keeps its 14): live
+    /// while it stands (`LiveActivity`).
     case live(LiveActivity)
     /// The bare notch.
     case none
@@ -57,8 +57,8 @@ enum IslandActivity: Equatable {
         case .peek: return 10
         // Amended 2026-11-14: the song and the Shelf moved down to make room
         // for the new live activities (`LiveActivity.rank`) — the timer and
-        // the stopwatch over the song; the microphone, downloads and a muted
-        // microphone under it.
+        // the stopwatch over the song; the microphone, muted or not, and
+        // downloads under it.
         case .music: return 13
         case .shelf: return 16
         case .live(let live): return live.rank
@@ -104,8 +104,8 @@ enum IslandActivity: Equatable {
         if let ambient { return .ambient(ambient) }
         if let update { return .update(update) }
         // A card of controls opened from the bubble holds the island until it
-        // folds: a muted microphone's bubble beside the song opens its Unmute
-        // there, where the card has room.
+        // folds: the microphone's bubble beside the song opens its Mute and
+        // Unmute there, where the card has room.
         if let expanded, let held = live.first(where: { $0.kind == expanded && $0.hasControls }) {
             return .live(held)
         }
