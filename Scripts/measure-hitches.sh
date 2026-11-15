@@ -50,7 +50,7 @@
 # The *-stall scenarios block the main thread for 50 ms, 120 ms in,
 # which costs the frames that wait on it wherever it falls. What the outline
 # itself does meanwhile cannot be read from this process (see the header of
-# OutlineHitchLab.swift); R8d-H1 in checklist.md is that check.
+# OutlineHitchLab.swift); R8d-H1 in docs/development/open-checks.md is that check.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LABEL="${1:-}"

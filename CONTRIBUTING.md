@@ -5,7 +5,7 @@ Thanks for helping. Bug reports, ideas and pull requests are all welcome.
 ## Reporting a problem
 
 Open an [issue](https://github.com/ctimothe/isla-mac/issues/new/choose). The
-most useful thing to include is **Settings → Application → Copy Diagnostics**:
+most useful thing to include is **Settings → About → Copy Diagnostics**:
 it lists versions, settings and Isla's own log, and nothing you played, copied
 or translated. Say which Mac you have and which macOS it runs.
 
@@ -35,10 +35,14 @@ Always install with `Scripts/install.sh` rather than opening the copy in
 - Anything that sends data off the Mac, touches an account or changes a
   system-wide setting must be off by default and listed in the README's
   Privacy table.
-- Don't add entitlements or new tabs without opening an issue first.
+- Don't add entitlements or new surfaces without opening an issue first.
+- When behaviour changes, update
+  [docs/development/spec.md](docs/development/spec.md) in the same change.
 
-`CLAUDE.md` describes the architecture in more depth. Design notes, plans and
-past audits are in [docs/development](docs/development/README.md).
+[AGENTS.md](AGENTS.md) describes the architecture in more depth. What Isla does
+is in [docs/development/spec.md](docs/development/spec.md), and the checks
+still owed on real hardware in
+[docs/development/open-checks.md](docs/development/open-checks.md).
 
 ## License
 

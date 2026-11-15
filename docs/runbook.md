@@ -1,8 +1,9 @@
 # Isla verification runbook
 
-Use this runbook from a clean checkout of the intended release commit. The
-approved parity design is the behavior contract; this document is the execution
-path.
+Use this runbook from a clean checkout of the intended release commit.
+[development/spec.md](development/spec.md) is the behaviour contract; this
+document is the execution path. Hardware checks still owed for individual
+features are in [development/open-checks.md](development/open-checks.md).
 
 ## 1. Prerequisites
 
@@ -63,9 +64,10 @@ bash Scripts/test-lifecycle.sh
 bash Scripts/dmg.sh
 ```
 
-This is the order `Scripts/release.sh` runs and `.github/workflows/build.yml`
-mirrors. `./scripts/check` runs the first four — the ones every change owes —
-and nothing that packages.
+This is the order `Scripts/release.sh` runs. `./scripts/check` runs all of
+them, plus `Scripts/test-next-release.sh`, and is exactly what
+`.github/workflows/build.yml` runs; `./scripts/check test` runs the unit tests
+alone for a quick pass.
 
 Expected artifacts:
 
@@ -100,39 +102,40 @@ copy that can intercept the Spotify sign-in callback.
 The app has no Dock icon, no menu-bar item and no window. If the panel is not
 visible, press ⌃⌥⌘I — that shortcut is the only route in that needs no pointer.
 
-## 3. Every-tab smoke pass
+## 3. Every-surface smoke pass
 
-| Tab | Action | Expected result |
+| Surface | Action | Expected result |
 | --- | --- | --- |
-| Music | Play media, seek, pause, skip | Metadata and progress update; supported controls act on the active player |
-| Shelf | Drop files, multi-select, drag out, copy, reveal, remove | Files remain references; previews load only while Shelf is visible |
-| Clipboard | Copy 41 text values, a multi-file selection, and a concealed item | Latest 40 remain; the selection returns all of its files when pasted back; concealed item is absent |
-| Translate | Enter English and Cyrillic text; press ⌃⌥⌘T with text on the clipboard | Route reverses by script; the pane takes the keyboard; covered when Translate privacy is on |
-| Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; drag the panel-width slider; open support files | Values persist, the panel rebuilds at the new width, and actions open Isla-owned paths; screenshot saving and lyrics start off |
+| Music | Play media, seek, pause, skip | Metadata and progress update; supported controls act on the active player; a skip swaps title, cover and tint together |
+| Lyric stage | ⌃⌥⌘L on a song with an LRC; click a line | The sung line follows the voice; a click seeks to the line |
+| Shelf | Drop files on the notch, multi-select, drag out, Quick Look, remove | Files remain references; Delete removes cards, never files |
+| Clipboard | Copy 41 text values, a multi-file selection, and a concealed item | Latest 40 remain; the selection returns all of its files when pasted back; the concealed item is absent |
+| Translate | Enter English and Cyrillic text; press ⌃⌥⌘T with text on the clipboard | Route reverses by script; the page takes the keyboard; covered when Cover Translate Text is on |
+| Settings | Toggle screenshot saving, lyrics, capture hiding and launch at login; drag Panel Width | Values persist; the panel rebuilds at the new width; screenshot saving and lyrics start off |
 
-Collapse the panel after privacy-covered rows are temporarily revealed. Reopen
-it and confirm every reveal reset.
+Swipe through the four pages and click each dot. Reveal a covered Clipboard
+row and Translate text, collapse the panel, reopen it, and confirm every reveal
+reset.
 
 ## 3a. Nothing but the island
 
-The app must show no surface other than the panel itself.
+The app must show no surface other than the island and its panel.
 
 1. Launch and confirm there is **no** Dock icon, **no** menu-bar item, and no
    window — before, during and after opening the panel.
 2. Press ⌃⌥⌘I with the pointer nowhere near the notch. The panel opens.
-3. In Settings, press **Open Panel** and confirm it closes again.
-4. In Settings, press **About** and confirm the standard about panel names the
-   build's version.
-5. In Settings, toggle **Hide Contents** for a section and confirm the panel
-   covers exactly that tab.
-6. In Settings, press **Quit**, confirm the second press is required, and
-   confirm the app exits. This is the only quit route; if it fails, the app can
-   only be stopped from Activity Monitor.
+3. Right-click the island: the menu lists Clipboard, Translate Clipboard,
+   Shelf, Lyrics, Timer, Settings… and Quit Isla.
+4. In Settings › About, confirm the version is the build's.
+5. In Settings › Privacy, turn on Cover Clipboard Rows and confirm Clipboard's
+   rows are covered and nothing else is.
+6. Press Quit in Settings, confirm the second press is required, and confirm
+   the app exits; Quit Isla in the right-click menu also quits.
 
 ## 3b. Panel width
 
 1. Drag **Settings → Panel Width** to its minimum. The panel rebuilds narrower,
-   the rail keeps all five icons, and nothing is clipped.
+   the dots and the gear clear the content, and nothing is clipped.
 2. Drag it to its maximum and confirm the panel is the full 620 pt again.
 3. At every setting the outer window is unchanged: hover just outside the drawn
    panel and confirm the click goes to whatever is behind it, not to the island.
@@ -151,26 +154,24 @@ On a notched MacBook display:
    confirm no click on it starts or stops playback.
 3. Turn on **Settings → Open on Hover**, confirm the hover-delay slider appears
    and a hover opens the panel after the 50 ms delay, then turn it off again.
-4. Move down the rail and confirm the 150 ms tab dwell prevents accidental
-   switching.
-5. Leave the cool zone and confirm collapse after 320 ms.
-6. Press ⌃⌥⌘I, move the pointer well away, and confirm the panel stays open
+4. Open with a click, leave the panel, and confirm collapse after 320 ms.
+5. Press ⌃⌥⌘I, move the pointer well away, and confirm the panel stays open
    until Escape, ⌃⌥⌘I again, or a click in another application closes it.
-7. Set the panel width to its minimum and maximum in turn, and repeat step 2 at
+6. Set the panel width to its minimum and maximum in turn, and repeat step 2 at
    each: the clickable area is cut from the width, so a dead edge would only
    appear at one of them.
 
 ### Synthetic notch
 
 Make a non-notch or external display primary, relaunch, and repeat the pass. The
-collapsed target must be centered at the menu-bar top and all five tabs must
+drawn notch must be centred at the top of the display and every page must
 remain available.
 
 ### Display changes and the lock screen
 
-1. With the panel open on the Translate tab and a phrase half-typed in it, plug
-   in or unplug an external display. The panel is rebuilt on the notch display,
-   keeps the tab, and keeps the clipboard history and the half-typed
+1. With the panel open on Translate and a phrase half-typed in it, plug in or
+   unplug an external display. The panel is rebuilt on the notch display,
+   keeps the page, and keeps the clipboard history and the half-typed
    translation.
 2. Lock the Mac with the panel expanded. The lock card appears centered, its
    transport answers clicks, and the pill stays at the notch. Hover the pill:
@@ -194,26 +195,27 @@ remain available.
 
 Create a temporary macOS user for the test.
 
-1. Launch and visit every tab. No app permission prompt should appear at
+1. Launch and visit every page. No app permission prompt should appear at
    launch or while browsing: the one entitlement the app claims
-   (`com.apple.security.automation.apple-events`) is only exercised when the
-   scripting fallback first drives a player.
+   (`com.apple.security.automation.apple-events`) is first exercised when the
+   panel opens on Music or Spotify.
 2. Drag a file from Downloads to Shelf. Any protected-folder prompt must appear
    in the context of that Shelf action, never at launch.
 3. Copy a screenshot with **Save clipboard screenshots** off (the default) and
    confirm nothing is written to `~/Pictures/Isla`.
-4. Play a track with **Lyrics** off (the default) and confirm, with Little
-   Snitch or `nettop`, that no request leaves the machine.
+4. Turn off Check for Updates Automatically, play a track with **Lyrics** off
+   (the default) and confirm, with Little Snitch or `nettop`, that no request
+   leaves the machine.
 5. Turn Lyrics on, import an LRC file and add a folder, and confirm that
-   still nothing leaves the machine: lyrics are fully offline since
-   `032d34b`, and any request from the app while a lyric surface is open is a
-   regression.
+   still nothing leaves the machine while **Look Up Lyrics Online** is off.
 6. Connect a Spotify account, confirm the browser round trip returns and the
    heart works, then Disconnect and confirm the keychain items are gone.
 
-The app must not request Accessibility, Screen Recording, contacts, or
-permission to read Cyclop data. Apple Events consent is raised by macOS only
-when the scripting fallback first drives Music or Spotify.
+The app must not request Accessibility (except when Volume and Brightness is
+turned on), Screen Recording, contacts, or permission to read Cyclop data, and
+must not ask for the Downloads folder unless Downloads is turned on. Apple
+Events consent is raised by macOS when the panel first opens on Music or
+Spotify.
 
 7. Force the fallback (remove the bundled helper) on a *signed* build and
    confirm the Apple Events prompt appears and transport works after Allow.
@@ -237,28 +239,26 @@ when the scripting fallback first drives Music or Spotify.
   rather than repeating every two seconds.
 - Suspend the helper process (`kill -STOP`) so it stays alive but silent;
   confirm the app notices within about fifteen seconds and falls back rather
-  than showing an empty media tab indefinitely.
+  than showing an empty player indefinitely.
 - Delete a referenced Shelf file; open Shelf and confirm only the missing card is
   removed. Denied access must keep the card.
 - Pause a track before its first lyric line, then open the panel. The caption
-  shows the opening line, unswept — never nothing — and the transport sits at
-  exactly the height it does for a track with words.
-- Play a track whose lyrics carry word timing, open the full stage, and confirm
-  the caption behind it and the stage agree on the current line. Nudge Sync and
-  confirm both move together. Nudge one track with Sync ±, replay another, and
-  confirm the second is unmoved and the first keeps its nudge; hold the offset
-  readout to clear it back to 0. Re-search clears the track nudge: the
-  correction belonged to the deleted entry's timing.
+  shows the opening line, unswept — never nothing.
+- Play a track whose lyrics carry word timing, open the stage, and confirm the
+  shut island's caption and the stage agree on the current line. Nudge one
+  track's timing, replay another, and confirm the second is unmoved and the
+  first keeps its nudge. Search Again clears the track nudge: the correction
+  belonged to the deleted entry's timing.
 - Turn on **Reduce Transparency** in System Settings → Accessibility → Display.
   Every translucent surface becomes an opaque panel while the panel is open,
-  without relaunching. Turn on **Increase Contrast** and confirm the lit rim
-  becomes a defined border. Turn both off again.
+  without relaunching. Turn on **Increase Contrast** and confirm the island's
+  stroke and the secondary text strengthen. Turn both off again.
 - Open the lock card's output list and choose a device: the trackpad taps once,
-  the list closes, and the foot rail's glyph becomes that device's.
+  the pane stays, and the Output button's glyph becomes that device's.
 - Enable launch at login, log out/in, confirm a single instance launches, then
   disable the setting.
-- Quit from the menu and run `pgrep -fl libislamedia`; it must return no
-  Isla helper.
+- Quit from the right-click menu and run `pgrep -fl libislamedia`; it must
+  return no Isla helper.
 
 ## 7. Performance comparison
 
@@ -269,13 +269,15 @@ bash Scripts/build-reference.sh
 bash Scripts/measure-performance.sh \
   "build/reference/Cyclop.app" \
   "build/app.noindex/Isla.app" \
-  "docs/development/performance/2026-08-18-cyclop-0.6.5-baseline.md"
+  "build/performance-report.md"
 ```
 
-The report uses three 60-second runs per app. Closed CPU must remain `0.0%`;
-product application/helper RSS must be no higher than the reference median; no
-helper may survive its parent. Record any unavoidable original-icon bundle-size
-variance.
+The report uses three 60-second runs per app. Closed CPU must stay within the
+reference's; product application/helper RSS must be no higher than the
+reference median; no helper may survive its parent. Record any unavoidable
+original-icon bundle-size variance. The absolute budget at rest (CPU at or
+below 0.1 %, RSS at or below 88 MB) is measured on the installed app with
+`bash Scripts/measure-idle.sh closed-idle`.
 
 ## 7a. Rehearse an update
 
@@ -294,9 +296,8 @@ launches, quits or installs anything, and it removes its fake-version build from
 `build/` even when it fails. Go back to the real build with
 `bash Scripts/bundle.sh release && bash Scripts/install.sh`.
 
-**Following every change (the local feed, owner's Mac).** Since 2026-10-19 the
-owner's own Isla takes each committed change through Update Now instead of a
-reinstall. `bash Scripts/publish-dev-update.sh` builds the committed checkout
+**Following every change (the local feed, owner's Mac).** The owner's own
+Isla takes each committed change through Update Now instead of a reinstall. `bash Scripts/publish-dev-update.sh` builds the committed checkout
 as `VERSION.N` (newer than the installed build and the feed's last, older than
 the next real release), signs it with the feed's own key and lands the image,
 its signature and `release.json` in the feed — `$ISLA_DEV_FEED`, or
@@ -324,8 +325,8 @@ release's.
 
 ### How a change reaches users
 
-Added 2026-10-20. Isla is an open-source app that anyone can download, and it
-has exactly two update channels:
+Isla is an open-source app that anyone can download, and it has exactly two
+update channels:
 
 | Channel | Who receives it | How |
 |---|---|---|
@@ -334,9 +335,9 @@ has exactly two update channels:
 
 Every other copy of Isla asks
 `api.github.com/repos/ctimothe/isla-mac/releases/latest` 20 s after launch and
-then once an hour (**Check for Updates Automatically**, on by default since
-2026-10-20 — the one named exception to "anything that leaves the machine
-defaults to off"), and offers what it finds on the island. So a merge to
+then once an hour (**Check for Updates Automatically**, on by default — the
+one named exception to "anything that leaves the machine defaults to off"),
+and offers what it finds on the island. So a merge to
 `main` that changes the app reaches every user's island within about the
 release job's run time plus an hour.
 
@@ -345,8 +346,7 @@ What an installed copy can do with a new release depends on its version:
 - **0.3.0 and earlier** have no installer. Check for Updates says that a new
   version is out and opens the download page. Each of these users installs the
   first release after 0.3.0 by hand, once.
-- **Every build since `0a534f4` and `0bfe820` (2026-10-16 and 2026-10-17)** has
-  Update Now. It downloads `Isla-<version>.dmg`, checks it against the
+- **Every release after 0.3.0** has Update Now. It downloads `Isla-<version>.dmg`, checks it against the
   `Isla-<version>.dmg.sig` that `release.sh` uploads (using the Ed25519 key in
   `IslaUpdatePublicKey`), checks that the new app satisfies the running app's
   designated requirement, swaps it in place and relaunches. An update
@@ -360,8 +360,8 @@ What decides whether that keeps working, release after release:
    the next release and falls back to the download page.
 2. **The same signing identity, forever.** A copy signed with the pinned
    "Isla Code Signing" certificate (`Scripts/signing-identity.sha1`) accepts
-   updates signed with that certificate, and since 2026-10-20 also a Developer
-   ID Application build of `com.ctimothe.isla` (the bridge,
+   updates signed with that certificate, and also a Developer ID Application
+   build of `com.ctimothe.isla` (the bridge,
    `BundleUpdateValidator.developerIDRequirement`). So the move to a Developer
    ID is an ordinary Update Now. It still changes the identity macOS knows:
    - The old Accessibility entry can look switched on while it does nothing.
@@ -385,15 +385,13 @@ What decides whether that keeps working, release after release:
    downloaded copy is unnotarized. The user has to run the `xattr` command in
    the README before the first launch; if they don't, macOS rejects the media
    helper (`libislamedia.dylib`) under quarantine, and its alert's default
-   button moves it to the Trash. Homebrew no longer accepts unsigned casks
-   (2026-09-01). Updates are not affected; only the first install is. Removing
+   button moves it to the Trash. Homebrew does not accept unsigned casks. Updates are not affected; only the first install is. Removing
    this step takes Apple Developer Program membership ($99 a year), a
    Developer ID Application certificate and the four variables below.
 
 ### Cutting a release: CI does it
 
-Since 2026-10-20 nobody runs `release.sh` by hand for a normal release
-(plan `docs/development/plans/2026-10-20-updates-for-everyone.md`).
+Nobody runs `release.sh` by hand for a normal release.
 
 1. Merge to `main` through a pull request whose CI is green. That is the
    whole human step.
@@ -423,7 +421,7 @@ run" ticked** builds, gates and signs with the real secrets, and commits, tags
 and uploads nothing. Run it once after setting the secrets, before relying on
 the job.
 
-**Once, before the first CI release:** the owner runs
+**To set or replace the release secrets:** the owner runs
 `bash Scripts/setup-release-secrets.sh`. It creates the environment, exports
 "Isla Code Signing" from the login keychain under a random passphrase
 (`Scripts/export-signing-identity.swift`), and pipes the update key, that

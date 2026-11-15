@@ -5,10 +5,10 @@
 # it never launches, quits, clicks or otherwise drives the app — with `top`
 # every 5 s, and prints medians for the app and its media helper: CPU percent,
 # idle wake-ups per second, context switches per second, physical footprint
-# and resident size. Live session S17 runs it once per scenario (panel closed
+# and resident size. Run it once per scenario (panel closed
 # and idle for 5 min, panel closed with music playing, then 1 min each on the
-# Music, Settings, Shelf and Clipboard tabs while playing), and checklist.md
-# §Manual parity gates holds the result as the budget later work is held to.
+# player, the lyric stage, Settings, the Shelf and Clipboard while playing), and
+# docs/development/spec.md §20 holds the budget later work is held to.
 #
 # Why this exists (F-054): the only recorded wake-up figure came from the
 # process's lifetime counter divided by its uptime, which averages hours of
@@ -31,9 +31,9 @@
 #
 # usage: Scripts/measure-idle.sh <scenario> [samples]
 #   scenario  a label for the record, e.g. closed-idle, closed-playing,
-#             tab-music, tab-settings, tab-shelf, tab-clipboard
+#             open-player, open-stage, open-settings, open-shelf, open-clipboard
 #   samples   5 s samples to take after a 5 s baseline; default 60 (5 min).
-#             Use 12 for the 1 min per-tab scenarios.
+#             Use 12 for the 1 min open-surface scenarios.
 set -euo pipefail
 
 INTERVAL=5
@@ -209,7 +209,7 @@ elif helper is None or helper["covered"] < app["covered"]:
 print(f"since launch (display sleep included): {lifetime_idle} idle wake-ups over "
       f"{uptime / 3600:.1f} h = {lifetime_idle / uptime if uptime else float('nan'):.2f}/s")
 print()
-print("for checklist.md:")
+print("for docs/development/open-checks.md:")
 line = (f"  - {datetime.date.today().isoformat()} {scenario} (Isla {version}, "
         f"{samples} × {interval:.0f} s): CPU {app['cpu']:.1f} %, {app['idle']:.2f} idle wake-ups/s, "
         f"{app['csw']:.0f} switches/s, RSS {statistics.median(rss) if rss else float('nan'):.0f} MB")
