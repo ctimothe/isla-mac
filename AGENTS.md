@@ -250,6 +250,10 @@ the reason for each invariant.
 
 - Swift tools 6.0, language mode v5, `platforms: [.macOS(.v15)]`. Almost
   everything is `@MainActor`.
+- Large types are split into `Type+Concern.swift` extension files in the same
+  folder: stored properties stay in the main file, and a test that reads
+  source goes through `SourceText.of(...)`, which joins the main file and its
+  extensions.
 - Comments are long and explain *why*, usually by naming the bug that motivated
   the code. Match that density; a comment that restates the code is worse than
   none. Some scripts carry Russian comments; leave them in their language.
