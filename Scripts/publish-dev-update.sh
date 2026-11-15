@@ -10,9 +10,8 @@
 #   bash Scripts/publish-dev-update.sh --replace   # publish over a build this
 #                                                  # checkout does not contain
 #
-# The owner asked on 2026-10-19 that every change reach the running app through
-# Isla's own update rather than a reinstall each time (plan
-# docs/development/plans/2026-10-19-dev-update-channel.md). The feed is a folder
+# Every change reaches the owner's running app through Isla's own update rather
+# than a reinstall (docs/development/spec.md §15). The feed is a folder
 # the installed Isla reads exactly as a rehearsal reads its own
 # (UpdateSource.localFeed): a release.json shaped like GitHub's releases/latest
 # and file:// assets confined to the folder. What may be installed does not

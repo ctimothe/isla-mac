@@ -3,7 +3,7 @@
 Owner request, 2026-11-15, after Leo's announcement of islandcn
 (<https://github.com/opencoredev/islandcn>, MIT, still at
 `0011a41ea4882f3818caf35c98f3ee46b80c4a2c` — nothing changed upstream since
-the first port, `2026-11-14-islandcn-activities.md`): copy it "fully and
+the first port, plan `2026-11-14-islandcn-activities.md` in git history): copy it "fully and
 completely, with every edge case, every design, every icon, every look and
 everything identically", and every motion too ("the current ones are old"),
 changing only what a notched MacBook forces.
@@ -66,7 +66,11 @@ e. **Recording's waveform** needs the microphone's level, which only a
 Branch `feat/islandcn-identical`, cut from `feat/islandcn-activities`
 (99a51e7), worktree `.claude/worktrees/islandcn`.
 
-- **S1 Icons.** Vendor the Hugeicons element arrays Isla uses as a Swift table
+Done: **S1** (icons, `83e3656`) and **the new-track change** (`308617d`).
+Next: S2. Each slice that lands updates `docs/development/spec.md` and adds
+its hardware checks to `docs/development/open-checks.md` (IC2-H…).
+
+- **S1 Icons. Done.** Vendor the Hugeicons element arrays Isla uses as a Swift table
   (`IslandGlyphs`), and a renderer that follows `glyphs.tsx`'s recipes (part
   roles fill/line/heavy/cut and their draw order, stroke `2·(22/s)^0.35`,
   `place`, `view`). Replace every SF Symbol (`icons.md`, ~140 names; six need
@@ -93,18 +97,18 @@ Branch `feat/islandcn-identical`, cut from `feat/islandcn-activities`
   call's length; a Mac shows no incoming ring, so no accept or decline), ETA,
   Upload, Agent (composed from islandcn's agent pieces: lagoon, mono type,
   shimmer and tail text, step progress), started by App Intents and `isla://`.
-  New watchers default off and are recorded in `checklist.md`.
+  New watchers default off and are recorded in `spec.md` §17.
 - **S8 Panels.** The surfaces take S1–S3's icons, tokens and buttons.
 - **S9 Every other motion** (`motion.md` §B, ~45 entries: panel open and
   close, alerts, the HUD, lyric lines, pages, the Shelf), each on its
-  islandcn equivalent or the nearest islandcn family. The new-track change is
-  done ahead of S9 (owner, 2026-11-15): islandcn has no peek, so a new song
-  shows exactly as the volume pop-up does, under the notch (redesign spec
-  §3.5, amended), and follows whatever the pop-up's motion becomes.
+  islandcn equivalent or the nearest islandcn family.
+- **The new-track change. Done**, ahead of S9: islandcn has no peek, so a new
+  song shows exactly as the volume pop-up does, under the notch (`spec.md`
+  §5.6), and follows whatever the pop-up's motion becomes.
 
 Then: Codex review of the branch, a Claude Opus review of the motion core,
-`./scripts/check`, the dev feed, and the owner's hardware checks (to be
-written per slice, IC2-H…), then ask before merging to `main`.
+`./scripts/check`, the dev feed, and the owner's hardware checks (written per
+slice into `open-checks.md`, IC2-H…), then ask before merging to `main`.
 
 ## Cost
 
