@@ -45,7 +45,7 @@ final class ReduceMotionContractTests: XCTestCase {
                 + "`LockScreenCard.stage` — so only the window's glide is left here.)"
         ),
         Allowed(
-            file: "Theme.swift",
+            file: "ButtonStyles.swift",
             line: ".animation(reduceMotion ? nil : Theme.contentAnimation, value: configuration.isOn)",
             count: 1,
             reason: "the panel switch's knob, which crosses the track. The change stays; the "

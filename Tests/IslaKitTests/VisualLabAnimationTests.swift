@@ -178,8 +178,8 @@ final class VisualLabAnimationTests: VisualLabCase {
         // the clock on every frame (`KaraokeText.clock`, F-011), and
         // `KaraokeText.sweepAnimation` is nil in every case. The lyric lab's
         // L5 measures what it draws.
-        let press = try literal("Sources/IslaKit/UI/Theme.swift", #"\.animation\(\.easeOut\(duration: ([0-9.]+)\), value: configuration\.isPressed\)"#)
-        curves.append(try curve(.easeOut(duration: press), "button-press", "NotchButtonStyle press dim", "Theme.swift NotchButtonStyle"))
+        let press = try literal("Sources/IslaKit/UI/ButtonStyles.swift", #"\.animation\(\.easeOut\(duration: ([0-9.]+)\), value: configuration\.isPressed\)"#)
+        curves.append(try curve(.easeOut(duration: press), "button-press", "NotchButtonStyle press dim", "ButtonStyles.swift NotchButtonStyle"))
         // The refusal shake is no longer a curve: it is time-driven
         // (`RefusalShake.offset(at:)`), sampled into refusal-shake-offset.csv.
         let shimmer = try literal("Sources/IslaKit/UI/Skeleton.swift", #"\.linear\(duration: ([0-9.]+)\)\.repeatForever"#)
