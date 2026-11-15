@@ -68,14 +68,18 @@ enum MicrophoneMute {
     static let queue = DispatchQueue(label: "com.ctimothe.isla.microphone-mute")
 
     /// Mutes every microphone Isla can that is not muted already, writing
-    /// each change down as it lands. Says whether anything is held.
+    /// each change down as it lands. Says whether a microphone that is here
+    /// now is held: a note kept for an unplugged one silences nothing, and
+    /// the island must not say Muted on its strength (Codex review,
+    /// 2026-11-15).
     @discardableResult
     nonisolated static func hold(_ hardware: Hardware = .live, defaults: UserDefaults = .standard) -> Bool {
         var changes = held(defaults)
+        let present = hardware.microphones()
         func isHeld(_ device: String, _ element: UInt32) -> Bool {
             changes.contains { $0.device == device && $0.element == element }
         }
-        for device in hardware.microphones() {
+        for device in present {
             let switches = elements.filter { hardware.mute(device, $0) != nil }
             if !switches.isEmpty {
                 for element in switches where hardware.mute(device, element) == false && !isHeld(device, element) {
@@ -93,7 +97,7 @@ enum MicrophoneMute {
                 save(changes, defaults)
             }
         }
-        return !changes.isEmpty
+        return changes.contains { present.contains($0.device) }
     }
 
     /// Gives back what `hold` changed, in this run or an earlier one. A

@@ -106,4 +106,16 @@ final class MicrophoneMuteTests: XCTestCase {
         XCTAssertTrue(MicrophoneMute.hold(mac.hardware, defaults: defaults))
         XCTAssertEqual(MicrophoneMute.held(defaults).count, 1)
     }
+
+    /// A note kept for an unplugged microphone is not a mute: a hold that
+    /// could silence nothing here says so, whatever is written down.
+    func testANoteForAnUnpluggedMicrophoneIsNotAHold() {
+        let mac = Mac()
+        mac.present = ["usb"]
+        mac.mutes = ["usb": [0: false], "builtin": [0: true]]
+        MicrophoneMute.hold(mac.hardware, defaults: defaults)
+        mac.present = ["builtin"]
+        XCTAssertFalse(MicrophoneMute.hold(mac.hardware, defaults: defaults), "the built-in one was muted already")
+        XCTAssertEqual(MicrophoneMute.held(defaults).map(\.device), ["usb"])
+    }
 }
