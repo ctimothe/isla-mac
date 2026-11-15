@@ -399,7 +399,21 @@ final class StageAndCardTickTests: XCTestCase {
 
     /// The layout passes `ticks` ticks of `step` seconds cost a surface left
     /// to settle first, each tick given a turn of the run loop to be drawn.
+    ///
+    /// Settled means the position has settled too. An active surface waits
+    /// `MediaController.settleGrace` (1.2 s) for an authoritative reading and
+    /// then publishes `positionSettled`, which re-runs every view observing the
+    /// controller once. On CI's slower runner that one pass landed inside the
+    /// count after a fixed 0.6 s wait, and a different test failed each run;
+    /// counting from a settled position keeps it out, and a surface that
+    /// re-runs on every tick still fails at once.
     private func layouts(_ hosted: Hosted, _ rig: Rig, ticks: Int, step: TimeInterval) async -> Int {
+        var waited: TimeInterval = 0
+        while !rig.media.positionSettled, waited < MediaController.settleGrace + 3 {
+            await AXProbe.wait(0.05)
+            waited += 0.05
+        }
+        XCTAssertTrue(rig.media.positionSettled, "the position never settled, so the count would include its pass")
         await AXProbe.wait(0.6)
         hosted.hosting.reset()
         for tick in 1...ticks {
