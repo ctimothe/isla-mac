@@ -154,8 +154,6 @@ final class VisualLabAnimationTests: VisualLabCase {
             try curve(Theme.open(reduceMotion: false), "open-close", "panel open (shape, header, cover morph) on the outline's spring; the close is \"close\"", "Theme.swift islandSpring", travel: body),
             try curve(Theme.close(reduceMotion: false), "close", "panel close (shape, header, cover morph), the outline's spring after closeShapeDelay", "Theme.swift close(reduceMotion:)", travel: body),
             try curve(Theme.open(reduceMotion: true), "open-close-reduce-motion", "panel open/close under Reduce Motion", "Theme.swift open(reduceMotion:)"),
-            try curve(Theme.openAnimation, "player-layout", "player changing between two layouts of one height", "Theme.swift openAnimation", travel: body),
-            try curve(Theme.compactAnimation, "compact", "pill resizing around a new track", "Theme.swift compactAnimation", travel: Double(NotchMetrics.compactMediaExtension)),
             try curve(Theme.pill(reduceMotion: false), "pill-unfold", "pill growing out of the notch and folding back, and the pill's content arriving and leaving with it (blur 15→0, scale x 0.8→1, opacity)", "Theme.swift pill(reduceMotion:)", travel: Double(NotchMetrics.compactMediaExtension) / 2),
             try curve(Theme.pill(reduceMotion: true), "pill-reduce-motion", "pill fold/unfold under Reduce Motion", "Theme.swift pill(reduceMotion:)"),
             try curve(Theme.lyricScroll, "lyric-scroll", "stage page step, lock-card lyric window, row brightening", "Theme.swift lyricScroll",
@@ -748,7 +746,10 @@ private struct PillKeyframe: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .frame(width: wing)
                 Color.clear.frame(width: notch.width, height: 1)
-                EqualizerBars(isAnimating: false, opacity: 0.82)
+                CompactEqualizer(
+                    isAnimating: false,
+                    colors: CompactEqualizerMotion.colors(isPlaying: false, tint: .white, increaseContrast: false)
+                )
                     .frame(width: wing)
             }
             .frame(width: bodyWidth, height: notch.height)

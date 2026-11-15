@@ -90,7 +90,7 @@ final class ExpandedBodyTests: XCTestCase {
         let vm = try model()
         vm.openStage()
         XCTAssertNil(vm.media.track)
-        XCTAssertTrue(vm.isShowingLyrics, "asked for")
+        XCTAssertTrue(vm.surface == .stage, "asked for")
         XCTAssertEqual(vm.presented, .player)
         let notch = vm.geometry.notchSize
         XCTAssertEqual(

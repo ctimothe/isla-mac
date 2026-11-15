@@ -89,21 +89,6 @@ struct ClipItem: Identifiable, Equatable {
     /// A row shows one line; anything past this could never be read.
     static let previewLimit = 512
 
-    /// The kind's own glyph — the leading mark for text-like kinds, and the
-    /// glyph a covered row wears for the kinds whose real mark would show the
-    /// content (spec §9.1, §9.4).
-    var symbol: String {
-        switch kind {
-        case .text: return "text.alignleft"
-        case .colour: return "square.fill"
-        case .code: return "curlybraces"
-        case .link: return "link"
-        case .image: return "photo"
-        case .file: return "doc"
-        case .files: return "doc.on.doc"
-        }
-    }
-
     /// The text the search field matches (spec §9.3): the whole string for the
     /// text kinds — a match past the 512 characters a row can show still finds
     /// the entry — the names for files, and the word "Image" with where it

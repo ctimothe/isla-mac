@@ -249,22 +249,3 @@ struct AppIconImage: View {
             .accessibilityHidden(true)
     }
 }
-
-/// An installed app's icon, looked up through the cache and redrawn when a
-/// refresh changes the answer; `fallback` when the app is not installed.
-struct InstalledAppIcon<Fallback: View>: View {
-    let bundleID: String
-    var side: CGFloat
-    /// `.shared` in the app; a test passes its own so the sidebar it renders
-    /// never asks the runner's LaunchServices.
-    @ObservedObject var icons: AppIcons = .shared
-    @ViewBuilder var fallback: () -> Fallback
-
-    var body: some View {
-        if let image = icons.icon(bundleID) {
-            AppIconImage(image: image, side: side)
-        } else {
-            fallback().frame(width: side, height: side)
-        }
-    }
-}

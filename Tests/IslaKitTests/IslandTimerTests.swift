@@ -56,35 +56,32 @@ final class IslandTimerTests: XCTestCase {
 
     // MARK: State arithmetic
 
-    func testStateElapsedRemainingAndProgress() {
+    func testStateElapsedAndRemaining() {
         let start = Date(timeIntervalSince1970: 100)
         let state = IslandTimerState(kind: .countdown(duration: 300), runningSince: start, banked: 60)
         let now = start.addingTimeInterval(90)
         XCTAssertEqual(state.elapsed(at: now), 150, accuracy: 1e-9)
         XCTAssertEqual(state.remaining(at: now) ?? -1, 150, accuracy: 1e-9)
-        XCTAssertEqual(state.progress(at: now) ?? -1, 0.5, accuracy: 1e-9)
         XCTAssertFalse(state.isFinished(at: now))
         XCTAssertFalse(state.isPaused)
     }
 
-    func testCountdownClampsAtZeroAndFullProgress() {
+    func testCountdownClampsAtZero() {
         let start = Date(timeIntervalSince1970: 100)
         let state = IslandTimerState(kind: .countdown(duration: 10), runningSince: start, banked: 0)
         let late = start.addingTimeInterval(500)
         XCTAssertEqual(state.remaining(at: late), 0)
-        XCTAssertEqual(state.progress(at: late), 1)
         XCTAssertTrue(state.isFinished(at: late))
         XCTAssertTrue(state.isFinished(at: start.addingTimeInterval(10)))
         XCTAssertFalse(state.isFinished(at: start.addingTimeInterval(9.99)))
     }
 
-    func testStopwatchHasNoRemainingProgressOrFinish() {
+    func testStopwatchHasNoRemainingOrFinish() {
         let start = Date(timeIntervalSince1970: 100)
         let state = IslandTimerState(kind: .stopwatch, runningSince: start, banked: 5)
         let now = start.addingTimeInterval(7)
         XCTAssertEqual(state.elapsed(at: now), 12, accuracy: 1e-9)
         XCTAssertNil(state.remaining(at: now))
-        XCTAssertNil(state.progress(at: now))
         XCTAssertFalse(state.isFinished(at: now.addingTimeInterval(1_000_000)))
     }
 
@@ -102,16 +99,14 @@ final class IslandTimerTests: XCTestCase {
 
     // MARK: Countdown
 
-    func testStartSetsRemainingProgressAndSchedulesExactlyTheRemainingTime() {
+    func testStartSetsRemainingAndSchedulesExactlyTheRemainingTime() {
         let rig = Rig()
         rig.center.startCountdown(seconds: 300)
         let state = try! XCTUnwrap(rig.center.countdown)
         XCTAssertEqual(state.remaining(at: rig.now), 300)
-        XCTAssertEqual(state.progress(at: rig.now), 0)
         XCTAssertEqual(rig.armed.map(\.delay), [300])
         rig.advance(75)
         XCTAssertEqual(rig.center.countdown?.remaining(at: rig.now), 225)
-        XCTAssertEqual(rig.center.countdown?.progress(at: rig.now) ?? -1, 0.25, accuracy: 1e-9)
         XCTAssertEqual(rig.finishes, 0)
     }
 
@@ -158,47 +153,6 @@ final class IslandTimerTests: XCTestCase {
         XCTAssertNil(rig.center.countdown)
     }
 
-    func testExtendWhileRunningRearmsForTheNewRemainingTime() {
-        let rig = Rig()
-        rig.center.startCountdown(seconds: 300)
-        rig.advance(100)
-        rig.center.extendCountdown(by: 60)
-        XCTAssertEqual(rig.center.countdown?.kind, .countdown(duration: 360))
-        XCTAssertEqual(rig.center.countdown?.remaining(at: rig.now), 260)
-        XCTAssertEqual(rig.armed.map(\.delay), [260], "only the new wake-up stays armed")
-        XCTAssertTrue(rig.scheduled[0].cancelled)
-        // The old wake-up running anyway must not ring: 200 s remain from its time.
-        rig.advance(200)
-        rig.fire(0)
-        XCTAssertEqual(rig.finishes, 0)
-        XCTAssertNotNil(rig.center.countdown)
-    }
-
-    func testExtendWhilePausedSchedulesNothing() {
-        let rig = Rig()
-        rig.center.startCountdown(seconds: 300)
-        rig.advance(100)
-        rig.center.pauseCountdown()
-        rig.center.extendCountdown(by: 60)
-        XCTAssertEqual(rig.center.countdown?.remaining(at: rig.now), 260)
-        XCTAssertTrue(rig.armed.isEmpty)
-        rig.center.resumeCountdown()
-        XCTAssertEqual(rig.armed.map(\.delay), [260])
-    }
-
-    func testExtendIgnoresNonsenseAndCapsAtADay() {
-        let rig = Rig()
-        rig.center.extendCountdown(by: 60)
-        XCTAssertNil(rig.center.countdown)
-        rig.center.startCountdown(seconds: 300)
-        rig.center.extendCountdown(by: 0)
-        rig.center.extendCountdown(by: -5)
-        rig.center.extendCountdown(by: .nan)
-        XCTAssertEqual(rig.center.countdown?.kind, .countdown(duration: 300))
-        rig.center.extendCountdown(by: 1_000_000)
-        XCTAssertEqual(rig.center.countdown?.kind, .countdown(duration: 86_400))
-    }
-
     func testFinishFiresExactlyOnceAndClearsTheCountdown() {
         let rig = Rig()
         var seenCleared = false
@@ -229,9 +183,9 @@ final class IslandTimerTests: XCTestCase {
         let rig = Rig()
         rig.center.startCountdown(seconds: 60)
         rig.advance(3_600)   // the Mac slept through it
-        rig.center.extendCountdown(by: 60)
+        rig.center.pauseCountdown()
         XCTAssertEqual(rig.finishes, 1)
-        XCTAssertNil(rig.center.countdown, "extend does not revive a countdown that already ended")
+        XCTAssertNil(rig.center.countdown, "pausing does not revive a countdown that already ended")
         XCTAssertTrue(rig.armed.isEmpty)
     }
 

@@ -27,13 +27,13 @@ final class LyricRoutesTests: XCTestCase {
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
         vm.open(.player)
         vm.openStage()
-        XCTAssertTrue(vm.isShowingLyrics)
+        XCTAssertTrue(vm.surface == .stage)
         vm.open(.tray)
-        XCTAssertFalse(vm.isShowingLyrics, "the stage is a surface of its own")
+        XCTAssertFalse(vm.surface == .stage, "the stage is a surface of its own")
 
         // And coming back does not restore it: the player opens as the player.
         vm.open(.player)
-        XCTAssertFalse(vm.isShowingLyrics)
+        XCTAssertFalse(vm.surface == .stage)
     }
 
     /// What lands on the pasteboard is the song, not the app's bookkeeping:

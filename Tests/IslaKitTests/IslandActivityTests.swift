@@ -68,26 +68,6 @@ final class IslandActivityTests: XCTestCase {
         XCTAssertEqual(current(shelf: 0), .none, "an empty Shelf is not live")
     }
 
-    // MARK: The bubble
-
-    /// Only Music and the Shelf are live, so only the Shelf can be the bubble,
-    /// and only beside a compact live activity: never during an alert, a
-    /// surface or the lock.
-    func testTheBubbleIsTheShelfBesideMusicAndNowhereElse() {
-        func bubble(_ activity: IslandActivity, shelf: Int = 3, open: Bool = false, locked: Bool = false) -> Int? {
-            IslandActivity.bubble(beside: activity, shelfCount: shelf, isOpen: open, isLocked: locked)
-        }
-        XCTAssertEqual(bubble(.music), 3, "Music holds the island; the Shelf waits beside it")
-        XCTAssertNil(bubble(.music, shelf: 0), "an empty Shelf")
-        XCTAssertNil(bubble(.shelf(count: 3)), "the Shelf is the island itself")
-        XCTAssertNil(bubble(.none, shelf: 0))
-        for alert in [hud, headphones, charging, .peek] {
-            XCTAssertNil(bubble(alert), "never during an alert: \(alert)")
-        }
-        XCTAssertNil(bubble(.music, open: true), "never while a surface is open")
-        XCTAssertNil(bubble(.music, locked: true), "never while locked")
-    }
-
     // MARK: Replacement
 
     func testAHigherAlertReplacesALowerAtOnce() {

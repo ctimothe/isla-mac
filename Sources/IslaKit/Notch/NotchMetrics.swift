@@ -16,11 +16,6 @@ enum NotchMetrics {
         CGSize(width: width, height: standardBodyHeight)
     }
 
-    /// The *widest* body, which is what the window is cut for and what the
-    /// window arithmetic is written against. The window is never resized — it is
-    /// transparent outside the panel, and what is clickable is decided by the
-    /// active rect — so a narrower body simply leaves more of it transparent.
-    static let standardBody = CGSize(width: maximumBodyWidth, height: standardBodyHeight)
     /// The tallest body the window was ever cut for. The tab that asked for it
     /// — the teleprompter — was removed on 2026-08-22, but the window keeps this
     /// height on purpose: `maximumWindow` is derived from it, and a window that
@@ -42,8 +37,6 @@ enum NotchMetrics {
     /// The charger: "Charging" in the left wing, the level and a drawn battery
     /// in the right — words, where Music has a picture, so wider.
     static let compactChargingExtension: CGFloat = 180
-    /// One wing of the Music island: half of `compactMediaExtension`.
-    static let compactWing: CGFloat = compactMediaExtension / 2
     static let openDelay: TimeInterval = 0.05
     static let closeDelay: TimeInterval = 0.32
     static let fastPointerInterval: TimeInterval = 1.0 / 60.0

@@ -149,8 +149,6 @@ final class UpdateOfferTests: XCTestCase {
         XCTAssertEqual(current(peeking: true), .update(offer), "over a peek")
         XCTAssertEqual(current(ambient: pods), .ambient(pods), "under headphones")
         XCTAssertEqual(current(hud: volume), .hud(volume), "under the pop-up")
-        XCTAssertNil(IslandActivity.bubble(beside: .update(offer), shelfCount: 2, isOpen: false, isLocked: false),
-                     "no bubble during an alert")
     }
 
     /// §19.1's two exceptions are the update choice's: it outlives the

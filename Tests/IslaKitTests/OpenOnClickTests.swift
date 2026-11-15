@@ -172,7 +172,7 @@ final class OpenOnClickTests: XCTestCase {
             )
 
             // The click, from a pointer that is therefore on the panel.
-            vm.clickOpened(pointerIsOnPanel: true)
+            vm.clickOpened { _ in true }
             vm.isOpen = true
             XCTAssertFalse(
                 vm.holdsOpen,
@@ -197,7 +197,7 @@ final class OpenOnClickTests: XCTestCase {
         withDefault(false) {
             guard let vm = makeViewModel() else { return }
 
-            vm.clickOpened(pointerIsOnPanel: false)
+            vm.clickOpened { _ in false }
             vm.isOpen = true
             XCTAssertTrue(vm.holdsOpen, "nothing else is holding this panel open")
             XCTAssertEqual(

@@ -144,9 +144,9 @@ struct DrawnPaneTile: View {
 ///
 /// It used to be the only Spotify mark Settings had and it looked fake — the
 /// owner said so — next to the real icons of the apps on his Mac. Now the real
-/// icon comes from the person's own copy of the app (`AppIcons`,
-/// `InstalledAppIcon`), and this stays as the stand-in for a Mac that has none. It is drawn rather than shipped as an
-/// image on purpose: this is the one place the app names a brand it does not
+/// icon comes from the person's own copy of the app (`AppIcons`), and this
+/// stays as the stand-in for a Mac that has none. It is drawn rather than
+/// shipped as an image on purpose: this is the one place the app names a brand it does not
 /// own, so no asset of the brand's travels in the bundle (and
 /// `test-branding.sh` has nothing to look at). The real icons never do either:
 /// they are read from `/Applications` at runtime and never copied.

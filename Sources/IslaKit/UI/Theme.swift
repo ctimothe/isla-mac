@@ -34,26 +34,6 @@ enum Theme {
         reduceMotion ? reducedMotion : islandSpring
     }
 
-    /// Critically damped, on purpose.
-    ///
-    /// Apple's own rule, from *Designing Fluid Interfaces*: start at a damping
-    /// ratio of 1.0, and add overshoot **only when the gesture itself carried
-    /// momentum** — a flick, a throw, a drag release. Bounce on something a
-    /// flick threw feels right; bounce on something a click opened feels like
-    /// the interface wobbling at you.
-    ///
-    /// The island opens from a click. There is no momentum to inherit and there
-    /// was nothing for the overshoot to express, so 0.82 spent it on a wobble
-    /// at the end of every open. Response is the time to reach the target, not
-    /// a duration — Apple ships 0.4 for a move and 0.3 for a sheet, and this
-    /// sits between them.
-    ///
-    /// Since 2026-10-17 the outline opens on `islandSpring` (spec §19.3), and
-    /// this curve is left to what moves inside a surface: the player changing
-    /// between two layouts of one height (`PlayerLayout.animation`).
-    static let openResponse: Double = 0.34
-    static let openAnimation = Animation.spring(response: openResponse, dampingFraction: 1.0)
-
     /// The panel folding shut: the outline's own spring, started a beat late.
     ///
     /// The open's rule is that the panel has height before the body has alpha;
@@ -95,9 +75,6 @@ enum Theme {
     static func close(reduceMotion: Bool) -> Animation {
         reduceMotion ? open(reduceMotion: true) : closeAnimation
     }
-    /// The pill resizing around a track that just started. Also nothing anybody
-    /// threw, so also critically damped.
-    static let compactAnimation = Animation.spring(response: 0.28, dampingFraction: 1.0)
 
     /// The pill growing out of the notch, and folding back into it, and its
     /// content arriving and leaving with it: the outline's spring, both ways
@@ -141,6 +118,12 @@ enum Theme {
 
     /// Every spring in this file that is **not** allowed to overshoot.
     ///
+    /// Apple's own rule, from *Designing Fluid Interfaces*: start at a damping
+    /// ratio of 1.0, and add overshoot **only when the gesture itself carried
+    /// momentum** — a flick, a throw, a drag release. Bounce on something a
+    /// flick threw feels right; bounce on something a click opened feels like
+    /// the interface wobbling at you.
+    ///
     /// Listed rather than inferred so the guard is a list somebody has to
     /// deliberately edit. It used to be hardcoded inside the test, which meant
     /// a fourth spring at 0.7 would have passed it without anyone noticing.
@@ -150,8 +133,7 @@ enum Theme {
     /// `islandSpring` now (spec §19.3); what is left is every curve that moves
     /// something inside a surface.
     static let criticallyDampedSprings: [Animation] = [
-        openAnimation, compactAnimation, captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph,
-        hudSpring,
+        captionTurnOut, captionTurnIn, expandAnimation, lockCardMorph, hudSpring,
     ]
 
     /// The volume and brightness pop-up (redesign 2026-10-15, spec §2.4, §12)
@@ -425,17 +407,14 @@ enum Theme {
             )
     }
 
-    /// Motion-aware variants. Reduce Motion asks for the state change to
-    /// still happen, just without the travel — so the spring becomes
-    /// `reducedMotion`, which carries nothing past its end and starts and
-    /// stops at rest, and scale transitions become plain opacity, rather
-    /// than the panel snapping between states with no transition at all.
-    /// (`open(reduceMotion:)`, `pill(reduceMotion:)` and `island(reduceMotion:)`
-    /// are the outline's, at the top of this file.)
-    static func compact(reduceMotion: Bool) -> Animation {
-        reduceMotion ? reducedMotion : compactAnimation
-    }
-
+    /// Reduce Motion asks for the state change to still happen, just without
+    /// the travel — so the spring becomes `reducedMotion`, which carries
+    /// nothing past its end and starts and stops at rest, and scale
+    /// transitions become plain opacity, rather than the panel snapping
+    /// between states with no transition at all. (`open(reduceMotion:)`,
+    /// `pill(reduceMotion:)` and `island(reduceMotion:)` are the outline's, at
+    /// the top of this file.)
+    ///
     /// The one curve for every travel Reduce Motion still has to make: the
     /// shell opening and closing, the pill and its content, the lyric page,
     /// the hover nudge.
@@ -721,19 +700,6 @@ enum Theme {
     /// The sung line while paused (spec §4.2): 0.7 of itself.
     static let playerPausedLyricOpacity: Double = 0.7
 
-    /// The lyric band's *next* line (spec §4.3): the board's white 0.36 is the
-    /// panel's own lyric floor (`LyricRow.Ramp.panel(...).floor`, held at 3:1 over
-    /// black by `ContrastRampTests`), so the band follows the ramp instead of
-    /// stating a second 0.36 that could drift from it — and Increase Contrast
-    /// lifts it with the rest of the ramp.
-    static func lyricBandNextOpacity(increaseContrast: Bool) -> Double {
-        LyricRow.Ramp.panel(increaseContrast: increaseContrast).floor
-    }
-
-    @MainActor static var lyricBandNext: Color {
-        Color.white.opacity(lyricBandNextOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
-    }
-
     /// White 0.30 (0.50 with Increase Contrast): placeholders and glyphs nobody
     /// has to read (spec §2.1 `quaternary`) — the note in a missing cover's well.
     static func quaternaryOpacity(increaseContrast: Bool) -> Double {
@@ -748,25 +714,9 @@ enum Theme {
     /// board's `fill` token.
     static let coverMissingWell = Color.white.opacity(0.08)
 
-    /// The empty player's well, edge and note (spec §4.8): a step under the
-    /// missing cover's, so a player with nothing in it reads as emptier than one
-    /// whose song has no picture.
-    static let emptyWell = Color.white.opacity(0.07)
-    static let emptyWellEdge = Color.white.opacity(0.10)
-    static let emptyWellNote = Color.white.opacity(0.26)
-
-    /// The note in a missing cover's well, and in the empty player's: 35 and 40
-    /// points (spec §4.7, §4.8). Glyphs fitted to a 132 pt well, not type, so
-    /// they are sizes of their own and not roles.
+    /// The note in a missing cover's well: 35 points (spec §4.7). A glyph
+    /// fitted to a 132 pt well, not type, so a size of its own and not a role.
     static let playerCoverNoteSize: CGFloat = 35
-    static let emptyNoteSize: CGFloat = 40
-
-    /// The glyphs of the player's transport (spec §4.1): previous and next 16 pt,
-    /// play and pause 20 pt, each in a 28 pt target.
-    static let playerSkipGlyphSize: CGFloat = 16
-    static let playerPlayGlyphSize: CGFloat = 20
-    static let playerTransportTarget: CGFloat = 28
-
     // MARK: - The player, activities first (spec §19.6)
 
     /// The title, white 0.80 at 16 medium; the artist under it, white 0.50 at
@@ -810,9 +760,6 @@ enum Theme {
     /// when a song has no cover (`LockCardMaterial.Layer.neutralFill`) — Automatic
     /// and Tinted keep their opacity floor with or without a picture.
     static let lockCardSolid = islandHover
-
-    /// The lock card's Transparent panel (spec §7.2): black at 0.30.
-    static let lockCardTransparent = lockCardTransparent(alpha: LockCardMaterial.transparentAlpha)
 
     /// The same black at the alpha the decision gave it: 0.30 over a dark
     /// wallpaper, more where the type needs it (`LockCardLegibility.transparentWash`).
@@ -937,12 +884,6 @@ enum Theme {
         return min(candidate, 1)
     }
 
-    /// `tertiaryOpacity(over:increaseContrast:)` as a colour, at the live
-    /// Increase Contrast setting.
-    @MainActor static func tertiary(over fills: [Fill]) -> Color {
-        Color.white.opacity(tertiaryOpacity(over: fills, increaseContrast: SystemAppearance.shared.increaseContrast))
-    }
-
     /// A filled shape has to read as a filled shape. 0.08 was 1.14:1 over
     /// black — the selected tab chip and the empty scrubber track were not
     /// visible as shapes at all. 0.16 is 1.44:1, the smallest round value that
@@ -976,12 +917,6 @@ enum Theme {
         increaseContrast ? 0.30 : 0.18
     }
 
-    /// The selected chip's edge: `ShelfPane`'s 0.55, or the 0.85 defined
-    /// border `GlassSurface` draws under Increase Contrast.
-    static func selectedChipBorderOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.85 : 0.55
-    }
-
     @MainActor static var secondary: Color {
         Color.white.opacity(secondaryOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
@@ -1000,10 +935,6 @@ enum Theme {
     @MainActor static var selectedChip: Color {
         Color.white.opacity(selectedChipOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
-    @MainActor static var selectedChipBorder: Color {
-        Color.white.opacity(selectedChipBorderOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
-    }
-
     // MARK: - The Settings switch
     //
     // AppKit's switch draws its on-state only in a key window, and this panel
@@ -1134,12 +1065,6 @@ enum Theme {
     /// the two places that flash it cannot drift to two greens.
     static let success = Color.green
 
-    /// Tracking for an uppercased caption — the tab title, a section header, a
-    /// column title. Capitals set at caption size close up, so they take a
-    /// little more air than the table gives lowercase at that size. One value:
-    /// the three headers used to carry 0.8, 0.8 and 0.6 for the same role.
-    static let capsTracking: CGFloat = 0.8
-
     /// A Shelf tile whose disk is not plugged in draws its icon at this
     /// opacity, in greyscale (spec §8.4, `Shelf-Disk-Missing`): present enough
     /// to be recognised as the same tile, faded enough to read as out of reach
@@ -1231,8 +1156,6 @@ enum Theme {
     static let shelfDropWellResting = Color.white.opacity(0.07)
     static let shelfDropCaptionLit: Double = 0.75
     static let shelfDropCaptionResting: Double = 0.55
-    static let shelfDropWellRadius: CGFloat = 14
-
     /// The empty tray's line, white 0.55.
     static let shelfEmptyLineOpacity: Double = 0.55
 
@@ -1262,16 +1185,6 @@ enum Theme {
 
     @MainActor static var clipboardWell: Color {
         Color.white.opacity(clipboardWellOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
-    }
-
-    /// The open search field's fill, white at 0.10 (spec §9.3), with the same
-    /// step under Increase Contrast.
-    static func searchFieldOpacity(increaseContrast: Bool) -> Double {
-        increaseContrast ? 0.20 : 0.10
-    }
-
-    @MainActor static var searchFieldFill: Color {
-        Color.white.opacity(searchFieldOpacity(increaseContrast: SystemAppearance.shared.increaseContrast))
     }
 
     // MARK: - Translate (redesign 2026-10-15, spec §11)
@@ -1521,39 +1434,6 @@ struct ToolbarPushButtonStyle: ButtonStyle {
     }
 }
 
-/// The default button of a form: the toolbar push button's shape in the
-/// person's accent with white type (native pass 2026-10-25: it was the fixed
-/// system blue), the one control a card offers when there is one thing
-/// to do (Update Now). Same height, radius and padding as `ToolbarPushButtonStyle`
-/// so the two sit on one line; dims on press and steps back when disabled, as
-/// every panel button does.
-struct ProminentPushButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        PlateLabel(configuration: configuration)
-    }
-
-    private struct PlateLabel: View {
-        let configuration: ButtonStyleConfiguration
-        @Environment(\.isEnabled) private var isEnabled
-
-        var body: some View {
-            configuration.label
-                .islandFont(.body, weight: .semibold)
-                .foregroundStyle(Color.white)
-                .lineLimit(1)
-                .padding(.horizontal, ToolbarPushButtonStyle.horizontalPadding)
-                .frame(height: ToolbarPushButtonStyle.height)
-                .background(
-                    RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous)
-                        .fill(Color(nsColor: .controlAccentColor))
-                )
-                .contentShape(RoundedRectangle(cornerRadius: ToolbarPushButtonStyle.radius, style: .continuous))
-                .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
-                .animation(Theme.contentAnimation, value: configuration.isPressed)
-        }
-    }
-}
-
 /// The panel's one-action pill: a word in a capsule of `Theme.surface` edged
 /// with the hairline, dimmed on press the way `PanelButtonStyle` dims.
 ///
@@ -1722,11 +1602,6 @@ struct NotchButtonStyle: ButtonStyle {
 }
 
 extension View {
-    /// Tracks hover without triggering layout changes in the parent.
-    func onHoverChange(_ action: @escaping (Bool) -> Void) -> some View {
-        onHover(perform: action)
-    }
-
     /// One end of a travelling object, when there is a namespace to travel in.
     ///
     /// The namespace is optional because the views that carry these ids are also

@@ -63,15 +63,6 @@ enum LockCardLayout {
     /// `LockScreenCard.size(for:)` returns and the window is cut to.
     static func canvas(_ size: NotchViewModel.LockCardSize) -> CGSize { cardSize(size) }
 
-    /// The visible shape inside the canvas: **top-aligned and centred**, in
-    /// either form. This is the whole "grows in place" rule — the banner and the
-    /// card agree on `minY` and `midX`.
-    static func shapeFrame(_ form: Form, _ size: NotchViewModel.LockCardSize) -> CGRect {
-        let canvas = canvas(size)
-        let shape = shapeSize(form, size)
-        return CGRect(x: (canvas.width - shape.width) / 2, y: 0, width: shape.width, height: shape.height)
-    }
-
     /// What takes clicks, given the canvas rect in the root view's AppKit space
     /// (origin bottom-left): the visible shape and nothing else. The window's
     /// remainder — a banner leaves most of the card area empty — belongs to
@@ -194,10 +185,6 @@ enum LockCardLayout {
         size == .compact ? nil : CGPoint(x: 20, y: 104)
     }
 
-    static func translation(_ size: NotchViewModel.LockCardSize) -> CGPoint? {
-        size == .compact ? nil : CGPoint(x: 20, y: 125)
-    }
-
     /// The seek row: elapsed, bar, remaining. 12 tall, 20 in from each edge.
     static func progress(_ size: NotchViewModel.LockCardSize) -> CGRect {
         let card = cardSize(size)
@@ -218,13 +205,6 @@ enum LockCardLayout {
     }
 
     static let footerButton: CGFloat = 28
-
-    /// The volume slider, glyphs included: 40 in from the footer's left, 40 from
-    /// its right (340 wide, 300 compact), centred on the rail.
-    static func footerSlider(_ size: NotchViewModel.LockCardSize) -> CGRect {
-        let footer = footer(size)
-        return CGRect(x: footer.minX + 40, y: footer.minY + 8, width: footer.width - 80, height: 12)
-    }
 
     // MARK: - The Lyrics pane
 
@@ -304,8 +284,6 @@ enum LockCardLayout {
     static func outputVolume(_ size: NotchViewModel.LockCardSize) -> CGRect {
         CGRect(x: 20, y: 52, width: cardSize(size).width - 40, height: 16)
     }
-
-    static let outputBarWidthOnStandard: CGFloat = 380
 
     /// Whole rows between the list's top and the card's foot margin: five on the
     /// standard card (the board's five devices), three on the compact one.

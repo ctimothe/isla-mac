@@ -214,8 +214,8 @@ final class PausedFoldTests: XCTestCase {
     func testANewSongArrivingPausedRestsToo() {
         guard let geometry = NotchGeometry.current() else { return XCTFail("screen") }
         let vm = NotchViewModel(geometry: geometry, stores: NotchStores())
-        vm.playbackChanged(isPlaying: false, hasTrack: true, title: "One")
-        vm.playbackChanged(isPlaying: false, hasTrack: true, title: "Two")
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
+        vm.playbackChanged(isPlaying: false, hasTrack: true)
         XCTAssertTrue(vm.pauseHasSettled)
     }
 

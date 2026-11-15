@@ -434,16 +434,6 @@ final class CaptureObserver: @unchecked Sendable {
         return value
     }
 
-    static func audioBundleID(of object: AudioObjectID) -> String? {
-        var address = audioAddress(kAudioProcessPropertyBundleID)
-        var value: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr,
-              let string = value?.takeRetainedValue() as String?, !string.isEmpty
-        else { return nil }
-        return string
-    }
-
     static func cameraObjectIDs() -> [CMIOObjectID]? {
         var address = cameraAddress(kCMIOHardwarePropertyDevices)
         var size: UInt32 = 0

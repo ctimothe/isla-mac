@@ -259,13 +259,6 @@ struct LockScreenCard: View {
         return ordered
     }
 
-    /// How many whole rows fit between the list's top and the card's foot.
-    /// Five on the standard card — the board's five devices — and three on the
-    /// compact one, which is why a fixed five was never right.
-    static func outputRowsThatFit(_ size: NotchViewModel.LockCardSize) -> Int {
-        LockCardLayout.outputRowsThatFit(size)
-    }
-
     /// The height of the scrolling list, for `count` devices.
     ///
     /// Up to the cap, exactly as tall as its rows. Past it, the last visible

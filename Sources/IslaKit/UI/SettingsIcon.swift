@@ -79,7 +79,6 @@ enum SettingsIcon {
     /// Into which language: the direction, and nothing more.
     static let translateTarget = "arrow.right"
     static let lockScreen = "lock.display"
-    static let cardSize = "rectangle.compress.vertical"
     /// A slim bar across the top of a screen: the banner the card rests as.
     static let restAsBanner = "menubar.rectangle"
     /// Glass or solid is an appearance choice, and this is the system's

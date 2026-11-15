@@ -42,11 +42,6 @@ final class MotionValuesTests: XCTestCase {
         let firstReturn = try XCTUnwrap(samples.indices.first { $0 > 400 && samples[$0] <= 1 })
         let laterExcess = samples[firstReturn...].map { abs($0 - 1) }.max() ?? 0
         XCTAssertLessThan(laterExcess, 0.001, "the return swing is under a tenth of a percent")
-        // Quicker off the mark than the 0.34 critically damped open it replaced.
-        XCTAssertLessThan(
-            Theme.springRiseTime(response: Theme.islandResponse, damping: Theme.islandDamping, level: 0.99),
-            Theme.springRiseTime(response: Theme.openResponse, damping: 1, level: 0.99)
-        )
     }
 
     /// Every change of the outline's size rides it: opening, closing a beat
@@ -92,14 +87,13 @@ final class MotionValuesTests: XCTestCase {
         XCTAssertFalse(listed.contains(String(describing: Theme.islandSpring)))
         XCTAssertFalse(listed.contains(String(describing: Theme.closeAnimation)), "the close is the outline's spring, late")
         for (name, curve) in [
-            ("open, inside a surface", Theme.openAnimation), ("compact", Theme.compactAnimation),
             ("caption out", Theme.captionTurnOut), ("caption in", Theme.captionTurnIn),
             ("update card", Theme.expandAnimation), ("lock card", Theme.lockCardMorph),
             ("pop-up", Theme.hudSpring),
         ] {
             XCTAssertTrue(listed.contains(String(describing: curve)), name)
         }
-        XCTAssertEqual(listed.count, 7)
+        XCTAssertEqual(listed.count, 5)
     }
 
     /// The pop-up is there at once: the outline springs (response 0.3, no
@@ -170,7 +164,6 @@ final class MotionValuesTests: XCTestCase {
         let variants: [(String, Animation)] = [
             ("open", Theme.open(reduceMotion: true)),
             ("close", Theme.close(reduceMotion: true)),
-            ("compact", Theme.compact(reduceMotion: true)),
             ("pill fold and unfold", Theme.pill(reduceMotion: true)),
             ("the outline", Theme.island(reduceMotion: true)),
             ("lyric page", Theme.lyricScroll(reduceMotion: true)),
@@ -413,7 +406,6 @@ final class MotionValuesTests: XCTestCase {
             ("LockScreenCard.swift", ".symbolSwap(value: favourite.isOn, reduceMotion: reduceMotion)"),
             ("LockScreenCard.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
             ("ClipboardPane.swift", ".symbolSwap(value: justCopied, reduceMotion: reduceMotion)"),
-            ("ModeToggle.swift", ".symbolSwap(value: symbol, reduceMotion: reduceMotion)"),
         ]
         for site in sites {
             XCTAssertTrue(

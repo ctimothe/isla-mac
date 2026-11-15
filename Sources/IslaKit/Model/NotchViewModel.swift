@@ -550,12 +550,6 @@ final class NotchViewModel: ObservableObject {
     /// test's own suite otherwise.
     let defaults: UserDefaults
 
-    /// Whether the lyrics stage is the surface chosen (spec §19.6) — a place
-    /// the app can be sent: ⌃⌥⌘L, the menu's Lyrics and a click on the
-    /// player's cover or title open it, and Hide Lyrics turns it back into the
-    /// player.
-    var isShowingLyrics: Bool { surface == .stage }
-
     /// The stage: from the player's cover or title, ⌃⌥⌘L and the menu.
     /// Through `choose`, so a key pressed during the welcome answers it.
     func openStage() { choose(.stage) }
@@ -655,11 +649,6 @@ final class NotchViewModel: ObservableObject {
             cycleRepeat: { [weak self] in self?.media.cycleRepeat() }
         )
     )
-
-    /// The header's Show Translation tool: there while Translate Lyrics is on in
-    /// Settings (spec §5.2). Read through the service, which hears of the switch
-    /// from the defaults it is written to.
-    var showsTranslationTool: Bool { translation.isEnabled }
 
     /// The lyric translation, the session's own (`NotchStores`).
     var translation: LyricTranslation { stores.lyricTranslation }
@@ -834,16 +823,11 @@ final class NotchViewModel: ObservableObject {
         isPinnedOpen = !pointerIsOnPanel(openBodySize)
     }
 
-    /// The same, for a caller that already knows where the pointer is.
-    func clickOpened(pointerIsOnPanel: Bool, opening surface: Surface? = nil) {
-        clickOpened(opening: surface) { _ in pointerIsOnPanel }
-    }
-
     /// Raised when the panel was opened with the pointer nowhere near it: ⌃⌥⌘I,
     /// or a click that came from the keyboard rather than the mouse — the
     /// compact island's accessibility action. (There has been no menu item
     /// since 2026-08-25; the app has no menu-bar item at all.) A click from the
-    /// pointer deliberately does not pin — see `clickOpened(pointerIsOnPanel:)`.
+    /// pointer deliberately does not pin — see `clickOpened(opening:pointerIsOnPanel:)`.
     ///
     /// Those routes exist so the panel can be reached without a mouse, and the
     /// pointer rule cancels them outright: the cursor is wherever it was left,
@@ -1235,7 +1219,7 @@ final class NotchViewModel: ObservableObject {
         media.$isPlaying.removeDuplicates()
             .combineLatest(media.$track.removeDuplicates { $0?.key == $1?.key })
             .sink { [weak self] isPlaying, track in
-                self?.playbackChanged(isPlaying: isPlaying, hasTrack: track != nil, title: track?.title)
+                self?.playbackChanged(isPlaying: isPlaying, hasTrack: track != nil)
             }
             .store(in: &cancellables)
 
@@ -1612,7 +1596,7 @@ final class NotchViewModel: ObservableObject {
     /// A different song arriving paused rests too. It used to get a glance,
     /// but with the linger now only a skip's breath long a glance would be a
     /// flicker, and the owner asked for a paused island to stay out of the way.
-    func playbackChanged(isPlaying: Bool, hasTrack: Bool, title: String? = nil) {
+    func playbackChanged(isPlaying: Bool, hasTrack: Bool) {
         let sawPlaying = lastSawPlaying
         lastSawPlaying = isPlaying && hasTrack
         guard hasTrack, !isPlaying else {
@@ -1678,7 +1662,7 @@ final class NotchViewModel: ObservableObject {
             if isLockedPresentation {
                 return LockedHUDLayout.bodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
             }
-            return Self.hudBodySize(hud, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
+            return Self.hudBodySize(notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width)
         case .confirmation(let confirmation):
             return ConfirmationLayout.bodySize(
                 title: confirmation.title, notchSize: geometry.notchSize, bodyWidth: geometry.expandedSize.width
@@ -1717,7 +1701,7 @@ final class NotchViewModel: ObservableObject {
     /// of any size (spec §19.5 d, `ExpandedAlertShape`). It no longer widens
     /// to the music pill it replaces: that pill is gone, not under it (§19.1).
     /// Pure, so the arithmetic has tests.
-    nonisolated static func hudBodySize(_ hud: HUDMoment, notchSize: CGSize, bodyWidth: CGFloat) -> CGSize {
+    nonisolated static func hudBodySize(notchSize: CGSize, bodyWidth: CGFloat) -> CGSize {
         ExpandedAlertShape.volume.bodySize(notchSize: notchSize, bodyWidth: bodyWidth)
     }
 
@@ -1856,8 +1840,6 @@ final class NotchViewModel: ObservableObject {
     /// `MediaSourcePolicy`. Off restores every Now Playing session.
     static var musicOnlyEnabled: Bool { SettingsRowID.musicOnly.isOn(in: .standard) }
 
-    static let volumeAndOutputKey = "player.volumeAndOutput"
-
     /// Defaults to **on**, which is an owner-waived exception to the rule that
     /// anything touching a system-wide setting starts off (decision 8, 15 Oct
     /// 2026; checklist.md §"Scope divergence" records it). What
@@ -1865,24 +1847,12 @@ final class NotchViewModel: ObservableObject {
     /// picks an output — the volume is not written, and the default output is
     /// not changed, by drawing them. Off hides the slider and the Output button
     /// and the lyric band keeps its place (spec §4.5).
-    static var volumeAndOutputEnabled: Bool { volumeAndOutputEnabled(in: .standard) }
-
-    /// The same, read from a given suite: the rule a test holds without touching
-    /// the standard domain.
-    static func volumeAndOutputEnabled(in defaults: UserDefaults) -> Bool {
-        SettingsRowID.volumeAndOutput.isOn(in: defaults)
-    }
-
-    static let lyricBandKey = "player.lyricBand"
+    static let volumeAndOutputKey = "player.volumeAndOutput"
 
     /// Defaults to **on**. The sung line and the next one under the title
     /// (spec §4.3); it reaches nothing but the lyrics Show Lyrics already
     /// allows. Off hides the band and the layout takes the no-lyric positions.
-    static var lyricBandEnabled: Bool { lyricBandEnabled(in: .standard) }
-
-    static func lyricBandEnabled(in defaults: UserDefaults) -> Bool {
-        SettingsRowID.lyricBand.isOn(in: defaults)
-    }
+    static let lyricBandKey = "player.lyricBand"
 
     // MARK: Lyric translation (spec §5.3, §14; owner decision 11)
 
@@ -1892,10 +1862,6 @@ final class NotchViewModel: ObservableObject {
     /// translation is made on this Mac, and goes to MyMemory only for a pair
     /// nothing here offers and only if Translate Online — its own, older
     /// consent — is on as well (`LyricTranslation`).
-    static var translateLyricsEnabled: Bool { translateLyricsEnabled(in: .standard) }
-
-    /// The same, read from a given suite: the rule a test holds without touching
-    /// the standard domain.
     static func translateLyricsEnabled(in defaults: UserDefaults) -> Bool {
         SettingsRowID.translateLyrics.isOn(in: defaults)
     }
@@ -2001,8 +1967,6 @@ final class NotchViewModel: ObservableObject {
     /// Microphone and Camera, and Downloads (plan 2026-11-14 S4, S5): off.
     static let recordingKey = "island.recording"
     static let downloadsKey = "island.downloads"
-    static var recordingEnabled: Bool { SettingsRowID.recording.isOn(in: .standard) }
-    static var downloadsEnabled: Bool { SettingsRowID.downloads.isOn(in: .standard) }
     static var lowBatteryEnabled: Bool { SettingsRowID.lowBattery.isOn(in: .standard) }
     static var fullBatteryEnabled: Bool { SettingsRowID.fullBattery.isOn(in: .standard) }
 
@@ -2014,7 +1978,6 @@ final class NotchViewModel: ObservableObject {
     /// Volume and Brightness (spec §12, §14): **off** until chosen. The one
     /// moment that needs a permission, replaces a system pop-up and sets the
     /// Mac's volume and brightness. Reads the default back from the table.
-    static let showHUDKey = SettingsTable.volumeAndBrightnessKey
     static var volumeAndBrightnessEnabled: Bool { volumeAndBrightnessEnabled(in: .standard) }
     static func volumeAndBrightnessEnabled(in defaults: UserDefaults) -> Bool {
         SettingsRowID.volumeAndBrightness.isOn(in: defaults)
@@ -2040,22 +2003,16 @@ final class NotchViewModel: ObservableObject {
     // MARK: Translate: Keep History and Speak Button (spec §11, §14)
 
     static let translateKeepHistoryKey = "translate.keepHistory"
+    /// Speak Button defaults to **on** (spec §14): it sends nothing anywhere and
+    /// changes nothing until pressed.
     static let translateSpeakButtonKey = "translate.speakButton"
 
     /// Keep History defaults to **off** (spec §14): the last 20 translations in
     /// memory, gone at quit, never written to disk; turning it on is the person
     /// choosing to be remembered. Release R4's Settings row; the Translate tab
     /// reads it.
-    static var translateKeepHistoryEnabled: Bool { translateKeepHistoryEnabled(in: .standard) }
     static func translateKeepHistoryEnabled(in defaults: UserDefaults) -> Bool {
         SettingsRowID.keepHistory.isOn(in: defaults)
-    }
-
-    /// Speak Button defaults to **on** (spec §14): it sends nothing anywhere and
-    /// changes nothing until pressed.
-    static var translateSpeakButtonEnabled: Bool { translateSpeakButtonEnabled(in: .standard) }
-    static func translateSpeakButtonEnabled(in defaults: UserDefaults) -> Bool {
-        SettingsRowID.speakButton.isOn(in: defaults)
     }
 
     /// How the lock card is finished.

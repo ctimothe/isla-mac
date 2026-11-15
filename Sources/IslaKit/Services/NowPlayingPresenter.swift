@@ -74,8 +74,6 @@ final class NowPlayingPresenter: ObservableObject {
     @Published private(set) var held: HeldClock?
 
     var frame: Frame { Frame(presented: presented, held: held) }
-    var isHolding: Bool { hold != nil }
-
     /// How long after the new song's title its cover is waited for. A skip's
     /// cover usually lands 20 to 70 ms behind its title (measured 2026-09-21)
     /// and a slow one in a few hundred; past this the song is swapped in with

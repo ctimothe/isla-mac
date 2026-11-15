@@ -3,22 +3,10 @@ import ImageIO
 
 /// How bright the desktop picture is behind a part of the screen.
 ///
-/// Since 2026-10-17 (spec §19.2) only the lock card asks — its Automatic
-/// material picks an opacity from the wallpaper behind it
-/// (`LockCardToneModel`, `cardRegion`). The island used to ask too, to draw
-/// §3.3's key line only on a dark wallpaper; its stroke is now drawn on every
-/// wallpaper, so nothing watches the desktop for it any more. The island's
-/// strip (`islandRegion`) and the dark/light `Reading` stay as the measured
-/// reference this file's tests hold the measurement to. What follows is the
-/// reasoning as it was written for the key line, and it still binds the card.
-///
-/// A black island disappears on a black wallpaper — the owner's Aerial measures
-/// a mean of 8/255 behind the notch — and Apple's answer for the iPhone's island
-/// is a thin stroke tinted to the content. It only helps where the island would
-/// otherwise vanish; on a bright wallpaper the black edge is already the
-/// strongest line on the screen, and a stroke round it is noise. So the stroke
-/// is gated on this, and **on every wallpaper while Increase Contrast is on**
-/// (`KeyLine.isShown`).
+/// Only the lock card asks — its Automatic material picks an opacity from the
+/// wallpaper behind it (`LockCardToneModel`, `cardRegion`; spec §19.2). The
+/// island used to ask too, to draw a key line only on a dark wallpaper; its
+/// stroke is now drawn on every wallpaper, so nothing else watches the desktop.
 ///
 /// How, and why each step is the cheap one:
 ///
@@ -38,48 +26,26 @@ import ImageIO
 ///   **without a single file system call on it**: no open, no `stat`, no
 ///   modification date. The cost: a wallpaper that is gated, a folder, a
 ///   dynamic one the system composes, or a file Isla cannot read answers
-///   nothing, and nothing is **not dark**: the key line is then absent, which
-///   is a missing flourish, where a wrong answer would be a stroke on a light
-///   desktop, and where a prompt would be a permission nobody asked for.
+///   nothing, and nothing is the card's default material, which is a missing
+///   refinement, where a prompt would be a permission nobody asked for.
 /// - `CGImageSourceCreateThumbnailAtIndex` decodes a thumbnail of at most 256
 ///   px, not the 6K original.
-/// - The mean is taken over only the strip behind the island: the notch's
-///   centre ± 310 pt across the top 60 pt of the screen, mapped through
+/// - The mean is taken over only the region asked about, mapped through
 ///   aspect-fill, which is how a desktop picture is laid on the display. A
 ///   wallpaper dark at the bottom and bright at the top is a bright wallpaper
-///   for this purpose.
-/// - The answer is cached by URL and modification date, because the island
-///   asks every time it unfolds.
+///   for a region at the top.
+/// - The answer is cached by URL, modification date and region, because the
+///   card asks every time it shows.
 ///
 /// "Luminance" here is the Rec. 709 weighting of the sRGB-*encoded* values —
 /// luma — not of linear light. The spec's four measurements (Aerial 0.03, Pro
 /// Black 0.09, Sonoma 0.36, Sky Blue 0.41) and its 0.20 line are in those
 /// units: Aerial's "8/255" is 0.031 encoded and 0.002 linear. Computing it in
-/// linear light would put Sonoma at about 0.1, under the line, and draw a key
-/// line on a wallpaper the spec says is not dark.
+/// linear light would put Sonoma at about 0.1 and push the card's opacity
+/// ramp the wrong way.
 enum WallpaperTone {
-    /// What was found out. `unknown` is every failure, and behaves as `light`:
-    /// no key line.
-    enum Reading: Equatable {
-        case dark, light, unknown
-    }
-
-    /// A wallpaper is dark below this mean luminance: Aerial and Pro Black
-    /// under it, Sonoma and Sky Blue over.
-    static let darkThreshold = 0.20
     /// The thumbnail's longest side, in pixels.
     static let thumbnailMaxPixel = 256
-    /// The strip behind the island, in points: the notch's centre ± this
-    /// across, the top `bandHeight` down. Wider than the widest island (the
-    /// peek, 520) so the whole of it is judged.
-    static let halfWidth: CGFloat = 310
-    static let bandHeight: CGFloat = 60
-
-    /// The decision, from a mean. Nil is the failure case.
-    static func reading(forMeanLuminance luminance: Double?) -> Reading {
-        guard let luminance else { return .unknown }
-        return luminance < darkThreshold ? .dark : .light
-    }
 
     // MARK: - May the file be opened at all
 
@@ -144,13 +110,6 @@ enum WallpaperTone {
     }
 
     // MARK: - Where to look
-
-    /// The strip behind the island, in screen points with the origin at the
-    /// screen's top-left. `notchCenterX` is relative to the screen's left edge.
-    static func islandRegion(screenSize: CGSize, notchCenterX: CGFloat) -> CGRect {
-        let strip = CGRect(x: notchCenterX - halfWidth, y: 0, width: 2 * halfWidth, height: bandHeight)
-        return strip.intersection(CGRect(origin: .zero, size: screenSize))
-    }
 
     /// The part of the screen behind the lock card, in screen points with the
     /// origin at the screen's top-left (redesign 2026-10-15, spec §7.2). The card
@@ -255,37 +214,21 @@ enum WallpaperTone {
         }
     }
 
-    /// The mean luma behind the island on the wallpaper at `url`, cached by
-    /// URL and modification date; nil when anything about it fails.
+    /// The mean luma behind a region of the screen on the wallpaper at `url`,
+    /// cached by URL, modification date and region; nil when anything about it
+    /// fails. A *failure* is cached too — a folder is a folder until its date
+    /// moves — so a wallpaper the card cannot read costs one attempt, not one
+    /// per showing.
     ///
-    /// A *failure* is cached too — a folder is a folder until its date moves —
-    /// so a wallpaper the island cannot read costs one attempt, not one per
-    /// unfold.
-    ///
-    /// `mayRead` is asked first and alone: a no is nil with no file system call
-    /// of any kind on `url` — not the modification date for the cache key, not
-    /// the open — so a wallpaper behind a privacy gate costs the person
-    /// nothing, not even a prompt. `thumbnail` is how the picture is read;
-    /// both are parameters so a test can prove a gated file is never reached
-    /// and can describe a fixture in a temporary folder, which the real gate
-    /// would rightly refuse.
-    static func meanLuminance(
-        ofWallpaperAt url: URL, screenSize: CGSize, notchCenterX: CGFloat,
-        mayRead: (URL) -> Bool = { isReadableWithoutPrompt($0) },
-        thumbnail read: (URL) -> CGImage? = { thumbnail(at: $0) }
-    ) -> Double? {
-        meanLuminance(
-            ofWallpaperAt: url, screenSize: screenSize,
-            region: islandRegion(screenSize: screenSize, notchCenterX: notchCenterX),
-            mayRead: mayRead, thumbnail: read
-        )
-    }
-
-    /// The same measurement over any region of the screen — the lock card's
-    /// (`cardRegion`) as well as the island's strip. **The privacy gate is the
-    /// first thing asked, whatever the region**: a wallpaper in Downloads, in
-    /// iCloud Drive or on a removable volume answers nil without a file system
-    /// call, however many surfaces have a reason to want its brightness.
+    /// **The privacy gate is the first thing asked, whatever the region**: a
+    /// wallpaper in Downloads, in iCloud Drive or on a removable volume
+    /// answers nil without a file system call, however many surfaces have a
+    /// reason to want its brightness. `mayRead` is asked first and alone: a no
+    /// is nil with no file system call of any kind on `url` — not the
+    /// modification date for the cache key, not the open. `thumbnail` is how
+    /// the picture is read; both are parameters so a test can prove a gated
+    /// file is never reached and can describe a fixture in a temporary folder,
+    /// which the real gate would rightly refuse.
     static func meanLuminance(
         ofWallpaperAt url: URL, screenSize: CGSize, region screenRegion: CGRect,
         mayRead: (URL) -> Bool = { isReadableWithoutPrompt($0) },
@@ -312,17 +255,5 @@ enum WallpaperTone {
         }
         cache.store(luminance, for: key)
         return luminance
-    }
-
-    static func reading(
-        ofWallpaperAt url: URL?, screenSize: CGSize, notchCenterX: CGFloat,
-        mayRead: (URL) -> Bool = { isReadableWithoutPrompt($0) },
-        thumbnail read: (URL) -> CGImage? = { thumbnail(at: $0) }
-    ) -> Reading {
-        guard let url else { return .unknown }
-        return reading(forMeanLuminance: meanLuminance(
-            ofWallpaperAt: url, screenSize: screenSize, notchCenterX: notchCenterX,
-            mayRead: mayRead, thumbnail: read
-        ))
     }
 }

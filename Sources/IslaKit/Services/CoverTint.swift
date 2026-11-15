@@ -58,7 +58,6 @@ struct CoverTint: Equatable, Sendable {
     /// saturated pixel buzzes.
     static let saturationRange: ClosedRange<Double> = 0.45...0.9
 
-    var color: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: 1) }
     var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: 1) }
 
     // MARK: - Choosing

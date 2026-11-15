@@ -28,21 +28,11 @@ final class PrivacyMode: ObservableObject {
 
         var id: String { rawValue }
 
-        /// The tab's own name — the menu and the panel must not disagree about
-        /// what a section is called.
-        var title: String {
-            switch self {
-            case .clipboard: return localized("Clipboard")
-            case .translate: return localized("Translate")
-            }
-        }
-
         /// The switch's name in Settings, which says what it does rather than
-        /// which tab it belongs to. Titled with `title` alone ("Clipboard",
-        /// in Russian just "Буфер"), right under Clipboard History, the switch
-        /// read as a second way to turn the tab off, and users left the cover
-        /// alone for fear of losing the feature (H-004). The menu and the
-        /// panel keep `title`: there the tab's name is the point.
+        /// which tab it belongs to. Titled with the tab's name alone
+        /// ("Clipboard", in Russian just "Буфер"), right under Clipboard
+        /// History, the switch read as a second way to turn the tab off, and
+        /// users left the cover alone for fear of losing the feature (H-004).
         var settingsTitle: String {
             switch self {
             case .clipboard: return localized("Cover Clipboard Rows")

@@ -26,7 +26,7 @@ final class NewTrackAlertTests: XCTestCase {
         for notch in notches {
             for bodyWidth: CGFloat in [480, 560, 620] {
                 let size = NotchViewModel.newTrackBodySize(notchSize: notch, bodyWidth: bodyWidth)
-                XCTAssertEqual(size, NotchViewModel.hudBodySize(volume, notchSize: notch, bodyWidth: bodyWidth))
+                XCTAssertEqual(size, NotchViewModel.hudBodySize(notchSize: notch, bodyWidth: bodyWidth))
                 XCTAssertEqual(size.height, notch.height + 65, accuracy: 0.001, "hung under the notch as the pop-up is")
                 XCTAssertGreaterThanOrEqual(size.width, notch.width + 20, "never narrower than the notch and 20")
             }

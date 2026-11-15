@@ -21,10 +21,6 @@ final class LocalLyricsDraft: ObservableObject {
             self.line = line
         }
 
-        /// No words to sing: a pause. Saved as a bare stamp, which the parser
-        /// reads as the end of the line before it.
-        var isPause: Bool { Self.isPause(line) }
-
         static func isPause(_ line: LyricsStore.Line) -> Bool {
             line.words.isEmpty && line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }

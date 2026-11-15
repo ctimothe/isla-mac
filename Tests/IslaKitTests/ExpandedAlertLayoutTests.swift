@@ -51,7 +51,7 @@ final class ExpandedAlertLayoutTests: XCTestCase {
         let notch = CGSize(width: 180, height: 38)
         let hud = HUDMoment(HUDReading(kind: .volume, level: 0.5, muted: false, deviceSymbol: nil))
         XCTAssertEqual(
-            NotchViewModel.hudBodySize(hud, notchSize: notch, bodyWidth: 560),
+            NotchViewModel.hudBodySize(notchSize: notch, bodyWidth: 560),
             ExpandedAlertShape.volume.bodySize(notchSize: notch, bodyWidth: 560)
         )
         XCTAssertEqual(
@@ -132,9 +132,6 @@ final class ExpandedAlertLayoutTests: XCTestCase {
     func testTheFillIsTheLevelOfTheTrackAndMutedKeepsIt() {
         let width: CGFloat = 208.06
         let track = HUDLayout.trackFrame(islandWidth: width, notchHeight: 38)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 0.5, islandWidth: width, notchHeight: 38).width, track.width / 2, accuracy: 0.001)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 0, islandWidth: width, notchHeight: 38).width, 0)
-        XCTAssertEqual(HUDLayout.fillFrame(level: 1.4, islandWidth: width, notchHeight: 38).width, track.width, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.mutedFillOpacity, 0.32)
         // Flat white, no amber and no glow (owner's review, 2026-10-18).
         XCTAssertEqual(HUDLayout.levelOpacity, 0.92)

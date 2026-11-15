@@ -89,7 +89,7 @@ struct MediaPane: View {
     /// through `@AppStorage` so the switch in Settings redraws the player while
     /// it is on screen. Absent means the spec's default — **on** for both, and
     /// the Output button is the owner-waived exception to the default-off rule
-    /// for system-wide settings (`NotchViewModel.volumeAndOutputEnabled`; the
+    /// for system-wide settings (`SettingsRowID.volumeAndOutput`; the
     /// stored key keeps its old name, "Volume and Output", so the owner's
     /// choice survives the 2026-10-16 relabel).
     @AppStorage(NotchViewModel.volumeAndOutputKey) private var outputButtonOn = true
@@ -596,13 +596,6 @@ struct MediaPane: View {
                 .placedAt(layout.progress)
                 .accessibilityHidden(true)
         }
-    }
-
-    /// Kept for the lock card and the tests that measure an hour-long song's
-    /// times: 26 and 30 for a song, wider for one whose times carry another
-    /// digit.
-    static func timeWidths(duration: TimeInterval) -> (elapsed: CGFloat, remaining: CGFloat) {
-        duration >= 3600 ? (52, 52) : (26, 30)
     }
 
     // MARK: - Controls

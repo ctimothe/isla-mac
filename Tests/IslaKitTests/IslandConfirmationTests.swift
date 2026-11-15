@@ -77,8 +77,6 @@ final class IslandConfirmationTests: XCTestCase {
         XCTAssertEqual(current(hud: hud), .hud(hud), "under the key pop-up")
         XCTAssertEqual(NotchViewModel.click(on: confirmation, live: .music), .foldAlert, "a click folds it")
         XCTAssertEqual(NotchViewModel.openTarget(live: confirmation, hasTrack: true), .player)
-        XCTAssertNil(IslandActivity.bubble(beside: confirmation, shelfCount: 2, isOpen: false, isLocked: false),
-                     "no bubble beside an alert")
     }
 
     // MARK: In time

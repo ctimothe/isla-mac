@@ -98,8 +98,8 @@ final class LockScreenHUDTests: XCTestCase {
         XCTAssertNil(place(locked: true, over: true, asleep: true), "a dark display draws nothing")
         XCTAssertEqual(place(locked: false, over: false), .pill, "unlocked: as before")
         XCTAssertEqual(place(locked: false, over: false, open: true), .strip)
-        XCTAssertFalse(NotchController.hudAllowed(isOpen: false, isDropTargeted: false, isLocked: true, screensAsleep: false))
-        XCTAssertTrue(NotchController.hudAllowed(
+        XCTAssertNil(NotchController.hudPlacement(isOpen: false, isDropTargeted: false, isLocked: true, screensAsleep: false))
+        XCTAssertNotNil(NotchController.hudPlacement(
             isOpen: false, isDropTargeted: false, isLocked: true, screensAsleep: false, overShield: true
         ))
     }

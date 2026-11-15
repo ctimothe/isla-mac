@@ -53,8 +53,6 @@ final class SettingsPaneTests: XCTestCase {
     func testPrivacyCopyNamesWhatItCovers() {
         XCTAssertEqual(PrivacyMode.Section.clipboard.settingsTitle, localized("Cover Clipboard Rows"))
         XCTAssertEqual(PrivacyMode.Section.translate.settingsTitle, localized("Cover Translate Text"))
-        XCTAssertEqual(PrivacyMode.Section.clipboard.title, localized("Clipboard"))
-        XCTAssertEqual(PrivacyMode.Section.translate.title, localized("Translate"))
         XCTAssertEqual(
             SettingsPane.privacyCoversNote,
             localized("Covered text shows as moving dots until you click it, and is covered again when the panel closes.")

@@ -217,7 +217,5 @@ final class ClipboardLayoutTests: XCTestCase {
     func testTheWellsStepUpUnderIncreaseContrast() {
         XCTAssertEqual(Theme.clipboardWellOpacity(increaseContrast: false), 0.08)
         XCTAssertGreaterThan(Theme.clipboardWellOpacity(increaseContrast: true), 0.08)
-        XCTAssertEqual(Theme.searchFieldOpacity(increaseContrast: false), 0.10)
-        XCTAssertGreaterThan(Theme.searchFieldOpacity(increaseContrast: true), 0.10)
     }
 }

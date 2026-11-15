@@ -234,13 +234,13 @@ final class LockCardPaneTests: XCTestCase {
     func testTheOutputListFitsTheCardAtBothSizesOnA36PointPitch() {
         XCTAssertEqual(LockScreenCard.outputRowHeight, 36, "devices are 36 pt apart")
         XCTAssertEqual(LockScreenCard.outputRowSpacing, 0)
-        XCTAssertEqual(LockScreenCard.outputRowsThatFit(.standard), 5)
-        XCTAssertEqual(LockScreenCard.outputRowsThatFit(.compact), 3)
+        XCTAssertEqual(LockCardLayout.outputRowsThatFit(.standard), 5)
+        XCTAssertEqual(LockCardLayout.outputRowsThatFit(.compact), 3)
 
         for size in NotchViewModel.LockCardSize.allCases {
             let card = LockScreenCard.size(for: size)
             let room = card.height - LockCardLayout.outputListTop - LockCardLayout.outputListBottomMargin
-            let fit = LockScreenCard.outputRowsThatFit(size)
+            let fit = LockCardLayout.outputRowsThatFit(size)
 
             // Every list, however long, fits the room under the heading.
             for count in 1...12 {

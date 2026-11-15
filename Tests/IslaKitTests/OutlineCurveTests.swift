@@ -58,8 +58,6 @@ final class OutlineCurveTests: XCTestCase {
         var animations: [(String, Animation)] = [
             ("contentAnimation", Theme.contentAnimation),
             ("paneAnimation", Theme.paneAnimation),
-            ("compactAnimation", Theme.compactAnimation),
-            ("openAnimation", Theme.openAnimation),
             ("closeAnimation", Theme.closeAnimation),
             ("islandSpring", Theme.islandSpring),
             ("hudSpring", Theme.hudSpring),

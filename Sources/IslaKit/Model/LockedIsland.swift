@@ -67,10 +67,6 @@ enum LockedHUDLayout {
     static let numberSize: CGFloat = 14
     /// Room for "100" in SF Pro Rounded 14 with tabular digits.
     static let numberWidth: CGFloat = 26
-
-    /// The right wing's run: bar, gap, number — 72 pt, inside the 90 pt wing
-    /// less its inset, so nothing is drawn under the camera.
-    static var rightWingWidth: CGFloat { barWidth + spacing + numberWidth }
 }
 
 extension NotchViewModel {

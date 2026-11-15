@@ -416,7 +416,6 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertTrue(SettingsContext().offersVolumeAndBrightness)
         XCTAssertEqual(SettingsRowID.volumeAndBrightness.key, "island.showHUD")
         XCTAssertEqual(SettingsRowID.volumeAndBrightness.defaultValue, .off, "off until chosen")
-        XCTAssertEqual(NotchViewModel.showHUDKey, "island.showHUD")
         XCTAssertEqual(SettingsRowID.volumeAndBrightness.kind, .toggle)
 
         // Visible in General, last in "The island shows", and nowhere else.
@@ -594,15 +593,15 @@ final class SettingsTableTests: XCTestCase {
     /// read from an empty suite, and from a suite holding the opposite.
     func testTheAccessorsReadTheTablesDefaults() {
         let empty = suite()
-        XCTAssertEqual(NotchViewModel.volumeAndOutputEnabled(in: empty), true)
-        XCTAssertEqual(NotchViewModel.lyricBandEnabled(in: empty), true)
+        XCTAssertEqual(SettingsRowID.volumeAndOutput.isOn(in: empty), true)
+        XCTAssertEqual(SettingsRowID.lyricBand.isOn(in: empty), true)
         XCTAssertEqual(NotchViewModel.translateLyricsEnabled(in: empty), false)
         XCTAssertEqual(NotchViewModel.restAsBannerEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.chargingEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.headphonesEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.newTracksEnabled(in: empty), true)
         XCTAssertEqual(NotchViewModel.translateKeepHistoryEnabled(in: empty), false)
-        XCTAssertEqual(NotchViewModel.translateSpeakButtonEnabled(in: empty), true)
+        XCTAssertEqual(SettingsRowID.speakButton.isOn(in: empty), true)
         XCTAssertEqual(NotchViewModel.lockCardStyle(in: empty), .clear)
         XCTAssertEqual(NotchViewModel.lockCardSize(in: empty), .compact)
 
@@ -613,7 +612,7 @@ final class SettingsTableTests: XCTestCase {
         XCTAssertFalse(NotchViewModel.chargingEnabled(in: flipped))
         XCTAssertTrue(NotchViewModel.headphonesEnabled(in: flipped), "one switch does not move another")
         XCTAssertTrue(NotchViewModel.translateKeepHistoryEnabled(in: flipped))
-        XCTAssertFalse(NotchViewModel.translateSpeakButtonEnabled(in: flipped))
+        XCTAssertFalse(SettingsRowID.speakButton.isOn(in: flipped))
     }
 
     // MARK: - The last section, restored

@@ -13,8 +13,8 @@ import Foundation
 /// offers a sanctioned way for an app like Isla to add to a library
 /// (`docs/development/research/2026-10-25-favourites-per-player.md`).
 ///
-/// Pure: the list is `rows(in:)` over an `AppIcons`, so a test decides what is
-/// installed. Icons come only from the installed app at runtime — the
+/// Pure: the list of other services is `installedOthers(in:)` over an
+/// `AppIcons`, so a test decides what is installed. Icons come only from the installed app at runtime — the
 /// `AppIcons` rule; no brand asset ships.
 enum PlayerConnections {
     /// What the star can do for a service.
@@ -58,17 +58,9 @@ enum PlayerConnections {
         var id: String { service.bundleID }
     }
 
-    /// Apple Music and Spotify always, first, in that order — the two Isla
-    /// drives, and Spotify's row is where its account is connected, which is
-    /// worth offering before the app is installed — then every other service
-    /// whose app is on this Mac, sorted as the Finder sorts.
-    @MainActor
-    static func rows(in icons: AppIcons) -> [Row] {
-        [Row(service: appleMusic, installed: icons.app(appleMusic.bundleID)),
-         Row(service: spotify, installed: icons.app(spotify.bundleID))]
-            + installedOthers(in: icons)
-    }
-
+    /// Every other service whose app is on this Mac, sorted as the Finder
+    /// sorts. Apple Music and Spotify are not here: Settings draws them first,
+    /// installed or not, because Spotify's row is where its account is connected.
     @MainActor
     static func installedOthers(in icons: AppIcons) -> [Row] {
         let byID = Dictionary(uniqueKeysWithValues: others.map { ($0.bundleID, $0) })

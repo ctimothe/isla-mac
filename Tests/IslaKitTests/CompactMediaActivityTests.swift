@@ -86,16 +86,6 @@ final class CompactMediaActivityTests: XCTestCase {
         XCTAssertEqual(CompactMediaActivity(hasTrack: false, isPlaying: true), .hidden)
     }
 
-    func testPausedEqualizerStopsAtTheSameRestingPatternImmediately() {
-        XCTAssertEqual(EqualizerMotion.restingHeights, [4, 7, 5])
-    }
-
-    func testEqualizerUsesARemovableAnimatedViewOnlyWhilePlaying() {
-        XCTAssertEqual(EqualizerPresentation(isPlaying: false, reduceMotion: false), .resting)
-        XCTAssertEqual(EqualizerPresentation(isPlaying: true, reduceMotion: false), .animated)
-        XCTAssertEqual(EqualizerPresentation(isPlaying: true, reduceMotion: true), .resting)
-    }
-
     /// The pill is the notch and its extension at the notch's height; a new
     /// track no longer widens or grows it (spec §3.5, amended 2026-11-15) —
     /// it shows as the volume pop-up does, under the notch.
@@ -105,7 +95,7 @@ final class CompactMediaActivityTests: XCTestCase {
         XCTAssertEqual(resting, CGSize(width: 200 + NotchMetrics.compactMediaExtension, height: 32))
         XCTAssertLessThanOrEqual(
             resting.width,
-            NotchMetrics.standardBody.width,
+            NotchMetrics.maximumBodyWidth,
             "never past the body the open panel uses"
         )
     }

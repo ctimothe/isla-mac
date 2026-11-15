@@ -44,13 +44,6 @@ struct IslandTimerState: Equatable, Codable {
         guard let remaining = remaining(at: now) else { return false }
         return remaining <= 0
     }
-
-    /// 0...1 for a countdown (elapsed over duration), nil for a stopwatch.
-    func progress(at now: Date) -> Double? {
-        guard case .countdown(let duration) = kind else { return nil }
-        guard duration > 0 else { return 1 }
-        return min(1, max(0, elapsed(at: now) / duration))
-    }
 }
 
 /// The island's timer and stopwatch: one of each at most, both survivable
@@ -145,22 +138,6 @@ final class IslandTimerCenter: ObservableObject {
         disarm()
         guard countdown != nil else { return }
         countdown = nil
-    }
-
-    /// Adds time to a running or paused countdown (the "+1 min" button). The
-    /// duration grows rather than the banked time shrinking, so progress falls
-    /// back honestly instead of jumping below zero elapsed. A countdown whose
-    /// deadline already passed has finished and is not revived by this.
-    func extendCountdown(by seconds: TimeInterval) {
-        guard !settle(), var state = countdown, case .countdown(let duration) = state.kind,
-              seconds.isFinite, seconds > 0 else { return }
-        let extended = min(Self.maxSeconds, duration + seconds)
-        guard extended != duration else { return }
-        state.kind = .countdown(duration: extended)
-        countdown = state
-        // Re-armed for the new remaining time; a paused countdown has nothing
-        // scheduled and stays that way.
-        arm()
     }
 
     // MARK: Stopwatch

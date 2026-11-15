@@ -93,14 +93,6 @@ enum AmbientActivity: Equatable {
         return "bolt.fill"
     }
 
-    /// Whether the moment is drawn in the system green (spec §3.6): a battery
-    /// that is charging and says how full it is. A Mac with no battery reports no
-    /// level and gets a white bolt alone, a charge that is only being held gets
-    /// a white plug, and headphones are white.
-    var usesChargingGreen: Bool {
-        chargeTint == .green
-    }
-
     /// What the battery is doing, for the word in the left wing. Nil for
     /// headphones and for a Mac that reports no level.
     /// The charger's moment, as against the headphones'.

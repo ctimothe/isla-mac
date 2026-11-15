@@ -169,11 +169,6 @@ final class LiveActivityTests: XCTestCase {
     func testTheBubbleIsIslandcnsWidthExceptTheShelfs() {
         XCTAssertEqual(IslandBubbleLayout.width(for: .live(timer)), LiveActivityLayout.bubbleWidth)
         XCTAssertEqual(IslandBubbleLayout.width(for: .shelf(count: 12)), IslandBubbleLayout.width(count: 12))
-        XCTAssertEqual(
-            IslandBubbleLayout.centreOffset(islandWidth: 300, count: 4),
-            IslandBubbleLayout.centreOffset(islandWidth: 300, bubbleWidth: IslandBubbleLayout.width(count: 4)),
-            "the count's offset is the width's"
-        )
     }
 
     // MARK: - The neck

@@ -263,15 +263,10 @@ struct NotchGeometry {
         return CGRect(x: rect.minX, y: 0, width: rect.width, height: bodySize.height)
     }
 
-    /// The Shelf's bubble beside a compact island `islandWidth` wide (spec
-    /// §19.7), its whole shape, in AppKit window coordinates — the space
-    /// `NotchRootView.bubbleRect` is in.
-    func bubbleRect(islandWidth: CGFloat, height: CGFloat, count: Int) -> CGRect {
-        bubbleRect(islandWidth: islandWidth, height: height, bubbleWidth: IslandBubbleLayout.width(count: count))
-    }
-
-    /// Any bubble, by its width (amended 2026-11-14: any live activity can be
-    /// the bubble, and only the Shelf's widens with its count).
+    /// The bubble beside a compact island `islandWidth` wide (spec §19.7), by
+    /// its width, its whole shape, in AppKit window coordinates — the space
+    /// `NotchRootView.bubbleRect` is in (amended 2026-11-14: any live activity
+    /// can be the bubble, and only the Shelf's widens with its count).
     func bubbleRect(islandWidth: CGFloat, height: CGFloat, bubbleWidth width: CGFloat) -> CGRect {
         CGRect(
             x: windowSize.width / 2 + IslandBubbleLayout.centreOffset(islandWidth: islandWidth, bubbleWidth: width)
@@ -280,18 +275,6 @@ struct NotchGeometry {
             width: width,
             height: height
         )
-    }
-
-    /// The same, in the coordinates a SwiftUI gesture reports (top-left
-    /// origin), as `compactGestureRect` is the island's.
-    func bubbleGestureRect(islandWidth: CGFloat, height: CGFloat, count: Int) -> CGRect {
-        let rect = bubbleRect(islandWidth: islandWidth, height: height, count: count)
-        return CGRect(x: rect.minX, y: 0, width: rect.width, height: height)
-    }
-
-    /// The same on screen, for the pointer sampler.
-    func bubbleScreenRect(islandWidth: CGFloat, height: CGFloat, count: Int) -> CGRect {
-        bubbleScreenRect(islandWidth: islandWidth, height: height, bubbleWidth: IslandBubbleLayout.width(count: count))
     }
 
     func bubbleScreenRect(islandWidth: CGFloat, height: CGFloat, bubbleWidth: CGFloat) -> CGRect {

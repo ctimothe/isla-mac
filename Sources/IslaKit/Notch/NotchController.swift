@@ -2904,7 +2904,7 @@ final class NotchController {
     ///
     /// Waiting is not refusing. An alert held back by one of these shows if
     /// the island comes free within a second of its cause; the refusals in
-    /// `hudAllowed` and `ambientAllowed` — a switch off, a dark display, a
+    /// `hudPlacement` and `ambientAllowed` — a switch off, a dark display, a
     /// film full screen — drop it at once, because a second changes none of
     /// them.
     nonisolated static func alertsBlocked(isOpen: Bool, isDropTargeted: Bool, isLocked: Bool) -> Bool {
@@ -3166,16 +3166,6 @@ final class NotchController {
         if isLocked { return overShield ? .locked : nil }
         guard !isDropTargeted else { return nil }
         return isOpen ? .strip : .pill
-    }
-
-    /// Whether the pop-up may be drawn at all, in any place.
-    nonisolated static func hudAllowed(
-        isOpen: Bool, isDropTargeted: Bool, isLocked: Bool, screensAsleep: Bool, overShield: Bool = false
-    ) -> Bool {
-        hudPlacement(
-            isOpen: isOpen, isDropTargeted: isDropTargeted, isLocked: isLocked, screensAsleep: screensAsleep,
-            overShield: overShield
-        ) != nil
     }
 
     /// Whether the island is over the lock screen now, to draw on: locked as

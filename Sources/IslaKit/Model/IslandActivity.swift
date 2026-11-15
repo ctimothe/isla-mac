@@ -138,16 +138,6 @@ enum IslandActivity: Equatable {
         guard standing.count > 1, standing.first == activity else { return nil }
         return standing[1]
     }
-
-    /// The second live activity, waiting as a bubble beside the island
-    /// (§19.1, §19.7): the Shelf's count while Music holds the island. Only
-    /// Music and the Shelf are live, so only the Shelf is ever the bubble, and
-    /// only beside a compact live activity — never during an alert, while a
-    /// surface is open, or while locked.
-    static func bubble(beside activity: IslandActivity, shelfCount: Int, isOpen: Bool, isLocked: Bool) -> Int? {
-        guard activity == .music, shelfCount > 0, !isOpen, !isLocked else { return nil }
-        return shelfCount
-    }
 }
 
 /// The island's alerts in time (spec §19.1).

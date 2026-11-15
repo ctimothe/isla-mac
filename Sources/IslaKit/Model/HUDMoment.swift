@@ -64,8 +64,6 @@ enum HUDSymbol {
         "airpods", "airpods.pro", "airpods.max", "beats.headphones", "headphones",
     ]
 
-    static func isDeviceSymbol(_ symbol: String) -> Bool { personalDevices.contains(symbol) }
-
     /// Muted first, then silence, then the device's own glyph for AirPods and
     /// headphones, else the speaker with as many waves as thirds of the level.
     static func volume(level: Float, muted isMuted: Bool, deviceSymbol: String?) -> String {
@@ -127,13 +125,6 @@ enum HUDLayout {
             width: max(0, islandWidth - x - shape.trailing(barTrailing)),
             height: barHeight
         )
-    }
-
-    /// The fill is the track's left `level × width`.
-    static func fillFrame(level: Float, islandWidth: CGFloat, notchHeight: CGFloat) -> CGRect {
-        var frame = trackFrame(islandWidth: islandWidth, notchHeight: notchHeight)
-        frame.size.width *= CGFloat(min(max(level, 0), 1))
-        return frame
     }
 
     /// The level as a number, 0–100, SF Pro Rounded 14, tabular, white 0.80,

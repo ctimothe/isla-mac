@@ -1,48 +1,5 @@
 import SwiftUI
 
-/// Shuffle and repeat, drawn the one way.
-///
-/// These were white-when-on and grey-when-off, which is the same difference as
-/// between an enabled and a disabled control and read as neither. The system's
-/// own players mark an engaged mode with the accent colour and a dot beneath
-/// it — a mark that survives a glance and cannot be confused with "dimmed".
-/// One view so the island and the lock card cannot drift apart on it.
-struct ModeToggle: View {
-    let symbol: String
-    let isOn: Bool
-    var accent: Color = .white
-    var size: CGFloat = 24
-    /// Sized to the caller's well — the island mounts this at the subhead size
-    /// and the card one step up — so the parameter stays a measurement, while
-    /// the choices at the call sites name their roles.
-    var glyphSize: CGFloat = Theme.TypeRole.subhead.size
-    // Passed in, not read here: the two callers already read Reduce Motion
-    // two different ways, and repeat is the only symbol here that actually
-    // changes underfoot.
-    var reduceMotion: Bool = false
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                GlyphImage(IslandGlyph(rawValue: symbol) ?? .repeatAll, pointSize: glyphSize)
-                    .foregroundStyle(isOn ? accent : Theme.tertiary)
-                    // On the symbol, not `isOn`: repeat goes from "all" to
-                    // "one" staying on, and the row's animation never saw it.
-                    .symbolSwap(value: symbol, reduceMotion: reduceMotion)
-                Circle()
-                    .fill(isOn ? accent : .clear)
-                    .frame(width: 3, height: 3)
-            }
-            .frame(width: size, height: size)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PanelButtonStyle())
-        .animation(Theme.contentAnimation, value: isOn)
-    }
-}
-
-
 /// A transport symbol: white, bare, pressed by dimming rather than by a well
 /// lighting up behind it.
 ///

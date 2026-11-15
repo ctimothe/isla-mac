@@ -38,10 +38,6 @@ enum IslandBubbleLayout {
     /// island's shoulder is the compact one. A wider count moves the centre
     /// by half its growth: the left edge holds its gap and the bubble grows
     /// to the right.
-    static func centreOffset(islandWidth: CGFloat, count: Int) -> CGFloat {
-        centreOffset(islandWidth: islandWidth, bubbleWidth: width(count: count))
-    }
-
     static func centreOffset(islandWidth: CGFloat, bubbleWidth: CGFloat) -> CGFloat {
         islandWidth / 2 + Theme.collapsedTopRadius + gap + bubbleWidth / 2
     }

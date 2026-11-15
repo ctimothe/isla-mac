@@ -45,14 +45,6 @@ enum CompactIslandLayout {
         glyphScale(height: height) < 1 ? 4 : Theme.artworkMetrics(isOpen: false).cornerRadius
     }
 
-    static func coverFrame(height: CGFloat) -> CGRect {
-        centred(side: coverSide(height: height), height: height, x: coverInset)
-    }
-
-    private static func centred(side: CGFloat, height: CGFloat, x: CGFloat) -> CGRect {
-        CGRect(x: x, y: (height - side) / 2, width: side, height: side)
-    }
-
     // MARK: Equalizer
 
     /// Six bars 2.2 wide across an 18 pt box, ending 19.3 from the shape's
@@ -66,17 +58,6 @@ enum CompactIslandLayout {
     }
     static let equalizerTrailing: CGFloat = 19.3
     static var equalizerTrailingInset: CGFloat { equalizerTrailing - shoulder }
-
-    /// Centred on the cover's row.
-    static func equalizerFrame(islandWidth: CGFloat, height: CGFloat) -> CGRect {
-        let side = equalizerSide * glyphScale(height: height)
-        return CGRect(
-            x: islandWidth - equalizerTrailingInset - side,
-            y: (height - side) / 2,
-            width: side,
-            height: side
-        )
-    }
 
     /// How far a wing's text stays from the camera's cutout.
     static let cutoutClearance: CGFloat = 8
@@ -121,23 +102,6 @@ enum CompactIslandLayout {
     static let batteryTrailing: CGFloat = 19.3
     /// The body's and the cap's track, in the tint.
     static let batteryTrackOpacity: Double = 0.30
-
-    static func batteryFrame(islandWidth: CGFloat, height: CGFloat) -> (body: CGRect, cap: CGRect) {
-        let scale = glyphScale(height: height)
-        let capSize = CGSize(width: batteryCapSize.width * scale, height: batteryCapSize.height * scale)
-        let bodySize = CGSize(width: batteryBodySize.width * scale, height: batteryBodySize.height * scale)
-        let cap = CGRect(
-            x: islandWidth - (batteryTrailing - shoulder) - capSize.width,
-            y: (height - capSize.height) / 2,
-            width: capSize.width, height: capSize.height
-        )
-        let body = CGRect(
-            x: cap.minX - batteryCapGap * scale - bodySize.width,
-            y: (height - bodySize.height) / 2,
-            width: bodySize.width, height: bodySize.height
-        )
-        return (body, cap)
-    }
 
     /// The level's share of the body, never past either end of it.
     static func batteryFillWidth(level: Int, bodyWidth: CGFloat) -> CGFloat {

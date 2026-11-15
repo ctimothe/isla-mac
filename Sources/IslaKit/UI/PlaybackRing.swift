@@ -190,8 +190,6 @@ final class PlaybackRingView: NSView {
     // For the tests.
     var strokeEnd: CGFloat { arc.strokeEnd }
     var arcOpacity: Float { arc.opacity }
-    var arcPath: CGPath? { arc.path }
-    var arcIsFlipped: Bool { arc.contentsAreFlipped() }
     var runningAnimation: CAAnimation? { arc.animation(forKey: Self.ringKey) }
     func dropAnimationForTests() { arc.removeAnimation(forKey: Self.ringKey) }
 }

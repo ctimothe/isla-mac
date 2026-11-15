@@ -368,14 +368,6 @@ final class LyricsStore: ObservableObject {
         Self.writeUnassignedLegacyOffsets(unassignedLegacyOffsets, to: unassignedOffsetsURL)
     }
 
-    func clear() {
-        activeLocalTrackIdentity = nil
-        activeDocumentID = nil
-        trackOffset = 0
-        presentLocalOverride(false)
-        present(.disabled)
-    }
-
     /// Retains only timing corrections from pre-local releases. The old lyric
     /// text is never decoded or displayed.
     ///

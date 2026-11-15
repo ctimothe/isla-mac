@@ -44,7 +44,6 @@ final class CompactIslandLayoutTests: XCTestCase {
 
     func testEachCompactActivityIsTheNotchPlusItsOwnDelta() {
         XCTAssertEqual(NotchMetrics.compactMediaExtension, 70)
-        XCTAssertEqual(NotchMetrics.compactWing, 35)
         XCTAssertEqual(NotchMetrics.compactShelfExtension, 75)
         XCTAssertEqual(NotchMetrics.compactChargingExtension, 180)
         let charger = AmbientActivity.charging(level: 67, isCharging: true)
@@ -69,27 +68,11 @@ final class CompactIslandLayoutTests: XCTestCase {
 
     // MARK: Music
 
-    /// The cover 22 × 22, radius 5, at (17.3, 8); the equalizer 18 × 18, top
-    /// 10, ending right 19.3 — at every notch width, so the wings' content sits
-    /// where it does on the reference whatever the camera's span.
-    func testTheCoverAndTheEqualizerSitWhereTheReferenceDoesAtEveryNotchWidth() {
-        for notch in notchWidths {
-            let size = island(notchWidth: notch)
-            let cover = CompactIslandLayout.coverFrame(height: size.height)
-            let bars = CompactIslandLayout.equalizerFrame(islandWidth: size.width, height: size.height)
-
-            XCTAssertEqual(cover.size, CGSize(width: 22, height: 22))
-            XCTAssertEqual(CompactIslandLayout.coverRadius(height: size.height), 5)
-            XCTAssertEqual(shape(cover.minX), 17.3, accuracy: 0.001, "x 17.3 (nw \(notch))")
-            XCTAssertEqual(cover.minY, 8, "y 8: centred in 38")
-
-            XCTAssertEqual(bars.size, CGSize(width: 18, height: 18))
-            XCTAssertEqual(bars.minY, 10, "top 10: centred in 38")
-            XCTAssertEqual(right(bars.maxX, islandWidth: size.width), 19.3, accuracy: 0.001, "ending right 19.3 (nw \(notch))")
-
-            XCTAssertLessThanOrEqual(cover.maxX, NotchMetrics.compactWing, "the cover stays in the left wing")
-            XCTAssertGreaterThanOrEqual(bars.minX, size.width - NotchMetrics.compactWing, "the bars stay in the right wing")
-        }
+    /// The cover 22 × 22, radius 5: the morph's compact end.
+    func testTheCoverIsTheMorphsCompactEnd() {
+        XCTAssertEqual(CompactIslandLayout.coverSide(height: 38), 22)
+        XCTAssertEqual(CompactIslandLayout.coverRadius(height: 38), 5)
+        XCTAssertEqual(CompactIslandLayout.coverLeading, 17.3)
         XCTAssertEqual(Theme.artworkMetrics(isOpen: false).side, 22, "the morph's compact end is the cover's")
         XCTAssertEqual(Theme.artworkMetrics(isOpen: false).cornerRadius, 5)
     }
@@ -157,16 +140,10 @@ final class CompactIslandLayoutTests: XCTestCase {
         XCTAssertEqual(shape(CompactIslandLayout.chargingTextInset), 18.5, accuracy: 0.001)
         XCTAssertEqual(CompactIslandLayout.chargingTextSize, 14)
         XCTAssertEqual(CompactIslandLayout.levelToBatteryGap, 6)
-        for notch in notchWidths {
-            let width = notch + NotchMetrics.compactChargingExtension
-            let battery = CompactIslandLayout.batteryFrame(islandWidth: width, height: notchHeight)
-            XCTAssertEqual(battery.body.size, CGSize(width: 28, height: 16))
-            XCTAssertEqual(battery.cap.size, CGSize(width: 2, height: 6))
-            XCTAssertEqual(battery.cap.minX - battery.body.maxX, 1.5, accuracy: 0.001)
-            XCTAssertEqual(right(battery.cap.maxX, islandWidth: width), 19.3, accuracy: 0.001)
-            XCTAssertEqual(battery.body.midY, notchHeight / 2, "vertically centred")
-            XCTAssertEqual(battery.cap.midY, battery.body.midY)
-        }
+        XCTAssertEqual(CompactIslandLayout.batteryBodySize, CGSize(width: 28, height: 16))
+        XCTAssertEqual(CompactIslandLayout.batteryCapSize, CGSize(width: 2, height: 6))
+        XCTAssertEqual(CompactIslandLayout.batteryCapGap, 1.5)
+        XCTAssertEqual(CompactIslandLayout.batteryTrailing, 19.3)
         XCTAssertEqual(CompactIslandLayout.batteryRadius, 6)
         XCTAssertEqual(CompactIslandLayout.batteryCapRadius, 1.5)
     }
@@ -201,30 +178,24 @@ final class CompactIslandLayoutTests: XCTestCase {
     /// glyphs are 0.75 of their size; at 32 and 38 everything is full size and
     /// centred.
     func testTheShortIslandsCoverIsSixteenAndItsGlyphsThreeQuarters() {
-        let short = CompactIslandLayout.coverFrame(height: 24)
-        XCTAssertEqual(short.size, CGSize(width: 16, height: 16))
-        XCTAssertEqual(short.minY, 4, "centred in 24")
+        XCTAssertEqual(CompactIslandLayout.coverSide(height: 24), 16)
+        XCTAssertEqual(CompactIslandLayout.coverRadius(height: 24), 4)
         XCTAssertEqual(CompactIslandLayout.glyphScale(height: 24), 0.75)
-        XCTAssertEqual(CompactIslandLayout.equalizerFrame(islandWidth: 270, height: 24).size, CGSize(width: 13.5, height: 13.5))
         XCTAssertEqual(CompactIslandLayout.shelfGlyphFrame(height: 24).size, CGSize(width: 19.5, height: 15))
-        XCTAssertEqual(CompactIslandLayout.batteryFrame(islandWidth: 380, height: 24).body.size, CGSize(width: 21, height: 12))
         for height: CGFloat in [32, 38] {
             XCTAssertEqual(CompactIslandLayout.glyphScale(height: height), 1)
-            let cover = CompactIslandLayout.coverFrame(height: height)
-            XCTAssertEqual(cover.size.width, 22)
-            XCTAssertEqual(cover.midY, height / 2, "centred in \(height)")
-            XCTAssertEqual(CompactIslandLayout.equalizerFrame(islandWidth: 290, height: height).midY, height / 2)
+            XCTAssertEqual(CompactIslandLayout.coverSide(height: height), 22)
+            XCTAssertEqual(CompactIslandLayout.shelfGlyphFrame(height: height).midY, height / 2, "centred in \(height)")
         }
-        XCTAssertEqual(CompactIslandLayout.coverFrame(height: 32).minY, 5)
     }
 
     /// Green means charging, and only a battery that says how full it is can
     /// be drawn that way.
     func testOnlyAChargingBatteryWithALevelIsGreen() {
-        XCTAssertTrue(AmbientActivity.charging(level: 82, isCharging: true).usesChargingGreen)
-        XCTAssertFalse(AmbientActivity.charging(level: nil, isCharging: true).usesChargingGreen)
-        XCTAssertFalse(AmbientActivity.charging(level: 80, isCharging: false).usesChargingGreen, "held, not charging")
-        XCTAssertFalse(AmbientActivity.headphones(name: "AirPods", symbol: "airpods").usesChargingGreen)
+        XCTAssertTrue(AmbientActivity.charging(level: 82, isCharging: true).chargeTint == .green)
+        XCTAssertFalse(AmbientActivity.charging(level: nil, isCharging: true).chargeTint == .green)
+        XCTAssertFalse(AmbientActivity.charging(level: 80, isCharging: false).chargeTint == .green, "held, not charging")
+        XCTAssertFalse(AmbientActivity.headphones(name: "AirPods", symbol: "airpods").chargeTint == .green)
     }
 
     // MARK: A display without a notch
