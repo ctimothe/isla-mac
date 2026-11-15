@@ -263,6 +263,37 @@ the reason for each invariant.
 - Personal repository: commit as `ctimothe`, no attribution trailers, no
   `claude/…` or `codex/…` branch names.
 
+## Keeping the code healthy
+
+The codebase was cleaned on 2026-11-15 (dead code, the split above, docs
+rewritten to current). Every change keeps it that way:
+
+- **Replace, don't pile up.** Code a change supersedes (an old motion, view,
+  layout helper, setting or icon) is deleted in the same change, with the
+  tests that only exercised it. No "kept for reference" code; git keeps it.
+- **No dead code at merge.** Before a batch merges, scan with Periphery and
+  remove what it finds, after checking each item by hand (App Intents
+  metadata, `@objc` selectors, NSServices handlers and test seams named
+  `…ForTests` are its false positives). The default build deadlocks under it;
+  build an index store first:
+  `swift build --build-tests --build-system native --scratch-path <dir> -Xswiftc -index-store-path -Xswiftc <idx>`,
+  then `periphery scan --skip-build --index-store-path <idx>` (add
+  `--exclude-tests` to find code only tests call).
+- **Small files.** A file past about 1,000 lines is split by concern into
+  `Type+Concern.swift` before more is added to it.
+- **Test behaviour, not text.** A new test drives the model, layout or view
+  and asserts what the user would see. Reading source text is the last
+  resort, for a contract no behaviour test can reach, and goes through
+  `SourceText.of`.
+- **Pass dependencies in.** New services take their collaborators (clock,
+  defaults suite, network, file system) through `init`; no new `.shared`
+  singletons. Tests never touch `.standard` defaults, the real pasteboard, a
+  real player or the network.
+- **Docs move with the code.** `docs/development/spec.md` changes in the same
+  commit as the behaviour; hardware checks go into `open-checks.md` and leave
+  it when they pass. Plans live under `docs/development/plans/` only while
+  their work is in flight, and are deleted when it ships.
+
 ## Verification-only environment hooks
 
 All off unless set (to `1`, or for `DI_UPDATE_REHEARSAL` to a folder); a normal
