@@ -95,6 +95,12 @@ final class StageAndCardTickTests: XCTestCase {
         defer { hosted.window.orderOut(nil) }
         let inside = await layouts(hosted, rig, ticks: 5, step: 0.1)
         XCTAssertEqual(inside, 0, "a tick through an instrumental re-ran the stage")
+        // Standing still is only right while the rest still fills: Core
+        // Animation carries the playing interlude's bar, laid once for the
+        // whole rest, and every other interlude stays put.
+        let running = hosted.hosting.descendants(of: PlaybackFillView.self).filter { $0.runningAnimation != nil }
+        XCTAssertEqual(running.count, 1, "the playing rest's bar is not filling")
+        XCTAssertEqual(running.first?.installs, 1, "a tick laid the playing rest's bar again")
     }
 
     /// What the stage reads the song with: the line reading, and not the
@@ -126,6 +132,11 @@ final class StageAndCardTickTests: XCTestCase {
         defer { hosted.window.orderOut(nil) }
         let inside = await layouts(hosted, rig, ticks: 5, step: 0.05)
         XCTAssertEqual(inside, 0, "a tick inside a second re-ran the lock card")
+        // The seek bar moves on Core Animation instead, laid once for the
+        // whole course.
+        let bar = hosted.hosting.descendants(of: PlaybackFillView.self).filter { $0.runningAnimation != nil }
+        XCTAssertEqual(bar.count, 1, "the playing card's seek bar is not filling")
+        XCTAssertEqual(bar.first?.installs, 1, "a tick laid the card's seek bar again")
         let next = await layouts(hosted, rig, ticks: 1, step: 1)
         XCTAssertGreaterThan(next, 0, "the elapsed time passed a second and the card's times did not turn")
     }
